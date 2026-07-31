@@ -49,6 +49,9 @@ func (k KDF) DeriveKey(masterPw string) ([]byte, error) {
 	if k.Alg != "argon2id" || k.V != 1 {
 		return nil, fmt.Errorf("unsupported kdf %q v%d", k.Alg, k.V)
 	}
+	if k.Time < 1 || k.Parallelism < 1 || k.Parallelism > 255 || k.KeyLen < 16 {
+		return nil, fmt.Errorf("invalid kdf params")
+	}
 	salt, err := base64.StdEncoding.DecodeString(k.Salt)
 	if err != nil {
 		return nil, err

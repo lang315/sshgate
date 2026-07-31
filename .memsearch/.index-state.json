@@ -1,0 +1,16 @@
+{
+  "collection": "ms_ssh_mcp_3fdeb4ec",
+  "failed_files": [],
+  "last_completed_at": "2026-07-31T12:14:32.778768Z",
+  "last_error": "RuntimeError: Failed to open the local Milvus Lite database. If this database was created with an older Milvus Lite release, it may not be compatible with Milvus Lite 3.x. Move the existing .db file aside, then rebuild the index from your source markdown files with 'memsearch index'. Alternatively, use Milvus Server via Docker or Zilliz Cloud.",
+  "last_failed_at": "2026-07-31T12:14:32.778768Z",
+  "last_started_at": "2026-07-31T12:14:31.622868Z",
+  "milvus_uri": "~/.memsearch/milvus.db",
+  "operation": "index",
+  "paths": [
+    "/Users/lang/GolandProjects/github.com/lang315/ssh-mcp/.memsearch/memory"
+  ],
+  "schema_version": 1,
+  "status": "error",
+  "updated_at": "2026-07-31T12:14:32.778768Z"
+}

@@ -51,3 +51,22 @@ func TestNonceUnique(t *testing.T) {
 		t.Fatal("nonce reused")
 	}
 }
+
+func TestDeriveKeyRejectsBadParams(t *testing.T) {
+	k, _, _ := NewKDF("pw")
+	bad := k
+	bad.Parallelism = 0
+	if _, err := bad.DeriveKey("pw"); err == nil {
+		t.Fatal("parallelism=0 must return an error, not panic")
+	}
+	bad2 := k
+	bad2.Time = 0
+	if _, err := bad2.DeriveKey("pw"); err == nil {
+		t.Fatal("time=0 must return an error")
+	}
+	bad3 := k
+	bad3.Parallelism = 256
+	if _, err := bad3.DeriveKey("pw"); err == nil {
+		t.Fatal("parallelism=256 (truncates to 0) must return an error")
+	}
+}
