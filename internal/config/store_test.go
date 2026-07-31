@@ -58,3 +58,27 @@ func TestMACTamperDetected(t *testing.T) {
 		t.Fatal("tamper must be detected by MAC")
 	}
 }
+
+func TestSaveKeylessClearsMAC(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "servers.json")
+	k, mk, _ := NewKDF("pw")
+	f := &File{Version: 1, KDF: &k, Servers: []Server{{Name: "p", Host: "h", Port: 22, User: "root", Auth: "password"}}}
+	if err := Save(path, f, mk); err != nil {
+		t.Fatal(err)
+	}
+	if f.MAC == "" {
+		t.Fatal("keyed save should set a MAC")
+	}
+	// now save keyless — stale MAC must be cleared, and the reloaded file must verify
+	if err := Save(path, f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if f.MAC != "" {
+		t.Fatal("keyless save must clear the MAC")
+	}
+	loaded, _ := Load(path)
+	if err := loaded.VerifyMAC(nil); err != nil {
+		t.Fatalf("keyless file must verify with nil key: %v", err)
+	}
+}

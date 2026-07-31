@@ -88,6 +88,8 @@ func Save(path string, f *File, masterKey []byte) error {
 	f.Revision++
 	if masterKey != nil {
 		f.MAC = computeMAC(masterKey, *f)
+	} else {
+		f.MAC = ""
 	}
 	out, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
