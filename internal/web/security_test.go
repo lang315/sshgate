@@ -29,3 +29,36 @@ func TestHostAllowlist(t *testing.T) {
 		t.Fatal("CSP header missing")
 	}
 }
+
+func TestSecurityHeadersOn403(t *testing.T) {
+	h := securityMiddleware(8422, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	req := httptest.NewRequest("GET", "http://evil/", nil)
+	req.Host = "evil"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 403 {
+		t.Fatalf("code %d", rec.Code)
+	}
+	if rec.Header().Get("Content-Security-Policy") == "" {
+		t.Fatal("403 response must still carry security headers")
+	}
+}
+
+func TestCheckOriginCSRFRejectsEmptyOrigin(t *testing.T) {
+	req := httptest.NewRequest("POST", "/api/x", nil)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", "tok")
+	if err := checkOriginCSRF(req, "8422", "tok"); err == nil {
+		t.Fatal("missing Origin on a write must be rejected")
+	}
+}
+
+func TestCheckOriginCSRFAccepts(t *testing.T) {
+	req := httptest.NewRequest("POST", "/api/x", nil)
+	req.Header.Set("Origin", "http://127.0.0.1:8422")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", "tok")
+	if err := checkOriginCSRF(req, "8422", "tok"); err != nil {
+		t.Fatalf("valid request rejected: %v", err)
+	}
+}
