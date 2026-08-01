@@ -2,10 +2,22 @@ package mcpserver
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/lang315/ssh-mcp/internal/config"
 	"github.com/lang315/ssh-mcp/internal/sshx"
 )
+
+func expandPath(p string) string {
+	if strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, p[2:])
+		}
+	}
+	return p
+}
 
 type Deps struct {
 	CLI       *config.CLIConfig
@@ -49,11 +61,19 @@ func (d *Deps) Resolve(name string) (sshx.DialConfig, error) {
 		if c.Password == "" && c.Key != "" {
 			auth = "key"
 		}
-		return sshx.DialConfig{
+		dc := sshx.DialConfig{
 			Host: c.Host, Port: c.Port, User: c.User, Password: c.Password,
 			SuPassword: c.SuPassword, SudoPassword: c.SudoPassword,
 			Auth: auth, Insecure: d.Insecure, TimeoutMs: c.TimeoutMs,
-		}, nil
+		}
+		if auth == "key" && c.Key != "" {
+			data, err := os.ReadFile(expandPath(c.Key))
+			if err != nil {
+				return sshx.DialConfig{}, fmt.Errorf("reading key file %q: %w", c.Key, err)
+			}
+			dc.PrivateKey = string(data)
+		}
+		return dc, nil
 	}
 	if d.File == nil {
 		return sshx.DialConfig{}, fmt.Errorf("server %q not found", name)
@@ -83,9 +103,21 @@ func (d *Deps) Resolve(name string) (sshx.DialConfig, error) {
 	if err != nil {
 		return sshx.DialConfig{}, err
 	}
-	return sshx.DialConfig{
+	passphrase, err := dec("encKeyPassphrase", s.EncKeyPassphrase)
+	if err != nil {
+		return sshx.DialConfig{}, err
+	}
+	dc := sshx.DialConfig{
 		Host: s.Host, Port: s.Port, User: s.User, Password: pw, Auth: s.Auth,
-		SuPassword: su, SudoPassword: sudo, HostKey: s.HostKey, Insecure: d.Insecure,
+		SuPassword: su, SudoPassword: sudo, Passphrase: passphrase, HostKey: s.HostKey, Insecure: d.Insecure,
 		TimeoutMs: 60000,
-	}, nil
+	}
+	if s.KeyPath != "" {
+		data, err := os.ReadFile(expandPath(s.KeyPath))
+		if err != nil {
+			return sshx.DialConfig{}, fmt.Errorf("reading key file %q: %w", s.KeyPath, err)
+		}
+		dc.PrivateKey = string(data)
+	}
+	return dc, nil
 }
