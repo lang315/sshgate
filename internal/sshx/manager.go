@@ -82,7 +82,14 @@ func (m *Manager) ensure() error {
 		return err
 	}
 	m.client = client
-	go func() { client.Wait(); m.mu.Lock(); m.client = nil; m.mu.Unlock() }()
+	go func() {
+		client.Wait()
+		m.mu.Lock()
+		if m.client == client {
+			m.client = nil
+		}
+		m.mu.Unlock()
+	}()
 	return nil
 }
 
@@ -106,9 +113,11 @@ func (m *Manager) runOnce(ctx context.Context, cmd string, stdin string) (string
 		return out.String(), err
 	case <-time.After(timeout):
 		sess.Close()
+		<-done // wait for sess.Run's writers to stop before reading out
 		return out.String(), fmt.Errorf("command timed out after %dms", m.cfg.TimeoutMs)
 	case <-ctx.Done():
 		sess.Close()
+		<-done
 		return out.String(), ctx.Err()
 	}
 }
@@ -122,8 +131,7 @@ func (m *Manager) Exec(ctx context.Context, cmd string) (string, error) {
 	if m.cfg.SuPassword != "" {
 		return m.execElevated(ctx, cmd)
 	}
-	out, err := m.runOnce(ctx, cmd, "")
-	return out, wrapExit(err)
+	return m.runOnce(ctx, cmd, "")
 }
 
 func (m *Manager) ExecSudo(ctx context.Context, cmd string) (string, error) {
@@ -133,23 +141,9 @@ func (m *Manager) ExecSudo(ctx context.Context, cmd string) (string, error) {
 		return "", err
 	}
 	if m.cfg.SudoPassword == "" {
-		out, err := m.runOnce(ctx, WrapSudoNoPassword(cmd), "")
-		return out, wrapExit(err)
+		return m.runOnce(ctx, WrapSudoNoPassword(cmd), "")
 	}
-	out, err := m.runOnce(ctx, WrapSudoWithPassword(cmd), m.cfg.SudoPassword+"\n")
-	return out, wrapExit(err)
-}
-
-func wrapExit(err error) error {
-	if err == nil {
-		return nil
-	}
-	var ee *ssh.ExitError
-	if bytes.Contains([]byte(err.Error()), []byte("exited")) {
-		return err
-	}
-	_ = ee
-	return err
+	return m.runOnce(ctx, WrapSudoWithPassword(cmd), m.cfg.SudoPassword+"\n")
 }
 
 func nonce() string {
