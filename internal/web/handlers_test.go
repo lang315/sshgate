@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lang315/ssh-mcp/internal/config"
 )
 
 func initApp(t *testing.T) (*App, string) {
@@ -51,5 +53,61 @@ func TestCreateAndListServer(t *testing.T) {
 	}
 	if !strings.Contains(w2.Body.String(), "prod") {
 		t.Fatalf("server not listed: %s", w2.Body.String())
+	}
+}
+
+func doWrite(t *testing.T, app *App, csrf, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Origin", "http://127.0.0.1:8422")
+	r.Header.Set("X-CSRF-Token", csrf)
+	c := cookieFor(app)
+	r.AddCookie(&c)
+	w := httptest.NewRecorder()
+	if path == "/api/servers" {
+		app.handleServers(w, r)
+	} else {
+		app.handleServerByName(w, r)
+	}
+	return w
+}
+
+func TestUpdateHostPreservesDecryptablePassword(t *testing.T) {
+	app, csrf := initApp(t)
+	doWrite(t, app, csrf, "POST", "/api/servers", `{"name":"prod","host":"1.2.3.4","port":22,"user":"root","auth":"password","password":"s3cret"}`)
+	// change host, omit password → must remain decryptable under the NEW AAD
+	w := doWrite(t, app, csrf, "PUT", "/api/servers/prod", `{"name":"prod","host":"5.6.7.8","port":22,"user":"root","auth":"password"}`)
+	if w.Code != 200 {
+		t.Fatalf("PUT code %d body %s", w.Code, w.Body.String())
+	}
+	f, err := config.Load(app.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := f.FindServer("prod")
+	if s.Host != "5.6.7.8" {
+		t.Fatalf("host not updated: %s", s.Host)
+	}
+	got, err := config.Decrypt(app.sess.MasterKey, "prod/encPassword", config.AADFor(f, s, "encPassword"), s.EncPassword)
+	if err != nil || got != "s3cret" {
+		t.Fatalf("password lost after host change: got=%q err=%v", got, err)
+	}
+}
+
+func TestPutStaleIfMatchConflicts(t *testing.T) {
+	app, csrf := initApp(t)
+	doWrite(t, app, csrf, "POST", "/api/servers", `{"name":"p","host":"h","port":22,"user":"u","auth":"password","password":"x"}`)
+	r := httptest.NewRequest("PUT", "/api/servers/p", strings.NewReader(`{"name":"p","host":"h2","port":22,"user":"u","auth":"password"}`))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Origin", "http://127.0.0.1:8422")
+	r.Header.Set("X-CSRF-Token", csrf)
+	r.Header.Set("If-Match", "999")
+	c := cookieFor(app)
+	r.AddCookie(&c)
+	w := httptest.NewRecorder()
+	app.handleServerByName(w, r)
+	if w.Code != http.StatusPreconditionFailed {
+		t.Fatalf("stale If-Match must be 412, got %d body %s", w.Code, w.Body.String())
 	}
 }
