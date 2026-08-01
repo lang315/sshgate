@@ -19,6 +19,7 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("/api/import/preview", a.handleImportPreview)
 	mux.HandleFunc("/api/import/apply", a.handleImportApply)
 	mux.HandleFunc("/api/export", a.handleExport)
+	mux.HandleFunc("/api/test-connection", a.handleTestConnection)
 
 	sub, _ := fs.Sub(staticFS, "static")
 	mux.Handle("/", http.FileServer(http.FS(sub)))
