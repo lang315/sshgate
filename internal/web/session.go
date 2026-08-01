@@ -160,3 +160,26 @@ func (a *App) requireSession(r *http.Request) (*Session, error) {
 	a.sess.LastSeen = time.Now()
 	return a.sess, nil
 }
+
+// saveLocked performs a read-modify-write against the config file: it
+// requires an unlocked session, reloads the file from disk (another writer
+// may have changed it), applies mutate, and saves. The reload+save is
+// wrapped in an OS file lock (withFlock) to serialize concurrent writers
+// across processes.
+func (a *App) saveLocked(mutate func(*config.File) error) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.sess == nil {
+		return fmt.Errorf("locked")
+	}
+	return withFlock(a.Path, func() error {
+		// reload latest from disk (another writer may have changed it)
+		if f, err := config.Load(a.Path); err == nil {
+			a.file = f
+		}
+		if err := mutate(a.file); err != nil {
+			return err
+		}
+		return config.Save(a.Path, a.file, a.sess.MasterKey)
+	})
+}
