@@ -95,6 +95,23 @@ func TestUpdateHostPreservesDecryptablePassword(t *testing.T) {
 	}
 }
 
+func TestDeleteServer(t *testing.T) {
+	app, csrf := initApp(t)
+	doWrite(t, app, csrf, "POST", "/api/servers", `{"name":"d","host":"h","port":22,"user":"u","auth":"password","password":"x"}`)
+	w := doWrite(t, app, csrf, "DELETE", "/api/servers/d", "")
+	if w.Code != 204 {
+		t.Fatalf("delete code %d body %s", w.Code, w.Body.String())
+	}
+	r := httptest.NewRequest("GET", "/api/servers", nil)
+	c := cookieFor(app)
+	r.AddCookie(&c)
+	lw := httptest.NewRecorder()
+	app.handleServers(lw, r)
+	if strings.Contains(lw.Body.String(), `"name":"d"`) {
+		t.Fatal("server should be gone from the list after delete")
+	}
+}
+
 func TestPutStaleIfMatchConflicts(t *testing.T) {
 	app, csrf := initApp(t)
 	doWrite(t, app, csrf, "POST", "/api/servers", `{"name":"p","host":"h","port":22,"user":"u","auth":"password","password":"x"}`)

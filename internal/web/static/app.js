@@ -2,11 +2,11 @@ let csrf = null;
 
 async function api(method, path, body) {
   const opts = { method, headers: {} };
-  if (body !== undefined) {
+  if (method !== 'GET' && method !== 'HEAD') {
     opts.headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(body);
     if (csrf) opts.headers['X-CSRF-Token'] = csrf;
   }
+  if (body !== undefined) opts.body = JSON.stringify(body);
   const res = await fetch(path, opts);
   if (!res.ok) throw new Error((await res.text()) || res.status);
   const ct = res.headers.get('content-type') || '';
@@ -66,7 +66,15 @@ async function showList() {
     tr.append(el('td', secrets));
     const td = el('td');
     const edit = el('button', 'Edit'); edit.onclick = () => showForm(s);
-    const del = el('button', 'Delete'); del.onclick = async () => { await api('DELETE', '/api/servers/' + encodeURIComponent(s.name)); showList(); };
+    const del = el('button', 'Delete');
+    del.onclick = async () => {
+      try {
+        await api('DELETE', '/api/servers/' + encodeURIComponent(s.name));
+        showList();
+      } catch (e) {
+        alert('' + e.message);
+      }
+    };
     td.append(edit, del); tr.append(td);
     rows.append(tr);
   });
