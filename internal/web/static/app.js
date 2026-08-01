@@ -102,12 +102,14 @@ function showForm(s) {
   const pw = field('Password (blank = keep)', '', 'password');
   const su = field('su password (blank = keep)', '', 'password');
   const sudo = field('sudo password (blank = keep)', '', 'password');
+  const hostKey = field('Host key fingerprint (blank = trust on first connect)', s && s.hostKey, 'text');
   const save = el('button', 'Save');
   save.onclick = async () => {
     const dto = { name: name.i.value, host: host.i.value, port: +port.i.value, user: user.i.value, auth: auth.i.value, keyPath: keyPath.i.value };
     if (pw.i.value) dto.password = pw.i.value;
     if (su.i.value) dto.suPassword = su.i.value;
     if (sudo.i.value) dto.sudoPassword = sudo.i.value;
+    dto.hostKey = hostKey.i.value;
     try {
       if (s) await api('PUT', '/api/servers/' + encodeURIComponent(s.name), dto);
       else await api('POST', '/api/servers', dto);
@@ -115,7 +117,7 @@ function showForm(s) {
     } catch (e) { alert('' + e.message); }
   };
   const cancel = el('button', 'Cancel'); cancel.onclick = showList;
-  [name, host, port, user, auth, keyPath, pw, su, sudo].forEach(x => f.append(x.l));
+  [name, host, port, user, auth, keyPath, pw, su, sudo, hostKey].forEach(x => f.append(x.l));
   f.append(save, cancel);
   document.getElementById('list').hidden = true;
   f.hidden = false;

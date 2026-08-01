@@ -29,9 +29,12 @@ func storePath() string {
 func buildDeps(args []string, env func(string) string) (*mcpserver.Deps, bool, int, error) {
 	m := config.ParseArgv(args)
 	_, insecure := m["insecureIgnoreHostKey"]
+	if insecure {
+		fmt.Fprintln(os.Stderr, "WARNING: --insecureIgnoreHostKey disables SSH host key verification (MITM risk)")
+	}
 	_, disableSudo := m["disableSudo"]
 	maxChars := config.ParseMaxChars(m["maxChars"])
-	d := &mcpserver.Deps{Insecure: insecure}
+	d := &mcpserver.Deps{Insecure: insecure, Path: storePath()}
 
 	if _, hasHost := m["host"]; hasHost {
 		cli, err := config.BuildCLIConfig(m)

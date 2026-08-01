@@ -24,6 +24,7 @@ type Deps struct {
 	File      *config.File
 	MasterKey []byte
 	Insecure  bool
+	Path      string
 }
 
 func (d *Deps) ServerNames() []string {
@@ -118,6 +119,9 @@ func (d *Deps) Resolve(name string) (sshx.DialConfig, error) {
 			return sshx.DialConfig{}, fmt.Errorf("reading key file %q: %w", s.KeyPath, err)
 		}
 		dc.PrivateKey = string(data)
+	}
+	dc.OnLearnHostKey = func(fp string) {
+		_ = config.RecordHostKey(d.Path, name, fp, d.MasterKey)
 	}
 	return dc, nil
 }

@@ -51,7 +51,10 @@ func (a *App) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 	dc := sshx.DialConfig{
 		Host: s.Host, Port: s.Port, User: s.User, Auth: s.Auth,
 		Password: dec("encPassword", s.EncPassword), HostKey: s.HostKey,
-		Insecure: s.HostKey == "", TimeoutMs: 8000,
+		Insecure: false, TimeoutMs: 8000,
+	}
+	dc.OnLearnHostKey = func(fp string) {
+		_ = config.RecordHostKey(a.Path, s.Name, fp, sess.MasterKey)
 	}
 	if s.Auth == "key" {
 		if s.EncKeyPassphrase != "" {
