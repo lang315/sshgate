@@ -14,7 +14,7 @@ func TestFirstRunThenUnlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	// first run requires bootstrap token
-	body := `{"bootstrapToken":"` + app.bootstrap + `","masterPassword":"pw"}`
+	body := `{"bootstrapToken":"` + app.bootstrap + `","masterPassword":"masterpw1"}`
 	r := httptest.NewRequest("POST", "http://127.0.0.1:8422/api/first-run", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -35,7 +35,7 @@ func TestFirstRunThenUnlock(t *testing.T) {
 func TestUnlockWrongPassword(t *testing.T) {
 	dir := t.TempDir()
 	app, _ := NewApp(8422, filepath.Join(dir, "servers.json"))
-	body := `{"bootstrapToken":"` + app.bootstrap + `","masterPassword":"pw"}`
+	body := `{"bootstrapToken":"` + app.bootstrap + `","masterPassword":"masterpw1"}`
 	r := httptest.NewRequest("POST", "/api/first-run", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	app.handleFirstRun(httptest.NewRecorder(), r)
@@ -46,5 +46,18 @@ func TestUnlockWrongPassword(t *testing.T) {
 	app.handleUnlock(w2, r2)
 	if w2.Code == 200 {
 		t.Fatal("wrong master password must fail")
+	}
+}
+
+func TestFirstRunRejectsShortPassword(t *testing.T) {
+	dir := t.TempDir()
+	app, _ := NewApp(8422, filepath.Join(dir, "servers.json"))
+	body := `{"bootstrapToken":"` + app.bootstrap + `","masterPassword":"short"}`
+	r := httptest.NewRequest("POST", "/api/first-run", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	app.handleFirstRun(w, r)
+	if w.Code == 200 {
+		t.Fatal("master password under 8 chars must be rejected")
 	}
 }

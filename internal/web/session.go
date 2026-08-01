@@ -31,12 +31,13 @@ type App struct {
 	bootstrap string
 	attempts  int
 	lockUntil time.Time
-	deriving  bool
 }
 
 func token() string {
 	b := make([]byte, 24)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
 	return hex.EncodeToString(b)
 }
 
@@ -72,6 +73,10 @@ func (a *App) handleFirstRun(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid bootstrap token", http.StatusForbidden)
 		return
 	}
+	if len(in.MasterPassword) < 8 {
+		http.Error(w, "master password too short (min 8)", 400)
+		return
+	}
 	k, mk, err := config.NewKDF(in.MasterPassword)
 	if err != nil {
 		http.Error(w, "error", 500)
@@ -97,18 +102,12 @@ func (a *App) handleUnlock(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "too many attempts, try later", http.StatusTooManyRequests)
 		return
 	}
-	if a.deriving {
-		http.Error(w, "busy", http.StatusTooManyRequests)
-		return
-	}
 	var in struct{ MasterPassword string }
 	if err := readJSON(r, &in); err != nil {
 		http.Error(w, "bad request", 400)
 		return
 	}
-	a.deriving = true
 	mk, err := a.file.KDF.DeriveKey(in.MasterPassword)
-	a.deriving = false
 	if err != nil || !a.file.KDF.Verify(mk) {
 		a.attempts++
 		if a.attempts >= 5 {
