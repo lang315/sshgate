@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -46,6 +47,17 @@ func TestUnlockWrongPassword(t *testing.T) {
 	app.handleUnlock(w2, r2)
 	if w2.Code == 200 {
 		t.Fatal("wrong master password must fail")
+	}
+}
+
+func TestNewAppRefusesCorruptStore(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "servers.json")
+	if err := os.WriteFile(p, []byte("{ this is not valid json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewApp(8422, p); err == nil {
+		t.Fatal("NewApp must refuse a corrupt existing store, not treat it as first-run")
 	}
 }
 

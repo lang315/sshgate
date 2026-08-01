@@ -59,6 +59,8 @@ func buildDeps(args []string, env func(string) string) (*mcpserver.Deps, bool, i
 			}
 			d.MasterKey = mk
 		}
+	} else if !os.IsNotExist(err) {
+		return nil, false, 0, fmt.Errorf("cannot read config store: %w", err)
 	}
 	if d.CLI == nil && d.File == nil {
 		return nil, false, 0, fmt.Errorf("no --host and no config store found")

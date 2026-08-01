@@ -45,6 +45,8 @@ func NewApp(port int, path string) (*App, error) {
 	a := &App{Port: port, Path: path}
 	if f, err := config.Load(path); err == nil {
 		a.file = f
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("cannot read config store %s (refusing to overwrite): %w", path, err)
 	}
 	if a.file == nil || a.file.KDF == nil {
 		a.bootstrap = token()
