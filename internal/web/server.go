@@ -4,28 +4,23 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
-	"time"
 )
 
 //go:embed static
 var staticFS embed.FS
 
-func New(port int, handler http.Handler) *http.Server {
+func (a *App) Routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/first-run", a.handleFirstRun)
+	mux.HandleFunc("/api/unlock", a.handleUnlock)
+	mux.HandleFunc("/api/lock", a.handleLock)
+	mux.HandleFunc("/api/servers", a.handleServers)
+	mux.HandleFunc("/api/servers/", a.handleServerByName)
+	mux.HandleFunc("/api/import/preview", a.handleImportPreview)
+	mux.HandleFunc("/api/import/apply", a.handleImportApply)
+	mux.HandleFunc("/api/export", a.handleExport)
+
 	sub, _ := fs.Sub(staticFS, "static")
 	mux.Handle("/", http.FileServer(http.FS(sub)))
-	if handler != nil {
-		mux.Handle("/api/", handler)
-	}
-	return &http.Server{
-		Addr:              "127.0.0.1:" + itoa(port),
-		Handler:           securityMiddleware(port, mux),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
-	}
-}
-
-func itoa(n int) string {
-	return strconvItoa(n)
+	return securityMiddleware(a.Port, mux)
 }

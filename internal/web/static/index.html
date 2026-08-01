@@ -1,3 +1,22 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><title>ssh-mcp</title></head>
-<body><h1>ssh-mcp config</h1><script src="app.js"></script></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ssh-mcp config</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header><h1>ssh-mcp</h1><span id="status"></span></header>
+  <main>
+    <section id="gate"></section>
+    <section id="list" hidden>
+      <div class="bar"><button id="add">Add connection</button><button id="import">Import</button><button id="export">Export</button></div>
+      <table><thead><tr><th>Name</th><th>Host</th><th>User</th><th>Auth</th><th>Secrets</th><th></th></tr></thead><tbody id="rows"></tbody></table>
+    </section>
+    <section id="form" hidden></section>
+    <section id="importui" hidden></section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
