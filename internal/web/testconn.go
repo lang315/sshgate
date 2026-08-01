@@ -6,11 +6,22 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/lang315/ssh-mcp/internal/config"
 	"github.com/lang315/ssh-mcp/internal/sshx"
 )
+
+func expandHome(p string) string {
+	if strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, p[2:])
+		}
+	}
+	return p
+}
 
 func (a *App) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 	sess, ok := a.writeGuard(w, r)
@@ -37,11 +48,27 @@ func (a *App) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 		pt, _ := config.Decrypt(sess.MasterKey, s.Name+"/"+field, config.AADFor(f, s, field), blob)
 		return pt
 	}
-	mgr := sshx.NewManager(sshx.DialConfig{
+	dc := sshx.DialConfig{
 		Host: s.Host, Port: s.Port, User: s.User, Auth: s.Auth,
 		Password: dec("encPassword", s.EncPassword), HostKey: s.HostKey,
 		Insecure: s.HostKey == "", TimeoutMs: 8000,
-	})
+	}
+	if s.Auth == "key" {
+		if s.EncKeyPassphrase != "" {
+			dc.Passphrase = dec("encKeyPassphrase", s.EncKeyPassphrase)
+		}
+		if s.KeyPath != "" {
+			data, err := os.ReadFile(expandHome(s.KeyPath))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[ssh-mcp] test-connection %s: reading key file: %v\n", in.Name, err)
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "connection test failed"})
+				return
+			}
+			dc.PrivateKey = string(data)
+		}
+	}
+	mgr := sshx.NewManager(dc)
 	defer mgr.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
