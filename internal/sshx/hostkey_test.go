@@ -37,3 +37,12 @@ func TestPinnedMismatchRejected(t *testing.T) {
 		t.Fatal("mismatched pin must be rejected")
 	}
 }
+
+func TestInsecureAcceptsAnyKeyEvenWithMismatchedPin(t *testing.T) {
+	pk := testKey(t)
+	// insecure=true must override even a mismatched pin
+	cb := HostKeyCallback("sha256:DELIBERATELY-WRONG", true, nil)
+	if err := cb("h:22", &net.TCPAddr{}, pk); err != nil {
+		t.Fatalf("insecure=true must accept any key, got error: %v", err)
+	}
+}
