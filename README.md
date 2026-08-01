@@ -1,8 +1,5 @@
 # SSH MCP Server
 
-[![NPM Version](https://img.shields.io/npm/v/ssh-mcp)](https://www.npmjs.com/package/ssh-mcp)
-[![Downloads](https://img.shields.io/npm/dm/ssh-mcp)](https://www.npmjs.com/package/ssh-mcp)
-[![Node Version](https://img.shields.io/node/v/ssh-mcp)](https://nodejs.org/)
 [![License](https://img.shields.io/github/license/tufantunc/ssh-mcp)](./LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/tufantunc/ssh-mcp?style=social)](https://github.com/tufantunc/ssh-mcp/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/tufantunc/ssh-mcp?style=social)](https://github.com/tufantunc/ssh-mcp/forks)
@@ -17,17 +14,17 @@
 
 - [Quick Start](#quick-start)
 - [Features](#features)
-- [Installation](#installation)
+- [Install](#install)
+- [MCP Usage](#mcp-usage-single-host-unchanged-flags)
+- [Multi-Server + Web Config](#multi-server--web-config)
 - [Client Setup](#client-setup)
-- [Testing](#testing)
 - [Disclaimer](#disclaimer)
 - [Support](#support)
 
 ## Quick Start
 
-- [Install](#installation) SSH MCP Server
-- [Configure](#configuration) SSH MCP Server
-- [Set up](#client-setup) your MCP Client (e.g. Claude Desktop, Cursor, etc)
+- [Install](#install) SSH MCP Server
+- [Configure](#client-setup) your MCP Client (e.g. Claude Desktop, Cursor, etc)
 - Execute remote shell commands on your Linux or Windows server via natural language
 
 ## Features
@@ -35,7 +32,8 @@
 - MCP-compliant server exposing SSH capabilities
 - Execute shell commands on remote Linux and Windows systems
 - Secure authentication via password or SSH key
-- Built with TypeScript and the official MCP SDK
+- Single Go binary, no runtime dependencies
+- Multi-server support with a local web config UI, secrets encrypted at rest
 - **Configurable timeout protection** with automatic process abortion
 - **Graceful timeout handling** - attempts to kill hanging processes before closing connections
 
@@ -43,12 +41,14 @@
 
 - `exec`: Execute a shell command on the remote server
   - **Parameters:**
+    - `server` (optional): Name of a saved connection (see [Multi-Server + Web Config](#multi-server--web-config)); empty uses the default server
     - `command` (required): Shell command to execute on the remote SSH server
     - `description` (optional): Optional description of what this command will do (appended as a comment)
   - **Timeout Configuration:**
 
 - `sudo-exec`: Execute a shell command with sudo elevation
   - **Parameters:**
+    - `server` (optional): Name of a saved connection; empty uses the default server
     - `command` (required): Shell command to execute as root using sudo
     - `description` (optional): Optional description of what this command will do (appended as a comment)
   - **Notes:**
@@ -65,21 +65,17 @@
     - Default: `1000`
     - No-limit mode: set `--maxChars=none` or any `<= 0` value (e.g. `--maxChars=0`)
 
-## Installation
+- `list-servers`: List configured SSH connection names (no secrets). Useful for discovering which `server` values are available when running in multi-server mode.
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/tufantunc/ssh-mcp.git
-   cd ssh-mcp
-   ```
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
+## Install
 
-## Client Setup
+    go install github.com/lang315/ssh-mcp/cmd/ssh-mcp@latest
 
-You can configure your IDE or LLM like Cursor, Windsurf, Claude Desktop to use this MCP Server.
+This installs the `ssh-mcp` binary to `$(go env GOPATH)/bin` (make sure that directory is on your `PATH`).
+
+## MCP usage (single host, unchanged flags)
+
+    ssh-mcp --host=1.2.3.4 --user=root --password=secret
 
 **Required Parameters:**
 - `host`: Hostname or IP of the Linux or Windows server
@@ -94,17 +90,33 @@ You can configure your IDE or LLM like Cursor, Windsurf, Claude Desktop to use t
 - `timeout`: Command execution timeout in milliseconds (default: 60000ms = 1 minute)
 - `maxChars`: Maximum allowed characters for the `command` input (default: 1000). Use `none` or `0` to disable the limit.
 - `disableSudo`: Flag to disable the `sudo-exec` tool completely. Useful when sudo access is not needed or not available.
+- `insecureIgnoreHostKey`: Flag to skip SSH host key verification. Not recommended outside of trusted/throwaway environments.
 
+## Multi-server + web config
+
+    ssh-mcp web        # opens config UI on http://127.0.0.1:8422
+    # then reference a saved connection by name via the `server` tool argument
+
+The web UI lets you add, edit, import, and export SSH connections without passing `--host`/`--password` on every launch. Saved connections (and their secrets) are stored at `~/.config/ssh-mcp/servers.json`, **encrypted at rest**.
+
+Once you have saved connections, start the MCP server without `--host` (or alongside it, as a fallback) and pick a connection per tool call via the `server` argument, or list what's available with the `list-servers` tool.
+
+For headless MCP use with encrypted servers (no interactive TTY to type a master password), set:
+
+    export SSH_MCP_MASTER_PASSWORD_FILE=~/.config/ssh-mcp/master   # file mode 0600
+
+The file must be readable only by its owner (mode `0600`); the server refuses to read it otherwise.
+
+## Client Setup
+
+You can configure your IDE or LLM like Cursor, Windsurf, Claude Desktop to use this MCP Server.
 
 ```commandline
 {
     "mcpServers": {
         "ssh-mcp": {
-            "command": "npx",
+            "command": "ssh-mcp",
             "args": [
-                "ssh-mcp",
-                "-y",
-                "--",
                 "--host=1.2.3.4",
                 "--port=22",
                 "--user=root",
@@ -125,30 +137,36 @@ You can add this MCP server to Claude Code using the `claude mcp add` command. T
 **Basic Installation:**
 
 ```bash
-claude mcp add --transport stdio ssh-mcp -- npx -y ssh-mcp -- --host=YOUR_HOST --user=YOUR_USER --password=YOUR_PASSWORD
+claude mcp add --transport stdio ssh-mcp -- ssh-mcp --host=YOUR_HOST --user=YOUR_USER --password=YOUR_PASSWORD
 ```
 
 **Installation Examples:**
 
 **With Password Authentication:**
 ```bash
-claude mcp add --transport stdio ssh-mcp -- npx -y ssh-mcp -- --host=192.168.1.100 --port=22 --user=admin --password=your_password
+claude mcp add --transport stdio ssh-mcp -- ssh-mcp --host=192.168.1.100 --port=22 --user=admin --password=your_password
 ```
 
 **With SSH Key Authentication:**
 ```bash
-claude mcp add --transport stdio ssh-mcp -- npx -y ssh-mcp -- --host=example.com --user=root --key=/path/to/private/key
+claude mcp add --transport stdio ssh-mcp -- ssh-mcp --host=example.com --user=root --key=/path/to/private/key
 ```
 
 **With Custom Timeout and No Character Limit:**
 ```bash
-claude mcp add --transport stdio ssh-mcp -- npx -y ssh-mcp -- --host=192.168.1.100 --user=admin --password=your_password --timeout=120000 --maxChars=none
+claude mcp add --transport stdio ssh-mcp -- ssh-mcp --host=192.168.1.100 --user=admin --password=your_password --timeout=120000 --maxChars=none
 ```
 
 **With Sudo and Su Support:**
 ```bash
-claude mcp add --transport stdio ssh-mcp -- npx -y ssh-mcp -- --host=192.168.1.100 --user=admin --password=your_password --sudoPassword=sudo_pass --suPassword=root_pass
+claude mcp add --transport stdio ssh-mcp -- ssh-mcp --host=192.168.1.100 --user=admin --password=your_password --sudoPassword=sudo_pass --suPassword=root_pass
 ```
+
+**With a Saved Multi-Server Config:**
+```bash
+claude mcp add --transport stdio ssh-mcp -- ssh-mcp
+```
+(then select a connection per call via the `server` tool argument; set `SSH_MCP_MASTER_PASSWORD_FILE` first if your store is encrypted)
 
 **Installation Scopes:**
 
@@ -156,17 +174,17 @@ You can specify the scope when adding the server:
 
 - **Local scope** (default): For personal use in the current project
   ```bash
-  claude mcp add --transport stdio ssh-mcp --scope local -- npx -y ssh-mcp -- --host=YOUR_HOST --user=YOUR_USER --password=YOUR_PASSWORD
+  claude mcp add --transport stdio ssh-mcp --scope local -- ssh-mcp --host=YOUR_HOST --user=YOUR_USER --password=YOUR_PASSWORD
   ```
 
 - **Project scope**: Share with your team via `.mcp.json` file
   ```bash
-  claude mcp add --transport stdio ssh-mcp --scope project -- npx -y ssh-mcp -- --host=YOUR_HOST --user=YOUR_USER --password=YOUR_PASSWORD
+  claude mcp add --transport stdio ssh-mcp --scope project -- ssh-mcp --host=YOUR_HOST --user=YOUR_USER --password=YOUR_PASSWORD
   ```
 
 - **User scope**: Available across all your projects
   ```bash
-  claude mcp add --transport stdio ssh-mcp --scope user -- npx -y ssh-mcp -- --host=YOUR_HOST --user=YOUR_USER --password=YOUR_PASSWORD
+  claude mcp add --transport stdio ssh-mcp --scope user -- ssh-mcp --host=YOUR_HOST --user=YOUR_USER --password=YOUR_PASSWORD
   ```
 
 
@@ -178,14 +196,6 @@ After adding the server, restart Claude Code and ask Cascade to execute a comman
 ```
 
 For more information about MCP in Claude Code, see the [official documentation](https://docs.claude.com/en/docs/claude-code/mcp).
-
-## Testing
-
-You can use the [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector) for visual debugging of this MCP Server.
-
-```sh
-npm run inspect
-```
 
 ## Disclaimer
 

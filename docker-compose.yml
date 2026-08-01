@@ -9,4 +9,15 @@ services:
     ports:
       - "2222:2222"
 
+  ssh-mcp:
+    build: .
+    depends_on:
+      - ssh
+    stdin_open: true
+    command:
+      - "--host=ssh"
+      - "--port=2222"
+      - "--user=test"
+      - "--password=secret"
+
 
