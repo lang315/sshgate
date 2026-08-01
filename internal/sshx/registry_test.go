@@ -20,3 +20,15 @@ func TestRegistryReplacesOnConfigChange(t *testing.T) {
 		t.Fatal("config change should create a new manager")
 	}
 }
+
+func TestRegistryReplacesOnPassphraseChange(t *testing.T) {
+	r := NewRegistry()
+	base := DialConfig{Host: "h", Port: 22, User: "u", Auth: "key", PrivateKey: "KEY", Passphrase: "old"}
+	m1 := r.Get("a", base)
+	changed := base
+	changed.Passphrase = "new"
+	m2 := r.Get("a", changed)
+	if m1 == m2 {
+		t.Fatal("passphrase change must create a new manager")
+	}
+}

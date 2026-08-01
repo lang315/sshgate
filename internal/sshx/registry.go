@@ -9,8 +9,8 @@ import (
 
 func ConfigHash(c DialConfig) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s|%d|%s|%s|%s|%s|%s|%s|%v", c.Host, c.Port, c.User, c.Auth,
-		c.Password, c.PrivateKey, c.SuPassword, c.SudoPassword, c.Insecure)
+	fmt.Fprintf(h, "%s|%d|%s|%s|%s|%s|%s|%s|%s|%v", c.Host, c.Port, c.User, c.Auth,
+		c.Password, c.PrivateKey, c.Passphrase, c.SuPassword, c.SudoPassword, c.Insecure)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
