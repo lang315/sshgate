@@ -28,6 +28,34 @@ func startSSH(t *testing.T) (host string, port int, cleanup func()) {
 	return h, int(p.Num()), func() { c.Terminate(ctx) }
 }
 
+// startSSHWithRoot starts the same SSH-accessible container as startSSH, then
+// sets a known root password inside it so `su -` can elevate. If Docker is
+// unavailable, or the image can't be prepared with a root password, it skips
+// the calling test rather than failing.
+func startSSHWithRoot(t *testing.T) (host string, port int, cleanup func()) {
+	ctx := context.Background()
+	req := testcontainers.ContainerRequest{
+		Image:        "lscr.io/linuxserver/openssh-server:latest",
+		ExposedPorts: []string{"2222/tcp"},
+		Env: map[string]string{
+			"PASSWORD_ACCESS": "true", "USER_NAME": "test", "USER_PASSWORD": "testpass",
+		},
+		WaitingFor: wait.ForListeningPort("2222/tcp").WithStartupTimeout(60 * time.Second),
+	}
+	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{ContainerRequest: req, Started: true})
+	if err != nil {
+		t.Skipf("docker unavailable: %v", err)
+	}
+	code, _, err := c.Exec(ctx, []string{"sh", "-c", "echo 'root:rootpass' | chpasswd"})
+	if err != nil || code != 0 {
+		c.Terminate(ctx)
+		t.Skipf("could not prepare image for su (set root password): err=%v code=%d", err, code)
+	}
+	h, _ := c.Host(ctx)
+	p, _ := c.MappedPort(ctx, "2222")
+	return h, int(p.Num()), func() { c.Terminate(ctx) }
+}
+
 func TestExecEcho(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration")
