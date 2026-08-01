@@ -208,6 +208,17 @@ func (m *Manager) ensureElevated() (*suShell, error) {
 		sess.Close()
 		return nil, fmt.Errorf("su elevation failed (wrong password?): %w", err)
 	}
+	// Positively confirm elevation. A wrong password drops back to the
+	// unprivileged shell, which also echoes the sentinel — so the sentinel
+	// alone is not proof. Require uid 0.
+	check := nonce()
+	fmt.Fprintf(stdin, "%s\n", FrameSuCommand("id -u", check))
+	out, code, err := readCommandOutput(sh.buf, 10*time.Second, check)
+	if err != nil || code != 0 || lastNonEmptyLine(out) != "0" {
+		sess.Close()
+		m.su = nil
+		return nil, fmt.Errorf("su elevation failed: not root (uid=%q, err=%v)", lastNonEmptyLine(out), err)
+	}
 	m.su = sh
 	return sh, nil
 }
@@ -218,14 +229,16 @@ func (m *Manager) execElevated(ctx context.Context, cmd string) (string, error) 
 		return "", err
 	}
 	n := nonce()
-	marker := n + ":"
 	fmt.Fprintf(sh.stdin, "%s\n", FrameSuCommand(cmd, n))
-	out, err := readCommandOutput(sh.buf, time.Duration(m.cfg.TimeoutMs)*time.Millisecond, marker)
+	out, code, err := readCommandOutput(sh.buf, time.Duration(m.cfg.TimeoutMs)*time.Millisecond, n)
 	if err != nil {
-		// poisoned shell: tear down so next call re-elevates
+		// poisoned shell — a half-finished command would corrupt the next capture
 		sh.sess.Close()
 		m.su = nil
 		return "", err
+	}
+	if code != 0 {
+		return out, fmt.Errorf("elevated command exited with code %d", code)
 	}
 	return out, nil
 }
@@ -252,24 +265,33 @@ func readUntilAny(r *bufio.Reader, timeout time.Duration, needles []string) erro
 	return fmt.Errorf("timeout waiting for prompt")
 }
 
-func readCommandOutput(r *bufio.Reader, timeout time.Duration, marker string) (string, error) {
+func readCommandOutput(r *bufio.Reader, timeout time.Duration, marker string) (string, int, error) {
 	deadline := time.Now().Add(timeout)
-	var acc strings.Builder
+	var body strings.Builder
 	for time.Now().Before(deadline) {
-		line, err := r.ReadString('\n')
-		acc.WriteString(line)
-		if i := strings.Index(acc.String(), marker); i >= 0 {
-			full := acc.String()
-			// output is everything before the marker line; strip the echoed command's first line
-			body := full[:i]
-			if nl := strings.IndexByte(body, '\n'); nl >= 0 {
-				body = body[nl+1:]
-			}
-			return body, nil
+		line, rerr := r.ReadString('\n')
+		// Anchor on line start: the marker is only real output when a line
+		// begins with "<nonce>:". The echoed command (if any) contains the
+		// nonce mid-line and must not match.
+		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, marker+":") {
+			codeStr := strings.TrimSpace(strings.TrimPrefix(trimmed, marker+":"))
+			code, _ := strconv.Atoi(codeStr)
+			return body.String(), code, nil
 		}
-		if err != nil {
-			return "", err
+		body.WriteString(line)
+		if rerr != nil {
+			return "", 0, rerr
 		}
 	}
-	return "", fmt.Errorf("command timed out")
+	return "", 0, fmt.Errorf("command timed out")
+}
+
+func lastNonEmptyLine(s string) string {
+	lines := strings.Split(s, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if t := strings.TrimSpace(lines[i]); t != "" {
+			return t
+		}
+	}
+	return ""
 }
