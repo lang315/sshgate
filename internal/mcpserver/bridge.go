@@ -4,19 +4,23 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"sync/atomic"
 	"time"
 
-	"github.com/lang315/ssh-mcp/internal/config"
 	"github.com/lang315/ssh-mcp/internal/rpc"
 	"github.com/lang315/ssh-mcp/internal/sshx"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const hubDownMsg = "Open the app to approve commands"
+const (
+	hubDownMsg    = "Open the app to approve commands"
+	hubCrashedMsg = "App closed or crashed"
+)
 
 type bridgeExecInput struct {
 	Server      string `json:"server" jsonschema:"connection name from list-servers"`
@@ -40,6 +44,21 @@ func randID() string {
 	return hex.EncodeToString(b)
 }
 
+// hubCallErr classifies a failed hub RPC. An *rpc.Error is the hub's own
+// policy text (denied, locked, not found, ...) and must reach the AI
+// verbatim. Anything else is a transport failure — a dropped connection, a
+// crashed hub mid-request — whose raw text (e.g. "io: read/write on closed
+// pipe") must never reach the AI; the underlying error is logged to stderr
+// instead.
+func hubCallErr(err error) *mcp.CallToolResult {
+	var rpcErr *rpc.Error
+	if errors.As(err, &rpcErr) {
+		return textErr(rpcErr.Message)
+	}
+	fmt.Fprintln(os.Stderr, "ssh-mcp bridge: hub transport error:", err)
+	return textErr(hubCrashedMsg)
+}
+
 // BuildBridgeServer forwards the three AI tools to the hub's MCP door over a
 // connection dial supplies. The bridge validates nothing and holds no
 // secrets; the hub is the single policy point. Each tool call dials fresh,
@@ -50,6 +69,7 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 	withHub := func(ctx context.Context, fn func(c *rpc.Client) (*mcp.CallToolResult, error)) (*mcp.CallToolResult, error) {
 		conn, err := dial(ctx)
 		if err != nil {
+			fmt.Fprintln(os.Stderr, "ssh-mcp bridge: dial hub:", err)
 			return textErr(hubDownMsg), nil
 		}
 		defer conn.Close()
@@ -108,9 +128,12 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 					return textErr("cancelled by client"), nil
 				}
 				if callErr != nil {
-					return textErr(callErr.Error()), nil
+					return hubCallErr(callErr), nil
 				}
-				return textOK(FormatExec(out, config.NewRedactor())), nil
+				// The hub already redacted and capped each stream; lay out
+				// the text as-is, no reprocessing (double-capping would
+				// corrupt an in-flight "[truncated N bytes]" marker).
+				return textOK(layoutExec(out.ExitCode, out.Stdout, out.Stderr)), nil
 			})
 			return res, nil, err
 		}
@@ -126,7 +149,7 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 					Locked bool   `json:"locked"`
 				}
 				if err := c.Call(ctx, "listServers", nil, &list); err != nil {
-					return textErr(err.Error()), nil
+					return hubCallErr(err), nil
 				}
 				if len(list) == 0 {
 					return textOK("(no servers are visible to AI; enable 'Visible to AI' on a server in the app)"), nil

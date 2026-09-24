@@ -32,10 +32,10 @@ func storePath() string {
 	return filepath.Join(home, ".config", "ssh-mcp", "servers.json")
 }
 
-// buildDeps builds Deps for --host (standalone CLI) mode only: it never
-// reads the on-disk vault. Bridge mode (no --host) does not call this.
-func buildDeps(args []string) (*mcpserver.Deps, bool, int, error) {
-	m := config.ParseArgv(args)
+// buildDeps builds Deps for --host (standalone CLI) mode only, from args
+// already parsed by the caller: it never reads the on-disk vault. Bridge
+// mode (no --host) does not call this.
+func buildDeps(m map[string]*string) (*mcpserver.Deps, bool, int, error) {
 	_, insecure := m["insecureIgnoreHostKey"]
 	if insecure {
 		fmt.Fprintln(os.Stderr, "WARNING: --insecureIgnoreHostKey disables SSH host key verification (MITM risk)")
@@ -60,7 +60,7 @@ func runMCP(args []string) error {
 		return mcpserver.BuildBridgeServer(hub.DialMCPDoor).Run(ctx, &mcp.StdioTransport{})
 	}
 
-	d, disableSudo, maxChars, err := buildDeps(args)
+	d, disableSudo, maxChars, err := buildDeps(m)
 	if err != nil {
 		return err
 	}

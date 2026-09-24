@@ -1,9 +1,14 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/lang315/ssh-mcp/internal/config"
+)
 
 func TestBuildDepsHostOnlyIgnoresStore(t *testing.T) {
-	d, disableSudo, maxChars, err := buildDeps([]string{"--host=h", "--user=u", "--disableSudo", "--maxChars=50"})
+	m := config.ParseArgv([]string{"--host=h", "--user=u", "--disableSudo", "--maxChars=50"})
+	d, disableSudo, maxChars, err := buildDeps(m)
 	if err != nil {
 		t.Fatal(err)
 	}

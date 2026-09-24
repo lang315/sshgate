@@ -54,18 +54,29 @@ func runExec(ctx context.Context, d *Deps, reg *sshx.Registry, maxChars int, sud
 // FormatExec renders an exec result for the AI: exit code first, then the
 // two streams, each redacted and capped independently.
 func FormatExec(res sshx.ExecResult, red *config.Redactor) string {
+	stdout := config.CapOutput(red.Redact(res.Stdout), config.DefaultOutputCap)
+	stderr := config.CapOutput(red.Redact(res.Stderr), config.DefaultOutputCap)
+	return layoutExec(res.ExitCode, stdout, stderr)
+}
+
+// layoutExec lays out exit code + stdout/stderr sections. It does no
+// redaction and no capping: callers that already have redacted/capped text
+// (e.g. the bridge, which forwards output the hub already processed) must
+// call this directly instead of FormatExec, or the text gets capped twice
+// and an in-flight "[truncated N bytes]" marker gets corrupted.
+func layoutExec(exitCode int, stdout, stderr string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "exit code: %d\n", res.ExitCode)
-	if res.Stdout != "" {
+	fmt.Fprintf(&b, "exit code: %d\n", exitCode)
+	if stdout != "" {
 		b.WriteString("stdout:\n")
-		b.WriteString(config.CapOutput(red.Redact(res.Stdout), config.DefaultOutputCap))
-		if !strings.HasSuffix(res.Stdout, "\n") {
+		b.WriteString(stdout)
+		if !strings.HasSuffix(stdout, "\n") {
 			b.WriteString("\n")
 		}
 	}
-	if res.Stderr != "" {
+	if stderr != "" {
 		b.WriteString("stderr:\n")
-		b.WriteString(config.CapOutput(red.Redact(res.Stderr), config.DefaultOutputCap))
+		b.WriteString(stderr)
 	}
 	return b.String()
 }

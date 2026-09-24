@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lang315/ssh-mcp/internal/config"
 	"github.com/lang315/ssh-mcp/internal/rpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -165,5 +166,59 @@ func TestBridgeExecCancelForwardsToHub(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("hub never saw cancel")
+	}
+}
+
+// crashingHub dials fine but the hub reads the request and then hangs up
+// without answering, simulating the app closing or crashing mid-request.
+func crashingHub() func(context.Context) (net.Conn, error) {
+	return func(context.Context) (net.Conn, error) {
+		client, server := net.Pipe()
+		go func() {
+			buf := make([]byte, 4096)
+			server.Read(buf) // consume the request, then hang up unanswered
+			server.Close()
+		}()
+		return client, nil
+	}
+}
+
+// TestBridgeHubCrashMidCall covers fix-round-1 R34: a transport failure
+// (dropped connection, not a hub-issued error) must never leak its raw text
+// ("io: read/write on closed pipe" etc.) to the AI.
+func TestBridgeHubCrashMidCall(t *testing.T) {
+	srv := BuildBridgeServer(crashingHub())
+
+	res := callTool(t, srv, "exec", map[string]any{"server": "vis", "command": "ls"})
+	if !res.IsError || text(res) != "App closed or crashed" {
+		t.Fatalf("exec: got %v %q", res.IsError, text(res))
+	}
+
+	res = callTool(t, srv, "list-servers", nil)
+	if !res.IsError || text(res) != "App closed or crashed" {
+		t.Fatalf("list-servers: got %v %q", res.IsError, text(res))
+	}
+}
+
+// TestBridgeExecNoDoubleCap covers fix-round-1 R33: the hub already
+// redacts and caps each stream, so the bridge must lay the text out as-is.
+// Re-capping an already-capped, already-larger-than-DefaultOutputCap stream
+// would slice through its "[truncated N bytes]" marker.
+func TestBridgeExecNoDoubleCap(t *testing.T) {
+	marker := "[truncated 434464 bytes]"
+	head := strings.Repeat("a", config.DefaultOutputCap)
+	tail := strings.Repeat("b", config.DefaultOutputCap)
+	stdout := head + "\n… " + marker + " …\n" + tail // already > DefaultOutputCap
+
+	srv := BuildBridgeServer(fakeHub(t, map[string]any{"exitCode": 0, "stdout": stdout, "stderr": ""}, ""))
+	res := callTool(t, srv, "exec", map[string]any{"server": "vis", "command": "cat big"})
+	if res.IsError {
+		t.Fatalf("unexpected error: %q", text(res))
+	}
+	if !strings.Contains(text(res), marker) {
+		t.Fatalf("marker not found verbatim: %q", text(res))
+	}
+	if !strings.Contains(text(res), stdout) {
+		t.Fatalf("hub output was re-capped by the bridge: got %d bytes, want the full %d-byte stdout verbatim", len(text(res)), len(stdout))
 	}
 }
