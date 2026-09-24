@@ -52,7 +52,7 @@ func (h *Hub) serversForUI() []uiServer {
 // pushed as notifications for the lifetime of the call.
 func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 	s := rpc.NewServer()
-	h.setEventSink(func(e broker.Event) {
+	release := h.setEventSink(func(e broker.Event) {
 		switch e.Kind {
 		case "pending":
 			s.Notify("pending", map[string]any{"request": e.Request})
@@ -60,7 +60,7 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 			s.Notify("decided", map[string]any{"request": e.Request, "decision": e.Decision})
 		}
 	})
-	defer h.setEventSink(nil)
+	defer release()
 
 	empty := map[string]any{}
 	// Every method here is request-only (term.write/resize/ack are the

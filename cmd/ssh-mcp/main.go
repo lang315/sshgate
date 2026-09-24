@@ -15,8 +15,13 @@ import (
 )
 
 func route(args []string) (string, []string) {
-	if len(args) > 0 && args[0] == "web" {
-		return "web", args[1:]
+	if len(args) > 0 {
+		switch args[0] {
+		case "web":
+			return "web", args[1:]
+		case "hub":
+			return "hub", args[1:]
+		}
 	}
 	return "mcp", args
 }
@@ -92,6 +97,8 @@ func main() {
 	switch mode {
 	case "web":
 		err = runWeb(rest) // implemented in Phase D
+	case "hub":
+		err = runHub(rest)
 	default:
 		err = runMCP(rest)
 	}

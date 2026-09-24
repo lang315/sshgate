@@ -8,6 +8,8 @@ func TestRoute(t *testing.T) {
 		mode string
 	}{
 		{[]string{"web", "--port", "9000"}, "web"},
+		{[]string{"hub", "--cli"}, "hub"},
+		{[]string{"hub"}, "hub"},
 		{[]string{"--host=1.2.3.4", "--user=root"}, "mcp"},
 		{[]string{}, "mcp"},
 	}

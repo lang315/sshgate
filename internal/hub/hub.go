@@ -72,13 +72,14 @@ type ExecResponse struct {
 }
 
 type Hub struct {
-	o      Options
-	mu     sync.Mutex // guards deps.File, deps.MasterKey and sink
-	deps   *mcpserver.Deps
-	sink   func(broker.Event)
-	reg    *sshx.Registry
-	broker *broker.Broker
-	audit  *broker.Audit
+	o       Options
+	mu      sync.Mutex // guards deps.File, deps.MasterKey and sink
+	deps    *mcpserver.Deps
+	sink    func(broker.Event)
+	sinkGen uint64 // bumped on every setEventSink; lets release() no-op if superseded
+	reg     *sshx.Registry
+	broker  *broker.Broker
+	audit   *broker.Audit
 }
 
 // New loads the store if present; a missing store is not an error.
@@ -98,10 +99,24 @@ func (h *Hub) Broker() *broker.Broker   { return h.broker }
 func (h *Hub) Registry() *sshx.Registry { return h.reg }
 func (h *Hub) Deps() *mcpserver.Deps    { return h.deps }
 
-func (h *Hub) setEventSink(f func(broker.Event)) {
+// setEventSink installs f as the event sink and returns a release func that
+// clears it again. Two callers may install a sink in sequence (e.g. a UI
+// door session ending while a CLI approver is still up in tests); release
+// only clears the sink if it is still the one this call installed, so an
+// out-of-order release from an earlier install can't clobber a later one.
+func (h *Hub) setEventSink(f func(broker.Event)) (release func()) {
 	h.mu.Lock()
 	h.sink = f
+	h.sinkGen++
+	gen := h.sinkGen
 	h.mu.Unlock()
+	return func() {
+		h.mu.Lock()
+		if h.sinkGen == gen {
+			h.sink = nil
+		}
+		h.mu.Unlock()
+	}
 }
 
 // emit runs on broker goroutines. No hub path holds h.mu while calling into

@@ -207,6 +207,28 @@ func TestEventsReachSink(t *testing.T) {
 	}
 }
 
+// TestSetEventSinkReleaseIsPerInstall covers R27: release only clears the
+// sink it installed, so an out-of-order release (an earlier session's,
+// firing after a later one replaced it) can't clobber the current sink.
+func TestSetEventSinkReleaseIsPerInstall(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	var got []string
+	releaseA := h.setEventSink(func(e broker.Event) { got = append(got, "A:"+e.Kind) })
+	releaseB := h.setEventSink(func(e broker.Event) { got = append(got, "B:"+e.Kind) })
+
+	releaseA()
+	h.emit(broker.Event{Kind: "pending"})
+	if len(got) != 1 || got[0] != "B:pending" {
+		t.Fatalf("want B still installed after releasing A, got %v", got)
+	}
+
+	releaseB()
+	h.emit(broker.Event{Kind: "pending"})
+	if len(got) != 1 {
+		t.Fatalf("want sink cleared after releasing B, got %v", got)
+	}
+}
+
 // newEncHub writes an encrypted vault: "enc" (AIVisible, pinned, password
 // "s3cr3t-pw") and "agent" (no encrypted fields, no pin). The hub starts
 // locked; the master password is "pw" and mk is returned.
