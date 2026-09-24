@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/lang315/ssh-mcp/internal/config"
 	"github.com/lang315/ssh-mcp/internal/sshx"
@@ -38,16 +39,35 @@ func runExec(ctx context.Context, d *Deps, reg *sshx.Registry, maxChars int, sud
 	}
 	mgr := reg.Get(nameOr(in.Server), dc)
 	red := config.NewRedactor(dc.Password, dc.SuPassword, dc.SudoPassword, dc.Passphrase)
-	var out string
+	var res sshx.ExecResult
 	if sudo {
-		out, err = mgr.ExecSudo(ctx, cmd)
+		res, err = mgr.ExecSudo(ctx, cmd)
 	} else {
-		out, err = mgr.Exec(ctx, cmd)
+		res, err = mgr.Exec(ctx, cmd)
 	}
 	if err != nil {
 		return textErr(red.Redact(err.Error())), nil
 	}
-	return textOK(red.Redact(out)), nil
+	return textOK(FormatExec(res, red)), nil
+}
+
+// FormatExec renders an exec result for the AI: exit code first, then the
+// two streams, each redacted and capped independently.
+func FormatExec(res sshx.ExecResult, red *config.Redactor) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "exit code: %d\n", res.ExitCode)
+	if res.Stdout != "" {
+		b.WriteString("stdout:\n")
+		b.WriteString(config.CapOutput(red.Redact(res.Stdout), config.DefaultOutputCap))
+		if !strings.HasSuffix(res.Stdout, "\n") {
+			b.WriteString("\n")
+		}
+	}
+	if res.Stderr != "" {
+		b.WriteString("stderr:\n")
+		b.WriteString(config.CapOutput(red.Redact(res.Stderr), config.DefaultOutputCap))
+	}
+	return b.String()
 }
 
 func nameOr(s string) string {

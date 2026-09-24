@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -103,52 +104,87 @@ func (m *Manager) ensure() error {
 	return nil
 }
 
-func (m *Manager) runOnce(ctx context.Context, cmd string, stdin string) (string, error) {
+// ExecResult splits a completed command's streams from its exit code. A
+// non-zero ExitCode is not an error; only transport, timeout, or
+// cancellation problems are.
+type ExecResult struct {
+	Stdout, Stderr string
+	ExitCode       int
+}
+
+// ErrCancelled is returned (wrapped) when ctx is cancelled while a command
+// is running. The remote process was sent SIGKILL, but delivery is not
+// guaranteed, so it may still be running.
+var ErrCancelled = errors.New("cancelled; the remote process may still be running")
+
+func (m *Manager) runOnce(ctx context.Context, cmd string, stdin string) (ExecResult, error) {
 	sess, err := m.client.NewSession()
 	if err != nil {
-		return "", err
+		return ExecResult{}, err
 	}
 	defer sess.Close()
-	var out bytes.Buffer
+	var out, errb bytes.Buffer
 	sess.Stdout = &out
-	sess.Stderr = &out
+	sess.Stderr = &errb
 	if stdin != "" {
 		sess.Stdin = strings.NewReader(stdin)
 	}
 	done := make(chan error, 1)
 	go func() { done <- sess.Run(cmd) }()
-	timeout := time.Duration(m.cfg.TimeoutMs) * time.Millisecond
+
+	// ctx deadline wins; otherwise fall back to the configured timeout.
+	var timeout <-chan time.Time
+	if _, has := ctx.Deadline(); !has {
+		timeout = time.After(time.Duration(m.cfg.TimeoutMs) * time.Millisecond)
+	}
+	finish := func(runErr error) (ExecResult, error) {
+		res := ExecResult{Stdout: out.String(), Stderr: errb.String()}
+		var exit *ssh.ExitError
+		if errors.As(runErr, &exit) {
+			res.ExitCode = exit.ExitStatus()
+			return res, nil
+		}
+		return res, runErr
+	}
 	select {
-	case err := <-done:
-		return out.String(), err
-	case <-time.After(timeout):
+	case runErr := <-done:
+		return finish(runErr)
+	case <-timeout:
+		_ = sess.Signal(ssh.SIGKILL)
 		sess.Close()
 		<-done // wait for sess.Run's writers to stop before reading out
-		return out.String(), fmt.Errorf("command timed out after %dms", m.cfg.TimeoutMs)
+		return ExecResult{Stdout: out.String(), Stderr: errb.String()},
+			fmt.Errorf("command timed out after %dms", m.cfg.TimeoutMs)
 	case <-ctx.Done():
+		_ = sess.Signal(ssh.SIGKILL)
 		sess.Close()
 		<-done
-		return out.String(), ctx.Err()
+		res := ExecResult{Stdout: out.String(), Stderr: errb.String()}
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return res, fmt.Errorf("command timed out: %w", ctx.Err())
+		}
+		return res, fmt.Errorf("%w: %v", ErrCancelled, ctx.Err())
 	}
 }
 
-func (m *Manager) Exec(ctx context.Context, cmd string) (string, error) {
+func (m *Manager) Exec(ctx context.Context, cmd string) (ExecResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := m.ensure(); err != nil {
-		return "", err
+		return ExecResult{}, err
 	}
 	if m.cfg.SuPassword != "" {
-		return m.execElevated(ctx, cmd)
+		out, code, err := m.execElevated(ctx, cmd)
+		return ExecResult{Stdout: out, ExitCode: code}, err
 	}
 	return m.runOnce(ctx, cmd, "")
 }
 
-func (m *Manager) ExecSudo(ctx context.Context, cmd string) (string, error) {
+func (m *Manager) ExecSudo(ctx context.Context, cmd string) (ExecResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := m.ensure(); err != nil {
-		return "", err
+		return ExecResult{}, err
 	}
 	if m.cfg.SudoPassword == "" {
 		return m.runOnce(ctx, WrapSudoNoPassword(cmd), "")
@@ -223,10 +259,13 @@ func (m *Manager) ensureElevated() (*suShell, error) {
 	return sh, nil
 }
 
-func (m *Manager) execElevated(ctx context.Context, cmd string) (string, error) {
+// execElevated returns the su shell's captured output and exit code. A
+// non-zero code is data, not an error; only transport/timeout problems
+// (which poison the persistent su shell) are returned as errors.
+func (m *Manager) execElevated(ctx context.Context, cmd string) (string, int, error) {
 	sh, err := m.ensureElevated()
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	n := nonce()
 	fmt.Fprintf(sh.stdin, "%s\n", FrameSuCommand(cmd, n))
@@ -235,12 +274,9 @@ func (m *Manager) execElevated(ctx context.Context, cmd string) (string, error) 
 		// poisoned shell — a half-finished command would corrupt the next capture
 		sh.sess.Close()
 		m.su = nil
-		return "", err
+		return "", 0, err
 	}
-	if code != 0 {
-		return out, fmt.Errorf("elevated command exited with code %d", code)
-	}
-	return out, nil
+	return out, code, nil
 }
 
 func readUntilAny(r *bufio.Reader, timeout time.Duration, needles []string) error {

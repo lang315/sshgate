@@ -2,6 +2,8 @@ package sshx
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,12 +69,65 @@ func TestExecEcho(t *testing.T) {
 		Auth: "password", Insecure: true, TimeoutMs: 30000,
 	})
 	defer m.Close()
-	out, err := m.Exec(context.Background(), "echo hello-ssh")
+	res, err := m.Exec(context.Background(), "echo hello-ssh")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := out; got == "" || !contains(got, "hello-ssh") {
+	if got := res.Stdout; got == "" || !contains(got, "hello-ssh") {
 		t.Fatalf("out = %q", got)
+	}
+}
+
+func TestExecSplitsStreamsAndExitCode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	host, port, cleanup := startSSH(t)
+	defer cleanup()
+	m := NewManager(DialConfig{Host: host, Port: port, User: "test", Password: "testpass", Auth: "password", Insecure: true, TimeoutMs: 30000})
+	defer m.Close()
+	res, err := m.Exec(context.Background(), "echo out; echo err 1>&2; exit 3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(res.Stdout) != "out" || strings.TrimSpace(res.Stderr) != "err" || res.ExitCode != 3 {
+		t.Fatalf("got %+v", res)
+	}
+}
+
+func TestExecCancelReturnsErrCancelled(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	host, port, cleanup := startSSH(t)
+	defer cleanup()
+	m := NewManager(DialConfig{Host: host, Port: port, User: "test", Password: "testpass", Auth: "password", Insecure: true, TimeoutMs: 30000})
+	defer m.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(500 * time.Millisecond); cancel() }()
+	start := time.Now()
+	_, err := m.Exec(ctx, "sleep 30")
+	if !errors.Is(err, ErrCancelled) {
+		t.Fatalf("want ErrCancelled, got %v", err)
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Fatal("cancel did not return promptly")
+	}
+}
+
+func TestExecCtxDeadlineBeatsConfigTimeout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	host, port, cleanup := startSSH(t)
+	defer cleanup()
+	m := NewManager(DialConfig{Host: host, Port: port, User: "test", Password: "testpass", Auth: "password", Insecure: true, TimeoutMs: 60000})
+	defer m.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err := m.Exec(ctx, "sleep 30")
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("want timeout error, got %v", err)
 	}
 }
 

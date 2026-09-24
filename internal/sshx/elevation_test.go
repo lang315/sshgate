@@ -18,12 +18,12 @@ func TestSuElevation(t *testing.T) {
 		SuPassword: "rootpass", Auth: "password", Insecure: true, TimeoutMs: 30000,
 	})
 	defer m.Close()
-	out, err := m.Exec(context.Background(), "id -u")
+	res, err := m.Exec(context.Background(), "id -u")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !contains(out, "0") {
-		t.Fatalf("expected uid 0, got %q", out)
+	if !contains(res.Stdout, "0") {
+		t.Fatalf("expected uid 0, got %q", res.Stdout)
 	}
 }
 
