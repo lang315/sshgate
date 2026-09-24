@@ -145,12 +145,12 @@ Build the hub binary at the repo root, then start the app from `desktop/`:
 
 `npm start` builds the renderer and main process, then launches Electron. The app spawns `ssh-mcp hub` as a child process and talks to it over stdio, the same way `hub --cli` does. The window shows an unlock screen first. Once unlocked, you get:
 
-- a host list, with an "AI" badge on servers marked "Visible to AI" and a "new" badge on any server whose host key isn't pinned yet;
+- a host list, with an "AI" badge on servers marked "Visible to AI" and a "new" badge on any server whose host key isn't pinned yet. The list is fetched when the app becomes ready, so servers added in `ssh-mcp web` while the app is open appear after Lock → Unlock (or an app restart);
 - terminal tabs, opened from the host list;
 - a non-modal approval panel on the side for AI-submitted commands, where Deny is the default action and Allow requires a real mouse click;
 - an OS notification and a tray badge with the pending count when a request arrives while the window isn't focused.
 
-With nothing pending or running and no UI activity for 15 minutes, the vault locks itself and the app returns to the unlock screen; open terminal tabs keep their SSH connections. Closing the window quits the app and stops the hub — the vault locks and the AI gets "Open the app to approve commands" until the app is reopened; it is not a tray-resident background app.
+With nothing pending or running and no UI activity for 15 minutes, the vault locks itself and the app returns to the unlock screen; open terminal tabs keep their SSH connections. Closing the window quits the app and stops the hub — the vault locks and the AI gets "Open the app to approve commands" until the app is reopened; it is not a tray-resident background app. There is no Reload menu item or shortcut (a reload would orphan the terminals' hub sessions); if the window's renderer crashes, the app locks the vault and reloads the window at the unlock screen.
 
 The AI client side is unchanged: register the bridge exactly as in [Using saved servers from an AI client](#using-saved-servers-from-an-ai-client):
 

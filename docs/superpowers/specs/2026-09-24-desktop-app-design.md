@@ -522,6 +522,7 @@ code. Each came from a review finding.
   outcomes `allowed`, `denied`, `sent_to_tab`, `expired`, and `withdrawn`;
   `term.dropped {id, bytes}` reports input dropped because the queue was
   full.
-- Not yet implemented, scheduled for slice 1b: the 15-minute idle
-  auto-lock (§Vault lifecycle) and a `hello` method that returns the hub
-  protocol version.
+- Implemented in slice 1b: the 15-minute idle auto-lock (§Vault
+  lifecycle) and a `hello` method that returns the hub protocol version.
+- Hub restart policy as implemented: backoff 1 s, 3 s, 10 s; the app gives
+  up on the 4th crash within 60 s and shows the hub's last stderr.

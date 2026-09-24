@@ -30,8 +30,8 @@ Build first: `go build -o ssh-mcp ./cmd/ssh-mcp` at the repo root, then
 
   Compare against the same commands over `ssh` in your native terminal
   app. While the flood is running:
-  - Watch the approval panel's Allow-button disable timer (or drag the
-    window) — it must not visibly freeze for more than 200 ms.
+  - Drag the window around — it must not visibly freeze for more than
+    200 ms.
   - Keep typing in the terminal — keystrokes must keep echoing without a
     long pause.
   - Watch renderer and main process RSS (Activity Monitor on macOS, Task
@@ -78,20 +78,21 @@ Build first: `go build -o ssh-mcp ./cmd/ssh-mcp` at the repo root, then
   app, no terminal typing, and no AI request pending or running — for 15
   minutes (the default in `internal/hub/idle.go`).
 
-  Pass: the app returns to the unlock screen on its own. Any terminal tab
-  that was open before the lock is still present afterward (still shows
-  its prior output) and reconnects to the same server once you unlock and
-  start typing in it again — its SSH connection was never dropped.
+  Pass: the app returns to the unlock screen on its own and shows "Locked
+  after 15 minutes of inactivity." Any terminal tab that was open before
+  the lock is still present afterward (still shows its prior output) and,
+  once you unlock, accepts typing again in the same shell without any
+  reconnect — its SSH connection was never dropped.
 
 - [ ] **6. Allow cannot be triggered from the keyboard**
 
   Trigger an AI approval request so it appears in the panel. Without
   clicking, press Tab repeatedly through the panel, then press Enter and
-  Space at each stop; separately, click to focus the Allow button directly
-  (e.g. via a screen reader or by tabbing into the reason field first,
-  then Tab once more) and press Enter and Space.
+  Space at each stop; separately, focus the Allow button directly (e.g. by
+  tabbing into the reason field first, then Tab once more) and press
+  Enter and Space.
 
-  Pass: the request is never allowed by a keyboard key alone. Only a real
+  Pass: the request is never allowed by Tab, Enter, or Space alone. Only a real
   mouse click on Allow approves it (and only after its 500 ms delay).
   Enter in the reason field, by contrast, submits Deny — confirm that
   still works as the keyboard's only reachable action.
@@ -114,8 +115,17 @@ Build first: `go build -o ssh-mcp ./cmd/ssh-mcp` at the repo root, then
   Pass, per OS:
   - macOS: the tray icon's title text shows the pending count (e.g. `2`).
   - Windows and Linux: the tray icon's tooltip (hover text) shows the
-    pending count (the count is not in the visible title text on these
-    two — that's title-bar text is macOS-only).
+    pending count (the count is not in visible title text on these two;
+    tray title text is macOS-only).
   - All three: one OS notification appears per request while the window
     is unfocused, and clicking the tray icon's "Show" menu item (or the
     icon itself, where the OS supports it) restores/focuses the app.
+
+- [ ] **9. Windows and Linux: terminal keys are not menu shortcuts**
+
+  Windows and Linux only (macOS keeps Cmd+C/V for the clipboard). In a
+  terminal tab, press Ctrl+R, Ctrl+W, and Ctrl+C.
+
+  Pass: each reaches the remote shell (Ctrl+R starts reverse history
+  search, Ctrl+W deletes the previous word, Ctrl+C interrupts); the window
+  never reloads or closes, and the tab keeps its session.
