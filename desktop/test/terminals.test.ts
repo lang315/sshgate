@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Debouncer, newTermId, TabSet } from '../src/renderer/terminals'
+import { Debouncer, newTermId, printable, TabSet } from '../src/renderer/terminals'
 
 describe('newTermId', () => {
   it('matches the hub id rules and is unique', () => {
@@ -39,5 +39,11 @@ describe('Debouncer', () => {
     vi.advanceTimersByTime(30)
     expect(fn).toHaveBeenCalledTimes(1)
     vi.useRealTimers()
+  })
+})
+
+describe('printable', () => {
+  it('strips C0, DEL and C1 control characters', () => {
+    expect(printable('bye\x1b]0;pwn\x07\r\n\x7f\x9b2Jok é')).toBe('bye]0;pwn2Jok é')
   })
 })

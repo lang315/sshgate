@@ -12,6 +12,7 @@ export function App() {
   const [unlockError, setUnlockError] = useState<string>()
   const [servers, setServers] = useState<ServerInfo[]>([])
   const terms = useRef<TerminalsHandle>(null)
+  const [everReady, setEverReady] = useState(false)
 
   const refresh = useCallback(async () => {
     try { setStatus(await hub.status()) } catch { setStatus(undefined) }
@@ -41,25 +42,33 @@ export function App() {
     await refresh()
   }
 
-  switch (screen.kind) {
-    case 'hub':
-      return <HubScreen state={screen.state} />
-    case 'no-store':
-      return <div className="center"><p>No vault yet. Run <code>ssh-mcp web</code> to add servers, then restart the app.</p></div>
-    case 'locked':
-      return <div className="center"><Unlock onUnlock={unlock} error={screen.error} /></div>
-    case 'ready':
-      return (
-        <div className="layout">
+  const ready = screen.kind === 'ready'
+  useEffect(() => { if (ready) setEverReady(true) }, [ready])
+
+  // Once shown, terminals stay mounted (hidden and inert) through lock and hub restarts,
+  // so their SSH sessions survive a lock and a restart can end them with Reconnect.
+  return (
+    <div className={ready ? 'layout' : 'app'}>
+      {ready ? (
+        <>
           <header>
             <span>ssh-mcp</span>
             <button onClick={async () => { try { await hub.lock(); setUnlockError(undefined); await refresh() } catch { /* the locked/hub-state events recover the UI */ } }}>Lock</button>
           </header>
           <HostList servers={servers} onOpen={(name) => terms.current?.open(name)} />
-          <main className="work"><Terminals ref={terms} /></main>
-        </div>
-      )
-  }
+        </>
+      ) : screen.kind === 'hub' ? (
+        <HubScreen state={screen.state} />
+      ) : screen.kind === 'no-store' ? (
+        <div className="center"><p>No vault yet. Run <code>ssh-mcp web</code> to add servers, then restart the app.</p></div>
+      ) : (
+        <div className="center"><Unlock onUnlock={unlock} error={screen.error} /></div>
+      )}
+      {(ready || everReady) && (
+        <main className="work" style={ready ? undefined : { display: 'none' }} inert={!ready}><Terminals ref={terms} /></main>
+      )}
+    </div>
+  )
 }
 
 function HubScreen({ state }: { state: HubState }) {

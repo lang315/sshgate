@@ -51,3 +51,6 @@ export class Debouncer {
   poke() { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(this.fn, this.ms) }
   cancel() { if (this.timer) clearTimeout(this.timer) }
 }
+
+// Hub-supplied text written into xterm must not carry escape sequences.
+export const printable = (s: string) => s.replace(/[\x00-\x1f\x7f-\x9f]/g, '')

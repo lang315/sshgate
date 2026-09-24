@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { hub, fromBase64 } from './transport'
-import { Debouncer, type Tab, type TabSet } from './terminals'
+import { Debouncer, printable, type Tab, type TabSet } from './terminals'
 
 export interface TermApi { paste(text: string): void }
 
@@ -12,6 +12,11 @@ export function TermView({ tab, tabs, visible, onChange, register }: {
   register: (id: string, api: TermApi | undefined) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  const termRef = useRef<Terminal>(undefined)
+  const visibleRef = useRef(visible)
+  visibleRef.current = visible
+
+  useEffect(() => { if (visible) termRef.current?.focus() }, [visible])
 
   useEffect(() => {
     const el = ref.current!
@@ -20,6 +25,7 @@ export function TermView({ tab, tabs, visible, onChange, register }: {
     term.loadAddon(fit)
     term.open(el)
     fit.fit()
+    termRef.current = term
     const enc = new TextEncoder()
     // Nothing is sent for this id before the term.open reply, nor after it ends.
     let phase: 'opening' | 'open' | 'ended' = 'opening'
@@ -30,6 +36,7 @@ export function TermView({ tab, tabs, visible, onChange, register }: {
     const end = (reason: string) => {
       if (phase === 'ended') return
       phase = 'ended'
+      reason = printable(reason)
       term.write(`\r\n[exited: ${reason}]\r\n`)
       tabs.exited(tab.id, reason)
       onChange()
@@ -49,6 +56,7 @@ export function TermView({ tab, tabs, visible, onChange, register }: {
         }
         tabs.opened(tab.id)
         onChange()
+        if (visibleRef.current) term.focus()
       },
       (e) => { if (!disposed) end(`open failed: ${(e as Error).message}`) },
     )
@@ -88,6 +96,7 @@ export function TermView({ tab, tabs, visible, onChange, register }: {
       register(tab.id, undefined)
       // Closing while opening waits for the reply; an ended session needs no close.
       if (phase !== 'ended') opening.then(() => hub.termClose(tab.id)).catch(() => {})
+      termRef.current = undefined
       term.dispose()
     }
     // tab identity is fixed for the life of this component
