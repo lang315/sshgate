@@ -36,4 +36,5 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: xvfb-run -a npm run e2e

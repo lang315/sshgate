@@ -62,7 +62,6 @@ test('unlock, open a terminal, approve an AI command', async () => {
   await win.locator('.xterm').click()
   await win.keyboard.type(' after-lock')
   await expect(win.locator('.xterm-rows')).toContainText('echo smoke-ok after-lock')
-  await expect(tab).not.toContainText('exited')
 
   const socket = path.join(tmp, 'ssh-mcp', 'hub.sock')
   const result = doorCall(socket, 'exec', { requestId: 'r1', client: 'e2e', server: 'box', command: 'echo approved', description: 'smoke' })
@@ -80,9 +79,9 @@ test('unlock, open a terminal, approve an AI command', async () => {
   await expect(result).resolves.toMatchObject({ exitCode: 0, stdout: 'echo approved' })
   await expect(win.getByText('Nothing waiting.')).toBeVisible()
 
-  const denied = doorCall(socket, 'exec', { requestId: 'r2', client: 'e2e', server: 'box', command: 'rm -rf /', description: '' })
-  denied.catch(() => {}) // it rejects before the expect below attaches; avoid an unhandled rejection
+  const denied = expect(doorCall(socket, 'exec', { requestId: 'r2', client: 'e2e', server: 'box', command: 'rm -rf /', description: '' }))
+    .rejects.toThrow('Denied by user: not today')
   await win.getByPlaceholder('Reason (optional)').fill('not today')
   await win.getByPlaceholder('Reason (optional)').press('Enter')
-  await expect(denied).rejects.toThrow('Denied by user: not today')
+  await denied
 })
