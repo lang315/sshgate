@@ -92,8 +92,9 @@ Build first: `go build -o ssh-mcp ./cmd/ssh-mcp` at the repo root, then
   tabbing into the reason field first, then Tab once more) and press
   Enter and Space.
 
-  Pass: the request is never allowed by Tab, Enter, or Space alone. Only a real
-  mouse click on Allow approves it (and only after its 500 ms delay).
+  Pass: the request is never allowed by Tab, Enter, or Space alone. Only activating
+  the Allow button itself (a click) approves it, and only after its 500 ms
+  delay.
   Enter in the reason field, by contrast, submits Deny — confirm that
   still works as the keyboard's only reachable action.
 

@@ -107,9 +107,17 @@ test('unlock, open a terminal, approve an AI command', async () => {
   const allowFirst = approvals.filter({ hasText: 'echo first' }).getByRole('button', { name: 'Allow' })
   await expect(allowFirst).toBeEnabled({ timeout: 2000 })
   await allowFirst.click()
-  await expect(approvals).toHaveCount(1)
-  expect(await approvals.getByRole('button', { name: 'Allow' }).isDisabled()).toBe(true)
-  expect(await win.getByRole('button', { name: 'Deny all' }).isDisabled()).toBe(true)
+  // Sample the buttons in-page on the frame the list shrinks, so a slow poll can't
+  // miss the window before the delay runs out.
+  const shifted = await win.waitForFunction(() => {
+    const forms = document.querySelectorAll('.approval')
+    if (forms.length !== 1) return null
+    return {
+      allow: (forms[0].querySelector('button.allow') as HTMLButtonElement).disabled,
+      denyAll: (document.querySelector('button.denyall') as HTMLButtonElement | null)?.disabled ?? 'missing',
+    }
+  }, undefined, { polling: 'raf' })
+  expect(await shifted.jsonValue()).toEqual({ allow: true, denyAll: true })
   await expect(first).resolves.toMatchObject({ stdout: 'echo first' })
   const secondDenied = expect(second).rejects.toThrow('Denied by user')
   await approvals.getByRole('button', { name: 'Deny', exact: true }).click()
