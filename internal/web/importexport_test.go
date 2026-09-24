@@ -53,6 +53,8 @@ func postJSON(t *testing.T, app *App, csrf, path string, v any) *httptest.Respon
 		app.handleImportApply(w, r)
 	case "/api/export":
 		app.handleExport(w, r)
+	case "/api/test-connection":
+		app.handleTestConnection(w, r)
 	}
 	return w
 }

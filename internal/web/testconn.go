@@ -55,6 +55,12 @@ func (a *App) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	dc.OnLearnHostKey = func(fp string) {
 		_ = config.RecordHostKey(a.Path, s.Name, fp, sess.MasterKey)
+		// The list is served from a.file; reload so the new pin shows.
+		if f, err := config.Load(a.Path); err == nil {
+			a.mu.Lock()
+			a.file = f
+			a.mu.Unlock()
+		}
 	}
 	if s.Auth == "key" {
 		if s.EncKeyPassphrase != "" {

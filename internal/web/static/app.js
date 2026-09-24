@@ -65,8 +65,20 @@ async function showList() {
     const secrets = [s.hasPassword && 'pw', s.hasSuPassword && 'su', s.hasSudoPassword && 'sudo'].filter(Boolean).join(',') || '—';
     tr.append(el('td', secrets));
     tr.append(el('td', s.aiVisible ? 'AI' : ''));
+    tr.append(el('td', s.hostKey || 'not pinned'));
     const td = el('td');
     const edit = el('button', 'Edit'); edit.onclick = () => showForm(s);
+    const test = el('button', 'Test connection');
+    test.onclick = async () => {
+      test.disabled = true;
+      try {
+        const r = await api('POST', '/api/test-connection', { name: s.name });
+        alert(r.ok ? 'Connection OK (' + s.name + ')' : 'Connection failed (' + s.name + '); details are in the terminal running ssh-mcp web');
+      } catch (e) {
+        alert('' + e.message);
+      }
+      showList(); // shows a host key pinned by this first connection
+    };
     const del = el('button', 'Delete');
     del.onclick = async () => {
       try {
@@ -76,7 +88,7 @@ async function showList() {
         alert('' + e.message);
       }
     };
-    td.append(edit, del); tr.append(td);
+    td.append(edit, test, del); tr.append(td);
     rows.append(tr);
   });
   document.getElementById('add').onclick = () => showForm(null);
@@ -103,7 +115,7 @@ function showForm(s) {
   const pw = field('Password (blank = keep)', '', 'password');
   const su = field('su password (blank = keep)', '', 'password');
   const sudo = field('sudo password (blank = keep)', '', 'password');
-  const hostKey = field('Host key fingerprint (blank = trust on first connect)', s && s.hostKey, 'text');
+  const hostKey = field('Host key fingerprint (blank = pinned on first Test connection)', s && s.hostKey, 'text');
   const ai = document.createElement('label');
   const aiBox = document.createElement('input');
   aiBox.type = 'checkbox';
