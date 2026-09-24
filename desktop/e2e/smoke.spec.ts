@@ -84,4 +84,50 @@ test('unlock, open a terminal, approve an AI command', async () => {
   await win.getByPlaceholder('Reason (optional)').fill('not today')
   await win.getByPlaceholder('Reason (optional)').press('Enter')
   await denied
+
+  // Success Criterion 4: typing and Enter in the terminal never settle a pending request.
+  // sshtestd's exec returns the command text, so "run echo" is approximated by the
+  // stdout check on r1 above.
+  const pending = doorCall(socket, 'exec', { requestId: 'r3', client: 'e2e', server: 'box', command: 'echo sc4', description: '' })
+  const approvals = win.locator('.approval')
+  await expect(approvals).toHaveCount(1)
+  await win.locator('.xterm').click()
+  await win.keyboard.type('x')
+  await win.keyboard.press('Enter')
+  expect(await settledWithin(pending, 1000)).toBe(false)
+  const sc4Denied = expect(pending).rejects.toThrow('Denied by user')
+  await approvals.getByRole('button', { name: 'Deny', exact: true }).click()
+  await sc4Denied
+  await expect(approvals).toHaveCount(0)
+
+  // I1: after Allow on the first of two requests, the second shifts up with Allow disabled.
+  const first = doorCall(socket, 'exec', { requestId: 'r4', client: 'e2e', server: 'box', command: 'echo first', description: '' })
+  const second = doorCall(socket, 'exec', { requestId: 'r5', client: 'e2e', server: 'box', command: 'echo second', description: '' })
+  await expect(approvals).toHaveCount(2)
+  const allowFirst = approvals.filter({ hasText: 'echo first' }).getByRole('button', { name: 'Allow' })
+  await expect(allowFirst).toBeEnabled({ timeout: 2000 })
+  await allowFirst.click()
+  await expect(approvals).toHaveCount(1)
+  expect(await approvals.getByRole('button', { name: 'Allow' }).isDisabled()).toBe(true)
+  expect(await win.getByRole('button', { name: 'Deny all' }).isDisabled()).toBe(true)
+  await expect(first).resolves.toMatchObject({ stdout: 'echo first' })
+  const secondDenied = expect(second).rejects.toThrow('Denied by user')
+  await approvals.getByRole('button', { name: 'Deny', exact: true }).click()
+  await secondDenied
+
+  // I2: no Reload/Close/DevTools menu items (Windows/Linux: no menu at all).
+  const menuRoles = await app.evaluate(({ Menu }) => {
+    const walk = (m: Electron.Menu | null): string[] => (m ? m.items.flatMap((i) => [String(i.role ?? ''), ...walk(i.submenu ?? null)]) : [])
+    return walk(Menu.getApplicationMenu())
+  })
+  expect(menuRoles.filter((r) => /reload|close|devtools/i.test(r))).toEqual([])
+
+  // I2: a renderer crash locks the vault and reloads the window at the unlock screen.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer())
+  // Playwright's page dies with the renderer, so read the reloaded page through main
+  // (executeJavaScript on a crashed or loading page can hang, so skip those polls).
+  await expect.poll(() => app.evaluate(({ BrowserWindow }) => {
+    const wc = BrowserWindow.getAllWindows()[0].webContents
+    return wc.isCrashed() || wc.isLoading() ? '' : wc.executeJavaScript('document.body.innerText')
+  }), { timeout: 10000 }).toContain('Unlock vault')
 })
