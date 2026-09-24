@@ -32,7 +32,7 @@ plan note.
 | # | Slice | Status | Spec | Depends on | Entry gate | Exit gate |
 |---|---|---|---|---|---|---|
 | 0 | Go conversion + web config UI | Done | `specs/2026-07-31-go-conversion-web-ui-design.md` | — | — | Merged on `feat/go-conversion`; CI runs `go test` |
-| 1 | Desktop app: hub, broker, MCP door, Electron shell, terminal tabs, approval panel | Spec approved | `specs/2026-09-24-desktop-app-design.md` | 0 | Spec approved | Success criteria 1–6 in the spec; author uses it daily |
+| 1 | Desktop app: hub, broker, MCP door, Electron shell, terminal tabs, approval panel | 1a (Go core) done; 1b (Electron) not planned | `specs/2026-09-24-desktop-app-design.md` | 0 | Spec approved | Success criteria 1–6 in the spec; author uses it daily |
 | 2 | Terminal completeness: host CRUD in the app (retire `ssh-mcp web`), host-key fingerprint prompt, split panes, `~/.ssh/config` import, ProxyJump, Windows agent (OpenSSH pipe, Pageant), local shell via `node-pty` | Not specced | — | 1 | Slice 1 used daily for two weeks; throughput criteria passed; stdio transport decision settled | Author no longer opens `ssh-mcp web` or another terminal for SSH work |
 | 3 | SFTP and port forwarding (local, remote, dynamic) | Not specced | — | 2 | Slice 2 done | File browser and tunnels usable from a saved host |
 | 4 | Egress and audit: pattern redaction of command output (private keys, `password=`, bearer tokens), audit rotation, audit viewer in the app | Not specced | — | 1 | A real incident, or a host with secrets the AI must query | Redaction tests pass on a corpus of real outputs |
@@ -54,6 +54,10 @@ plan note.
   frames were needed.
 - Slice 1 → 2: whether Claude Code resets its tool timeout on
   `notifications/progress`, and the value of `MCP_TOOL_TIMEOUT`.
-- Slice 1 → 2: whether `go-winio` sets `FILE_FLAG_FIRST_PIPE_INSTANCE`.
+- Slice 1 → 2: `go-winio` v0.6.2 gets first-instance semantics from `NtCreateNamedPipeFile` with `FILE_CREATE` (`pipe.go:378-381`) rather than the flag. Windows runtime behaviour (DACL, SID checks) is still untested on a real Windows machine.
 - Slice 1 → 4: which remote-host secrets actually appeared in command
   output during daily use; drives the redaction pattern list.
+- Slice 1a → 1b: the spec's 15-minute idle auto-lock is not implemented. It is hub-side (the hub knows pending/running requests and UI-door activity) and belongs in the 1b plan.
+- Slice 1a → 1b: UI-door protocol facts the Electron app must follow: integer JSON-RPC ids; `term.write`/`term.ack`/`term.resize` are notifications, everything else is a request; client-chosen terminal ids; do not send to a terminal before its `term.open` reply; ignore data for unknown ids; decisions include `withdrawn` and `expired`; add a `hello`/`version` method before 1b starts.
+- Slice 1a → 1b: the spec lags the code in three places (auth failures now return a generic "connection to server failed"; the socket path is `$SSH_MCP_RUNTIME_DIR` → `/run/user/<uid>` → `/tmp/ssh-mcp-<uid>`; the description is metadata and never executed). Amend the spec before writing plan 1b.
+- Slice 1a → 2: in the UI door, `servers` and `term.open` still allow key-only servers while an encrypted vault is locked (the AI path refuses them). Decide whether the human path should match.
