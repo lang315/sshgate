@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -26,8 +27,11 @@ func RunCLIApprover(ctx context.Context, h *Hub, in io.Reader, out io.Writer) er
 	// out so a "pending" print can't tear against them.
 	out = &syncWriter{w: out}
 	release := h.setEventSink(func(e broker.Event) {
-		if e.Kind == "pending" {
+		switch e.Kind {
+		case "pending":
 			printRequest(out, e.Request)
+		case "decided":
+			printDecided(out, e)
 		}
 	})
 	defer release()
@@ -50,15 +54,15 @@ func RunCLIApprover(ctx context.Context, h *Hub, in io.Reader, out io.Writer) er
 		pend := h.broker.Pending()
 		switch cmd {
 		case "a":
-			if r, _, ok := resolveTarget(out, pend, rest); ok {
+			if r, _, ok := resolveTarget(out, pend, rest, false); ok {
 				h.broker.Decide(r.ID, broker.Decision{Outcome: broker.Allowed})
 			}
 		case "d":
-			if r, reason, ok := resolveTarget(out, pend, rest); ok {
+			if r, reason, ok := resolveTarget(out, pend, rest, true); ok {
 				h.broker.Decide(r.ID, broker.Decision{Outcome: broker.Denied, Reason: reason})
 			}
 		case "s":
-			if r, _, ok := resolveTarget(out, pend, rest); ok {
+			if r, _, ok := resolveTarget(out, pend, rest, false); ok {
 				fmt.Fprintf(out, "paste into your terminal (not run here):\n  %s\n", r.Command)
 				h.broker.Decide(r.ID, broker.Decision{Outcome: broker.SentToTab})
 			}
@@ -152,22 +156,21 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 
 // resolveTarget interprets the argument after a/d/s (R31): an explicit
 // request id, or, when omitted, the sole pending request if there is
-// exactly one. It never guesses among several pending requests. With 2+
-// pending and no id, or an id that matches nothing, it prints guidance to
-// out and returns ok=false without deciding anything. reason is the text
-// after the id (or, for the single-pending shorthand, the whole rest, so
-// e.g. "d not now" with one request pending denies it with reason "not
-// now" without requiring an id).
-func resolveTarget(out io.Writer, pend []broker.Request, rest string) (r broker.Request, reason string, ok bool) {
+// exactly one. It never guesses: an id that is not pending (e.g. one that
+// was withdrawn while the human read it) decides nothing, even when another
+// request is now the only one pending. With 2+ pending and no id it prints
+// guidance and returns ok=false. reason is the text after the id. For d
+// (withReason) with exactly one pending, a first word that is not
+// id-shaped starts the reason, so "d not now" denies it with "not now".
+func resolveTarget(out io.Writer, pend []broker.Request, rest string, withReason bool) (r broker.Request, reason string, ok bool) {
 	tok, remainder, _ := strings.Cut(rest, " ")
-	if len(pend) == 1 && (tok == "" || !hasPendingID(pend, tok)) {
-		return pend[0], rest, true
-	}
-	if tok == "" {
-		if len(pend) == 0 {
-			fmt.Fprintln(out, "nothing pending")
-			return broker.Request{}, "", false
-		}
+	switch {
+	case len(pend) == 0:
+		fmt.Fprintln(out, "nothing pending")
+		return broker.Request{}, "", false
+	case tok == "" && len(pend) == 1:
+		return pend[0], "", true
+	case tok == "":
 		for _, p := range pend {
 			printRequest(out, p)
 		}
@@ -179,17 +182,22 @@ func resolveTarget(out io.Writer, pend []broker.Request, rest string) (r broker.
 			return p, remainder, true
 		}
 	}
+	if withReason && len(pend) == 1 && !idShaped.MatchString(tok) {
+		return pend[0], rest, true
+	}
 	fmt.Fprintf(out, "no pending request %s\n", tok)
 	return broker.Request{}, "", false
 }
 
-func hasPendingID(pend []broker.Request, id string) bool {
-	for _, p := range pend {
-		if p.ID == id {
-			return true
-		}
+// idShaped matches broker request ids (8 random bytes, hex).
+var idShaped = regexp.MustCompile(`^[0-9a-f]{16}$`)
+
+func printDecided(out io.Writer, e broker.Event) {
+	fmt.Fprintf(out, "\n=== %s id=%s (%s)", e.Decision.Outcome, e.Request.ID, e.Request.Command)
+	if e.Decision.Reason != "" {
+		fmt.Fprintf(out, ": %s", e.Decision.Reason)
 	}
-	return false
+	fmt.Fprint(out, "\n> ")
 }
 
 func printRequest(out io.Writer, r broker.Request) {

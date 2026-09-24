@@ -216,3 +216,79 @@ func TestCLIApproverReturnsOnCtxCancelWhileIdle(t *testing.T) {
 		t.Fatal("RunCLIApprover did not return on ctx cancel while stdin idle")
 	}
 }
+
+// startCLI runs the approver on a pipe and waits for its banner.
+func startCLI(t *testing.T, h *Hub) (io.Writer, *safeBuf) {
+	t.Helper()
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { pw.Close() })
+	out := &safeBuf{}
+	go RunCLIApprover(context.Background(), h, pr, out)
+	waitOut(t, out, "Commands:")
+	return pw, out
+}
+
+// C2: "a <stale id>" must never approve a different request that happens to
+// be the only one pending now.
+func TestCLIApproverStaleIDDecidesNothing(t *testing.T) {
+	fe := &fakeExec{}
+	h, _ := newHubExpiry(t, fe, time.Minute)
+	pw, out := startCLI(t, h)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errc1 := make(chan error, 1)
+	go func() { _, err := h.Exec(ctx, ExecRequest{Server: "vis", Command: "first"}); errc1 <- err }()
+	waitPending(t, h.Broker(), 1)
+	staleID := h.Broker().Pending()[0].ID
+	cancel() // the AI withdraws the one the human was reading
+	<-errc1
+	waitOut(t, out, "withdrawn")
+
+	go h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "rm -rf /tmp/x"})
+	waitPending(t, h.Broker(), 1)
+	for _, cmd := range []string{"a", "s", "d"} {
+		pw.Write([]byte(cmd + " " + staleID + "\n"))
+	}
+	pw.Write([]byte("p\n")) // handled after the three above
+	waitFor(t, "three refusals", func() bool {
+		return strings.Count(out.String(), "no pending request "+staleID) == 3
+	})
+	if n := len(h.Broker().Pending()); n != 1 {
+		t.Fatalf("stale id decided the other request: %d pending", n)
+	}
+	if len(fe.calls) != 0 {
+		t.Fatalf("executed: %v", fe.calls)
+	}
+}
+
+func TestCLIApproverJunkWithNothingPending(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	pw, out := startCLI(t, h)
+	pw.Write([]byte("a junk\n"))
+	waitOut(t, out, "nothing pending")
+}
+
+// "d <reason>" with one pending still denies it, as long as the first word
+// does not look like a request id.
+func TestCLIApproverDenyReasonShorthand(t *testing.T) {
+	h, _ := newHubExpiry(t, &fakeExec{}, time.Minute)
+	pw, out := startCLI(t, h)
+	errc := make(chan error, 1)
+	go func() { _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}); errc <- err }()
+	waitPending(t, h.Broker(), 1)
+	pw.Write([]byte("d not now\n"))
+	var de *DeniedError
+	if err := <-errc; !errors.As(err, &de) || de.Reason != "not now" {
+		t.Fatalf("got %v", err)
+	}
+	waitOut(t, out, "denied")
+}
+
+func TestCLIApproverPrintsExpired(t *testing.T) {
+	h, _ := newHubExpiry(t, &fakeExec{}, 50*time.Millisecond)
+	_, out := startCLI(t, h)
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}); !errors.Is(err, ErrExpired) {
+		t.Fatalf("got %v", err)
+	}
+	waitOut(t, out, "expired")
+}
