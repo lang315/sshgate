@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -66,5 +68,121 @@ func TestCallHonoursContext(t *testing.T) {
 	defer cancel()
 	if err := c.Call(ctx, "slow", nil, nil); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("want deadline, got %v", err)
+	}
+}
+
+// TestServeDispatchesNotificationsInOrder covers fix-round-1 item 1:
+// notifications (no id) must be dispatched synchronously on Serve's read
+// loop, in the order received, so e.g. terminal keystrokes are never
+// reordered. The Client type has no send-side notify, so this writes raw
+// JSON-RPC lines directly to exercise Serve's dispatch order.
+func TestServeDispatchesNotificationsInOrder(t *testing.T) {
+	r, w := io.Pipe()
+	s := NewServer()
+	var mu sync.Mutex
+	var got []int
+	s.Handle("tick", func(ctx context.Context, p json.RawMessage) (any, error) {
+		var n int
+		json.Unmarshal(p, &n)
+		mu.Lock()
+		got = append(got, n)
+		mu.Unlock()
+		return nil, nil
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.Serve(ctx, r, io.Discard)
+
+	go func() {
+		for i := 0; i < 200; i++ {
+			line, _ := json.Marshal(struct {
+				JSONRPC string `json:"jsonrpc"`
+				Method  string `json:"method"`
+				Params  int    `json:"params"`
+			}{"2.0", "tick", i})
+			w.Write(append(line, '\n'))
+		}
+	}()
+
+	deadline := time.After(2 * time.Second)
+	for {
+		mu.Lock()
+		n := len(got)
+		mu.Unlock()
+		if n == 200 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("only got %d/200 notifications", n)
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	for i, v := range got {
+		if v != i {
+			t.Fatalf("out of order at index %d: got %d, want %d", i, v, i)
+		}
+	}
+}
+
+// TestServeReturnsPromptlyOnCtxCancel covers fix-round-1 item 3: Serve must
+// return when ctx is done even if the reader never sends anything.
+func TestServeReturnsPromptlyOnCtxCancel(t *testing.T) {
+	r, w := io.Pipe()
+	defer w.Close() // let the leaked scanner goroutine observe EOF
+
+	s := NewServer()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already done before Serve is called
+
+	done := make(chan error, 1)
+	go func() { done <- s.Serve(ctx, r, io.Discard) }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("want context.Canceled, got %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Serve did not return promptly on ctx cancel")
+	}
+}
+
+// TestServeCalledTwiceErrors covers fix-round-1 item 4: a Server serves
+// exactly one connection.
+func TestServeCalledTwiceErrors(t *testing.T) {
+	s := NewServer()
+	if err := s.Serve(context.Background(), strings.NewReader(""), io.Discard); err != nil {
+		t.Fatalf("first Serve: %v", err)
+	}
+	if err := s.Serve(context.Background(), strings.NewReader(""), io.Discard); err == nil {
+		t.Fatal("second Serve call should return an error")
+	}
+}
+
+// TestClientCloseUnblocksPendingCall covers fix-round-1 items 5 and 6:
+// Close must close the reader (not just the writer) so readLoop exits and a
+// pending Call unblocks and cleans up its waiting entry.
+func TestClientCloseUnblocksPendingCall(t *testing.T) {
+	srvR, _, cliR, cliW := pipePair()
+	go io.Copy(io.Discard, srvR) // drain so Call's write doesn't block
+
+	c := NewClient(cliR, cliW, nil)
+	errCh := make(chan error, 1)
+	go func() { errCh <- c.Call(context.Background(), "noop", nil, nil) }()
+	time.Sleep(50 * time.Millisecond) // let Call register itself as waiting
+
+	if err := c.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("want error after Close, got nil")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("pending Call did not unblock after Close")
 	}
 }
