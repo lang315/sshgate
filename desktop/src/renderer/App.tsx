@@ -85,7 +85,7 @@ export function App() {
         <div className="center"><p>No vault yet. Run <code>ssh-mcp web</code> to add servers, then restart the app.</p></div>
       ) : (
         <div className="center">
-          {idleLocked && <p className="muted">Locked after 15 minutes of inactivity.</p>}
+          {idleLocked && <p className="muted">Locked after inactivity.</p>}
           <Unlock onUnlock={unlock} error={screen.error} />
         </div>
       )}

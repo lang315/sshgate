@@ -19,6 +19,8 @@ function hubCommand(): string {
 function hubArgs(): string[] {
   const args = ['hub']
   if (process.env.SSH_MCP_STORE) args.push(`--store=${process.env.SSH_MCP_STORE}`)
+  // Dev/test knob: a Go duration such as 3s (the hub rejects anything under 1s).
+  if (process.env.SSH_MCP_IDLE_LOCK) args.push(`--idleLock=${process.env.SSH_MCP_IDLE_LOCK}`)
   return args
 }
 

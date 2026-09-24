@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/lang315/ssh-mcp/internal/broker"
 	"github.com/lang315/ssh-mcp/internal/config"
@@ -25,6 +26,10 @@ func runHub(args []string) error {
 	if _, ok := m["insecureIgnoreHostKey"]; ok {
 		return errors.New("--insecureIgnoreHostKey is not supported by hub: AI commands always verify the pinned host key")
 	}
+	idle, err := parseIdleLock(m)
+	if err != nil {
+		return err
+	}
 	store := storePath()
 	if p := m["store"]; p != nil && *p != "" {
 		store = *p
@@ -38,7 +43,7 @@ func runHub(args []string) error {
 	}
 	defer audit.Close()
 
-	h, err := hub.New(hub.Options{StorePath: store, Audit: audit})
+	h, err := hub.New(hub.Options{StorePath: store, Audit: audit, IdleLock: idle})
 	if err != nil {
 		return err
 	}
@@ -75,6 +80,23 @@ func runHub(args []string) error {
 		return cleanOnSignal(hub.RunCLIApprover(ctx, h, os.Stdin, os.Stdout))
 	}
 	return cleanOnSignal(hub.ServeUIDoor(ctx, h, os.Stdin, os.Stdout))
+}
+
+// parseIdleLock reads --idleLock=<duration>, a dev/test override of the
+// idle auto-lock. Absent means the hub default (0).
+func parseIdleLock(m map[string]*string) (time.Duration, error) {
+	v, ok := m["idleLock"]
+	if !ok {
+		return 0, nil
+	}
+	if v == nil {
+		return 0, errors.New("--idleLock: want --idleLock=<duration>, e.g. --idleLock=3s")
+	}
+	d, err := time.ParseDuration(*v)
+	if err != nil || d < time.Second {
+		return 0, fmt.Errorf("--idleLock: want a duration of at least 1s (e.g. 3s), got %q", *v)
+	}
+	return d, nil
 }
 
 // cleanOnSignal maps ctx's own cancellation (SIGINT/SIGTERM, via ctx from
