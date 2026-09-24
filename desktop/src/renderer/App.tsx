@@ -46,6 +46,9 @@ export function App() {
   const [seedError, setSeedError] = useState<string>()
   const decidedSince = useRef(new Set<string>())
   useEffect(() => hub.onEvent((e) => {
+    // Only approval events can change items. A no-op setItems still queues an update
+    // (holding e) until App next renders, so calling it per term.data leaks every chunk.
+    if (e.method !== 'pending' && e.method !== 'decided') return
     if (e.method === 'decided') decidedSince.current.add(e.params.request.id)
     setItems((cur) => reduceApprovals(cur, e, Date.now()))
   }), [])
