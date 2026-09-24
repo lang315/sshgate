@@ -46,6 +46,14 @@ func TestReadCommandOutputNoMarkerReturnsError(t *testing.T) {
 	}
 }
 
+func TestReadCommandOutputGarbledCodeReturnsError(t *testing.T) {
+	n := "SSHMCPabc123"
+	stream := "hello\n" + n + ":notanumber\n"
+	if _, _, err := readCommandOutput(bufio.NewReader(strings.NewReader(stream)), time.Second, n); err == nil {
+		t.Fatal("garbled exit code marker must return an error, not a false success with code 0")
+	}
+}
+
 func TestLastNonEmptyLine(t *testing.T) {
 	if lastNonEmptyLine("a\nb\n\n") != "b" {
 		t.Fatalf("got %q", lastNonEmptyLine("a\nb\n\n"))

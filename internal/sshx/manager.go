@@ -163,7 +163,7 @@ func (m *Manager) runOnce(ctx context.Context, cmd string, stdin string) (ExecRe
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return res, fmt.Errorf("command timed out: %w", ctx.Err())
 		}
-		return res, fmt.Errorf("%w: %v", ErrCancelled, ctx.Err())
+		return res, fmt.Errorf("%w: %w", ErrCancelled, ctx.Err())
 	}
 }
 
@@ -260,8 +260,8 @@ func (m *Manager) ensureElevated() (*suShell, error) {
 }
 
 // execElevated returns the su shell's captured output and exit code. A
-// non-zero code is data, not an error; only transport/timeout problems
-// (which poison the persistent su shell) are returned as errors.
+// non-zero code is data, not an error; only transport/timeout/cancellation
+// problems (which poison the persistent su shell) are returned as errors.
 func (m *Manager) execElevated(ctx context.Context, cmd string) (string, int, error) {
 	sh, err := m.ensureElevated()
 	if err != nil {
@@ -269,14 +269,57 @@ func (m *Manager) execElevated(ctx context.Context, cmd string) (string, int, er
 	}
 	n := nonce()
 	fmt.Fprintf(sh.stdin, "%s\n", FrameSuCommand(cmd, n))
-	out, code, err := readCommandOutput(sh.buf, time.Duration(m.cfg.TimeoutMs)*time.Millisecond, n)
+	kill := func() {
+		_ = sh.sess.Signal(ssh.SIGKILL)
+		sh.sess.Close()
+	}
+	out, code, err := waitCommandOutput(ctx, sh.buf, m.cfg.TimeoutMs, n, kill)
 	if err != nil {
-		// poisoned shell — a half-finished command would corrupt the next capture
+		// poisoned shell — a half-finished or killed command would corrupt
+		// the next capture, so it must be re-established next time.
 		sh.sess.Close()
 		m.su = nil
 		return "", 0, err
 	}
 	return out, code, nil
+}
+
+// waitCommandOutput races readCommandOutput (run in a goroutine, since its
+// underlying Read has no deadline of its own and can block forever on a
+// silent command) against ctx and a fallback timeout. ctx's deadline wins
+// when set; timeoutMs applies only when ctx has no deadline — same rule as
+// runOnce. On cancellation or timeout, kill is called (expected to SIGKILL
+// and close the underlying session so the blocked read unblocks) and the
+// call returns promptly without waiting for the abandoned goroutine.
+func waitCommandOutput(ctx context.Context, r *bufio.Reader, timeoutMs int, marker string, kill func()) (string, int, error) {
+	type result struct {
+		out  string
+		code int
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		out, code, err := readCommandOutput(r, time.Duration(timeoutMs)*time.Millisecond, marker)
+		done <- result{out, code, err}
+	}()
+
+	var timeout <-chan time.Time
+	if _, has := ctx.Deadline(); !has {
+		timeout = time.After(time.Duration(timeoutMs) * time.Millisecond)
+	}
+	select {
+	case res := <-done:
+		return res.out, res.code, res.err
+	case <-timeout:
+		kill()
+		return "", 0, fmt.Errorf("command timed out after %dms", timeoutMs)
+	case <-ctx.Done():
+		kill()
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "", 0, fmt.Errorf("command timed out: %w", ctx.Err())
+		}
+		return "", 0, fmt.Errorf("%w: %w", ErrCancelled, ctx.Err())
+	}
 }
 
 func readUntilAny(r *bufio.Reader, timeout time.Duration, needles []string) error {
@@ -311,7 +354,10 @@ func readCommandOutput(r *bufio.Reader, timeout time.Duration, marker string) (s
 		// nonce mid-line and must not match.
 		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, marker+":") {
 			codeStr := strings.TrimSpace(strings.TrimPrefix(trimmed, marker+":"))
-			code, _ := strconv.Atoi(codeStr)
+			code, err := strconv.Atoi(codeStr)
+			if err != nil {
+				return "", 0, fmt.Errorf("garbled exit code marker %q: %w", trimmed, err)
+			}
 			return body.String(), code, nil
 		}
 		body.WriteString(line)

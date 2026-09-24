@@ -1,8 +1,10 @@
 package sshx
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -128,6 +130,47 @@ func TestExecCtxDeadlineBeatsConfigTimeout(t *testing.T) {
 	_, err := m.Exec(ctx, "sleep 30")
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("want timeout error, got %v", err)
+	}
+}
+
+// waitCommandOutput must not block forever on a reader that never produces
+// a newline (the su pty's stdout pipe when a silent command hangs), and
+// must race ctx/timeout independently of the inner read. These use a raw
+// io.Pipe so they need no SSH session and no Docker.
+
+func TestWaitCommandOutputCtxCancelReturnsErrCancelled(t *testing.T) {
+	pr, pw := io.Pipe()
+	r := bufio.NewReader(pr)
+	kill := func() { pw.CloseWithError(errors.New("killed")) }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(100 * time.Millisecond); cancel() }()
+
+	start := time.Now()
+	_, _, err := waitCommandOutput(ctx, r, 30000, "marker", kill)
+	if !errors.Is(err, ErrCancelled) {
+		t.Fatalf("want ErrCancelled, got %v", err)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatal("cancel did not return promptly")
+	}
+}
+
+func TestWaitCommandOutputCtxDeadlineReturnsTimeoutError(t *testing.T) {
+	pr, pw := io.Pipe()
+	r := bufio.NewReader(pr)
+	kill := func() { pw.CloseWithError(errors.New("killed")) }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, _, err := waitCommandOutput(ctx, r, 30000, "marker", kill)
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("want timeout error, got %v", err)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatal("deadline did not return promptly")
 	}
 }
 
