@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const testWait = 2 * time.Second
+
 func newTestBroker(expiry time.Duration) (*Broker, *[]Event, *sync.Mutex) {
 	var events []Event
 	var mu sync.Mutex
@@ -19,6 +21,44 @@ func newTestBroker(expiry time.Duration) (*Broker, *[]Event, *sync.Mutex) {
 		mu.Unlock()
 	}})
 	return b, &events, &mu
+}
+
+// waitForPending polls until at least n requests are pending, failing the
+// test (instead of hanging forever) if that doesn't happen within testWait.
+func waitForPending(t *testing.T, b *Broker, n int) []Request {
+	t.Helper()
+	deadline := time.Now().Add(testWait)
+	for {
+		if p := b.Pending(); len(p) >= n {
+			return p
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %d pending request(s), got %d", n, len(b.Pending()))
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// waitForEvents polls until at least n events have been recorded, failing
+// the test (instead of hanging forever) if that doesn't happen within
+// testWait. Returns a snapshot copy, safe to inspect without the lock.
+func waitForEvents(t *testing.T, mu *sync.Mutex, events *[]Event, n int) []Event {
+	t.Helper()
+	deadline := time.Now().Add(testWait)
+	for {
+		mu.Lock()
+		got := len(*events)
+		if got >= n {
+			out := append([]Event(nil), (*events)...)
+			mu.Unlock()
+			return out
+		}
+		mu.Unlock()
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %d event(s), got %d", n, got)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 func TestSubmitBlocksUntilDecided(t *testing.T) {
@@ -31,11 +71,7 @@ func TestSubmitBlocksUntilDecided(t *testing.T) {
 		}
 		done <- d
 	}()
-	var pending []Request
-	for i := 0; i < 50 && len(pending) == 0; i++ {
-		time.Sleep(10 * time.Millisecond)
-		pending = b.Pending()
-	}
+	pending := waitForPending(t, b, 1)
 	if len(pending) != 1 || pending[0].ID == "" {
 		t.Fatalf("pending = %+v", pending)
 	}
@@ -62,15 +98,23 @@ func TestExpiryIsExpiredNotDenied(t *testing.T) {
 	}
 }
 
+func TestExpiryEmitsDecidedEvent(t *testing.T) {
+	b, events, mu := newTestBroker(50 * time.Millisecond)
+	go b.Submit(context.Background(), Request{Server: "s", Command: "ls"})
+	waitForPending(t, b, 1)
+	got := waitForEvents(t, mu, events, 2)
+	if len(got) != 2 || got[0].Kind != "pending" || got[1].Kind != "decided" || got[1].Decision.Outcome != Expired {
+		t.Fatalf("events = %+v", got)
+	}
+}
+
 func TestCancelWhilePendingRemovesRequest(t *testing.T) {
 	b, _, _ := newTestBroker(time.Minute)
 	ctx, cancel := context.WithCancel(context.Background())
 	errc := make(chan error, 1)
 	go func() { _, err := b.Submit(ctx, Request{Server: "s", Command: "ls"}); errc <- err }()
-	for len(b.Pending()) == 0 {
-		time.Sleep(5 * time.Millisecond)
-	}
-	id := b.Pending()[0].ID
+	pending := waitForPending(t, b, 1)
+	id := pending[0].ID
 	cancel()
 	if err := <-errc; !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
@@ -83,14 +127,29 @@ func TestCancelWhilePendingRemovesRequest(t *testing.T) {
 	}
 }
 
+func TestCancelEmitsWithdrawnEvent(t *testing.T) {
+	b, events, mu := newTestBroker(time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
+	errc := make(chan error, 1)
+	go func() { _, err := b.Submit(ctx, Request{Server: "s", Command: "ls"}); errc <- err }()
+	waitForPending(t, b, 1)
+	cancel()
+	if err := <-errc; !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+	got := waitForEvents(t, mu, events, 2)
+	if len(got) != 2 || got[0].Kind != "pending" || got[1].Kind != "decided" ||
+		got[1].Decision.Outcome != Withdrawn || got[1].Decision.Reason != "cancelled by client" {
+		t.Fatalf("events = %+v", got)
+	}
+}
+
 func TestSixthRequestRefusedUntilOneDecided(t *testing.T) {
 	b, _, _ := newTestBroker(time.Minute)
 	for i := 0; i < 5; i++ {
 		go b.Submit(context.Background(), Request{Server: "s", Command: "ls"})
 	}
-	for len(b.Pending()) < 5 {
-		time.Sleep(5 * time.Millisecond)
-	}
+	waitForPending(t, b, 5)
 	if _, err := b.Submit(context.Background(), Request{Server: "s", Command: "ls"}); !errors.Is(err, ErrTooManyPending) {
 		t.Fatalf("want ErrTooManyPending, got %v", err)
 	}
@@ -108,9 +167,7 @@ func TestDenyAllResolvesEverything(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		go func() { d, _ := b.Submit(context.Background(), Request{Server: "s", Command: "ls"}); results <- d }()
 	}
-	for len(b.Pending()) < 3 {
-		time.Sleep(5 * time.Millisecond)
-	}
+	waitForPending(t, b, 3)
 	b.DenyAll("cleared")
 	for i := 0; i < 3; i++ {
 		d := <-results
@@ -123,28 +180,108 @@ func TestDenyAllResolvesEverything(t *testing.T) {
 func TestEventsEmitted(t *testing.T) {
 	b, events, mu := newTestBroker(time.Minute)
 	go b.Submit(context.Background(), Request{Server: "s", Command: "ls"})
-	for len(b.Pending()) == 0 {
-		time.Sleep(5 * time.Millisecond)
-	}
-	b.Decide(b.Pending()[0].ID, Decision{Outcome: Allowed})
-	time.Sleep(20 * time.Millisecond)
-	mu.Lock()
-	defer mu.Unlock()
-	if len(*events) != 2 || (*events)[0].Kind != "pending" || (*events)[1].Kind != "decided" {
-		t.Fatalf("events = %+v", *events)
+	pending := waitForPending(t, b, 1)
+	b.Decide(pending[0].ID, Decision{Outcome: Allowed})
+	got := waitForEvents(t, mu, events, 2)
+	if len(got) != 2 || got[0].Kind != "pending" || got[1].Kind != "decided" {
+		t.Fatalf("events = %+v", got)
 	}
 }
 
-func TestRequestJSONTags(t *testing.T) {
-	b, err := json.Marshal(Request{ID: "x", TimeoutSec: 5})
+// TestPendingEventAlwaysBeforeDecided is the regression test for the fix
+// round 1 ordering bug: a request became visible to Pending()/Decide()/
+// DenyAll() the instant Submit unlocked b.mu, which was before Submit's own
+// "pending" OnEvent call had run, so a fast concurrent decision could emit
+// "decided" first. OnEvent here blocks on the "pending" call until released;
+// while blocked, DenyAll runs concurrently. The fix (an "announced" gate that
+// every "decided" emitter waits on) must still yield events in the order
+// [pending, decided].
+func TestPendingEventAlwaysBeforeDecided(t *testing.T) {
+	var mu sync.Mutex
+	var events []Event
+	release := make(chan struct{})
+	blocked := make(chan struct{})
+
+	b := New(Options{MaxPending: 5, Expiry: time.Minute, OnEvent: func(e Event) {
+		if e.Kind == "pending" {
+			close(blocked)
+			<-release
+		}
+		mu.Lock()
+		events = append(events, e)
+		mu.Unlock()
+	}})
+
+	done := make(chan Decision, 1)
+	go func() {
+		d, _ := b.Submit(context.Background(), Request{Server: "s", Command: "ls"})
+		done <- d
+	}()
+
+	select {
+	case <-blocked:
+	case <-time.After(testWait):
+		t.Fatal("timed out waiting for the pending OnEvent to block")
+	}
+
+	denyDone := make(chan struct{})
+	go func() {
+		b.DenyAll("cleared")
+		close(denyDone)
+	}()
+
+	// Give DenyAll a chance to reach its announced-wait before releasing the
+	// hook, so this actually exercises the race window rather than just
+	// running DenyAll after the pending event has already landed.
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+
+	select {
+	case <-denyDone:
+	case <-time.After(testWait):
+		t.Fatal("timed out waiting for DenyAll to finish")
+	}
+	<-done
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(events) != 2 || events[0].Kind != "pending" || events[1].Kind != "decided" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestSubmitAlwaysAssignsFreshID(t *testing.T) {
+	b, _, _ := newTestBroker(time.Minute)
+	go b.Submit(context.Background(), Request{ID: "caller-supplied", Server: "s", Command: "ls"})
+	pending := waitForPending(t, b, 1)
+	if pending[0].ID == "caller-supplied" || pending[0].ID == "" {
+		t.Fatalf("want a fresh ID, got %q", pending[0].ID)
+	}
+	b.Decide(pending[0].ID, Decision{Outcome: Denied})
+}
+
+func TestJSONTags(t *testing.T) {
+	rb, err := json.Marshal(Request{ID: "x", TimeoutSec: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := string(b)
-	if !strings.Contains(s, `"id":"x"`) {
-		t.Fatalf("missing id tag: %s", s)
+	if s := string(rb); !strings.Contains(s, `"id":"x"`) || !strings.Contains(s, `"timeoutSec":5`) {
+		t.Fatalf("Request tags: %s", s)
 	}
-	if !strings.Contains(s, `"timeoutSec":5`) {
-		t.Fatalf("missing timeoutSec tag: %s", s)
+
+	db, err := json.Marshal(Decision{Outcome: Denied, Reason: "no"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(db); !strings.Contains(s, `"outcome":"denied"`) || !strings.Contains(s, `"reason":"no"`) {
+		t.Fatalf("Decision tags: %s", s)
+	}
+
+	eb, err := json.Marshal(Event{Kind: "pending", Request: Request{ID: "x"}, Decision: Decision{Outcome: Allowed}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(eb); !strings.Contains(s, `"kind":"pending"`) || !strings.Contains(s, `"request":{`) || !strings.Contains(s, `"decision":{`) {
+		t.Fatalf("Event tags: %s", s)
 	}
 }

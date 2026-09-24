@@ -35,6 +35,13 @@ func OpenAudit(path string) (*Audit, error) {
 	if err != nil {
 		return nil, err
 	}
+	// O_CREATE's mode only applies when the file is newly created; enforce
+	// 0600 explicitly so a pre-existing file with looser permissions is
+	// tightened too.
+	if err := f.Chmod(0o600); err != nil {
+		f.Close()
+		return nil, err
+	}
 	return &Audit{f: f}, nil
 }
 

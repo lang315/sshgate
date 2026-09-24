@@ -17,6 +17,7 @@ const (
 	Expired              Outcome = "expired"
 	ApprovedButCancelled Outcome = "approved_but_cancelled"
 	SentToTab            Outcome = "sent_to_tab"
+	Withdrawn            Outcome = "withdrawn"
 )
 
 type Request struct {
@@ -56,6 +57,11 @@ var (
 type pending struct {
 	req  Request
 	done chan Decision
+	// announced is closed by Submit right after it fires the "pending"
+	// OnEvent for this request. Every path that emits the matching "decided"
+	// event waits on it first, so a consumer never observes "decided" before
+	// "pending" for the same request.
+	announced chan struct{}
 }
 
 type Broker struct {
@@ -87,13 +93,11 @@ func newID() string {
 }
 
 func (b *Broker) Submit(ctx context.Context, req Request) (Decision, error) {
-	if req.ID == "" {
-		req.ID = newID()
-	}
+	req.ID = newID() // always fresh; never trust a caller-supplied ID
 	if req.ReceivedAt.IsZero() {
 		req.ReceivedAt = b.o.Now()
 	}
-	p := &pending{req: req, done: make(chan Decision, 1)}
+	p := &pending{req: req, done: make(chan Decision, 1), announced: make(chan struct{})}
 
 	b.mu.Lock()
 	if len(b.q) >= b.o.MaxPending {
@@ -103,6 +107,7 @@ func (b *Broker) Submit(ctx context.Context, req Request) (Decision, error) {
 	b.q = append(b.q, p)
 	b.mu.Unlock()
 	b.o.OnEvent(Event{Kind: "pending", Request: req})
+	close(p.announced)
 
 	timer := time.NewTimer(b.o.Expiry)
 	defer timer.Stop()
@@ -111,6 +116,7 @@ func (b *Broker) Submit(ctx context.Context, req Request) (Decision, error) {
 		return d, nil
 	case <-timer.C:
 		if b.remove(p.req.ID) != nil {
+			<-p.announced
 			d := Decision{Outcome: Expired, Reason: "approval timed out"}
 			b.o.OnEvent(Event{Kind: "decided", Request: req, Decision: d})
 			return d, nil
@@ -118,6 +124,9 @@ func (b *Broker) Submit(ctx context.Context, req Request) (Decision, error) {
 		return <-p.done, nil // decided in the same instant
 	case <-ctx.Done():
 		if b.remove(p.req.ID) != nil {
+			<-p.announced
+			d := Decision{Outcome: Withdrawn, Reason: "cancelled by client"}
+			b.o.OnEvent(Event{Kind: "decided", Request: req, Decision: d})
 			return Decision{}, ctx.Err()
 		}
 		return <-p.done, nil
@@ -153,6 +162,7 @@ func (b *Broker) Decide(id string, d Decision) error {
 		return ErrNotFound
 	}
 	p.done <- d
+	<-p.announced // never report "decided" before the matching "pending"
 	b.o.OnEvent(Event{Kind: "decided", Request: p.req, Decision: d})
 	return nil
 }
@@ -162,9 +172,14 @@ func (b *Broker) DenyAll(reason string) {
 	all := b.q
 	b.q = nil
 	b.mu.Unlock()
+	d := Decision{Outcome: Denied, Reason: reason}
+	// Deliver decisions to every waiting Submit call first, so one request
+	// whose "pending" OnEvent hasn't fired yet can't stall the others.
 	for _, p := range all {
-		d := Decision{Outcome: Denied, Reason: reason}
 		p.done <- d
+	}
+	for _, p := range all {
+		<-p.announced
 		b.o.OnEvent(Event{Kind: "decided", Request: p.req, Decision: d})
 	}
 }

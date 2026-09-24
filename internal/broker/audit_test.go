@@ -23,11 +23,17 @@ func TestAuditAppendsJSONLWithMode0600(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.Close()
-	info, _ := os.Stat(path)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("perm = %v", info.Mode().Perm())
 	}
-	f, _ := os.Open(path)
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer f.Close()
 	sc := bufio.NewScanner(f)
 	n := 0
@@ -40,5 +46,24 @@ func TestAuditAppendsJSONLWithMode0600(t *testing.T) {
 	}
 	if n != 2 {
 		t.Fatalf("want 2 lines, got %d", n)
+	}
+}
+
+func TestOpenAuditTightensExistingFileMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, err := OpenAudit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("perm = %v, want 0600", info.Mode().Perm())
 	}
 }
