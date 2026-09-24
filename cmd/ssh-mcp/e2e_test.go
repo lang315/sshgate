@@ -123,7 +123,7 @@ func TestEndToEndApprovalFlow(t *testing.T) {
 		t.Fatalf("exec: %v %+v", err, res)
 	}
 	txt := res.Content[0].(*mcp.TextContent).Text
-	if !strings.Contains(txt, "hello") || strings.Contains(txt, "testpass") || !strings.Contains(txt, "exit code: 0") {
+	if !strings.Contains(txt, "hello") || !strings.Contains(txt, "***") || strings.Contains(txt, "testpass") || !strings.Contains(txt, "exit code: 0") {
 		t.Fatalf("output wrong or leaked secret: %q", txt)
 	}
 
