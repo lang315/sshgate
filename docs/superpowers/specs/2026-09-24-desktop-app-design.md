@@ -61,6 +61,18 @@ injection. It may submit malicious commands and write misleading
   command.
 - The MCP door of the hub cannot unlock the vault, approve commands, or read
   secrets.
+- Only servers explicitly marked `aiVisible` are reachable from the MCP door
+  (see §Data Model). A prompt-injected agent cannot discover or target hosts
+  the user never opted in.
+
+**Server output is an egress channel to the LLM.** Everything a command
+prints goes into the AI transcript, which may be stored by a third party.
+The vault `Redactor` masks only vault secrets; secrets that live on the
+remote host (`/etc/shadow`, `env`, private keys, tokens in config files)
+are not covered. Slice 1 mitigates this only with the output cap and the
+approval step, where the user sees the command before it runs.
+Pattern-based output redaction (private-key blocks, `password=`, bearer
+tokens) is deferred to a later slice and listed under Known Risks.
 
 The MCP socket or pipe accepts only same-uid peers. A same-uid attacker can
 submit requests, but they still require approval; beyond that, same-uid is out
@@ -106,6 +118,18 @@ Renderer: React + xterm.js                     └─ internal/config   (vault, 
      macOS and Linux; a named pipe with a current-user ACL on Windows):
      only `listServers`, `exec`, and `sudoExec`. Both exec calls always go
      through the broker.
+
+     **MCP-door rules** (apply to any tool added later):
+     - No tool on this door builds a shell string from its arguments. The
+       only thing that reaches a remote shell is the user-approved
+       `command` byte string, unchanged. Convenience tools that interpolate
+       a "service name" or "path" into a template are how
+       mcp-ssh-manager's `readonly` mode was bypassed
+       (GHSA-m793-whw6-f537, August 2026).
+     - No tool on this door reads or writes the vault, host records, or
+       settings.
+     - Every tool that causes remote execution goes through the broker.
+       There is no "read-only" shortcut around approval.
 - **`desktop/`** (Electron):
   - main: spawns the hub, restarts it on crash, kills it on quit, relays
     RPC, shows a tray badge with the pending count, and raises OS
@@ -114,6 +138,26 @@ Renderer: React + xterm.js                     └─ internal/config   (vault, 
     `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`,
     and a strict CSP.
   - renderer: React + xterm.js. **Only `transport.ts` talks to Go.**
+
+### Data Model
+
+`config.Server` gains one field:
+
+```go
+AIVisible bool `json:"aiVisible,omitempty"`
+```
+
+- Default `false`. Existing vaults load with every server hidden from the MCP
+  door; there is no migration.
+- `listServers` on the MCP door returns only servers with `AIVisible == true`.
+  `exec` and `sudoExec` on a hidden server return `server "x" not found`,
+  the same error as a nonexistent server, so the door does not leak which
+  hosts exist.
+- The field is plain JSON, not encrypted. It is covered by the file MAC like
+  every other field, so a file-level attacker cannot flip it without the
+  master key.
+- Slice 1 edits it in `ssh-mcp web` (a checkbox on the server form, off by
+  default). The app shows a badge on AI-visible hosts.
 
 ### Vault lifecycle
 
@@ -228,7 +272,8 @@ no rotation in slice 1.
 | Auth failure or exec timeout | Redacted error |
 | Hub crash mid-request | "App closed or crashed"; Electron restarts the hub and pending requests are lost |
 
-`listServers` needs no approval. It returns names and lock status only.
+`listServers` needs no approval. It returns names and lock status only, and
+only for servers with `AIVisible` set.
 
 ## Terminal Sessions
 
@@ -298,7 +343,9 @@ If any criterion fails, switch the stdio channel to binary frames.
     never auto-approved, approval timeout, cancellation, concurrent pending
     requests.
   - **Hub security:** MCP-door calls to `unlock`, `approve`, or any
-    UI-only method are rejected. A foreign-UID peer is rejected.
+    UI-only method are rejected. A foreign-UID peer is rejected. A server
+    with `AIVisible == false` is absent from `listServers` and `exec` on it
+    returns the same error as a nonexistent server.
 - **Go integration (existing testcontainers sshd):**
   - A `TermSession` echo round-trip.
   - `stty size` after resize.
@@ -342,6 +389,9 @@ If any criterion fails, switch the stdio channel to binary frames.
 - MCP client timeouts may be shorter than the 5-minute approval window.
 - Electron bundles Chromium. Security releases must be tracked and shipped
   promptly.
+- Command output is an unfiltered egress channel to the LLM. Remote-host
+  secrets that a command prints are not redacted in slice 1; only the
+  output cap and the approval step stand in the way.
 - Double unlock (app plus web UI) in slice 1 is a known UX cost.
 
 ## Open Items
