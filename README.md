@@ -39,6 +39,8 @@
 
 ### Tools
 
+The parameters and flags below are for `--host` mode. Through a saved connection via the hub — the default when `--host` is omitted — `exec`/`sudo-exec` take a `timeoutSec` instead (1–600s, default 60), `server` has no default (pass the exact name), and `list-servers` only lists servers marked "Visible to AI". See [Using saved servers from an AI client](#using-saved-servers-from-an-ai-client).
+
 - `exec`: Execute a shell command on the remote server
   - **Parameters:**
     - `server` (optional): Name of a saved connection (see [Multi-Server + Web Config](#multi-server--web-config)); empty uses the default server
@@ -99,13 +101,27 @@ This installs the `ssh-mcp` binary to `$(go env GOPATH)/bin` (make sure that dir
 
 The web UI lets you add, edit, import, and export SSH connections without passing `--host`/`--password` on every launch. Saved connections (and their secrets) are stored at `~/.config/ssh-mcp/servers.json`, **encrypted at rest**.
 
-Once you have saved connections, start the MCP server without `--host` (or alongside it, as a fallback) and pick a connection per tool call via the `server` argument, or list what's available with the `list-servers` tool.
+Saved connections are only reachable through a separate `ssh-mcp hub` process, which gates every AI-issued command behind your approval; `--host` mode never touches this store at all.
 
-For headless MCP use with encrypted servers (no interactive TTY to type a master password), set:
+### Using saved servers from an AI client
 
-    export SSH_MCP_MASTER_PASSWORD_FILE=~/.config/ssh-mcp/master   # file mode 0600
+Start the hub and keep it running:
 
-The file must be readable only by its owner (mode `0600`); the server refuses to read it otherwise.
+    ssh-mcp hub --cli          # terminal approver; a desktop app replaces this later
+    # Commands: a [id]=allow  d [id] [reason]=deny  D [reason]=deny all
+    #           s [id]=send to tab (prints the command for you to paste)
+    #           u=unlock  p=list pending  q=quit
+    # (the id is only needed when 2+ requests are pending)
+
+Then register the bridge with your MCP client, with no flags:
+
+    claude mcp add --transport stdio ssh-mcp -- ssh-mcp
+
+With the hub closed, every tool call fails with "Open the app to approve commands". There is no headless mode for the vault.
+
+The AI only sees servers with "Visible to AI" checked in `ssh-mcp web` (off by default), and only once a host key is pinned for them — the hub refuses an AI-visible server that has no pin rather than learning one on the fly. Nothing in this release drives that first connection for you from the CLI (that lands with terminal tabs in the desktop app); paste the fingerprint yourself into the "Host key fingerprint" field in `ssh-mcp web` instead. Get it the way you'd get any host key, e.g. by connecting once with a plain `ssh` client, or `ssh-keyscan host | ssh-keygen -lf -`.
+
+Through the hub, `exec`/`sudo-exec` take a `timeoutSec` (1–600, default 60) instead of `--timeout`, `server` has no default (pass the exact name from `list-servers`), and `list-servers` lists only AI-visible servers, marking a locked one `[locked: unlock the app]`.
 
 ## Client Setup
 
@@ -162,11 +178,11 @@ claude mcp add --transport stdio ssh-mcp -- ssh-mcp --host=192.168.1.100 --user=
 claude mcp add --transport stdio ssh-mcp -- ssh-mcp --host=192.168.1.100 --user=admin --password=your_password --sudoPassword=sudo_pass --suPassword=root_pass
 ```
 
-**With a Saved Multi-Server Config:**
+**With Saved Servers (through the hub):**
 ```bash
 claude mcp add --transport stdio ssh-mcp -- ssh-mcp
 ```
-(then select a connection per call via the `server` tool argument; set `SSH_MCP_MASTER_PASSWORD_FILE` first if your store is encrypted)
+(run `ssh-mcp hub --cli` separately to approve commands, and enable "Visible to AI" on the servers you want reachable — see [Using saved servers from an AI client](#using-saved-servers-from-an-ai-client))
 
 **Installation Scopes:**
 
