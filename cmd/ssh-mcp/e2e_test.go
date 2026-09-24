@@ -26,6 +26,37 @@ func buildBinary(t *testing.T) string {
 	return bin
 }
 
+// waitPending polls the broker for a pending request up to 10s instead of
+// looping forever: a regression that never submits a request would otherwise
+// hang this goroutine (and thus the test) indefinitely. On timeout it
+// reports a failure and returns ok=false so the caller returns without
+// deciding a nonexistent request.
+func waitPending(t *testing.T, b *broker.Broker) (r broker.Request, ok bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if p := b.Pending(); len(p) > 0 {
+			return p[0], true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("timed out waiting for a pending approval request")
+	return broker.Request{}, false
+}
+
+// assertNoExec fails the test if a command reached the SSH server, proving a
+// denied or hub-down call never dials out. Non-blocking: the paths it checks
+// (broker denial, dial failure) return before any dial is attempted, so
+// nothing further can arrive on Execs after the call already returned.
+func assertNoExec(t *testing.T, srv *sshtest.Server) {
+	t.Helper()
+	select {
+	case cmd := <-srv.Execs:
+		t.Errorf("unexpected command reached the SSH server: %q", cmd)
+	default:
+	}
+}
+
 // TestEndToEndApprovalFlow proves the whole approval flow end to end: a real
 // MCP client spawns the built ssh-mcp binary in bridge mode, which forwards
 // to an in-process hub over the MCP door socket, which runs the approved
@@ -59,6 +90,14 @@ func TestEndToEndApprovalFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.Close()
+	select {
+	case cmd := <-srv.Execs:
+		if cmd != "true" {
+			t.Fatalf("unexpected host-key-learning exec: %q", cmd)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not observe host-key-learning exec on Execs")
+	}
 
 	// Isolate the hub's MCP door socket path to a fresh, short directory so
 	// this test never touches the real per-user hub socket. The bridge
@@ -89,7 +128,11 @@ func TestEndToEndApprovalFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ln.Close()
-	ctx, cancel := context.WithCancel(context.Background())
+	// Bounded, not context.WithCancel: if a regression ever stops a request
+	// from reaching the broker, waitPending's decider bails at 10s but a
+	// plain WithCancel ctx would leave CallTool blocked on broker.Submit
+	// forever. WithTimeout bounds every call below that uses ctx.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	go hub.ServeMCPDoor(ctx, ln, h)
 
@@ -109,10 +152,10 @@ func TestEndToEndApprovalFlow(t *testing.T) {
 	// 2. exec is approved -> output returned, redacted.
 	go func() {
 		b := h.Broker()
-		for len(b.Pending()) == 0 {
-			time.Sleep(10 * time.Millisecond)
+		r, ok := waitPending(t, b)
+		if !ok {
+			return
 		}
-		r := b.Pending()[0]
 		if r.Client != "claude-code-test" {
 			t.Errorf("client name not forwarded: %q", r.Client)
 		}
@@ -126,6 +169,14 @@ func TestEndToEndApprovalFlow(t *testing.T) {
 	if !strings.Contains(txt, "hello") || !strings.Contains(txt, "***") || strings.Contains(txt, "testpass") || !strings.Contains(txt, "exit code: 0") {
 		t.Fatalf("output wrong or leaked secret: %q", txt)
 	}
+	select {
+	case cmd := <-srv.Execs:
+		if cmd != "echo hello; echo testpass" {
+			t.Fatalf("unexpected command executed: %q", cmd)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("approved command never reached the SSH server")
+	}
 
 	auditBytes, err := os.ReadFile(auditPath)
 	if err != nil {
@@ -138,15 +189,20 @@ func TestEndToEndApprovalFlow(t *testing.T) {
 	// 3. denied -> reason returned.
 	go func() {
 		b := h.Broker()
-		for len(b.Pending()) == 0 {
-			time.Sleep(10 * time.Millisecond)
+		r, ok := waitPending(t, b)
+		if !ok {
+			return
 		}
-		b.Decide(b.Pending()[0].ID, broker.Decision{Outcome: broker.Denied, Reason: "not today"})
+		b.Decide(r.ID, broker.Decision{Outcome: broker.Denied, Reason: "not today"})
 	}()
-	res, _ = cs.CallTool(ctx, &mcp.CallToolParams{Name: "exec", Arguments: map[string]any{"server": "box", "command": "rm -rf /"}})
+	res, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "exec", Arguments: map[string]any{"server": "box", "command": "rm -rf /"}})
+	if err != nil {
+		t.Fatalf("deny call: %v", err)
+	}
 	if !res.IsError || res.Content[0].(*mcp.TextContent).Text != "Denied by user: not today" {
 		t.Fatalf("deny: %+v", res)
 	}
+	assertNoExec(t, srv) // denial returns before any dial; nothing should ever reach the SSH server
 
 	// 4. hub down -> the fixed message.
 	cancel()
@@ -156,8 +212,12 @@ func TestEndToEndApprovalFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer cs2.Close()
-	res, _ = cs2.CallTool(context.Background(), &mcp.CallToolParams{Name: "exec", Arguments: map[string]any{"server": "box", "command": "ls"}})
+	res, err = cs2.CallTool(context.Background(), &mcp.CallToolParams{Name: "exec", Arguments: map[string]any{"server": "box", "command": "ls"}})
+	if err != nil {
+		t.Fatalf("hub down call: %v", err)
+	}
 	if !res.IsError || res.Content[0].(*mcp.TextContent).Text != "Open the app to approve commands" {
 		t.Fatalf("hub down: %+v", res)
 	}
+	assertNoExec(t, srv) // hub is down; nothing should ever reach the SSH server
 }
