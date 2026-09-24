@@ -63,7 +63,8 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 	defer h.setEventSink(nil)
 
 	empty := map[string]any{}
-	// Every method is request-only: a notification-form call is ignored
+	// Every method here is request-only (term.write/resize/ack are the
+	// exception, see term.go): a notification-form call is ignored
 	// rather than running inline on the read loop. unlock runs argon2 and
 	// must never block inbound dispatch that way.
 	s.HandleRequest("status", func(context.Context, json.RawMessage) (any, error) {
@@ -114,6 +115,7 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		h.Broker().DenyAll(p.Reason)
 		return empty, nil
 	})
-	registerTermMethods(s, h) // Task 11; a no-op stub until then
+	closeTerms := registerTermMethods(s, h)
+	defer closeTerms() // after Serve: no term.open is still in flight
 	return s.Serve(ctx, r, w)
 }

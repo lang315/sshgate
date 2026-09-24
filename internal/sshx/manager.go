@@ -33,6 +33,7 @@ type Manager struct {
 	mu     sync.Mutex
 	client *ssh.Client
 	su     *suShell
+	kaStop chan struct{} // non-nil while a keepalive goroutine runs
 }
 
 type suShell struct {
@@ -201,6 +202,10 @@ func nonce() string {
 func (m *Manager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.kaStop != nil {
+		close(m.kaStop)
+		m.kaStop = nil
+	}
 	if m.client != nil {
 		m.client.Close()
 		m.client = nil
@@ -208,6 +213,94 @@ func (m *Manager) Close() {
 	if m.su != nil {
 		m.su.sess.Close()
 		m.su = nil
+	}
+}
+
+// OpenSession returns a new channel on the shared client. The mutex is held
+// only while ensuring the client exists; the caller owns the session.
+func (m *Manager) OpenSession() (*ssh.Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.ensure(); err != nil {
+		return nil, err
+	}
+	return m.client.NewSession()
+}
+
+// StartKeepalive pings the server every interval until Close. A ping that
+// fails or gets no reply within interval closes the client, which ends every
+// channel on it (terminals see EOF and report their own exit); onDead, if
+// set, is then called. The next Exec/OpenSession redials. Idempotent.
+func (m *Manager) StartKeepalive(interval time.Duration, onDead func(reason string)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.kaStop != nil {
+		return
+	}
+	stop := make(chan struct{})
+	m.kaStop = stop
+	go func() {
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		var last *ssh.Client // alive at the previous tick
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+			}
+			m.mu.Lock()
+			c := m.client
+			stopped := m.kaStop != stop // Close ran while we waited for mu
+			m.mu.Unlock()
+			if stopped {
+				return
+			}
+			if c == nil {
+				// ensure's watcher may have dropped a client that died
+				// between ticks; pinging it fails and reports the death.
+				c = last
+			}
+			last = nil
+			if c == nil {
+				continue
+			}
+			if err := ping(c, interval); err != nil {
+				m.mu.Lock()
+				if m.client == c {
+					m.client = nil
+				}
+				m.mu.Unlock()
+				c.Close()
+				select {
+				case <-stop: // failed because Close closed the client
+					return
+				default:
+				}
+				if onDead != nil {
+					onDead("keepalive failed: " + err.Error())
+				}
+				continue
+			}
+			last = c
+		}
+	}()
+}
+
+// ping sends keepalive@openssh.com. Any reply, even a refusal, proves the
+// connection is alive. A hung connection is cut off after timeout; closing
+// the client then unblocks the abandoned SendRequest.
+func ping(c *ssh.Client, timeout time.Duration) error {
+	errc := make(chan error, 1)
+	go func() {
+		_, _, err := c.SendRequest("keepalive@openssh.com", true, nil)
+		errc <- err
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-time.After(timeout):
+		return fmt.Errorf("no reply within %s", timeout)
 	}
 }
 
