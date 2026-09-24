@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, type WebContents } from 'electron'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { HubProcess } from './hubProcess'
@@ -20,7 +20,18 @@ function hubArgs(): string[] {
   return args
 }
 
-const hub = new HubProcess({ command: hubCommand(), args: hubArgs(), env: process.env })
+const hubBin = hubCommand()
+console.error('ssh-mcp: hub binary', hubBin)
+const hub = new HubProcess({ command: hubBin, args: hubArgs(), env: process.env })
+
+// Only a destroyed-safe reference to the app's own window ever reaches the hub relay.
+function getWindow(): BrowserWindow | undefined {
+  return win && !win.isDestroyed() ? win : undefined
+}
+
+function isTrusted(sender: WebContents): boolean {
+  return !!win && !win.isDestroyed() && sender === win.webContents
+}
 
 function createWindow(): BrowserWindow {
   const w = new BrowserWindow({
@@ -33,13 +44,17 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
     },
   })
+  w.on('closed', () => { win = undefined })
+  // Never let this window navigate to, or open, other content that could get window.sshmcp.
+  w.webContents.on('will-navigate', (e) => e.preventDefault())
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   w.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'))
   return w
 }
 
 app.whenReady().then(() => {
   win = createWindow()
-  registerIpc(hub, () => win)
+  registerIpc(hub, getWindow, isTrusted)
   hub.start()
 })
 

@@ -2,10 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn(), on: vi.fn() },
-  BrowserWindow: class {},
 }))
 
-import { relayCall, relayNotify } from '../src/main/ipc'
+import { guard, relayCall, relayNotify } from '../src/main/ipc'
 
 const fakeHub = () => ({ call: vi.fn(async () => ({ ok: true })), notify: vi.fn() })
 
@@ -27,5 +26,18 @@ describe('ipc whitelist', () => {
     relayNotify(h, 'unlock', { password: 'x' })
     expect(h.notify).toHaveBeenCalledTimes(1)
     expect(h.notify).toHaveBeenCalledWith('term.write', { id: 'a', data: '' })
+  })
+})
+
+describe('sender guard', () => {
+  it('rejects an untrusted sender without calling fn', async () => {
+    const fn = vi.fn(async () => 'ok')
+    await expect(guard(() => false, {} as never, fn)).rejects.toThrow('untrusted sender')
+    expect(fn).not.toHaveBeenCalled()
+  })
+  it('allows a trusted sender through', async () => {
+    const fn = vi.fn(async () => 'ok')
+    await expect(guard(() => true, {} as never, fn)).resolves.toBe('ok')
+    expect(fn).toHaveBeenCalledTimes(1)
   })
 })

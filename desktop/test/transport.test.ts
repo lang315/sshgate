@@ -20,6 +20,12 @@ describe('transport', () => {
     expect(toBase64(new TextEncoder().encode('xin chào'))).toBe(Buffer.from('xin chào').toString('base64'))
   })
 
+  it('base64 round-trips a buffer larger than the chunk size', () => {
+    const b = new Uint8Array(70000)
+    for (let i = 0; i < b.length; i++) b[i] = i % 256
+    expect(fromBase64(toBase64(b))).toEqual(b)
+  })
+
   it('termWrite sends base64 as a notification', () => {
     hub.termWrite('t1', new TextEncoder().encode('ls\r'))
     expect(bridge.notify).toHaveBeenCalledWith('term.write', { id: 't1', data: Buffer.from('ls\r').toString('base64') })
