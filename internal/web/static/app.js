@@ -64,6 +64,7 @@ async function showList() {
     tr.append(el('td', s.name), el('td', s.host + ':' + s.port), el('td', s.user), el('td', s.auth));
     const secrets = [s.hasPassword && 'pw', s.hasSuPassword && 'su', s.hasSudoPassword && 'sudo'].filter(Boolean).join(',') || '—';
     tr.append(el('td', secrets));
+    tr.append(el('td', s.aiVisible ? 'AI' : ''));
     const td = el('td');
     const edit = el('button', 'Edit'); edit.onclick = () => showForm(s);
     const del = el('button', 'Delete');
@@ -103,6 +104,11 @@ function showForm(s) {
   const su = field('su password (blank = keep)', '', 'password');
   const sudo = field('sudo password (blank = keep)', '', 'password');
   const hostKey = field('Host key fingerprint (blank = trust on first connect)', s && s.hostKey, 'text');
+  const ai = document.createElement('label');
+  const aiBox = document.createElement('input');
+  aiBox.type = 'checkbox';
+  aiBox.checked = !!(s && s.aiVisible);
+  ai.append(aiBox, ' Visible to AI (MCP) — off by default');
   const save = el('button', 'Save');
   save.onclick = async () => {
     const dto = { name: name.i.value, host: host.i.value, port: +port.i.value, user: user.i.value, auth: auth.i.value, keyPath: keyPath.i.value };
@@ -110,6 +116,7 @@ function showForm(s) {
     if (su.i.value) dto.suPassword = su.i.value;
     if (sudo.i.value) dto.sudoPassword = sudo.i.value;
     dto.hostKey = hostKey.i.value;
+    dto.aiVisible = aiBox.checked;
     try {
       if (s) await api('PUT', '/api/servers/' + encodeURIComponent(s.name), dto);
       else await api('POST', '/api/servers', dto);
@@ -118,6 +125,7 @@ function showForm(s) {
   };
   const cancel = el('button', 'Cancel'); cancel.onclick = showList;
   [name, host, port, user, auth, keyPath, pw, su, sudo, hostKey].forEach(x => f.append(x.l));
+  f.append(ai);
   f.append(save, cancel);
   document.getElementById('list').hidden = true;
   f.hidden = false;

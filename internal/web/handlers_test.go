@@ -112,6 +112,18 @@ func TestDeleteServer(t *testing.T) {
 	}
 }
 
+func TestServerDTOCarriesAIVisible(t *testing.T) {
+	s := config.Server{Name: "a", Host: "h", Port: 22, User: "u", Auth: "key", AIVisible: true}
+	d := serverToDTO(s)
+	if !d.AIVisible {
+		t.Fatal("DTO lost aiVisible")
+	}
+	back := dtoToServer(d)
+	if !back.AIVisible {
+		t.Fatal("dtoToServer lost aiVisible")
+	}
+}
+
 func TestPutStaleIfMatchConflicts(t *testing.T) {
 	app, csrf := initApp(t)
 	doWrite(t, app, csrf, "POST", "/api/servers", `{"name":"p","host":"h","port":22,"user":"u","auth":"password","password":"x"}`)

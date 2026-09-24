@@ -19,6 +19,7 @@ type Server struct {
 	Auth             string `json:"auth"`
 	KeyPath          string `json:"keyPath,omitempty"`
 	HostKey          string `json:"hostKey,omitempty"`
+	AIVisible        bool   `json:"aiVisible,omitempty"`
 	EncPassword      string `json:"encPassword,omitempty"`
 	EncSuPassword    string `json:"encSuPassword,omitempty"`
 	EncSudoPassword  string `json:"encSudoPassword,omitempty"`

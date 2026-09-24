@@ -59,6 +59,25 @@ func TestMACTamperDetected(t *testing.T) {
 	}
 }
 
+func TestAIVisibleRoundtripsAndDefaultsFalse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "servers.json")
+	f := &File{Version: 1, Servers: []Server{
+		{Name: "a", Host: "h", Port: 22, User: "u", Auth: "key", AIVisible: true},
+		{Name: "b", Host: "h", Port: 22, User: "u", Auth: "key"},
+	}}
+	if err := Save(path, f, nil); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.Servers[0].AIVisible || loaded.Servers[1].AIVisible {
+		t.Fatalf("aiVisible not preserved: %+v", loaded.Servers)
+	}
+}
+
 func TestSaveKeylessClearsMAC(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "servers.json")

@@ -21,6 +21,7 @@ type ServerDTO struct {
 	Auth            string  `json:"auth"`
 	KeyPath         string  `json:"keyPath,omitempty"`
 	HostKey         string  `json:"hostKey,omitempty"`
+	AIVisible       bool    `json:"aiVisible"`
 	HasPassword     bool    `json:"hasPassword"`
 	HasSuPassword   bool    `json:"hasSuPassword"`
 	HasSudoPassword bool    `json:"hasSudoPassword"`
@@ -55,11 +56,7 @@ func (a *App) handleServers(w http.ResponseWriter, r *http.Request) {
 		defer a.mu.Unlock()
 		var out []ServerDTO
 		for _, s := range a.file.Servers {
-			out = append(out, ServerDTO{
-				Name: s.Name, Host: s.Host, Port: s.Port, User: s.User, Auth: s.Auth,
-				KeyPath: s.KeyPath, HostKey: s.HostKey,
-				HasPassword: s.EncPassword != "", HasSuPassword: s.EncSuPassword != "", HasSudoPassword: s.EncSudoPassword != "",
-			})
+			out = append(out, serverToDTO(s))
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(out)
@@ -172,8 +169,16 @@ func (a *App) handleServerByName(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func serverToDTO(s config.Server) ServerDTO {
+	return ServerDTO{
+		Name: s.Name, Host: s.Host, Port: s.Port, User: s.User, Auth: s.Auth,
+		KeyPath: s.KeyPath, HostKey: s.HostKey, AIVisible: s.AIVisible,
+		HasPassword: s.EncPassword != "", HasSuPassword: s.EncSuPassword != "", HasSudoPassword: s.EncSudoPassword != "",
+	}
+}
+
 func dtoToServer(d ServerDTO) config.Server {
-	return config.Server{Name: d.Name, Host: d.Host, Port: d.Port, User: d.User, Auth: d.Auth, KeyPath: d.KeyPath, HostKey: d.HostKey}
+	return config.Server{Name: d.Name, Host: d.Host, Port: d.Port, User: d.User, Auth: d.Auth, KeyPath: d.KeyPath, HostKey: d.HostKey, AIVisible: d.AIVisible}
 }
 
 func encryptSecrets(s *config.Server, f *config.File, d ServerDTO, mk []byte) error {
