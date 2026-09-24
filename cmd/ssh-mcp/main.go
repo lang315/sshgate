@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/lang315/ssh-mcp/internal/config"
+	"github.com/lang315/ssh-mcp/internal/hub"
 	"github.com/lang315/ssh-mcp/internal/mcpserver"
 	"github.com/lang315/ssh-mcp/internal/sshx"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -31,7 +32,9 @@ func storePath() string {
 	return filepath.Join(home, ".config", "ssh-mcp", "servers.json")
 }
 
-func buildDeps(args []string, env func(string) string) (*mcpserver.Deps, bool, int, error) {
+// buildDeps builds Deps for --host (standalone CLI) mode only: it never
+// reads the on-disk vault. Bridge mode (no --host) does not call this.
+func buildDeps(args []string) (*mcpserver.Deps, bool, int, error) {
 	m := config.ParseArgv(args)
 	_, insecure := m["insecureIgnoreHostKey"]
 	if insecure {
@@ -39,55 +42,32 @@ func buildDeps(args []string, env func(string) string) (*mcpserver.Deps, bool, i
 	}
 	_, disableSudo := m["disableSudo"]
 	maxChars := config.ParseMaxChars(m["maxChars"])
-	d := &mcpserver.Deps{Insecure: insecure, Path: storePath()}
-
-	if _, hasHost := m["host"]; hasHost {
-		cli, err := config.BuildCLIConfig(m)
-		if err != nil {
-			return nil, false, 0, err
-		}
-		cli.MaxChars = maxChars
-		d.CLI = &cli
+	cli, err := config.BuildCLIConfig(m)
+	if err != nil {
+		return nil, false, 0, err
 	}
-
-	if f, err := config.Load(storePath()); err == nil {
-		d.File = f
-		if pw, ok, err := config.ResolveMasterPassword(env); err != nil {
-			return nil, false, 0, err
-		} else if ok && f.KDF != nil {
-			mk, err := f.KDF.DeriveKey(pw)
-			if err != nil {
-				return nil, false, 0, err
-			}
-			if !f.KDF.Verify(mk) {
-				return nil, false, 0, fmt.Errorf("wrong master password")
-			}
-			if err := f.VerifyMAC(mk); err != nil {
-				return nil, false, 0, err
-			}
-			d.MasterKey = mk
-		}
-	} else if !os.IsNotExist(err) {
-		return nil, false, 0, fmt.Errorf("cannot read config store: %w", err)
-	}
-	if d.CLI == nil && d.File == nil {
-		return nil, false, 0, fmt.Errorf("no --host and no config store found")
-	}
-	return d, disableSudo, maxChars, nil
+	cli.MaxChars = maxChars
+	return &mcpserver.Deps{CLI: &cli, Insecure: insecure}, disableSudo, maxChars, nil
 }
 
 func runMCP(args []string) error {
-	d, disableSudo, maxChars, err := buildDeps(args, os.Getenv)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	m := config.ParseArgv(args)
+	if _, hasHost := m["host"]; !hasHost {
+		fmt.Fprintln(os.Stderr, "SSH MCP bridge on stdio (forwarding to ssh-mcp hub)")
+		return mcpserver.BuildBridgeServer(hub.DialMCPDoor).Run(ctx, &mcp.StdioTransport{})
+	}
+
+	d, disableSudo, maxChars, err := buildDeps(args)
 	if err != nil {
 		return err
 	}
 	reg := sshx.NewRegistry()
 	defer reg.CloseAll()
 	srv := mcpserver.BuildServer(d, reg, disableSudo, maxChars)
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	fmt.Fprintln(os.Stderr, "SSH MCP Server running on stdio")
+	fmt.Fprintln(os.Stderr, "SSH MCP Server running on stdio (standalone --host mode)")
 	return srv.Run(ctx, &mcp.StdioTransport{})
 }
 
