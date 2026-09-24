@@ -42,14 +42,17 @@ Build first: `go build -o ssh-mcp ./cmd/ssh-mcp` at the repo root, then
   | 200 MiB (spec default) | 4.43 s | 47.4 MB/s | 19 ms | 159 → 174 MB | 298 → 535 MB | 273 MB |
   | 1 GB (`FLOOD_BYTES=1000000000`) | 18.25 s | 54.8 MB/s | 25 ms | 176 → 204 MB | 664 → 1863 MB | 1282 MB |
   | 2 GB (`FLOOD_BYTES=2000000000`) | 33.96 s | 58.9 MB/s | 59 ms | 182 → 230 MB | 1097 → 3494 MB | (not sampled) |
+  | 200 MiB, after the fix below | 4.43 s | 47.4 MB/s | 18 ms | 159 → 173 MB | 185 → 206 MB | 5 MB |
+  | 1 GiB (`FLOOD_BYTES=1073741824`), after the fix | 21.82 s | 49.2 MB/s | 18 ms | 177 → 202 MB | 221 → 255 MB | 5 MB |
 
   Throughput, frame gaps and keystroke handling (≤ 16 ms per key, every
-  key reached main) pass. **Renderer memory fails:** the renderer grows
-  linearly, about 1.7 bytes per flooded byte with no plateau, and the JS
-  heap stays after a forced GC. The renderer is retaining JS objects per
-  chunk, which is a leak and not lazy reclaim. Main stays roughly flat.
-  Because the growth is on the renderer side, binary hub↔main frames alone
-  may not fix it until the retainer is found.
+  key reached main) pass. The first three rows show a renderer leak (about
+  1.3 bytes of JS heap per flooded byte, kept after a forced GC). A heap
+  snapshot traced it to `App.tsx` calling `setItems` for every hub event,
+  including every `term.data`. React keeps each no-op update, along with the
+  event and its base64 chunk, in the hook queue until App re-renders again,
+  which does not happen during a flood. Since the fix, only approval events
+  update `items`, and renderer memory stays bounded.
 
   In a terminal tab to a real server (not `sshtestd`), run:
   - `cat` on a 50 MB file
