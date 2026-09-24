@@ -17,6 +17,7 @@
 - [Install](#install)
 - [MCP Usage](#mcp-usage-single-host-unchanged-flags)
 - [Multi-Server + Web Config](#multi-server--web-config)
+- [Desktop App](#desktop-app)
 - [Client Setup](#client-setup)
 - [Disclaimer](#disclaimer)
 - [Support](#support)
@@ -109,7 +110,7 @@ Saved connections are only reachable through a separate `ssh-mcp hub` process, w
 
 Start the hub and keep it running:
 
-    ssh-mcp hub --cli          # terminal approver; a desktop app replaces this later
+    ssh-mcp hub --cli          # terminal approver; see Desktop app below for the GUI
     # Commands: a [id]=allow  d [id] [reason]=deny  D [reason]=deny all
     #           s [id]=send to tab (prints the command for you to paste)
     #           u=unlock  p=list pending  q=quit
@@ -130,6 +131,35 @@ Alternatively, paste the fingerprint yourself into the "Host key fingerprint" fi
     ssh-keyscan -p PORT -t ed25519 HOST 2>/dev/null | ssh-keygen -lf - | awk '{print $2}'
 
 Through the hub, `exec`/`sudo-exec` take a `timeoutSec` (1–600, default 60) instead of `--timeout`, `server` has no default (pass the exact name from `list-servers`), and `list-servers` lists only AI-visible servers, marking a locked one `[locked: unlock the app]`. While a vault with a master password is locked, every server in it is locked, including key/agent-only ones.
+
+## Desktop app
+
+An Electron app in `desktop/` is the primary way to approve AI commands day to day; `ssh-mcp hub --cli` (above) still works as a terminal-only approver for headless use.
+
+**Prerequisites:** Go (the version pinned in `go.mod`) and Node.js 22.12 or newer, which Electron 44 requires.
+
+Build the hub binary at the repo root, then start the app from `desktop/`:
+
+    go build -o ssh-mcp ./cmd/ssh-mcp
+    cd desktop && npm ci && npm start
+
+`npm start` builds the renderer and main process, then launches Electron. The app spawns `ssh-mcp hub` as a child process and talks to it over stdio, the same way `hub --cli` does. The window shows an unlock screen first. Once unlocked, you get:
+
+- a host list, with an "AI" badge on servers marked "Visible to AI" and a "new" badge on any server whose host key isn't pinned yet;
+- terminal tabs, opened from the host list;
+- a non-modal approval panel on the side for AI-submitted commands, where Deny is the default action and Allow requires a real mouse click;
+- an OS notification and a tray badge with the pending count when a request arrives while the window isn't focused.
+
+With nothing pending or running and no UI activity for 15 minutes, the vault locks itself and the app returns to the unlock screen; open terminal tabs keep their SSH connections. Closing the window quits the app and stops the hub — the vault locks and the AI gets "Open the app to approve commands" until the app is reopened; it is not a tray-resident background app.
+
+The AI client side is unchanged: register the bridge exactly as in [Using saved servers from an AI client](#using-saved-servers-from-an-ai-client):
+
+    claude mcp add --transport stdio ssh-mcp -- ssh-mcp
+
+Development knobs, read by `desktop/src/main/main.ts`:
+
+- `SSH_MCP_BIN`: path to the `ssh-mcp` binary the app spawns as the hub. Without it, the app looks for a binary named `ssh-mcp` (`ssh-mcp.exe` on Windows) one directory above `desktop/`, then falls back to `PATH`.
+- `SSH_MCP_STORE`: passed to the spawned hub as `--store=<path>`, to point the app at a vault other than the default `~/.config/ssh-mcp/servers.json`.
 
 ## Client Setup
 
@@ -190,7 +220,7 @@ claude mcp add --transport stdio ssh-mcp -- ssh-mcp --host=192.168.1.100 --user=
 ```bash
 claude mcp add --transport stdio ssh-mcp -- ssh-mcp
 ```
-(run `ssh-mcp hub --cli` separately to approve commands, and enable "Visible to AI" on the servers you want reachable — see [Using saved servers from an AI client](#using-saved-servers-from-an-ai-client))
+(run `ssh-mcp hub --cli` or the [desktop app](#desktop-app) separately to approve commands, and enable "Visible to AI" on the servers you want reachable — see [Using saved servers from an AI client](#using-saved-servers-from-an-ai-client))
 
 **Installation Scopes:**
 
