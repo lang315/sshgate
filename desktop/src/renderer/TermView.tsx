@@ -3,12 +3,15 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { hub, fromBase64 } from './transport'
-import { Debouncer, printable, type Tab, type TabSet } from './terminals'
+import type { HubEvent } from '../shared/protocol'
+import { Debouncer, printable, type Dispatcher, type Tab, type TabSet } from './terminals'
 
 export interface TermApi { paste(text: string): void }
+// A hub event for this tab's id, or 'hub.stopped' when the hub leaves the running state.
+export type TermEvent = HubEvent | { method: 'hub.stopped' }
 
-export function TermView({ tab, tabs, visible, onChange, register }: {
-  tab: Tab; tabs: TabSet; visible: boolean; onChange: () => void
+export function TermView({ tab, tabs, events, visible, onChange, register }: {
+  tab: Tab; tabs: TabSet; events: Dispatcher<TermEvent>; visible: boolean; onChange: () => void
   register: (id: string, api: TermApi | undefined) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -62,9 +65,11 @@ export function TermView({ tab, tabs, visible, onChange, register }: {
     )
 
     const dataSub = term.onData((s) => { if (phase === 'open') hub.termWrite(tab.id, enc.encode(s)) })
-    const off = hub.onEvent((e) => {
-      if (!('params' in e) || (e.params as { id?: string }).id !== tab.id || phase === 'ended') return
-      if (e.method === 'term.data') {
+    const off = events.on(tab.id, (e) => {
+      if (phase === 'ended') return
+      if (e.method === 'hub.stopped') {
+        end('hub restarted')
+      } else if (e.method === 'term.data') {
         const bytes = fromBase64(e.params.data)
         term.write(bytes, () => {
           if (disposed || phase === 'ended') return
@@ -78,7 +83,6 @@ export function TermView({ tab, tabs, visible, onChange, register }: {
         term.write(`\r\n[input dropped: ${e.params.bytes} bytes]\r\n`)
       }
     })
-    const offState = hub.onState((s) => { if (s.kind !== 'running') end('hub restarted') })
     const resize = new Debouncer(50, () => {
       if (!el.clientHeight) return // hidden tab: fit would shrink the remote pty to its minimum
       fit.fit()
@@ -92,7 +96,7 @@ export function TermView({ tab, tabs, visible, onChange, register }: {
 
     return () => {
       disposed = true
-      ro.disconnect(); resize.cancel(); dataSub.dispose(); off(); offState()
+      ro.disconnect(); resize.cancel(); dataSub.dispose(); off()
       register(tab.id, undefined)
       // Closing while opening waits for the reply; an ended session needs no close.
       if (phase !== 'ended') opening.then(() => hub.termClose(tab.id)).catch(() => {})

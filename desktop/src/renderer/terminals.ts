@@ -54,3 +54,15 @@ export class Debouncer {
 
 // Hub-supplied text written into xterm must not carry escape sequences.
 export const printable = (s: string) => s.replace(/[\x00-\x1f\x7f-\x9f]/g, '')
+
+// Routes events to one handler per terminal id, so all tabs share a single
+// hub:event / hub:state IPC listener instead of one each (max-listeners warning).
+export class Dispatcher<E> {
+  private handlers = new Map<string, (e: E) => void>()
+  on(id: string, h: (e: E) => void): () => void {
+    this.handlers.set(id, h)
+    return () => { if (this.handlers.get(id) === h) this.handlers.delete(id) }
+  }
+  emit(id: string, e: E): void { this.handlers.get(id)?.(e) }
+  emitAll(e: E): void { for (const h of [...this.handlers.values()]) h(e) }
+}

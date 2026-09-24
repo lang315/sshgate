@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Debouncer, newTermId, printable, TabSet } from '../src/renderer/terminals'
+import { Debouncer, Dispatcher, newTermId, printable, TabSet } from '../src/renderer/terminals'
 
 describe('newTermId', () => {
   it('matches the hub id rules and is unique', () => {
@@ -45,5 +45,19 @@ describe('Debouncer', () => {
 describe('printable', () => {
   it('strips C0, DEL and C1 control characters', () => {
     expect(printable('bye\x1b]0;pwn\x07\r\n\x7f\x9b2Jok é')).toBe('bye]0;pwn2Jok é')
+  })
+})
+
+describe('Dispatcher', () => {
+  it('routes by id, ignores unknown ids, and unsubscribes', () => {
+    const d = new Dispatcher<string>()
+    const a = vi.fn(), b = vi.fn()
+    const offA = d.on('a', a); d.on('b', b)
+    d.emit('a', 'x'); d.emit('zzz', 'y')
+    expect(a).toHaveBeenCalledWith('x'); expect(b).not.toHaveBeenCalled()
+    d.emitAll('all')
+    expect(b).toHaveBeenCalledWith('all')
+    offA(); d.emit('a', 'z')
+    expect(a).toHaveBeenCalledTimes(2)
   })
 })

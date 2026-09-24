@@ -12,6 +12,7 @@ export function App() {
   const [hubState, setHubState] = useState<HubState>({ kind: 'starting' })
   const [status, setStatus] = useState<{ locked: boolean; hasStore: boolean }>()
   const [unlockError, setUnlockError] = useState<string>()
+  const [idleLocked, setIdleLocked] = useState(false)
   const [servers, setServers] = useState<ServerInfo[]>([])
   const terms = useRef<TerminalsHandle>(null)
   const [everReady, setEverReady] = useState(false)
@@ -23,13 +24,15 @@ export function App() {
   useEffect(() => {
     hub.getState().then(setHubState).catch(() => {})
     const offState = hub.onState(setHubState)
-    const offEvent = hub.onEvent((e) => { if (e.method === 'locked') refresh() })
+    const offEvent = hub.onEvent((e) => {
+      if (e.method === 'locked') { setIdleLocked(e.params?.reason === 'idle'); refresh() }
+    })
     return () => { offState(); offEvent() }
   }, [refresh])
 
   useEffect(() => {
     if (hubState.kind === 'running') refresh()
-    else { setStatus(undefined); setUnlockError(undefined) }
+    else { setStatus(undefined); setUnlockError(undefined); setIdleLocked(false) }
   }, [hubState, refresh])
 
   const screen = screenFor(hubState, status, unlockError)
@@ -57,7 +60,7 @@ export function App() {
   }, [screen.kind, hubState.kind])
 
   const unlock = async (pw: string) => {
-    try { await hub.unlock(pw); setUnlockError(undefined) } catch (e) { setUnlockError((e as Error).message) }
+    try { await hub.unlock(pw); setUnlockError(undefined); setIdleLocked(false) } catch (e) { setUnlockError((e as Error).message) }
     await refresh()
   }
 
@@ -81,7 +84,10 @@ export function App() {
       ) : screen.kind === 'no-store' ? (
         <div className="center"><p>No vault yet. Run <code>ssh-mcp web</code> to add servers, then restart the app.</p></div>
       ) : (
-        <div className="center"><Unlock onUnlock={unlock} error={screen.error} /></div>
+        <div className="center">
+          {idleLocked && <p className="muted">Locked after 15 minutes of inactivity.</p>}
+          <Unlock onUnlock={unlock} error={screen.error} />
+        </div>
       )}
       {(ready || everReady) && (
         <main className="work" style={ready ? undefined : { display: 'none' }} inert={!ready}><Terminals ref={terms} /></main>

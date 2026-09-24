@@ -1,6 +1,7 @@
-import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
-import { TabSet } from './terminals'
-import { TermView, type TermApi } from './TermView'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { hub } from './transport'
+import { Dispatcher, TabSet } from './terminals'
+import { TermView, type TermApi, type TermEvent } from './TermView'
 
 export interface TerminalsHandle {
   open(server: string): void
@@ -10,6 +11,15 @@ export interface TerminalsHandle {
 export const Terminals = forwardRef<TerminalsHandle>(function Terminals(_props, ref) {
   const tabs = useRef(new TabSet()).current
   const apis = useRef(new Map<string, TermApi>()).current
+  const events = useRef(new Dispatcher<TermEvent>()).current
+  useEffect(() => {
+    const offEvent = hub.onEvent((e) => {
+      const id = (e.params as { id?: unknown } | undefined)?.id
+      if (e.method.startsWith('term.') && typeof id === 'string') events.emit(id, e)
+    })
+    const offState = hub.onState((s) => { if (s.kind !== 'running') events.emitAll({ method: 'hub.stopped' }) })
+    return () => { offEvent(); offState() }
+  }, [events])
   const [, setVersion] = useState(0)
   const changed = () => setVersion((v) => v + 1)
   const register = (id: string, api: TermApi | undefined) => { if (api) apis.set(id, api); else apis.delete(id) }
@@ -54,7 +64,7 @@ export const Terminals = forwardRef<TerminalsHandle>(function Terminals(_props, 
       </div>
       <div className="termarea">
         {tabs.tabs.map((t) => (
-          <TermView key={t.id} tab={t} tabs={tabs} visible={t.id === tabs.active} onChange={changed} register={register} />
+          <TermView key={t.id} tab={t} tabs={tabs} events={events} visible={t.id === tabs.active} onChange={changed} register={register} />
         ))}
       </div>
     </div>
