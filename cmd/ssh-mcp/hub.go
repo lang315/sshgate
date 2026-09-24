@@ -42,6 +42,7 @@ func runHub(args []string) error {
 	if err != nil {
 		return err
 	}
+	defer h.Close()
 	defer h.Registry().CloseAll()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

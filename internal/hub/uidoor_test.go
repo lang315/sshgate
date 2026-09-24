@@ -101,3 +101,28 @@ func TestUIDoorDecideRejectsInvalidOutcome(t *testing.T) {
 		}
 	}
 }
+
+func TestUIDoorHelloAndLockedNotification(t *testing.T) {
+	h, _ := newEncryptedHub(t, Options{IdleLock: -1})
+	c, notes := startUI(t, h)
+	var hello struct {
+		Protocol int `json:"protocol"`
+	}
+	if err := c.Call(context.Background(), "hello", nil, &hello); err != nil || hello.Protocol != 1 {
+		t.Fatalf("hello: %v %+v", err, hello)
+	}
+	if err := c.Call(context.Background(), "unlock", map[string]string{"password": "pw"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Call(context.Background(), "lock", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case m := <-notes:
+		if m != "locked" {
+			t.Fatalf("want locked notification, got %s", m)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no locked notification")
+	}
+}

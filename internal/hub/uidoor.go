@@ -61,6 +61,18 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		}
 	})
 	defer release()
+	releaseLock := h.setLockSink(func(reason string) {
+		s.Notify("locked", map[string]string{"reason": reason})
+	})
+	defer releaseLock()
+	// req registers a request that counts as UI activity for the idle
+	// auto-lock. status does not: the desktop app polls it.
+	req := func(name string, fn rpc.Handler) {
+		s.HandleRequest(name, func(ctx context.Context, raw json.RawMessage) (any, error) {
+			h.touch()
+			return fn(ctx, raw)
+		})
+	}
 
 	empty := map[string]any{}
 	// Every method here is request-only (term.write/resize/ack are the
@@ -71,29 +83,29 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		_ = h.Reload()
 		return map[string]any{"locked": h.Locked(), "hasStore": h.hasStore(), "pending": len(h.Broker().Pending())}, nil
 	})
-	s.HandleRequest("unlock", func(_ context.Context, raw json.RawMessage) (any, error) {
+	req("unlock", func(_ context.Context, raw json.RawMessage) (any, error) {
 		var p struct {
 			Password string `json:"password"`
 		}
 		json.Unmarshal(raw, &p)
 		return empty, h.Unlock(p.Password)
 	})
-	s.HandleRequest("lock", func(context.Context, json.RawMessage) (any, error) {
+	req("lock", func(context.Context, json.RawMessage) (any, error) {
 		h.Lock()
 		return empty, nil
 	})
-	s.HandleRequest("servers", func(context.Context, json.RawMessage) (any, error) {
+	req("servers", func(context.Context, json.RawMessage) (any, error) {
 		_ = h.Reload()
 		return h.serversForUI(), nil
 	})
-	s.HandleRequest("pending", func(context.Context, json.RawMessage) (any, error) {
+	req("pending", func(context.Context, json.RawMessage) (any, error) {
 		p := h.Broker().Pending()
 		if p == nil {
 			p = []broker.Request{}
 		}
 		return p, nil
 	})
-	s.HandleRequest("decide", func(_ context.Context, raw json.RawMessage) (any, error) {
+	req("decide", func(_ context.Context, raw json.RawMessage) (any, error) {
 		var p struct {
 			ID      string `json:"id"`
 			Outcome string `json:"outcome"`
@@ -107,13 +119,16 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		}
 		return empty, h.Broker().Decide(p.ID, broker.Decision{Outcome: broker.Outcome(p.Outcome), Reason: p.Reason})
 	})
-	s.HandleRequest("denyAll", func(_ context.Context, raw json.RawMessage) (any, error) {
+	req("denyAll", func(_ context.Context, raw json.RawMessage) (any, error) {
 		var p struct {
 			Reason string `json:"reason"`
 		}
 		json.Unmarshal(raw, &p)
 		h.Broker().DenyAll(p.Reason)
 		return empty, nil
+	})
+	req("hello", func(context.Context, json.RawMessage) (any, error) {
+		return map[string]int{"protocol": ProtocolVersion}, nil
 	})
 	closeTerms := registerTermMethods(s, h)
 	defer closeTerms() // after Serve: no term.open is still in flight

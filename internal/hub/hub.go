@@ -56,6 +56,7 @@ type Options struct {
 	ApprovalExpiry time.Duration // <= 0 means the broker default, 5 minutes
 	OnEvent        func(broker.Event)
 	Dialer         func(sshx.DialConfig) Executor // test seam; nil = real Registry
+	IdleLock       time.Duration                  // 0 means 15 minutes; < 0 disables auto-lock
 }
 
 type ServerInfo struct {
@@ -77,18 +78,25 @@ type ExecResponse struct {
 
 type Hub struct {
 	o       Options
-	mu      sync.Mutex // guards deps.File, deps.MasterKey and sink
+	mu      sync.Mutex // guards deps.File, deps.MasterKey, sinks, lastActivity and running
 	deps    *mcpserver.Deps
 	sink    func(broker.Event)
 	sinkGen uint64 // bumped on every setEventSink; lets release() no-op if superseded
 	reg     *sshx.Registry
 	broker  *broker.Broker
 	audit   *broker.Audit
+
+	lockSink     func(reason string)
+	lockSinkGen  uint64
+	lastActivity time.Time
+	running      int // approved AI commands currently executing
+	done         chan struct{}
+	closeOnce    sync.Once
 }
 
 // New loads the store if present; a missing store is not an error.
 func New(o Options) (*Hub, error) {
-	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit}
+	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit, lastActivity: time.Now(), done: make(chan struct{})}
 	h.deps = &mcpserver.Deps{Path: o.StorePath}
 	f, err := config.Load(o.StorePath)
 	if err != nil && !os.IsNotExist(err) {
@@ -96,8 +104,18 @@ func New(o Options) (*Hub, error) {
 	}
 	h.deps.File = f
 	h.broker = broker.New(broker.Options{MaxPending: 5, Expiry: o.ApprovalExpiry, OnEvent: h.emit})
+	idle := o.IdleLock
+	if idle == 0 {
+		idle = defaultIdleLock
+	}
+	if idle > 0 {
+		go h.idleLoop(idle)
+	}
 	return h, nil
 }
+
+// Close stops the idle auto-lock goroutine. It is safe to call more than once.
+func (h *Hub) Close() { h.closeOnce.Do(func() { close(h.done) }) }
 
 func (h *Hub) Broker() *broker.Broker   { return h.broker }
 func (h *Hub) Registry() *sshx.Registry { return h.reg }
@@ -118,6 +136,23 @@ func (h *Hub) setEventSink(f func(broker.Event)) (release func()) {
 		h.mu.Lock()
 		if h.sinkGen == gen {
 			h.sink = nil
+		}
+		h.mu.Unlock()
+	}
+}
+
+// setLockSink installs f to be told when the vault goes from unlocked to
+// locked; release works like setEventSink's.
+func (h *Hub) setLockSink(f func(reason string)) (release func()) {
+	h.mu.Lock()
+	h.lockSink = f
+	h.lockSinkGen++
+	gen := h.lockSinkGen
+	h.mu.Unlock()
+	return func() {
+		h.mu.Lock()
+		if h.lockSinkGen == gen {
+			h.lockSink = nil
 		}
 		h.mu.Unlock()
 	}
@@ -160,14 +195,24 @@ func (h *Hub) Unlock(pw string) error {
 	}
 	clear(h.deps.MasterKey)
 	h.deps.MasterKey = mk
+	h.lastActivity = time.Now()
 	return nil
 }
 
-func (h *Hub) Lock() {
+func (h *Hub) Lock() { h.lockWithReason("manual") }
+
+// lockWithReason zeroes the key and, if the vault was unlocked, tells the
+// lock sink. The sink runs outside h.mu.
+func (h *Hub) lockWithReason(reason string) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	wasUnlocked := h.deps.MasterKey != nil
 	clear(h.deps.MasterKey)
 	h.deps.MasterKey = nil
+	sink := h.lockSink
+	h.mu.Unlock()
+	if wasUnlocked && sink != nil {
+		sink(reason)
+	}
 }
 
 func (h *Hub) Locked() bool {
@@ -353,6 +398,8 @@ func redactorFor(dcs ...sshx.DialConfig) *config.Redactor {
 }
 
 func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
+	h.touch()       // on submit
+	defer h.touch() // and on return, whatever the outcome
 	dc, err := h.resolveForAI(r.Server)
 	if err != nil {
 		var he *hiddenError
@@ -393,6 +440,17 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 		h.record(base)
 		return ExecResponse{Stdout: "User chose to run this in their terminal; no output captured"}, nil
 	}
+
+	// Approved: count as running so the idle auto-lock waits for it.
+	h.mu.Lock()
+	h.running++
+	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		h.running--
+		h.lastActivity = time.Now()
+		h.mu.Unlock()
+	}()
 
 	if ctx.Err() != nil {
 		base.Outcome = string(broker.ApprovedButCancelled)

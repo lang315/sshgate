@@ -61,6 +61,7 @@ func registerTermMethods(s *rpc.Server, h *Hub) (closeAll func()) {
 	empty := map[string]any{}
 
 	s.HandleRequest("term.open", func(_ context.Context, raw json.RawMessage) (any, error) {
+		h.touch()
 		var p struct {
 			ID     string `json:"id"`
 			Server string `json:"server"`
@@ -137,6 +138,7 @@ func registerTermMethods(s *rpc.Server, h *Hub) (closeAll func()) {
 		return map[string]string{"id": p.ID}, nil
 	})
 	s.Handle("term.write", func(_ context.Context, raw json.RawMessage) (any, error) {
+		h.touch()
 		var p struct {
 			ID   string `json:"id"`
 			Data []byte `json:"data"`
@@ -200,6 +202,7 @@ func registerTermMethods(s *rpc.Server, h *Hub) (closeAll func()) {
 		return empty, nil
 	})
 	s.HandleRequest("term.close", func(_ context.Context, raw json.RawMessage) (any, error) {
+		h.touch()
 		var p struct {
 			ID string `json:"id"`
 		}
