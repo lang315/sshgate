@@ -3,6 +3,7 @@
 package hub
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -21,6 +22,9 @@ var (
 	ErrLocked    = errors.New("Vault is locked; unlock it in the app")
 	ErrNoHostKey = errors.New("connect to this server from the app once first")
 	ErrExpired   = errors.New("Approval timed out after 5 minutes; you may retry")
+	// ErrCancelledRunning replaces sshx.ErrCancelled toward the AI; the
+	// detailed error goes to the audit reason.
+	ErrCancelledRunning = errors.New("Cancelled; the remote process may still be running")
 )
 
 // serverNotFound is used for both hidden and nonexistent servers so the two
@@ -128,11 +132,14 @@ func (h *Hub) Unlock(pw string) error {
 		return err
 	}
 	if !f.KDF.Verify(mk) {
+		clear(mk)
 		return errors.New("wrong master password")
 	}
 	if err := f.VerifyMAC(mk); err != nil {
+		clear(mk)
 		return err
 	}
+	clear(h.deps.MasterKey)
 	h.deps.MasterKey = mk
 	return nil
 }
@@ -219,15 +226,8 @@ func (h *Hub) record(r broker.AuditRecord) {
 	}
 }
 
-// check validates the server under the lock: exists and AIVisible, unlocked,
-// host key pinned.
-func (h *Hub) check(name string) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.checkLocked(name)
-}
-
-// checkLocked is check with h.mu already held.
+// checkLocked validates the server with h.mu held: exists and AIVisible,
+// unlocked, host key pinned.
 func (h *Hub) checkLocked(name string) error {
 	if h.deps.File == nil {
 		return serverNotFound(name)
@@ -245,24 +245,62 @@ func (h *Hub) checkLocked(name string) error {
 	return nil
 }
 
-// resolve re-checks the server (the vault may have been locked or reloaded
-// during the approval wait) and resolves it. Resolve runs under h.mu because
-// it reads File and MasterKey; it is short (decrypt plus an optional key-file
-// read). Its OnLearnHostKey closure reads Deps unlocked, but it never fires
-// here because check guarantees a pinned host key.
-func (h *Hub) resolve(name string) (sshx.DialConfig, error) {
+// Resolve turns a stored server into a DialConfig. Deps.Resolve runs under
+// h.mu because it reads File and MasterKey; it is short (decrypt plus an
+// optional key-file read). Its OnLearnHostKey closure would read Deps
+// unlocked later, so it is replaced by one that owns a copy of the key taken
+// here. With an encrypted vault and no key, the closure records nothing: a
+// nil-key Save would strip the vault's MAC.
+func (h *Hub) Resolve(name string) (sshx.DialConfig, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.resolveLocked(name)
+}
+
+func (h *Hub) resolveLocked(name string) (sshx.DialConfig, error) {
+	dc, err := h.deps.Resolve(name)
+	if err != nil {
+		return sshx.DialConfig{}, err
+	}
+	path := h.deps.Path
+	key := bytes.Clone(h.deps.MasterKey)
+	encrypted := h.deps.File != nil && h.deps.File.KDF != nil
+	dc.OnLearnHostKey = func(fp string) {
+		if encrypted && key == nil {
+			return
+		}
+		_ = config.RecordHostKey(path, name, fp, key)
+	}
+	return dc, nil
+}
+
+// resolveForAI checks the server (exists, AIVisible, unlocked, pinned) and
+// resolves it in one locked section. Exec calls it before approval, to build
+// the audit redactor, and again after, since the vault may have been locked
+// or reloaded during the wait.
+func (h *Hub) resolveForAI(name string) (sshx.DialConfig, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if err := h.checkLocked(name); err != nil {
 		return sshx.DialConfig{}, err
 	}
-	return h.deps.Resolve(name)
+	return h.resolveLocked(name)
+}
+
+func redactorFor(dcs ...sshx.DialConfig) *config.Redactor {
+	var secrets []string
+	for _, dc := range dcs {
+		secrets = append(secrets, dc.Password, dc.SuPassword, dc.SudoPassword, dc.Passphrase)
+	}
+	return config.NewRedactor(secrets...)
 }
 
 func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
-	if err := h.check(r.Server); err != nil {
+	dc, err := h.resolveForAI(r.Server)
+	if err != nil {
 		return ExecResponse{}, err
 	}
+	red := redactorFor(dc)
 	cmd, err := config.SanitizeCommand(r.Command, -1)
 	if err != nil {
 		return ExecResponse{}, err
@@ -274,7 +312,7 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 	timeout := clampTimeout(r.TimeoutSec)
 
 	req := broker.Request{Client: r.Client, Server: r.Server, Command: cmd, Description: r.Description, Sudo: r.Sudo, TimeoutSec: timeout}
-	base := broker.AuditRecord{Time: time.Now(), Client: r.Client, Server: r.Server, Command: cmd, Description: r.Description, Sudo: r.Sudo, TimeoutSec: timeout}
+	base := broker.AuditRecord{Time: time.Now(), Client: r.Client, Server: r.Server, Command: red.Redact(cmd), Description: red.Redact(r.Description), Sudo: r.Sudo, TimeoutSec: timeout}
 
 	d, err := h.broker.Submit(ctx, req)
 	if err != nil {
@@ -300,16 +338,16 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 		h.record(base)
 		return ExecResponse{}, ctx.Err()
 	}
-	dc, err := h.resolve(r.Server)
+	dc2, err := h.resolveForAI(r.Server)
 	if err != nil {
-		// No DialConfig, so nothing to redact with; these messages carry no secrets.
-		base.Outcome, base.Reason = "error", err.Error()
+		base.Outcome, base.Reason = "error", red.Redact(err.Error())
 		h.record(base)
 		return ExecResponse{}, err
 	}
-	ex := h.executor(r.Server, dc)
-	red := config.NewRedactor(dc.Password, dc.SuPassword, dc.SudoPassword, dc.Passphrase)
-	base.Command = red.Redact(cmd)
+	// Secrets may have changed on a reload during the wait; mask both sets.
+	red = redactorFor(dc, dc2)
+	base.Command, base.Description = red.Redact(cmd), red.Redact(r.Description)
+	ex := h.executor(r.Server, dc2)
 
 	runCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
@@ -327,7 +365,7 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 		if errors.Is(err, sshx.ErrCancelled) {
 			base.Outcome = "cancelled_running"
 			h.record(base)
-			return ExecResponse{}, err // fixed text plus ctx.Err(); keeps errors.Is
+			return ExecResponse{}, ErrCancelledRunning
 		}
 		base.Outcome = "error"
 		h.record(base)

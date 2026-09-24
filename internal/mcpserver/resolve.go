@@ -88,7 +88,7 @@ func (d *Deps) Resolve(name string) (sshx.DialConfig, error) {
 			return "", nil
 		}
 		if d.MasterKey == nil {
-			return "", fmt.Errorf("vault locked; provide SSH_MCP_MASTER_PASSWORD_FILE or use key/agent auth")
+			return "", fmt.Errorf("vault locked; unlock it in the app")
 		}
 		return config.Decrypt(d.MasterKey, s.Name+"/"+field, config.AADFor(d.File, s, field), blob)
 	}
