@@ -147,6 +147,9 @@ type ExecResult struct {
 // guaranteed, so it may still be running.
 var ErrCancelled = errors.New("cancelled; the remote process may still be running")
 
+// ErrTimeout is wrapped by every command timeout error.
+var ErrTimeout = errors.New("command timed out")
+
 // runOnce runs cmd on sess, which it owns and closes. It never takes m.mu.
 func (m *Manager) runOnce(ctx context.Context, sess *ssh.Session, cmd string, stdin string) (ExecResult, error) {
 	defer sess.Close()
@@ -181,14 +184,14 @@ func (m *Manager) runOnce(ctx context.Context, sess *ssh.Session, cmd string, st
 		sess.Close()
 		<-done // wait for sess.Run's writers to stop before reading out
 		return ExecResult{Stdout: out.String(), Stderr: errb.String()},
-			fmt.Errorf("command timed out after %dms", m.cfg.TimeoutMs)
+			fmt.Errorf("%w after %dms", ErrTimeout, m.cfg.TimeoutMs)
 	case <-ctx.Done():
 		_ = sess.Signal(ssh.SIGKILL)
 		sess.Close()
 		<-done
 		res := ExecResult{Stdout: out.String(), Stderr: errb.String()}
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return res, fmt.Errorf("command timed out: %w", ctx.Err())
+			return res, fmt.Errorf("%w: %w", ErrTimeout, ctx.Err())
 		}
 		return res, fmt.Errorf("%w: %w", ErrCancelled, ctx.Err())
 	}
@@ -480,11 +483,11 @@ func waitCommandOutput(ctx context.Context, r *bufio.Reader, timeoutMs int, mark
 		return res.out, res.code, res.err
 	case <-timeout:
 		kill()
-		return "", 0, fmt.Errorf("command timed out after %dms", timeoutMs)
+		return "", 0, fmt.Errorf("%w after %dms", ErrTimeout, timeoutMs)
 	case <-ctx.Done():
 		kill()
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return "", 0, fmt.Errorf("command timed out: %w", ctx.Err())
+			return "", 0, fmt.Errorf("%w: %w", ErrTimeout, ctx.Err())
 		}
 		return "", 0, fmt.Errorf("%w: %w", ErrCancelled, ctx.Err())
 	}
@@ -533,7 +536,7 @@ func readCommandOutput(r *bufio.Reader, timeout time.Duration, marker string) (s
 			return "", 0, rerr
 		}
 	}
-	return "", 0, fmt.Errorf("command timed out")
+	return "", 0, ErrTimeout
 }
 
 func lastNonEmptyLine(s string) string {

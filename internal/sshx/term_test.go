@@ -371,3 +371,15 @@ func TestTermEchoOverFakeServer(t *testing.T) {
 		t.Fatal("no exit after Close")
 	}
 }
+
+// The hub passes timeouts through to the AI but hides every other SSH
+// error, so a timeout must be recognisable.
+func TestExecTimeoutIsErrTimeout(t *testing.T) {
+	srv := sshtest.Start(t) // execs block until Release, which is never closed
+	m := fakeManager(t, srv)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if _, err := m.Exec(ctx, "sleep"); !errors.Is(err, ErrTimeout) || err.Error() != "command timed out: context deadline exceeded" {
+		t.Fatalf("got %v", err)
+	}
+}

@@ -25,6 +25,11 @@ var (
 	// ErrCancelledRunning replaces sshx.ErrCancelled toward the AI; the
 	// detailed error goes to the audit reason.
 	ErrCancelledRunning = errors.New("Cancelled; the remote process may still be running")
+	// ErrHostKeyFailed and ErrConnFailed hide SSH and resolve detail (host,
+	// port, fingerprints, key-file paths) from the AI; the detail goes to
+	// the audit reason and stderr.
+	ErrHostKeyFailed = errors.New("host key verification failed; check the server in the app")
+	ErrConnFailed    = errors.New("connection to server failed; see the app for details")
 )
 
 // serverNotFound is used for both hidden and nonexistent servers so the two
@@ -306,7 +311,38 @@ func (h *Hub) resolveForAI(name string) (sshx.DialConfig, error) {
 	if err := h.checkLocked(name); err != nil {
 		return sshx.DialConfig{}, err
 	}
-	return h.resolveLocked(name)
+	dc, err := h.resolveLocked(name)
+	if err != nil {
+		return sshx.DialConfig{}, &hiddenError{ai: ErrConnFailed, detail: err}
+	}
+	return dc, nil
+}
+
+// hiddenError shows the AI only ai; detail is for the audit and stderr.
+type hiddenError struct{ ai, detail error }
+
+func (e *hiddenError) Error() string { return e.ai.Error() }
+func (e *hiddenError) Unwrap() error { return e.ai }
+
+// forAI maps an exec error to what the AI may see. A timeout carries no
+// host or path and passes through; every other SSH error is replaced.
+func forAI(err error) error {
+	switch {
+	case errors.Is(err, sshx.ErrHostKeyMismatch):
+		return ErrHostKeyFailed
+	case errors.Is(err, sshx.ErrTimeout):
+		return err
+	}
+	return ErrConnFailed
+}
+
+// detail is the full text of err for the audit and stderr.
+func detail(err error) string {
+	var he *hiddenError
+	if errors.As(err, &he) {
+		return he.detail.Error()
+	}
+	return err.Error()
 }
 
 func redactorFor(dcs ...sshx.DialConfig) *config.Redactor {
@@ -320,6 +356,10 @@ func redactorFor(dcs ...sshx.DialConfig) *config.Redactor {
 func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 	dc, err := h.resolveForAI(r.Server)
 	if err != nil {
+		var he *hiddenError
+		if errors.As(err, &he) {
+			fmt.Fprintf(os.Stderr, "hub: resolve %q: %v\n", r.Server, he.detail)
+		}
 		return ExecResponse{}, err
 	}
 	red := redactorFor(dc)
@@ -362,8 +402,9 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 	}
 	dc2, err := h.resolveForAI(r.Server)
 	if err != nil {
-		base.Outcome, base.Reason = "error", red.Redact(err.Error())
+		base.Outcome, base.Reason = "error", red.Redact(detail(err))
 		h.record(base)
+		fmt.Fprintf(os.Stderr, "hub: resolve %q: %s\n", r.Server, base.Reason)
 		return ExecResponse{}, err
 	}
 	// Secrets may have changed on a reload during the wait; mask both sets.
@@ -391,6 +432,10 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 		}
 		base.Outcome = "error"
 		h.record(base)
+		fmt.Fprintf(os.Stderr, "hub: exec on %q: %s\n", r.Server, base.Reason)
+		if aiErr := forAI(err); aiErr != err {
+			return ExecResponse{}, aiErr
+		}
 		return ExecResponse{}, errors.New(base.Reason)
 	}
 	code := res.ExitCode

@@ -1,11 +1,15 @@
 package sshx
 
 import (
+	"errors"
 	"fmt"
 	"net"
 
 	"golang.org/x/crypto/ssh"
 )
+
+// ErrHostKeyMismatch is wrapped by the host key callback's error.
+var ErrHostKeyMismatch = errors.New("host key mismatch")
 
 func Fingerprint(key ssh.PublicKey) string {
 	return ssh.FingerprintSHA256(key)
@@ -24,7 +28,7 @@ func HostKeyCallback(pinned string, insecure bool, onLearn func(fp string)) ssh.
 			return nil
 		}
 		if fp != pinned {
-			return fmt.Errorf("host key mismatch for %s: got %s, pinned %s", hostname, fp, pinned)
+			return fmt.Errorf("%w for %s: got %s, pinned %s", ErrHostKeyMismatch, hostname, fp, pinned)
 		}
 		return nil
 	}

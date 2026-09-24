@@ -467,9 +467,29 @@ func TestAuditOutcomes(t *testing.T) {
 					t.Fatalf("rec = %v", rec)
 				}
 			}},
-		{"error", &fakeExec{res: out, err: errors.New("boom")}, &broker.Decision{Outcome: broker.Allowed}, false,
+		// I3: SSH detail (host:port, fingerprints) goes to the audit reason,
+		// never to the AI.
+		{"error", &fakeExec{res: out, err: errors.New("dial tcp 10.9.8.7:22: connection refused")}, &broker.Decision{Outcome: broker.Allowed}, false,
 			func(t *testing.T, rec map[string]any, res ExecResponse, err error) {
-				if err == nil || err.Error() != "boom" || rec["outcome"] != "error" || rec["reason"] != "boom" {
+				if !errors.Is(err, ErrConnFailed) || err.Error() != "connection to server failed; see the app for details" {
+					t.Fatalf("err = %v", err)
+				}
+				if rec["outcome"] != "error" || rec["reason"] != "dial tcp 10.9.8.7:22: connection refused" {
+					t.Fatalf("rec = %v", rec)
+				}
+			}},
+		{"host_key_mismatch", &fakeExec{res: out, err: fmt.Errorf("ssh: handshake failed: %w for 10.9.8.7:22: got SHA256:evil, pinned SHA256:abc", sshx.ErrHostKeyMismatch)}, &broker.Decision{Outcome: broker.Allowed}, false,
+			func(t *testing.T, rec map[string]any, res ExecResponse, err error) {
+				if err == nil || err.Error() != "host key verification failed; check the server in the app" {
+					t.Fatalf("err = %v", err)
+				}
+				if rec["outcome"] != "error" || !strings.Contains(rec["reason"].(string), "SHA256:evil") {
+					t.Fatalf("rec = %v", rec)
+				}
+			}},
+		{"timeout", &fakeExec{res: out, err: fmt.Errorf("%w: %w", sshx.ErrTimeout, context.DeadlineExceeded)}, &broker.Decision{Outcome: broker.Allowed}, false,
+			func(t *testing.T, rec map[string]any, res ExecResponse, err error) {
+				if err == nil || err.Error() != "command timed out: context deadline exceeded" || rec["outcome"] != "error" {
 					t.Fatalf("err=%v rec=%v", err, rec)
 				}
 			}},
@@ -493,6 +513,31 @@ func TestAuditOutcomes(t *testing.T) {
 			}
 			c.check(t, recs[0], res, err)
 		})
+	}
+}
+
+// I3: a resolve failure before approval (here, an unreadable key file)
+// must not show the AI a local path.
+func TestResolveFailureIsGenericToAI(t *testing.T) {
+	fe := &fakeExec{}
+	h, path := newHub(t, fe)
+	f, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Servers[0].KeyPath = "/nonexistent/secret-dir/id_ed25519"
+	if err := config.Save(path, f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
+	if !errors.Is(err, ErrConnFailed) || strings.Contains(err.Error(), "secret-dir") {
+		t.Fatalf("got %v", err)
+	}
+	if len(h.Broker().Pending()) != 0 || len(fe.calls) != 0 {
+		t.Fatal("unresolvable server reached the broker")
 	}
 }
 

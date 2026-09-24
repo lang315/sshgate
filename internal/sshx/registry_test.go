@@ -1,7 +1,7 @@
 package sshx
 
 import (
-	"strings"
+	"errors"
 	"testing"
 
 	"github.com/lang315/ssh-mcp/internal/sshx/sshtest"
@@ -88,7 +88,7 @@ func TestRedialVerifiesLearnedHostKey(t *testing.T) {
 	sess.Close()
 	m.Close() // drop the client; the next call redials
 	srv.RotateHostKey(t)
-	if _, err := m.OpenSession(); err == nil || !strings.Contains(err.Error(), "host key mismatch") {
+	if _, err := m.OpenSession(); !errors.Is(err, ErrHostKeyMismatch) {
 		t.Fatalf("redial with a different host key must fail, got %v", err)
 	}
 }
