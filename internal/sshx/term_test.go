@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/lang315/ssh-mcp/internal/sshx/sshtest"
 )
 
 func termManager(t *testing.T) *Manager {
@@ -282,4 +284,90 @@ func TestTermRemoteExitReportsOnceAndStopsWriter(t *testing.T) {
 	// The reader closes the session on EOF, so the writer is stopped and
 	// further input is refused rather than queued forever.
 	eventually(t, "writer stopped", func() bool { return errors.Is(ts.Write([]byte("x")), ErrTermClosed) })
+}
+
+// --- in-process SSH server tests (no Docker).
+
+func fakeManager(t *testing.T, srv *sshtest.Server) *Manager {
+	m := NewManager(DialConfig{Host: srv.Host, Port: srv.Port, User: "u", Password: "p", Auth: "password", Insecure: true, TimeoutMs: 30000})
+	t.Cleanup(m.Close)
+	return m
+}
+
+func within(t *testing.T, what string, f func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { f(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("%s blocked", what)
+	}
+}
+
+// R28: a long Exec must not hold the manager lock, or it would block
+// term.open, keepalive ticks and Close for up to 600 s.
+func TestExecDoesNotBlockOpenSession(t *testing.T) {
+	srv := sshtest.Start(t)
+	m := fakeManager(t, srv)
+	res := make(chan ExecResult, 1)
+	go func() { r, _ := m.Exec(context.Background(), "long-running"); res <- r }()
+	select {
+	case <-srv.Execs:
+	case <-time.After(5 * time.Second):
+		t.Fatal("exec never reached the server")
+	}
+	within(t, "OpenSession during Exec", func() {
+		sess, err := m.OpenSession()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		sess.Close()
+	})
+	within(t, "StartKeepalive during Exec", func() { m.StartKeepalive(time.Hour, nil) })
+	close(srv.Release)
+	if r := <-res; r.Stdout != "long-running" {
+		t.Fatalf("exec result %+v", r)
+	}
+}
+
+// The su path serializes on suMu only; holding it (as a running su command
+// does) must not block OpenSession or Close.
+func TestSuLockDoesNotBlockOpenSessionOrClose(t *testing.T) {
+	srv := sshtest.Start(t)
+	m := fakeManager(t, srv)
+	m.suMu.Lock()
+	defer m.suMu.Unlock()
+	within(t, "OpenSession while su busy", func() {
+		sess, err := m.OpenSession()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		sess.Close()
+	})
+	within(t, "Close while su busy", m.Close)
+}
+
+func TestTermEchoOverFakeServer(t *testing.T) {
+	srv := sshtest.Start(t)
+	m := fakeManager(t, srv)
+	var mu sync.Mutex
+	var buf bytes.Buffer
+	exited := make(chan int, 1)
+	ts, err := m.OpenTerm(24, 80, func(b []byte) { mu.Lock(); buf.Write(b); mu.Unlock() }, func(code int, _ string) { exited <- code })
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts.Write([]byte("hello"))
+	ts.Resize(50, 132)
+	ts.Write([]byte(" world"))
+	waitFor(t, &mu, &buf, "hello world")
+	ts.Close()
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no exit after Close")
+	}
 }

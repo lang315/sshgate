@@ -155,8 +155,12 @@ func (t *TermSession) Resize(rows, cols int) error {
 	return t.enqueue(func() { t.resize(rows, cols) })
 }
 
-// Ack records that the consumer processed n bytes. It never blocks.
+// Ack records that the consumer processed n bytes; n <= 0 is ignored. It
+// never blocks.
 func (t *TermSession) Ack(n int) {
+	if n <= 0 {
+		return
+	}
 	t.mu.Lock()
 	t.unacked = max(t.unacked-n, 0)
 	if t.unacked <= LowWater {

@@ -28,15 +28,21 @@ type DialConfig struct {
 	OnLearnHostKey                               func(fp string)
 }
 
+// Manager owns one lazily dialed client. mu guards client, su and kaStop and
+// is only ever held briefly (dialing aside): commands run without it, so a
+// long Exec never blocks OpenSession, keepalive, or Close. suMu serializes
+// use of the single shared su root shell.
 type Manager struct {
 	cfg    DialConfig
 	mu     sync.Mutex
 	client *ssh.Client
 	su     *suShell
 	kaStop chan struct{} // non-nil while a keepalive goroutine runs
+	suMu   sync.Mutex
 }
 
 type suShell struct {
+	client *ssh.Client // the client the shell runs on
 	sess   *ssh.Session
 	stdin  io.WriteCloser
 	stdout io.Reader
@@ -118,11 +124,8 @@ type ExecResult struct {
 // guaranteed, so it may still be running.
 var ErrCancelled = errors.New("cancelled; the remote process may still be running")
 
-func (m *Manager) runOnce(ctx context.Context, cmd string, stdin string) (ExecResult, error) {
-	sess, err := m.client.NewSession()
-	if err != nil {
-		return ExecResult{}, err
-	}
+// runOnce runs cmd on sess, which it owns and closes. It never takes m.mu.
+func (m *Manager) runOnce(ctx context.Context, sess *ssh.Session, cmd string, stdin string) (ExecResult, error) {
 	defer sess.Close()
 	var out, errb bytes.Buffer
 	sess.Stdout = &out
@@ -169,28 +172,26 @@ func (m *Manager) runOnce(ctx context.Context, cmd string, stdin string) (ExecRe
 }
 
 func (m *Manager) Exec(ctx context.Context, cmd string) (ExecResult, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if err := m.ensure(); err != nil {
-		return ExecResult{}, err
-	}
 	if m.cfg.SuPassword != "" {
 		out, code, err := m.execElevated(ctx, cmd)
 		return ExecResult{Stdout: out, ExitCode: code}, err
 	}
-	return m.runOnce(ctx, cmd, "")
+	sess, err := m.OpenSession()
+	if err != nil {
+		return ExecResult{}, err
+	}
+	return m.runOnce(ctx, sess, cmd, "")
 }
 
 func (m *Manager) ExecSudo(ctx context.Context, cmd string) (ExecResult, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if err := m.ensure(); err != nil {
+	sess, err := m.OpenSession()
+	if err != nil {
 		return ExecResult{}, err
 	}
 	if m.cfg.SudoPassword == "" {
-		return m.runOnce(ctx, WrapSudoNoPassword(cmd), "")
+		return m.runOnce(ctx, sess, WrapSudoNoPassword(cmd), "")
 	}
-	return m.runOnce(ctx, WrapSudoWithPassword(cmd), m.cfg.SudoPassword+"\n")
+	return m.runOnce(ctx, sess, WrapSudoWithPassword(cmd), m.cfg.SudoPassword+"\n")
 }
 
 func nonce() string {
@@ -220,11 +221,13 @@ func (m *Manager) Close() {
 // only while ensuring the client exists; the caller owns the session.
 func (m *Manager) OpenSession() (*ssh.Session, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if err := m.ensure(); err != nil {
+	err := m.ensure()
+	c := m.client
+	m.mu.Unlock()
+	if err != nil {
 		return nil, err
 	}
-	return m.client.NewSession()
+	return c.NewSession()
 }
 
 // StartKeepalive pings the server every interval until Close. A ping that
@@ -304,11 +307,54 @@ func ping(c *ssh.Client, timeout time.Duration) error {
 	}
 }
 
+// ensureElevated returns the shared su shell, starting one if needed. The
+// caller holds suMu; m.mu is held only around state reads and writes, not
+// while the su handshake runs.
 func (m *Manager) ensureElevated() (*suShell, error) {
-	if m.su != nil {
-		return m.su, nil
+	m.mu.Lock()
+	if err := m.ensure(); err != nil {
+		m.mu.Unlock()
+		return nil, err
 	}
-	sess, err := m.client.NewSession()
+	if m.su != nil && m.su.client != m.client { // left over from a dropped connection
+		m.su.sess.Close()
+		m.su = nil
+	}
+	if sh := m.su; sh != nil {
+		m.mu.Unlock()
+		return sh, nil
+	}
+	client := m.client
+	m.mu.Unlock()
+
+	sh, err := m.startSu(client)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.client != client { // Close or a reconnect happened meanwhile
+		sh.sess.Close()
+		return nil, errors.New("connection closed while elevating")
+	}
+	m.su = sh
+	return sh, nil
+}
+
+// dropSu closes sh and forgets it unless it was already replaced.
+func (m *Manager) dropSu(sh *suShell) {
+	sh.sess.Close()
+	m.mu.Lock()
+	if m.su == sh {
+		m.su = nil
+	}
+	m.mu.Unlock()
+}
+
+// startSu opens a PTY shell on client and elevates it with su. It touches no
+// Manager state.
+func (m *Manager) startSu(client *ssh.Client) (*suShell, error) {
+	sess, err := client.NewSession()
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +369,7 @@ func (m *Manager) ensureElevated() (*suShell, error) {
 		sess.Close()
 		return nil, err
 	}
-	sh := &suShell{sess: sess, stdin: stdin, stdout: stdout, buf: bufio.NewReader(stdout)}
+	sh := &suShell{client: client, sess: sess, stdin: stdin, stdout: stdout, buf: bufio.NewReader(stdout)}
 	fmt.Fprint(stdin, "export LANG=C LC_ALL=C\n")
 	fmt.Fprint(stdin, "su -\n")
 	if err := readUntilAny(sh.buf, 10*time.Second, []string{"assword"}); err != nil {
@@ -345,10 +391,8 @@ func (m *Manager) ensureElevated() (*suShell, error) {
 	out, code, err := readCommandOutput(sh.buf, 10*time.Second, check)
 	if err != nil || code != 0 || lastNonEmptyLine(out) != "0" {
 		sess.Close()
-		m.su = nil
 		return nil, fmt.Errorf("su elevation failed: not root (uid=%q, err=%v)", lastNonEmptyLine(out), err)
 	}
-	m.su = sh
 	return sh, nil
 }
 
@@ -356,6 +400,8 @@ func (m *Manager) ensureElevated() (*suShell, error) {
 // non-zero code is data, not an error; only transport/timeout/cancellation
 // problems (which poison the persistent su shell) are returned as errors.
 func (m *Manager) execElevated(ctx context.Context, cmd string) (string, int, error) {
+	m.suMu.Lock() // one command at a time on the shared root shell
+	defer m.suMu.Unlock()
 	sh, err := m.ensureElevated()
 	if err != nil {
 		return "", 0, err
@@ -370,8 +416,7 @@ func (m *Manager) execElevated(ctx context.Context, cmd string) (string, int, er
 	if err != nil {
 		// poisoned shell — a half-finished or killed command would corrupt
 		// the next capture, so it must be re-established next time.
-		sh.sess.Close()
-		m.su = nil
+		m.dropSu(sh)
 		return "", 0, err
 	}
 	return out, code, nil
