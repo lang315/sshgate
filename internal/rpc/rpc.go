@@ -32,15 +32,18 @@ type Handler func(ctx context.Context, params json.RawMessage) (any, error)
 // Server is a newline-delimited JSON-RPC 2.0 server. A Server serves exactly
 // one connection: call Serve once; a second call returns an error.
 type Server struct {
-	mu       sync.Mutex // guards handlers and serving; independent of writeMu
-	handlers map[string]Handler
-	serving  bool
+	mu          sync.Mutex // guards handlers and serving; independent of writeMu
+	handlers    map[string]Handler
+	requestOnly map[string]bool // methods registered via HandleRequest
+	serving     bool
 
 	writeMu sync.Mutex // guards w; separate from mu so a slow peer never blocks inbound dispatch
 	w       io.Writer
 }
 
-func NewServer() *Server { return &Server{handlers: map[string]Handler{}} }
+func NewServer() *Server {
+	return &Server{handlers: map[string]Handler{}, requestOnly: map[string]bool{}}
+}
 
 // Handle registers h for method. Handlers for requests (which carry an id)
 // run concurrently, one goroutine per request. Handlers for notifications
@@ -53,6 +56,17 @@ func (s *Server) Handle(method string, h Handler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.handlers[method] = h
+	delete(s.requestOnly, method)
+}
+
+// HandleRequest registers h for method as request-only: it runs only for
+// calls that carry an id. A notification to method is ignored, so a
+// long-running handler can never block Serve's read loop.
+func (s *Server) HandleRequest(method string, h Handler) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.handlers[method] = h
+	s.requestOnly[method] = true
 }
 
 func (s *Server) write(m message) error {
@@ -136,9 +150,10 @@ readLoop:
 			}
 			s.mu.Lock()
 			h := s.handlers[m.Method]
+			reqOnly := s.requestOnly[m.Method]
 			s.mu.Unlock()
 			if m.ID == nil { // notification: dispatch inline to preserve inbound order
-				if h != nil {
+				if h != nil && !reqOnly {
 					h(ctx, m.Params)
 				}
 				continue

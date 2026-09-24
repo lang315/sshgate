@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -13,7 +14,7 @@ import (
 
 // isolateDoor points SocketPath at a fresh short directory so tests never
 // touch the user's real hub socket. /tmp keeps the path under sun_path limits.
-func isolateDoor(t *testing.T) {
+func isolateDoor(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "sm")
 	if err != nil {
@@ -22,6 +23,7 @@ func isolateDoor(t *testing.T) {
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	t.Setenv("TMPDIR", dir)
 	t.Setenv("XDG_RUNTIME_DIR", dir)
+	return dir
 }
 
 func startDoor(t *testing.T, h *Hub) *rpc.Client {
@@ -172,4 +174,69 @@ func TestListenMCPDoorReplacesStaleSocket(t *testing.T) {
 		t.Fatalf("stale socket not replaced: %v", err)
 	}
 	ln.Close()
+}
+
+// An id-less exec must never reach the broker: run inline on the read loop it
+// would block disconnect handling and cancel for the whole approval wait.
+func TestMCPDoorIgnoresNotificationExec(t *testing.T) {
+	h, _ := newHubExpiry(t, &fakeExec{}, time.Minute)
+	isolateDoor(t)
+	ln, err := ListenMCPDoor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go ServeMCPDoor(context.Background(), ln, h)
+	conn, err := DialMCPDoor(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	for _, m := range []string{"exec", "sudoExec"} {
+		if _, err := conn.Write([]byte(`{"jsonrpc":"2.0","method":"` + m + `","params":{"server":"vis","command":"ls"}}` + "\n")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := rpc.NewClient(conn, conn, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	// The server reads lines in order, so once this answers the
+	// notifications have been processed (or dropped).
+	var list []ServerInfo
+	if err := c.Call(ctx, "listServers", nil, &list); err != nil {
+		t.Fatalf("read loop blocked: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if n := len(h.Broker().Pending()); n != 0 {
+		t.Fatalf("notification exec reached the broker: %d pending", n)
+	}
+}
+
+func TestMCPDoorCancelBeforeExecRefusesExec(t *testing.T) {
+	h, _ := newHubExpiry(t, &fakeExec{}, time.Minute)
+	c := startDoor(t, h)
+	if err := c.Call(context.Background(), "cancel", map[string]any{"requestId": "early"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	errc := make(chan error, 1)
+	go func() {
+		errc <- c.Call(context.Background(), "exec", map[string]any{"requestId": "early", "server": "vis", "command": "ls"}, nil)
+	}()
+	select {
+	case err := <-errc:
+		var re *rpc.Error
+		if !errors.As(err, &re) || !strings.Contains(re.Message, "canceled") {
+			t.Fatalf("want cancelled error, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("exec was submitted despite an earlier cancel")
+	}
+	if n := len(h.Broker().Pending()); n != 0 {
+		t.Fatalf("pending = %d", n)
+	}
+	// The early cancel is consumed: the same id can run again.
+	go allowFirst(h.Broker())
+	if err := c.Call(context.Background(), "exec", map[string]any{"requestId": "early", "server": "vis", "command": "ls"}, nil); err != nil {
+		t.Fatalf("reused id: %v", err)
+	}
 }

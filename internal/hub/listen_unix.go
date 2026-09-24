@@ -5,6 +5,7 @@ package hub
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"syscall"
@@ -47,7 +48,14 @@ func DialMCPDoor(ctx context.Context) (net.Conn, error) {
 		return nil, err
 	}
 	var d net.Dialer
-	return d.DialContext(ctx, "unix", p)
+	conn, err := d.DialContext(ctx, "unix", p)
+	if err != nil {
+		return nil, err
+	}
+	// Bridge side: the hub at the other end must run as us too.
+	if err := checkPeer(conn); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("mcp door is not owned by the current user: %w", err)
+	}
+	return conn, nil
 }
-
-func currentUserSID() (string, error) { return "", nil } // windows only

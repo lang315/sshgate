@@ -24,6 +24,15 @@ func currentUserSID() (string, error) {
 	return u.User.Sid.String(), nil
 }
 
+// SocketPath returns the per-user MCP door pipe name.
+func SocketPath() (string, error) {
+	sid, err := currentUserSID()
+	if err != nil {
+		return "", err
+	}
+	return `\\.\pipe\ssh-mcp-hub-` + sid, nil
+}
+
 func ListenMCPDoor() (net.Listener, error) {
 	p, err := SocketPath()
 	if err != nil {

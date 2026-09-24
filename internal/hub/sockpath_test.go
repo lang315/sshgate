@@ -4,6 +4,7 @@ package hub
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -37,5 +38,35 @@ func TestListenMCPDoorSocketIsOwnerOnly(t *testing.T) {
 	info, err := os.Stat(p)
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("socket must be 0600: %v %v", err, info)
+	}
+}
+
+func TestSocketPathRejectsLooseDir(t *testing.T) {
+	dir := filepath.Join(isolateDoor(t), "ssh-mcp")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil { // defeat umask
+		t.Fatal(err)
+	}
+	if _, err := SocketPath(); err == nil || !strings.Contains(err.Error(), "not a private directory owned by you") {
+		t.Fatalf("want private-dir error, got %v", err)
+	}
+	if info, _ := os.Stat(dir); info.Mode().Perm() != 0o755 {
+		t.Fatalf("existing dir was chmodded to %v", info.Mode().Perm())
+	}
+}
+
+func TestSocketPathRejectsSymlinkDir(t *testing.T) {
+	base := isolateDoor(t)
+	target := filepath.Join(base, "elsewhere")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(base, "ssh-mcp")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SocketPath(); err == nil || !strings.Contains(err.Error(), "not a private directory owned by you") {
+		t.Fatalf("want private-dir error, got %v", err)
 	}
 }

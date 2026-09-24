@@ -186,3 +186,31 @@ func TestClientCloseUnblocksPendingCall(t *testing.T) {
 		t.Fatal("pending Call did not unblock after Close")
 	}
 }
+
+func TestHandleRequestIgnoresNotifications(t *testing.T) {
+	srvR, srvW, cliR, cliW := pipePair()
+	s := NewServer()
+	calls := make(chan string, 2)
+	s.HandleRequest("work", func(ctx context.Context, p json.RawMessage) (any, error) {
+		var tag string
+		json.Unmarshal(p, &tag)
+		calls <- tag
+		return tag, nil
+	})
+	go s.Serve(context.Background(), srvR, srvW)
+
+	cliW.Write([]byte(`{"jsonrpc":"2.0","method":"work","params":"note"}` + "\n"))
+	c := NewClient(cliR, cliW, nil)
+	var out string
+	if err := c.Call(context.Background(), "work", "req", &out); err != nil || out != "req" {
+		t.Fatalf("request: %v %q", err, out)
+	}
+	if got := <-calls; got != "req" {
+		t.Fatalf("notification was dispatched: %q", got)
+	}
+	select {
+	case got := <-calls:
+		t.Fatalf("unexpected extra dispatch: %q", got)
+	default:
+	}
+}

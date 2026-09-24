@@ -11,6 +11,8 @@ import (
 	"github.com/lang315/ssh-mcp/internal/rpc"
 )
 
+const maxEarlyCancels = 64
+
 type execParams struct {
 	RequestID   string `json:"requestId,omitempty"`
 	Client      string `json:"client"`
@@ -49,10 +51,23 @@ func serveMCPConn(ctx context.Context, conn net.Conn, h *Hub) {
 
 	var mu sync.Mutex
 	inflight := map[string]context.CancelFunc{}
+	// cancelled remembers cancels that arrived before their exec registered,
+	// so the exec is refused instead of the cancel being lost. Bounded to the
+	// most recent maxEarlyCancels ids.
+	cancelled := map[string]bool{}
+	var cancelOrder []string
 
+	reload := func() {
+		if err := h.Reload(); err != nil {
+			fmt.Fprintln(os.Stderr, "mcp door: reload:", err)
+		}
+	}
+
+	// listServers, exec and sudoExec are request-only: a notification-form
+	// exec would otherwise block the read loop for the whole approval wait.
 	s := rpc.NewServer()
-	s.Handle("listServers", func(context.Context, json.RawMessage) (any, error) {
-		_ = h.Reload()
+	s.HandleRequest("listServers", func(context.Context, json.RawMessage) (any, error) {
+		reload()
 		list := h.ServersForMCP()
 		if list == nil {
 			list = []ServerInfo{}
@@ -67,7 +82,6 @@ func serveMCPConn(ctx context.Context, conn net.Conn, h *Hub) {
 			if err := json.Unmarshal(raw, &p); err != nil {
 				return nil, &rpc.Error{Code: -32602, Message: "invalid params"}
 			}
-			_ = h.Reload()
 			reqCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
 			if p.RequestID != "" {
@@ -76,17 +90,23 @@ func serveMCPConn(ctx context.Context, conn net.Conn, h *Hub) {
 					mu.Unlock()
 					return nil, &rpc.Error{Code: -32602, Message: "duplicate requestId"}
 				}
+				early := cancelled[p.RequestID]
+				delete(cancelled, p.RequestID)
 				inflight[p.RequestID] = cancel
 				mu.Unlock()
 				defer func() { mu.Lock(); delete(inflight, p.RequestID); mu.Unlock() }()
+				if early {
+					return nil, context.Canceled
+				}
 			}
+			reload()
 			return h.Exec(reqCtx, ExecRequest{Client: p.Client, Server: p.Server, Command: p.Command, Description: p.Description, Sudo: sudo, TimeoutSec: p.TimeoutSec})
 		}
 	}
-	s.Handle("exec", exec(false))
-	s.Handle("sudoExec", exec(true))
+	s.HandleRequest("exec", exec(false))
+	s.HandleRequest("sudoExec", exec(true))
 	// cancel may arrive as a notification, which runs on the read loop: it
-	// only calls a CancelFunc, so it never blocks.
+	// only takes a mutex and calls a CancelFunc, so it never blocks.
 	s.Handle("cancel", func(_ context.Context, raw json.RawMessage) (any, error) {
 		var p struct {
 			RequestID string `json:"requestId"`
@@ -97,6 +117,13 @@ func serveMCPConn(ctx context.Context, conn net.Conn, h *Hub) {
 		mu.Lock()
 		if c, ok := inflight[p.RequestID]; ok {
 			c()
+		} else if p.RequestID != "" && !cancelled[p.RequestID] {
+			cancelled[p.RequestID] = true
+			cancelOrder = append(cancelOrder, p.RequestID)
+			if len(cancelOrder) > maxEarlyCancels {
+				delete(cancelled, cancelOrder[0])
+				cancelOrder = cancelOrder[1:]
+			}
 		}
 		mu.Unlock()
 		return map[string]bool{"ok": true}, nil
