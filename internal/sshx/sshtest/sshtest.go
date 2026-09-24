@@ -1,6 +1,7 @@
 // Package sshtest is an in-process SSH server for tests that must not need
 // Docker. It accepts any password or public key. A "shell" echoes its input
-// back until stdin closes, then exits 0. An "exec" reports its command on
+// back until stdin closes, then exits 0; an input line "flood <N>" also
+// makes it write N bytes of 80-column "yyyy" lines, then "FLOOD-DONE". An "exec" reports its command on
 // Execs, waits for Release to be closed, writes the command to stdout, and
 // exits 0.
 package sshtest
@@ -10,6 +11,8 @@ import (
 	"crypto/rand"
 	"io"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -139,7 +142,7 @@ func (s *Server) session(ch ssh.Channel, reqs <-chan *ssh.Request) {
 			req.Reply(true, nil)
 		case "shell":
 			req.Reply(true, nil)
-			go func() { io.Copy(ch, ch); finish() }()
+			go func() { shell(ch); finish() }()
 		case "exec":
 			var p struct{ Cmd string }
 			ssh.Unmarshal(req.Payload, &p)
@@ -162,4 +165,50 @@ func (s *Server) session(ch ssh.Channel, reqs <-chan *ssh.Request) {
 			req.Reply(false, nil)
 		}
 	}
+}
+
+// shell echoes input until EOF. A complete line "flood <N>" (after the
+// echo) writes N bytes of output, blocking on the SSH window like any
+// writer, then "FLOOD-DONE". Input is read serially, so anything typed
+// during a flood echoes after it.
+func shell(ch ssh.Channel) {
+	buf := make([]byte, 4096)
+	var line []byte
+	for {
+		n, err := ch.Read(buf)
+		if n > 0 {
+			ch.Write(buf[:n])
+			for _, b := range buf[:n] {
+				if b != '\r' && b != '\n' {
+					if len(line) < 256 {
+						line = append(line, b)
+					}
+					continue
+				}
+				f := strings.Fields(string(line))
+				line = line[:0]
+				if len(f) == 2 && f[0] == "flood" {
+					if size, err := strconv.Atoi(f[1]); err == nil && size >= 0 {
+						flood(ch, size)
+					}
+				}
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func flood(w io.Writer, n int) {
+	row := strings.Repeat("y", 78) + "\r\n"
+	block := []byte(strings.Repeat(row, 32768/len(row)))
+	for n > 0 {
+		b := block[:min(n, len(block))]
+		if _, err := w.Write(b); err != nil {
+			return
+		}
+		n -= len(b)
+	}
+	io.WriteString(w, "\r\nFLOOD-DONE\r\n")
 }

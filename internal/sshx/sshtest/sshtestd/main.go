@@ -1,5 +1,6 @@
 // Command sshtestd is a development and test SSH server. It accepts any
-// password, echoes shell input, and answers exec with the command text.
+// password, echoes shell input (a "flood <N>" line writes N bytes, then
+// FLOOD-DONE), and answers exec with the command text.
 // With -write-store it writes a vault containing one AI-visible server
 // "box" that points at itself, ready to unlock with -password.
 package main
