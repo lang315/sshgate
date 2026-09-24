@@ -22,7 +22,9 @@ import (
 func runHub(args []string) error {
 	m := config.ParseArgv(args)
 	_, cli := m["cli"]
-	_, insecure := m["insecureIgnoreHostKey"]
+	if _, ok := m["insecureIgnoreHostKey"]; ok {
+		return errors.New("--insecureIgnoreHostKey is not supported by hub: AI commands always verify the pinned host key")
+	}
 	store := storePath()
 	if p := m["store"]; p != nil && *p != "" {
 		store = *p
@@ -36,7 +38,7 @@ func runHub(args []string) error {
 	}
 	defer audit.Close()
 
-	h, err := hub.New(hub.Options{StorePath: store, Audit: audit, Insecure: insecure})
+	h, err := hub.New(hub.Options{StorePath: store, Audit: audit})
 	if err != nil {
 		return err
 	}

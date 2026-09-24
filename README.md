@@ -94,7 +94,7 @@ This installs the `ssh-mcp` binary to `$(go env GOPATH)/bin` (make sure that dir
 - `timeout`: Command execution timeout in milliseconds (default: 60000ms = 1 minute)
 - `maxChars`: Maximum allowed characters for the `command` input (default: 1000). Use `none` or `0` to disable the limit.
 - `disableSudo`: Flag to disable the `sudo-exec` tool completely. Useful when sudo access is not needed or not available.
-- `insecureIgnoreHostKey`: Flag to skip SSH host key verification. Not recommended outside of trusted/throwaway environments.
+- `insecureIgnoreHostKey`: Flag to skip SSH host key verification. Not recommended outside of trusted/throwaway environments. `--host` mode only: `ssh-mcp hub` refuses to start with it.
 
 ## Multi-server + web config
 

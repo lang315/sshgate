@@ -55,7 +55,6 @@ type Options struct {
 	Audit          *broker.Audit
 	ApprovalExpiry time.Duration // <= 0 means the broker default, 5 minutes
 	OnEvent        func(broker.Event)
-	Insecure       bool
 	Dialer         func(sshx.DialConfig) Executor // test seam; nil = real Registry
 }
 
@@ -90,7 +89,7 @@ type Hub struct {
 // New loads the store if present; a missing store is not an error.
 func New(o Options) (*Hub, error) {
 	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit}
-	h.deps = &mcpserver.Deps{Path: o.StorePath, Insecure: o.Insecure}
+	h.deps = &mcpserver.Deps{Path: o.StorePath}
 	f, err := config.Load(o.StorePath)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("cannot read config store: %w", err)
