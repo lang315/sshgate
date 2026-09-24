@@ -17,25 +17,30 @@ import (
 )
 
 type Server struct {
-	Host    string
-	Port    int
-	Execs   chan string   // commands received via exec
-	Release chan struct{} // close to let blocked execs finish
-	done    chan struct{}
-	mu      sync.Mutex
-	cfg     *ssh.ServerConfig
+	Host               string
+	Port               int
+	Execs              chan string   // commands received via exec
+	Release            chan struct{} // close to let blocked execs finish
+	HostKeyFingerprint string
+	done               chan struct{}
+	mu                 sync.Mutex
+	cfg                *ssh.ServerConfig
 }
 
-func Start(t testing.TB) *Server {
-	t.Helper()
+// Listen starts a server without the testing package. stop closes it.
+func Listen() (*Server, func(), error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatal(err)
+		return nil, nil, err
 	}
 	s := &Server{Host: "127.0.0.1", Port: ln.Addr().(*net.TCPAddr).Port,
 		Execs: make(chan string, 16), Release: make(chan struct{}), done: make(chan struct{})}
-	s.RotateHostKey(t)
-	t.Cleanup(func() { close(s.done); ln.Close() })
+	if err := s.rotate(); err != nil {
+		ln.Close()
+		return nil, nil, err
+	}
+	var once sync.Once
+	stop := func() { once.Do(func() { close(s.done); ln.Close() }) }
 	go func() {
 		for {
 			nc, err := ln.Accept()
@@ -48,19 +53,30 @@ func Start(t testing.TB) *Server {
 			go s.serveConn(nc, cfg)
 		}
 	}()
-	return s
+	return s, stop, nil
 }
 
-// RotateHostKey makes new connections see a fresh host key, as a MITM would.
-func (s *Server) RotateHostKey(t testing.TB) {
+func Start(t testing.TB) *Server {
 	t.Helper()
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	s, stop, err := Listen()
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(stop)
+	return s
+}
+
+// rotate generates a fresh host key and installs a new ssh.ServerConfig,
+// updating HostKeyFingerprint under s.mu so it always reflects the key new
+// connections see.
+func (s *Server) rotate() error {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return err
+	}
 	signer, err := ssh.NewSignerFromKey(priv)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	cfg := &ssh.ServerConfig{
 		PasswordCallback:  func(ssh.ConnMetadata, []byte) (*ssh.Permissions, error) { return nil, nil },
@@ -69,7 +85,25 @@ func (s *Server) RotateHostKey(t testing.TB) {
 	cfg.AddHostKey(signer)
 	s.mu.Lock()
 	s.cfg = cfg
+	s.HostKeyFingerprint = ssh.FingerprintSHA256(signer.PublicKey())
 	s.mu.Unlock()
+	return nil
+}
+
+// RotateHostKey makes new connections see a fresh host key, as a MITM would.
+func (s *Server) RotateHostKey(t testing.TB) {
+	t.Helper()
+	if err := s.rotate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Fingerprint returns the current host key fingerprint. Safe to call
+// concurrently with RotateHostKey.
+func (s *Server) Fingerprint() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.HostKeyFingerprint
 }
 
 func (s *Server) serveConn(nc net.Conn, cfg *ssh.ServerConfig) {
