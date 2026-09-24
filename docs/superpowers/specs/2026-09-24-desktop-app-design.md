@@ -17,6 +17,13 @@ the hub process, the MCP bridge, and the approval flow. Later slices get their
 own spec: full terminal features, SFTP and port forwarding, packaging and
 signing.
 
+**Audience for slice 1 is the author alone.** The app is built for personal
+daily use first. Code signing, notarization, auto-update, installers, and
+plugin-store distribution are out of scope until there is a second user.
+Unsigned local builds (`electron-builder --dir` or `npm start`) are the
+deliverable. Security controls are not relaxed by this: the AI-facing
+boundary is the point of the project.
+
 ## Decisions
 
 | Topic | Decision |
@@ -30,6 +37,7 @@ signing.
 | Rejected: gotk4 | No terminal widget outside Linux (VTE); non-native look on macOS and Windows |
 | Rejected: TypeScript core | Throws away the Go vault and hardening; two SSH cores to maintain |
 | Rejected: Rust / Tauri | Same WebKitGTK risk as Wails; full rewrite |
+| Rejected: HTTP/SSE localhost for MCP door | No process boundary; any localhost process or web page can POST. Token/auth on HTTP is difficult to enforce per-peer. Unix socket 0600 + UID check is simpler. |
 | Process model | The app hosts the hub. The `ssh-mcp` binary gains a `hub` subcommand (backend for Electron) and a bridge mode (MCP stdio → hub) |
 | AI execution | Separate `exec` channel, never the user's PTY. A "Send to tab" option pastes the command into the user's terminal without pressing Enter |
 | App closed | The bridge refuses with "Open the app to approve commands". There is no headless vault access |
@@ -61,6 +69,8 @@ injection. It may submit malicious commands and write misleading
   command.
 - The MCP door of the hub cannot unlock the vault, approve commands, or read
   secrets.
+- The MCP door cannot read terminal buffer or scrollback from user tabs. No
+  tool exposes this channel; it is an egress path that bypasses approval.
 - Only servers explicitly marked `aiVisible` are reachable from the MCP door
   (see §Data Model). A prompt-injected agent cannot discover or target hosts
   the user never opted in.
@@ -130,6 +140,10 @@ Renderer: React + xterm.js                     └─ internal/config   (vault, 
        settings.
      - Every tool that causes remote execution goes through the broker.
        There is no "read-only" shortcut around approval.
+     - No tool on this door reads a user tab's screen or scrollback. The
+       AI sees only the output of commands it was approved to run.
+       (`tabby-mcp-server` exposes terminal buffers; that is an egress path
+       that bypasses approval.)
 - **`desktop/`** (Electron):
   - main: spawns the hub, restarts it on crash, kills it on quit, relays
     RPC, shows a tray badge with the pending count, and raises OS
