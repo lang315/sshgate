@@ -31,6 +31,18 @@ describe('attention', () => {
     c.apply('term.data', { id: 'x' })
     expect(c.count).toBe(1)
   })
+  it('does not change the count for unrelated notifications like term.data', () => {
+    const c = new PendingCounter()
+    c.apply('pending', { request: { id: 'a' } })
+    const before = c.count
+    c.apply('term.data', { id: 'x' })
+    expect(c.count).toBe(before)
+  })
+  it('never includes the description in the notification', () => {
+    const n = notificationText({ ...req, description: 'SECRET-DESC' })
+    expect(n.title).not.toContain('SECRET-DESC')
+    expect(n.body).not.toContain('SECRET-DESC')
+  })
   it('icon constant decodes to a 16x16 PNG', () => {
     const bytes = Buffer.from(ICON_PNG_BASE64, 'base64')
     const sig = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, nativeImage, Notification, Tray } from 'electron'
+import { app, Menu, nativeImage, Notification, Tray, type BrowserWindow } from 'electron'
 import type { ApprovalRequest, HubState } from '../shared/protocol'
 import type { HubProcess } from './hubProcess'
 
@@ -31,6 +31,10 @@ export class PendingCounter {
   }
 }
 
+// Notification instances must stay reachable until they close, or Electron/the OS
+// can drop them (and their 'click' handler) to GC before the user acts on them.
+const liveNotifications = new Set<Notification>()
+
 export function setupAttention(hub: HubProcess, getWindow: () => BrowserWindow | undefined): void {
   const tray = new Tray(nativeImage.createFromDataURL(`data:image/png;base64,${ICON_PNG_BASE64}`))
   const show = () => {
@@ -48,14 +52,18 @@ export function setupAttention(hub: HubProcess, getWindow: () => BrowserWindow |
   }
   render()
   hub.on('notification', (method: string, params: unknown) => {
+    const before = counter.count
     counter.apply(method, params)
-    render()
+    if (counter.count !== before) render()
     if (method !== 'pending') return
     const w = getWindow()
     if (w && w.isFocused()) return
     if (!Notification.isSupported()) return
     const n = new Notification(notificationText((params as { request: ApprovalRequest }).request))
-    n.on('click', show)
+    liveNotifications.add(n)
+    const forget = () => liveNotifications.delete(n)
+    n.on('click', () => { forget(); show() })
+    n.on('close', forget)
     n.show()
   })
   hub.on('state', (s: HubState) => { if (s.kind !== 'running') { counter.reset(); render() } })
