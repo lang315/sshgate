@@ -9,43 +9,39 @@ import (
 
 func ConfigHash(c DialConfig) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s|%d|%s|%s|%s|%s|%s|%s|%s|%v", c.Host, c.Port, c.User, c.Auth,
-		c.Password, c.PrivateKey, c.Passphrase, c.SuPassword, c.SudoPassword, c.Insecure)
+	fmt.Fprintf(h, "%s|%d|%s|%s|%s|%s|%s|%s|%s|%s|%v", c.Host, c.Port, c.User, c.Auth,
+		c.Password, c.PrivateKey, c.Passphrase, c.SuPassword, c.SudoPassword, c.HostKey, c.Insecure)
 	return hex.EncodeToString(h.Sum(nil))
-}
-
-type entry struct {
-	hash string
-	mgr  *Manager
 }
 
 type Registry struct {
 	mu sync.Mutex
-	m  map[string]entry
+	m  map[string]*Manager
 }
 
-func NewRegistry() *Registry { return &Registry{m: map[string]entry{}} }
+func NewRegistry() *Registry { return &Registry{m: map[string]*Manager{}} }
 
+// Get compares against the manager's current config, pin included, so a
+// manager that just learned the pin cfg now carries is kept.
 func (r *Registry) Get(name string, cfg DialConfig) *Manager {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	hash := ConfigHash(cfg)
-	if e, ok := r.m[name]; ok {
-		if e.hash == hash {
-			return e.mgr
+	if mgr, ok := r.m[name]; ok {
+		if ConfigHash(mgr.currentConfig()) == ConfigHash(cfg) {
+			return mgr
 		}
-		e.mgr.Close()
+		mgr.Close()
 	}
 	mgr := NewManager(cfg)
-	r.m[name] = entry{hash: hash, mgr: mgr}
+	r.m[name] = mgr
 	return mgr
 }
 
 func (r *Registry) CloseAll() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, e := range r.m {
-		e.mgr.Close()
+	for _, mgr := range r.m {
+		mgr.Close()
 	}
-	r.m = map[string]entry{}
+	r.m = map[string]*Manager{}
 }

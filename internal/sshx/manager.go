@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -33,7 +34,8 @@ type DialConfig struct {
 // long Exec never blocks OpenSession, keepalive, or Close. suMu serializes
 // use of the single shared su root shell.
 type Manager struct {
-	cfg    DialConfig
+	cfg    DialConfig // HostKey is only the initial pin; see pin
+	pin    atomic.Pointer[string]
 	mu     sync.Mutex
 	client *ssh.Client
 	su     *suShell
@@ -49,7 +51,19 @@ type suShell struct {
 	buf    *bufio.Reader
 }
 
-func NewManager(cfg DialConfig) *Manager { return &Manager{cfg: cfg} }
+func NewManager(cfg DialConfig) *Manager {
+	m := &Manager{cfg: cfg}
+	m.pin.Store(&cfg.HostKey)
+	return m
+}
+
+// currentConfig is cfg with the pin in effect, including one learned by
+// TOFU. It never takes m.mu, which is held across a dial.
+func (m *Manager) currentConfig() DialConfig {
+	c := m.cfg
+	c.HostKey = *m.pin.Load()
+	return c
+}
 
 func (m *Manager) authMethods() ([]ssh.AuthMethod, error) {
 	switch m.cfg.Auth {
@@ -91,7 +105,7 @@ func (m *Manager) ensure() error {
 	cc := &ssh.ClientConfig{
 		User:            m.cfg.User,
 		Auth:            auth,
-		HostKeyCallback: HostKeyCallback(m.cfg.HostKey, m.cfg.Insecure, m.cfg.OnLearnHostKey),
+		HostKeyCallback: HostKeyCallback(*m.pin.Load(), m.cfg.Insecure, m.learn),
 		Timeout:         30 * time.Second,
 	}
 	addr := net.JoinHostPort(m.cfg.Host, strconv.Itoa(m.cfg.Port))
@@ -109,6 +123,15 @@ func (m *Manager) ensure() error {
 		m.mu.Unlock()
 	}()
 	return nil
+}
+
+// learn keeps a TOFU fingerprint as this manager's pin, so every redial
+// verifies it, then passes it on to the store.
+func (m *Manager) learn(fp string) {
+	m.pin.Store(&fp)
+	if m.cfg.OnLearnHostKey != nil {
+		m.cfg.OnLearnHostKey(fp)
+	}
 }
 
 // ExecResult splits a completed command's streams from its exit code. A

@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"io"
 	"net"
+	"sync"
 	"testing"
 
 	"golang.org/x/crypto/ssh"
@@ -21,9 +22,37 @@ type Server struct {
 	Execs   chan string   // commands received via exec
 	Release chan struct{} // close to let blocked execs finish
 	done    chan struct{}
+	mu      sync.Mutex
+	cfg     *ssh.ServerConfig
 }
 
 func Start(t testing.TB) *Server {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Host: "127.0.0.1", Port: ln.Addr().(*net.TCPAddr).Port,
+		Execs: make(chan string, 16), Release: make(chan struct{}), done: make(chan struct{})}
+	s.RotateHostKey(t)
+	t.Cleanup(func() { close(s.done); ln.Close() })
+	go func() {
+		for {
+			nc, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			s.mu.Lock()
+			cfg := s.cfg
+			s.mu.Unlock()
+			go s.serveConn(nc, cfg)
+		}
+	}()
+	return s
+}
+
+// RotateHostKey makes new connections see a fresh host key, as a MITM would.
+func (s *Server) RotateHostKey(t testing.TB) {
 	t.Helper()
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -38,23 +67,9 @@ func Start(t testing.TB) *Server {
 		PublicKeyCallback: func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error) { return nil, nil },
 	}
 	cfg.AddHostKey(signer)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := &Server{Host: "127.0.0.1", Port: ln.Addr().(*net.TCPAddr).Port,
-		Execs: make(chan string, 16), Release: make(chan struct{}), done: make(chan struct{})}
-	t.Cleanup(func() { close(s.done); ln.Close() })
-	go func() {
-		for {
-			nc, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			go s.serveConn(nc, cfg)
-		}
-	}()
-	return s
+	s.mu.Lock()
+	s.cfg = cfg
+	s.mu.Unlock()
 }
 
 func (s *Server) serveConn(nc net.Conn, cfg *ssh.ServerConfig) {
