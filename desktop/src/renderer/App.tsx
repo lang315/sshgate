@@ -5,6 +5,8 @@ import { screenFor } from './shell'
 import { Unlock } from './Unlock'
 import { HostList } from './HostList'
 import { Terminals, type TerminalsHandle } from './TerminalTabs'
+import { ApprovalPanel } from './ApprovalPanel'
+import { reduceApprovals, seed, type PendingItem } from './approvals'
 
 export function App() {
   const [hubState, setHubState] = useState<HubState>({ kind: 'starting' })
@@ -37,6 +39,13 @@ export function App() {
     else setServers([])
   }, [screen.kind])
 
+  const [items, setItems] = useState<PendingItem[]>([])
+  useEffect(() => hub.onEvent((e) => setItems((cur) => reduceApprovals(cur, e, Date.now()))), [])
+  useEffect(() => {
+    if (screen.kind === 'ready') hub.pending().then((p) => setItems(seed(p, Date.now()))).catch(() => {})
+    if (hubState.kind !== 'running') setItems([])
+  }, [screen.kind, hubState.kind])
+
   const unlock = async (pw: string) => {
     try { await hub.unlock(pw); setUnlockError(undefined) } catch (e) { setUnlockError((e as Error).message) }
     await refresh()
@@ -66,6 +75,15 @@ export function App() {
       )}
       {(ready || everReady) && (
         <main className="work" style={ready ? undefined : { display: 'none' }} inert={!ready}><Terminals ref={terms} /></main>
+      )}
+      {ready && (
+        <ApprovalPanel items={items} servers={servers}
+          onDecide={(id, outcome, reason) => hub.decide(id, outcome, reason)}
+          onDenyAll={() => hub.denyAll('denied all by user')}
+          onSendToTab={async (item) => {
+            await terms.current!.sendToTab(item.request.server, item.request.command)
+            await hub.decide(item.request.id, 'sent_to_tab')
+          }} />
       )}
     </div>
   )
