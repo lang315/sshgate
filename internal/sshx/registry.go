@@ -22,12 +22,19 @@ type Registry struct {
 func NewRegistry() *Registry { return &Registry{m: map[string]*Manager{}} }
 
 // Get compares against the manager's current config, pin included, so a
-// manager that just learned the pin cfg now carries is kept.
+// manager that just learned the pin cfg now carries is kept. An empty pin in
+// cfg means the caller has none to offer (--host mode, or a store that could
+// not record the key): the manager's learned pin still governs its redials.
 func (r *Registry) Get(name string, cfg DialConfig) *Manager {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if mgr, ok := r.m[name]; ok {
-		if ConfigHash(mgr.currentConfig()) == ConfigHash(cfg) {
+		cur := mgr.currentConfig()
+		want := cfg
+		if want.HostKey == "" {
+			want.HostKey = cur.HostKey
+		}
+		if ConfigHash(cur) == ConfigHash(want) {
 			return mgr
 		}
 		mgr.Close()

@@ -161,7 +161,9 @@ func TestDescriptionIsNeverExecuted(t *testing.T) {
 	fe := &fakeExec{}
 	h, _ := newHub(t, fe)
 	go func() {
-		waitPending(t, h.Broker(), 1)
+		if !waitFor(t, "a pending request", func() bool { return len(h.Broker().Pending()) > 0 }) {
+			return
+		}
 		r := h.Broker().Pending()[0]
 		if r.Command != "ls" || r.Description != `x \` {
 			t.Errorf("approver saw %q / %q", r.Command, r.Description)

@@ -92,3 +92,21 @@ func TestRedialVerifiesLearnedHostKey(t *testing.T) {
 		t.Fatalf("redial with a different host key must fail, got %v", err)
 	}
 }
+
+// A caller with no pin (--host mode, or a store that could not record the
+// learned key) must not tear down the manager that learned one.
+func TestRegistryKeepsLearnedManagerForEmptyPin(t *testing.T) {
+	srv := sshtest.Start(t)
+	cfg := DialConfig{Host: srv.Host, Port: srv.Port, User: "u", Password: "p", Auth: "password", TimeoutMs: 30000}
+	r := NewRegistry()
+	t.Cleanup(r.CloseAll)
+	m1 := r.Get("a", cfg)
+	sess, err := m1.OpenSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.Close()
+	if r.Get("a", cfg) != m1 {
+		t.Fatal("empty-pin caller replaced the manager that learned a pin")
+	}
+}
