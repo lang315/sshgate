@@ -1,22 +1,24 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { HubState, ServerInfo } from '../shared/protocol'
 import { hub } from './transport'
 import { screenFor } from './shell'
 import { Unlock } from './Unlock'
 import { HostList } from './HostList'
+import { Terminals, type TerminalsHandle } from './TerminalTabs'
 
 export function App() {
   const [hubState, setHubState] = useState<HubState>({ kind: 'starting' })
   const [status, setStatus] = useState<{ locked: boolean; hasStore: boolean }>()
   const [unlockError, setUnlockError] = useState<string>()
   const [servers, setServers] = useState<ServerInfo[]>([])
+  const terms = useRef<TerminalsHandle>(null)
 
   const refresh = useCallback(async () => {
     try { setStatus(await hub.status()) } catch { setStatus(undefined) }
   }, [])
 
   useEffect(() => {
-    hub.getState().then(setHubState)
+    hub.getState().then(setHubState).catch(() => {})
     const offState = hub.onState(setHubState)
     const offEvent = hub.onEvent((e) => { if (e.method === 'locked') refresh() })
     return () => { offState(); offEvent() }
@@ -24,13 +26,14 @@ export function App() {
 
   useEffect(() => {
     if (hubState.kind === 'running') refresh()
-    else setStatus(undefined)
+    else { setStatus(undefined); setUnlockError(undefined) }
   }, [hubState, refresh])
 
   const screen = screenFor(hubState, status, unlockError)
 
   useEffect(() => {
     if (screen.kind === 'ready') hub.servers().then(setServers).catch(() => setServers([]))
+    else setServers([])
   }, [screen.kind])
 
   const unlock = async (pw: string) => {
@@ -50,10 +53,10 @@ export function App() {
         <div className="layout">
           <header>
             <span>ssh-mcp</span>
-            <button onClick={async () => { await hub.lock(); await refresh() }}>Lock</button>
+            <button onClick={async () => { try { await hub.lock(); setUnlockError(undefined); await refresh() } catch { /* the locked/hub-state events recover the UI */ } }}>Lock</button>
           </header>
-          <HostList servers={servers} onOpen={() => {}} />
-          <main className="work" />
+          <HostList servers={servers} onOpen={(name) => terms.current?.open(name)} />
+          <main className="work"><Terminals ref={terms} /></main>
         </div>
       )
   }
