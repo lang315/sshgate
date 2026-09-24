@@ -41,6 +41,8 @@
 
 The parameters and flags below are for `--host` mode. Through a saved connection via the hub — the default when `--host` is omitted — `exec`/`sudo-exec` take a `timeoutSec` instead (1–600s, default 60), `server` has no default (pass the exact name), and `list-servers` only lists servers marked "Visible to AI". See [Using saved servers from an AI client](#using-saved-servers-from-an-ai-client).
 
+Both `exec` and `sudo-exec` return their result as `exit code: N`, followed by a `stdout:` section and a `stderr:` section (each section omitted if empty).
+
 - `exec`: Execute a shell command on the remote server
   - **Parameters:**
     - `server` (optional): Name of a saved connection (see [Multi-Server + Web Config](#multi-server--web-config)); empty uses the default server
@@ -119,7 +121,11 @@ Then register the bridge with your MCP client, with no flags:
 
 With the hub closed, every tool call fails with "Open the app to approve commands". There is no headless mode for the vault.
 
-The AI only sees servers with "Visible to AI" checked in `ssh-mcp web` (off by default), and only once a host key is pinned for them — the hub refuses an AI-visible server that has no pin rather than learning one on the fly. Nothing in this release drives that first connection for you from the CLI (that lands with terminal tabs in the desktop app); paste the fingerprint yourself into the "Host key fingerprint" field in `ssh-mcp web` instead. Get it the way you'd get any host key, e.g. by connecting once with a plain `ssh` client, or `ssh-keyscan host | ssh-keygen -lf -`.
+The AI only sees servers with "Visible to AI" checked in `ssh-mcp web` (off by default), and only once a host key is pinned for them — the hub refuses an AI-visible server that has no pin rather than learning one on the fly. Nothing in this release drives that first connection for you from the CLI (that lands with terminal tabs in the desktop app); paste the fingerprint yourself into the "Host key fingerprint" field in `ssh-mcp web` instead.
+
+**Paste only the `SHA256:...` token** — nothing else. The pin is compared by exact string equality against `ssh.FingerprintSHA256(key)`, so it must be exactly `SHA256:<base64>`: no leading key-size number, no trailing hostname or `(ED25519)` key-type suffix, no extra whitespace. `ssh-keygen -lf -` prints a whole line like `256 SHA256:xxxx host (ED25519)`; pasting that whole line causes a permanent host key mismatch. Print just the token, for the key type the server actually presents (OpenSSH clients prefer ED25519; if unsure, connect once with a plain `ssh` client and read the fingerprint it prints):
+
+    ssh-keyscan -p PORT -t ed25519 HOST 2>/dev/null | ssh-keygen -lf - | awk '{print $2}'
 
 Through the hub, `exec`/`sudo-exec` take a `timeoutSec` (1–600, default 60) instead of `--timeout`, `server` has no default (pass the exact name from `list-servers`), and `list-servers` lists only AI-visible servers, marking a locked one `[locked: unlock the app]`.
 
@@ -206,7 +212,7 @@ You can specify the scope when adding the server:
 
 **Verify Installation:**
 
-After adding the server, restart Claude Code and ask Cascade to execute a command:
+After adding the server, restart Claude Code and ask Claude to execute a command:
 ```
 "Can you run 'ls -la' on the remote server?"
 ```
