@@ -160,6 +160,7 @@ Development knobs, read by `desktop/src/main/main.ts`:
 
 - `SSH_MCP_BIN`: path to the `ssh-mcp` binary the app spawns as the hub. Without it, the app looks for a binary named `ssh-mcp` (`ssh-mcp.exe` on Windows) one directory above `desktop/`, then falls back to `PATH`.
 - `SSH_MCP_STORE`: passed to the spawned hub as `--store=<path>`, to point the app at a vault other than the default `~/.config/ssh-mcp/servers.json`.
+- `SSH_MCP_IDLE_LOCK`: passed to the spawned hub as `--idleLock=<duration>` (a Go duration, at least `1s`, e.g. `3s`) to shorten the 15-minute idle auto-lock for testing. `ssh-mcp hub --idleLock=...` accepts the same flag directly and refuses to start on an invalid value.
 
 ## Client Setup
 

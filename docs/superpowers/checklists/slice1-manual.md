@@ -24,6 +24,33 @@ Build first: `go build -o ssh-mcp ./cmd/ssh-mcp` at the repo root, then
 
 - [ ] **2. Throughput**
 
+  **Automated part:** `desktop/e2e/throughput.spec.ts` floods a tab with
+  200 MiB from `sshtestd` (`flood <N>`) and checks the largest
+  requestAnimationFrame gap (≤ 200 ms), that every keystroke typed during
+  the flood reaches main as `term.write` (sshtestd echoes typed input only
+  after the flood, so echo latency itself is not measured), and that the
+  main and renderer working sets in the last third of the flood are ≤ 1.5×
+  those in the first third. It writes its numbers to
+  `desktop/test-results/throughput.json`. **Still manual:** a real server
+  over a real network, the comparison against a native terminal, and
+  dragging the window.
+
+  Measured 2026-09-25, macOS 15 (Darwin 24.6.0), Apple M1 Pro, 32 GB:
+
+  | Flood | Elapsed | Throughput | Max frame gap | Main WS first → last third | Renderer WS first → last third | Renderer JS heap after forced GC |
+  |---|---|---|---|---|---|---|
+  | 200 MiB (spec default) | 4.43 s | 47.4 MB/s | 19 ms | 159 → 174 MB | 298 → 535 MB | 273 MB |
+  | 1 GB (`FLOOD_BYTES=1000000000`) | 18.25 s | 54.8 MB/s | 25 ms | 176 → 204 MB | 664 → 1863 MB | 1282 MB |
+  | 2 GB (`FLOOD_BYTES=2000000000`) | 33.96 s | 58.9 MB/s | 59 ms | 182 → 230 MB | 1097 → 3494 MB | (not sampled) |
+
+  Throughput, frame gaps and keystroke handling (≤ 16 ms per key, every
+  key reached main) pass. **Renderer memory fails:** the renderer grows
+  linearly, about 1.7 bytes per flooded byte with no plateau, and the JS
+  heap stays after a forced GC. The renderer is retaining JS objects per
+  chunk, which is a leak and not lazy reclaim. Main stays roughly flat.
+  Because the growth is on the renderer side, binary hub↔main frames alone
+  may not fix it until the retainer is found.
+
   In a terminal tab to a real server (not `sshtestd`), run:
   - `cat` on a 50 MB file
   - `yes | head -c 200M`
@@ -72,19 +99,31 @@ Build first: `go build -o ssh-mcp ./cmd/ssh-mcp` at the repo root, then
     refused — the bridge reports a pipe/connection error, not a hang or a
     successful exec.
 
-- [ ] **5. Idle auto-lock**
+- [x] **5. Idle auto-lock**
+
+  **Covered by e2e:** `desktop/e2e/idle.spec.ts` runs with
+  `SSH_MCP_IDLE_LOCK=3s` (`hub --idleLock=3s`). It checks the lock, the
+  message, that the tab keeps its shell across unlock, and that a pending
+  AI request holds the lock off for 6 s and the lock follows once the
+  request is denied. The full 15-minute default is not exercised.
 
   Unlock the app, then leave it alone — no keyboard/mouse input in the
   app, no terminal typing, and no AI request pending or running — for 15
   minutes (the default in `internal/hub/idle.go`).
 
   Pass: the app returns to the unlock screen on its own and shows "Locked
-  after 15 minutes of inactivity." Any terminal tab that was open before
+  after inactivity." Any terminal tab that was open before
   the lock is still present afterward (still shows its prior output) and,
   once you unlock, accepts typing again in the same shell without any
   reconnect — its SSH connection was never dropped.
 
 - [ ] **6. Allow cannot be triggered from the keyboard**
+
+  **Mostly covered by e2e:** `desktop/e2e/smoke.spec.ts` focuses Allow and
+  presses Space and Enter (the request stays pending), then checks that
+  Enter in the reason field submits Deny and that Allow is disabled after
+  the list shifts. **Still manual:** tabbing through every stop in the
+  panel and pressing Enter and Space at each one.
 
   Trigger an AI approval request so it appears in the panel. Without
   clicking, press Tab repeatedly through the panel, then press Enter and
@@ -98,7 +137,12 @@ Build first: `go build -o ssh-mcp ./cmd/ssh-mcp` at the repo root, then
   Enter in the reason field, by contrast, submits Deny — confirm that
   still works as the keyboard's only reachable action.
 
-- [ ] **7. Tabs survive Lock/unlock**
+- [x] **7. Tabs survive Lock/unlock**
+
+  **Covered by e2e:** `desktop/e2e/smoke.spec.ts` (R15(b)) types into a
+  tab, clicks Lock, unlocks, and checks that the same tab keeps its output
+  and its shell (the next typing continues the same input line).
+  `idle.spec.ts` does the same across an idle lock.
 
   Open a terminal tab and run a long-lived or stateful command (e.g. `top`,
   or `cd /tmp && pwd`). Click **Lock**. Confirm the unlock screen appears.
