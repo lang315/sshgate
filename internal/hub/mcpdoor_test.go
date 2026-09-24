@@ -21,8 +21,7 @@ func isolateDoor(t *testing.T) string {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
-	t.Setenv("TMPDIR", dir)
-	t.Setenv("XDG_RUNTIME_DIR", dir)
+	t.Setenv("SSH_MCP_RUNTIME_DIR", dir)
 	return dir
 }
 

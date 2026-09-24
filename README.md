@@ -121,6 +121,8 @@ Then register the bridge with your MCP client, with no flags:
 
 With the hub closed, every tool call fails with "Open the app to approve commands". There is no headless mode for the vault.
 
+The hub and the bridge meet on a per-user socket: `$SSH_MCP_RUNTIME_DIR/ssh-mcp/hub.sock` if that variable is set, else `/run/user/<uid>/ssh-mcp/hub.sock` when that directory exists (Linux), else `/tmp/ssh-mcp-<uid>/hub.sock`. `TMPDIR` and `XDG_RUNTIME_DIR` are ignored, since MCP clients often do not pass them to the bridge. If you set `SSH_MCP_RUNTIME_DIR`, set the same value for the hub and in the MCP client's environment for the bridge. On Windows it is a per-user named pipe.
+
 The AI only sees servers with "Visible to AI" checked in `ssh-mcp web` (off by default), and only once a host key is pinned for them — the hub refuses an AI-visible server that has no pin rather than learning one on the fly. Nothing in this release drives that first connection for you from the CLI (that lands with terminal tabs in the desktop app); paste the fingerprint yourself into the "Host key fingerprint" field in `ssh-mcp web` instead.
 
 **Paste only the `SHA256:...` token** — nothing else. The pin is compared by exact string equality against `ssh.FingerprintSHA256(key)`, so it must be exactly `SHA256:<base64>`: no leading key-size number, no trailing hostname or `(ED25519)` key-type suffix, no extra whitespace. `ssh-keygen -lf -` prints a whole line like `256 SHA256:xxxx host (ED25519)`; pasting that whole line causes a permanent host key mismatch. Print just the token, for the key type the server actually presents (OpenSSH clients prefer ED25519; if unsure, connect once with a plain `ssh` client and read the fingerprint it prints):

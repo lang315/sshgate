@@ -108,8 +108,7 @@ func TestEndToEndApprovalFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(smDir) })
-	t.Setenv("TMPDIR", smDir)
-	t.Setenv("XDG_RUNTIME_DIR", smDir)
+	t.Setenv("SSH_MCP_RUNTIME_DIR", smDir)
 
 	auditPath := filepath.Join(dir, "audit.jsonl")
 	audit, err := broker.OpenAudit(auditPath)
