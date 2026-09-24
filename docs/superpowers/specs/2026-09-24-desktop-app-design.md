@@ -40,6 +40,9 @@ boundary is the point of the project.
 | Rejected: HTTP/SSE localhost for MCP door | No process boundary; any localhost process or web page can POST. Token/auth on HTTP is difficult to enforce per-peer. Unix socket 0600 + UID check is simpler. |
 | Process model | The app hosts the hub. The `ssh-mcp` binary gains a `hub` subcommand (backend for Electron) and a bridge mode (MCP stdio → hub) |
 | AI execution | Separate `exec` channel, never the user's PTY. A "Send to tab" option pastes the command into the user's terminal without pressing Enter |
+| No persistent AI shell | Every `exec` is a fresh SSH channel: `cd`, environment variables, and virtualenvs do not carry over. The AI must write `cd /app && ./run` in one command. The command runs under the user's login shell with `-c` (non-interactive: `~/.bashrc` is usually skipped and `PATH` may differ from an interactive tab). The su-elevated path keeps its existing persistent root shell |
+| No auto-approval rules | "Always allow" is dropped from slice 1. Exact-string matching is a TOCTOU on remote state (`./deploy.sh` runs whatever the file contains today), and a rule store outside the vault MAC would let a file-level attacker bypass approval. Every request is approved by hand |
+| AI never first to a host | `exec` from the MCP door on a server with no pinned `HostKey` is refused. The user must connect once from the app, which pins the key under TOFU. The AI cannot be the party that accepts an unknown host key |
 | App closed | The bridge refuses with "Open the app to approve commands". There is no headless vault access |
 | `--host` CLI mode | Unchanged; standalone, no app needed |
 | Repo layout | Same repo and Go module; Electron app in `desktop/` with its own `package.json` |
@@ -124,10 +127,23 @@ Renderer: React + xterm.js                     └─ internal/config   (vault, 
   privileges:
   1. **UI door** (stdio to Electron main), full privilege: unlock/lock,
      list hosts, open/close terminals, terminal I/O, and approve/deny.
-  2. **MCP door** (Unix socket with mode 0600 plus a peer-UID check on
-     macOS and Linux; a named pipe with a current-user ACL on Windows):
-     only `listServers`, `exec`, and `sudoExec`. Both exec calls always go
-     through the broker.
+  2. **MCP door**: only `listServers`, `exec`, and `sudoExec`. Both exec
+     calls always go through the broker. Transport per OS:
+     - macOS and Linux: Unix socket, mode 0600, in a per-user runtime
+       directory: `$XDG_RUNTIME_DIR/ssh-mcp/hub.sock` on Linux,
+       `$TMPDIR/ssh-mcp/hub.sock` on macOS, fallback
+       `/tmp/ssh-mcp-<uid>/hub.sock` with the directory at 0700. Not under
+       the config directory: macOS limits `sun_path` to 104 bytes and a
+       long username under `~/Library/Application Support/` overflows it.
+       The hub checks the peer UID (`SO_PEERCRED` / `LOCAL_PEERCRED`) on
+       every connection.
+     - Windows: named pipe `\\.\pipe\ssh-mcp-hub-<user SID>` with a DACL
+       granting access to the current user only, created with
+       `FILE_FLAG_FIRST_PIPE_INSTANCE` so a squatter cannot pre-create the
+       name (verify that `go-winio` sets this; add it if not). The
+       **bridge** verifies the pipe server before sending anything:
+       `GetNamedPipeServerProcessId`, open the process, and compare its
+       token user SID with its own. A mismatch is a hard error.
 
      **MCP-door rules** (apply to any tool added later):
      - No tool on this door builds a shell string from its arguments. The
@@ -145,9 +161,12 @@ Renderer: React + xterm.js                     └─ internal/config   (vault, 
        (`tabby-mcp-server` exposes terminal buffers; that is an egress path
        that bypasses approval.)
 - **`desktop/`** (Electron):
-  - main: spawns the hub, restarts it on crash, kills it on quit, relays
-    RPC, shows a tray badge with the pending count, and raises OS
-    notifications.
+  - main: spawns the hub, kills it on quit, relays RPC, shows a tray badge
+    with the pending count, and raises OS notifications. On hub crash it
+    restarts with backoff (1 s, 3 s, 10 s); after three crashes within a
+    minute it stops and shows an error with the hub's last stderr. A
+    restarted hub starts **locked**: the master key lived only in the dead
+    process.
   - preload: exposes a minimal typed API through `contextBridge`. Uses
     `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`,
     and a strict CSP.
@@ -199,51 +218,74 @@ change touches only the hub and Electron main.
    `description`. The bridge validates nothing. It forwards the request to the
    MCP door with the MCP `clientInfo` name. The hub is the single validation
    point.
-2. The hub checks the peer UID, that the server exists, and that the vault is
-   unlocked. A locked vault is an immediate error; requests are not queued
-   waiting for unlock.
-3. Command validation runs (§Command Validation).
-4. Broker policy:
-   - Default: ask.
-   - "Always allow" is an **exact command string on an exact server**.
-     Pattern rules are rejected for slice 1 because they are trivially
-     bypassed (`ls; rm -rf ~`, `$(…)`, `find -delete`, `less` then `!sh`).
-   - `sudoExec` is never auto-approved.
+2. The hub checks, in order: the peer UID; that the server exists and has
+   `AIVisible` set (otherwise `server "x" not found`); that the vault is
+   unlocked (otherwise an immediate error, requests are not queued waiting
+   for unlock); that the server has a pinned `HostKey` (otherwise "connect
+   to this server from the app once first"); and that fewer than 5 requests
+   are pending (otherwise "too many pending requests, try again later").
+3. Command validation runs (§Command Validation). The optional `timeoutSec`
+   argument is clamped to [1, 600]; the default is 60.
+4. Broker policy: **every request is asked.** There are no auto-approval
+   rules in slice 1 (see Decisions). `sudoExec` is asked like any other
+   request and is labelled as sudo in the panel.
 5. The hub emits a `pending` event on the UI door. If the window is
    unfocused, Electron raises an OS notification; clicking it focuses the
-   dialog. The tray badge shows the pending count. Multiple pending requests
+   window. The tray badge shows the pending count. Multiple pending requests
    are listed and decided independently.
-6. The approval dialog shows:
+6. **The approval panel is non-modal.** It is a side panel, not a dialog. It
+   never takes keyboard focus from the terminal, so keystrokes the user is
+   typing cannot land on an approval button. Within the panel:
    - Server name and host.
    - The full command in monospace, never truncated, with non-ASCII
      highlighted.
-   - The `description`, labelled "AI's description (unverified)".
-   - The client name and received time.
+   - The requested timeout.
+   - The `description`, rendered as plain text, labelled "AI's description
+     (unverified)". It is capped at 500 characters by `AppendDescription`.
+   - The client name, labelled "(unverified)": any same-uid process can
+     claim any name. The received time.
    - Actions:
-     - **Allow**.
-     - **Deny**, with an optional reason that is returned to the AI.
-     - **Always allow this command**.
+     - **Deny** is the default action and the only one reachable by Enter.
+       It has an optional reason field that is returned to the AI.
+     - **Allow** has no keyboard shortcut and is disabled for 500 ms after
+       the request appears.
+     - **Deny all** clears every pending request.
      - **Send to tab**: pastes the command into that server's most recent
        tab, opening one if needed and pasting after its first output. Uses
        `terminal.paste()`, which applies bracketed paste when the shell
        supports it, so the command never runs without the user pressing
        Enter. The AI receives "User chose to run this in their terminal; no
        output captured".
-7. Execution uses the existing `Registry.Get` and `Exec`/`ExecSudo`. Output is
-   redacted with `Redactor`, then capped (§Output Cap).
-8. The result returns to the AI. An audit record is appended.
+7. Immediately before execution the broker re-checks the request context.
+   If the MCP client cancelled while the user was deciding, the command
+   does not run and the audit record says `approved_but_cancelled`.
+   Execution uses the existing `Registry.Get` and `Exec`/`ExecSudo`.
+   stdout and stderr are captured separately, each redacted with
+   `Redactor` and capped independently (§Output Cap).
+8. The result returns to the AI as structured text: exit code, then stdout,
+   then stderr. An audit record is appended.
 
 ### Timeouts and cancellation
 
-- Approval wait: 5 minutes, then auto-deny with "approval timed out".
-  This is separate from the execution timeout.
-- Execution: the existing 60 s timeout, starting at approval.
+- Approval wait: 5 minutes, then the request expires with "approval timed
+  out" (distinct from a deny, so the agent may retry later). This is
+  separate from the execution timeout.
+- Execution: `timeoutSec` from the request (default 60, max 600), starting
+  at approval. The value is shown in the panel so the user approves it with
+  the command.
 - MCP client tool-call timeouts may be shorter than the approval window.
-  Verify Claude Code's actual limit and document it (open item).
+  While a request is pending or running, the bridge sends
+  `notifications/progress` every 5 s if the client supplied a
+  `progressToken`; the MCP spec lets clients reset their timeout on
+  progress. Whether Claude Code does so, and its `MCP_TOOL_TIMEOUT` setting,
+  remain to be verified (open item).
 - MCP `notifications/cancelled` or a bridge disconnect:
-  - A pending request is withdrawn and its dialog closes.
-  - A running request's context is cancelled, which triggers the existing
-    abort path.
+  - A pending request is withdrawn and removed from the panel.
+  - A running request's context is cancelled. The hub sends
+    `Session.Signal(SIGKILL)` and then closes the channel. Servers may
+    ignore the signal and there is no PTY, so no SIGHUP is delivered; the
+    audit record and the AI's error both say "cancelled; the remote process
+    may still be running".
 
 ### Command Validation
 
@@ -252,26 +294,33 @@ other C0/C1 controls, and bidi overrides (e.g. U+202E) through, all of which
 can make the approval dialog display something other than what executes. The
 new rule rejects:
 
-- every rune where `unicode.IsControl` is true, except `\t`;
+- every rune where `unicode.IsControl` is true, **including `\t`** (a tab
+  pasted into a shell without bracketed paste triggers completion and
+  changes the command; use `$'\t'` when a literal tab is needed);
 - every rune in Unicode category `Cf` (format characters, including bidi
   controls and zero-width characters).
 
 The change is in the shared function, so `--host` mode gets it too. The
-`description` field gets the same rule.
+`description` field gets the same rule plus the existing 500-character cap.
 
 ### Output Cap
 
 There is currently no cap, so a large `cat` floods the AI's context.
-Output is capped at a fixed 64 KB: the first 32 KB and the last 32 KB, joined
-by a `… [truncated N bytes] …` marker. The cap is not configurable until
-someone needs it.
+stdout and stderr are capped **separately**, each at 64 KB: the first 32 KB
+and the last 32 KB, joined by a `… [truncated N bytes] …` marker. Capping
+after merging would let stderr push stdout out of the window. The cap is
+not configurable until someone needs it. `Manager.runOnce` currently merges
+both streams into one buffer and must be changed.
 
 ### Audit log
 
-JSONL, mode 0600, next to `servers.json`. Each record contains: time, client,
-server, redacted command, decision, decided-by (user or rule), exit code,
-duration, and output byte count. **Output content is never logged.** There is
-no rotation in slice 1.
+JSONL, mode 0600, next to `servers.json`. Each record contains: time, client
+name (as claimed), server, redacted command, the description verbatim (it
+is already capped at 500 characters and is evidence of what the AI claimed),
+requested timeout, decision (`allowed`, `denied`, `expired`,
+`approved_but_cancelled`, `sent_to_tab`, `cancelled_running`), deny reason,
+exit code, duration, and stdout/stderr byte counts. **Output content is
+never logged.** There is no rotation in slice 1.
 
 ### Errors returned to the AI
 
@@ -279,15 +328,21 @@ no rotation in slice 1.
 |---|---|
 | App or hub not running | "Open the app to approve commands" |
 | Vault locked | "Vault is locked; unlock it in the app" |
-| Unknown server | `server "x" not found` |
+| Unknown or hidden server | `server "x" not found` (byte-identical in both cases) |
+| No pinned host key | "connect to this server from the app once first" |
+| Too many pending | "too many pending requests, try again later" |
 | Forbidden character | Names the character class and position |
-| Denied or approval timeout | "Denied by user" plus the reason, if given |
+| Denied | "Denied by user" plus the reason, if given |
+| Approval expired | "Approval timed out after 5 minutes; you may retry" |
+| Cancelled while running | "Cancelled; the remote process may still be running" |
 | Host key mismatch | Generic failure; fingerprint detail is shown only in the app |
 | Auth failure or exec timeout | Redacted error |
 | Hub crash mid-request | "App closed or crashed"; Electron restarts the hub and pending requests are lost |
 
-`listServers` needs no approval. It returns names and lock status only, and
-only for servers with `AIVisible` set.
+`listServers` needs no approval and **works while the vault is locked**
+(names are plaintext). It returns, for servers with `AIVisible` set, the
+name and a `locked` boolean so the agent can tell the user to unlock the
+app. It never returns hosts, users, or secrets.
 
 ## Terminal Sessions
 
@@ -331,8 +386,8 @@ handles UTF-8 sequences that are split across chunks.
   Reconnect button.
 - Keepalive (`keepalive@openssh.com`) every 30 s. On failure, all sessions
   on that client exit with a reason, and the Registry evicts the manager.
-- Hub crash: all tabs exit. Electron restarts the hub, and tabs offer
-  Reconnect.
+- Hub crash: all tabs exit and the vault is locked. Electron restarts the
+  hub with backoff; tabs offer Reconnect, which first prompts for unlock.
 - Host keys: the existing silent TOFU, equivalent to
   `StrictHostKeyChecking=accept-new`. An interactive fingerprint prompt is
   deferred.
@@ -353,13 +408,23 @@ If any criterion fails, switch the stdio channel to binary frames.
 - **Go unit (no Docker):**
   - Sanitize table: ESC, U+202E, zero-width characters, and tab allowed.
   - Output cap: head, tail, and marker.
-  - Broker, with a fake clock and a fake decider: exact-match allow, sudo
-    never auto-approved, approval timeout, cancellation, concurrent pending
-    requests.
+  - Sanitize also rejects `\t`, and the error names the character class
+    and position.
+  - Output cap applies to stdout and stderr independently: a 1 MB stderr
+    does not evict stdout.
+  - Broker, with a fake clock and a fake decider: approval expiry returns
+    `expired` not `denied`; cancellation while pending removes the request;
+    **approve after cancel does not execute** and audits
+    `approved_but_cancelled`; the 6th concurrent request is refused while 5
+    are pending and accepted once one is decided; "Deny all" resolves every
+    pending request as denied; `timeoutSec` is clamped to [1, 600].
   - **Hub security:** MCP-door calls to `unlock`, `approve`, or any
     UI-only method are rejected. A foreign-UID peer is rejected. A server
-    with `AIVisible == false` is absent from `listServers` and `exec` on it
-    returns the same error as a nonexistent server.
+    with `AIVisible == false` is absent from `listServers`, and `exec` on
+    it returns a byte-identical error to `exec` on a nonexistent server.
+    `exec` on an AI-visible server with an empty `HostKey` is refused
+    without dialing. `listServers` succeeds while locked and reports
+    `locked: true`.
 - **Go integration (existing testcontainers sshd):**
   - A `TermSession` echo round-trip.
   - `stty size` after resize.
@@ -391,10 +456,14 @@ If any criterion fails, switch the stdio channel to binary frames.
    Approving returns the output to the AI; denying returns the reason.
 2. With the app closed, the AI gets "Open the app to approve commands" and
    nothing executes.
-3. Tests prove the MCP door cannot unlock the vault, approve commands, or read
-   secrets.
-4. Throughput criteria pass.
-5. The manual checklist passes on macOS, Windows, and Linux.
+3. Tests prove the MCP door cannot unlock the vault, approve commands, read
+   secrets, see hidden servers, or reach a server whose host key is not yet
+   pinned.
+4. A flood of requests from a misbehaving client is capped at 5 pending and
+   can be cleared with one action; typing in a terminal while a request
+   arrives never approves it.
+5. Throughput criteria pass.
+6. The manual checklist passes on macOS, Windows, and Linux.
 
 ## Known Risks
 
@@ -410,13 +479,15 @@ If any criterion fails, switch the stdio channel to binary frames.
 
 ## Open Items
 
-- Verify Claude Code's MCP tool-call timeout and document it.
-- Choose the MCP door path per OS (e.g. under the user config dir on
-  macOS and Linux; a named pipe name derived from the user SID on Windows).
+- Verify empirically whether Claude Code resets its tool-call timeout on
+  `notifications/progress`, and what `MCP_TOOL_TIMEOUT` controls. Document
+  the finding in the README.
+- Verify that `go-winio`'s `ListenPipe` sets `FILE_FLAG_FIRST_PIPE_INSTANCE`.
+- Verify how the target sshd versions treat `Session.Signal(SIGKILL)`.
 
 ## Out of Scope (Slice 1)
 
 SFTP, port forwarding, ProxyJump, ssh-agent on Windows (OpenSSH pipe and
 Pageant), split panes, local terminal (`node-pty`), host CRUD in the app,
-the host-key fingerprint prompt, pattern-based approval rules, audit
+the host-key fingerprint prompt, any auto-approval rules (exact or pattern), audit
 rotation, sync, mobile, code signing, notarization, and auto-update.
