@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -68,7 +69,19 @@ func runHub(args []string) error {
 				defer term.Restore(fd, st)
 			}
 		}
-		return hub.RunCLIApprover(ctx, h, os.Stdin, os.Stdout)
+		return cleanOnSignal(hub.RunCLIApprover(ctx, h, os.Stdin, os.Stdout))
 	}
-	return hub.ServeUIDoor(ctx, h, os.Stdin, os.Stdout)
+	return cleanOnSignal(hub.ServeUIDoor(ctx, h, os.Stdin, os.Stdout))
+}
+
+// cleanOnSignal maps ctx's own cancellation (SIGINT/SIGTERM, via ctx from
+// signal.NotifyContext above) to a clean exit: the door/approver loops
+// return ctx.Err() straight through when ctx is done, but that's expected
+// shutdown, not a failure worth main's "fatal:" and exit 1. Any other error
+// is returned unchanged.
+func cleanOnSignal(err error) error {
+	if errors.Is(err, context.Canceled) {
+		return nil
+	}
+	return err
 }

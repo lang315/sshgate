@@ -3,6 +3,7 @@ package hub
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"sync"
@@ -57,6 +58,94 @@ func TestCLIApproverAllowsAndDenies(t *testing.T) {
 	pw.Write([]byte("d not now\n"))
 	if err := <-errc; err == nil || !strings.Contains(err.Error(), "not now") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// TestCLIApproverBareCommandNeedsIDWithTwoPending covers R31: with 2+
+// requests pending, a bare a/d/s (no id) must not guess which one the human
+// meant, and an explicit id targets exactly that request, leaving the other
+// pending untouched.
+func TestCLIApproverBareCommandNeedsIDWithTwoPending(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	out := &safeBuf{}
+	go RunCLIApprover(context.Background(), h, pr, out)
+	for !strings.Contains(out.String(), "Commands:") {
+		time.Sleep(time.Millisecond)
+	}
+
+	errc1 := make(chan error, 1)
+	go func() {
+		_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "first"})
+		errc1 <- err
+	}()
+	for len(h.Broker().Pending()) < 1 {
+		time.Sleep(2 * time.Millisecond)
+	}
+	errc2 := make(chan error, 1)
+	go func() {
+		_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "second"})
+		errc2 <- err
+	}()
+	for len(h.Broker().Pending()) < 2 {
+		time.Sleep(2 * time.Millisecond)
+	}
+	pend := h.Broker().Pending()
+	firstID, secondID := pend[0].ID, pend[1].ID
+
+	// Bare "a" with two pending must decide nothing.
+	pw.Write([]byte("a\n"))
+	time.Sleep(30 * time.Millisecond)
+	if got := len(h.Broker().Pending()); got != 2 {
+		t.Fatalf("bare a with 2 pending decided something: %d left pending", got)
+	}
+	if !strings.Contains(out.String(), "several requests pending") {
+		t.Fatalf("missing guidance for ambiguous bare command: %q", out.String())
+	}
+
+	// "a <id-of-second>" approves exactly the second; the first stays pending.
+	pw.Write([]byte("a " + secondID + "\n"))
+	if err := <-errc2; err != nil {
+		t.Fatalf("second exec: %v", err)
+	}
+	left := h.Broker().Pending()
+	if len(left) != 1 || left[0].ID != firstID {
+		t.Fatalf("want only the first still pending, got %+v", left)
+	}
+
+	// "d <id> reason" denies that one, with the given reason.
+	pw.Write([]byte("d " + firstID + " no thanks\n"))
+	err := <-errc1
+	var de *DeniedError
+	if !errors.As(err, &de) || de.Reason != "no thanks" {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// TestCLIApproverBareApprovesSolePending covers R31: a bare "a" is fine when
+// there's no ambiguity, i.e. exactly one request pending.
+func TestCLIApproverBareApprovesSolePending(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	out := &safeBuf{}
+	go RunCLIApprover(context.Background(), h, pr, out)
+	for !strings.Contains(out.String(), "Commands:") {
+		time.Sleep(time.Millisecond)
+	}
+
+	errc := make(chan error, 1)
+	go func() {
+		_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "solo"})
+		errc <- err
+	}()
+	for len(h.Broker().Pending()) == 0 {
+		time.Sleep(2 * time.Millisecond)
+	}
+	pw.Write([]byte("a\n"))
+	if err := <-errc; err != nil {
+		t.Fatalf("bare a with one pending: %v", err)
 	}
 }
 

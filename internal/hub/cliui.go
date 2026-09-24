@@ -31,7 +31,7 @@ func RunCLIApprover(ctx context.Context, h *Hub, in io.Reader, out io.Writer) er
 		}
 	})
 	defer release()
-	fmt.Fprintln(out, "ssh-mcp hub (CLI approver). Commands: a=allow  d [reason]=deny  D=deny all  s=send to tab  u=unlock  p=list pending  q=quit")
+	fmt.Fprintln(out, "ssh-mcp hub (CLI approver). Commands: a [id]=allow  d [id] [reason]=deny  D=deny all  s [id]=send to tab  u=unlock  p=list pending  q=quit (id required when 2+ pending; p lists ids)")
 
 	sc := bufio.NewScanner(in)
 	for {
@@ -48,24 +48,17 @@ func RunCLIApprover(ctx context.Context, h *Hub, in io.Reader, out io.Writer) er
 		}
 		cmd, rest, _ := strings.Cut(line, " ")
 		pend := h.broker.Pending()
-		first := func() (broker.Request, bool) {
-			if len(pend) == 0 {
-				fmt.Fprintln(out, "nothing pending")
-				return broker.Request{}, false
-			}
-			return pend[0], true
-		}
 		switch cmd {
 		case "a":
-			if r, ok := first(); ok {
+			if r, _, ok := resolveTarget(out, pend, rest); ok {
 				h.broker.Decide(r.ID, broker.Decision{Outcome: broker.Allowed})
 			}
 		case "d":
-			if r, ok := first(); ok {
-				h.broker.Decide(r.ID, broker.Decision{Outcome: broker.Denied, Reason: rest})
+			if r, reason, ok := resolveTarget(out, pend, rest); ok {
+				h.broker.Decide(r.ID, broker.Decision{Outcome: broker.Denied, Reason: reason})
 			}
 		case "s":
-			if r, ok := first(); ok {
+			if r, _, ok := resolveTarget(out, pend, rest); ok {
 				fmt.Fprintf(out, "paste into your terminal (not run here):\n  %s\n", r.Command)
 				h.broker.Decide(r.ID, broker.Decision{Outcome: broker.SentToTab})
 			}
@@ -157,12 +150,54 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 	return s.w.Write(p)
 }
 
+// resolveTarget interprets the argument after a/d/s (R31): an explicit
+// request id, or, when omitted, the sole pending request if there is
+// exactly one. It never guesses among several pending requests. With 2+
+// pending and no id, or an id that matches nothing, it prints guidance to
+// out and returns ok=false without deciding anything. reason is the text
+// after the id (or, for the single-pending shorthand, the whole rest, so
+// e.g. "d not now" with one request pending denies it with reason "not
+// now" without requiring an id).
+func resolveTarget(out io.Writer, pend []broker.Request, rest string) (r broker.Request, reason string, ok bool) {
+	tok, remainder, _ := strings.Cut(rest, " ")
+	if len(pend) == 1 && (tok == "" || !hasPendingID(pend, tok)) {
+		return pend[0], rest, true
+	}
+	if tok == "" {
+		if len(pend) == 0 {
+			fmt.Fprintln(out, "nothing pending")
+			return broker.Request{}, "", false
+		}
+		for _, p := range pend {
+			printRequest(out, p)
+		}
+		fmt.Fprintln(out, "several requests pending: use a <id> / d <id> / s <id>")
+		return broker.Request{}, "", false
+	}
+	for _, p := range pend {
+		if p.ID == tok {
+			return p, remainder, true
+		}
+	}
+	fmt.Fprintf(out, "no pending request %s\n", tok)
+	return broker.Request{}, "", false
+}
+
+func hasPendingID(pend []broker.Request, id string) bool {
+	for _, p := range pend {
+		if p.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func printRequest(out io.Writer, r broker.Request) {
 	sudo := ""
 	if r.Sudo {
 		sudo = " [SUDO]"
 	}
-	fmt.Fprintf(out, "\n=== pending %s from %q (unverified)%s\n", r.ID, r.Client, sudo)
+	fmt.Fprintf(out, "\n=== pending id=%s from %q (unverified)%s\n", r.ID, r.Client, sudo)
 	fmt.Fprintf(out, "server : %s\n", r.Server)
 	fmt.Fprintf(out, "command: %s\n", r.Command)
 	fmt.Fprintf(out, "timeout: %ds\n", r.TimeoutSec)
