@@ -1,6 +1,7 @@
 import { app, BrowserWindow, type WebContents } from 'electron'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { setupAttention } from './attention'
 import { HubProcess } from './hubProcess'
 import { registerIpc } from './ipc'
 
@@ -55,6 +56,7 @@ function createWindow(): BrowserWindow {
 app.whenReady().then(() => {
   win = createWindow()
   registerIpc(hub, getWindow, isTrusted)
+  setupAttention(hub, getWindow)
   hub.start()
 })
 
