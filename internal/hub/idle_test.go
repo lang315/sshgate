@@ -38,8 +38,10 @@ func newEncryptedHub(t *testing.T, o Options) (*Hub, string) {
 	}
 	t.Cleanup(func() { audit.Close() })
 	o.StorePath, o.Audit = path, audit
-	fe := &fakeExec{}
-	o.Dialer = func(sshx.DialConfig) Executor { return fe }
+	if o.Dialer == nil {
+		fe := &fakeExec{}
+		o.Dialer = func(sshx.DialConfig) Executor { return fe }
+	}
 	h, err := New(o)
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +66,9 @@ func TestIdleLockLocksAfterQuietPeriod(t *testing.T) {
 
 func TestIdleLockHeldOffByActivity(t *testing.T) {
 	h, _ := newEncryptedHub(t, Options{IdleLock: 300 * time.Millisecond})
-	h.Unlock("pw")
+	if err := h.Unlock("pw"); err != nil {
+		t.Fatal(err)
+	}
 	for i := 0; i < 10; i++ {
 		time.Sleep(100 * time.Millisecond)
 		h.touch()
@@ -76,7 +80,9 @@ func TestIdleLockHeldOffByActivity(t *testing.T) {
 
 func TestIdleLockHeldOffByPendingRequest(t *testing.T) {
 	h, _ := newEncryptedHub(t, Options{IdleLock: 200 * time.Millisecond, ApprovalExpiry: time.Minute})
-	h.Unlock("pw")
+	if err := h.Unlock("pw"); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go h.Exec(ctx, ExecRequest{Server: "vis", Command: "ls"})
@@ -89,9 +95,81 @@ func TestIdleLockHeldOffByPendingRequest(t *testing.T) {
 
 func TestIdleLockDisabledWhenNegative(t *testing.T) {
 	h, _ := newEncryptedHub(t, Options{IdleLock: -1})
-	h.Unlock("pw")
+	if err := h.Unlock("pw"); err != nil {
+		t.Fatal(err)
+	}
 	time.Sleep(300 * time.Millisecond)
 	if h.Locked() {
 		t.Fatal("negative IdleLock must disable auto-lock")
+	}
+}
+
+// waitLocked waits up to 3 s for the vault to lock.
+func waitLocked(h *Hub) bool {
+	deadline := time.Now().Add(3 * time.Second)
+	for !h.Locked() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	return h.Locked()
+}
+
+// AI requests are not UI input: failing ones must not reset the idle clock.
+func TestIdleLockNotHeldOffByFailingAIRequests(t *testing.T) {
+	h, _ := newEncryptedHub(t, Options{IdleLock: 300 * time.Millisecond})
+	if err := h.Unlock("pw"); err != nil {
+		t.Fatal(err)
+	}
+	// Keep calling for the whole wait, so only AI traffic separates the
+	// vault from the idle deadline.
+	deadline := time.Now().Add(3 * time.Second)
+	for !h.Locked() && time.Now().Before(deadline) {
+		if _, err := h.Exec(context.Background(), ExecRequest{Server: "nope", Command: "ls"}); err == nil {
+			t.Fatal("exec on a missing server succeeded")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !h.Locked() {
+		t.Fatal("failing AI requests held off the idle lock")
+	}
+}
+
+// blockingExec blocks every command until release is closed.
+type blockingExec struct{ started, release chan struct{} }
+
+func (b *blockingExec) Exec(ctx context.Context, cmd string) (sshx.ExecResult, error) {
+	close(b.started)
+	<-b.release
+	return sshx.ExecResult{}, nil
+}
+func (b *blockingExec) ExecSudo(ctx context.Context, cmd string) (sshx.ExecResult, error) {
+	return b.Exec(ctx, cmd)
+}
+
+func TestIdleLockHeldOffByRunningCommand(t *testing.T) {
+	be := &blockingExec{started: make(chan struct{}), release: make(chan struct{})}
+	h, _ := newEncryptedHub(t, Options{IdleLock: 200 * time.Millisecond, ApprovalExpiry: time.Minute,
+		Dialer: func(sshx.DialConfig) Executor { return be }})
+	if err := h.Unlock("pw"); err != nil {
+		t.Fatal(err)
+	}
+	errc := make(chan error, 1)
+	go func() { _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}); errc <- err }()
+	waitPending(t, h.Broker(), 1)
+	allowFirst(t, h.Broker())
+	select {
+	case <-be.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("command did not start")
+	}
+	time.Sleep(600 * time.Millisecond)
+	if h.Locked() {
+		t.Fatal("locked while a command was running")
+	}
+	close(be.release)
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+	if !waitLocked(h) {
+		t.Fatal("did not lock after the command finished")
 	}
 }

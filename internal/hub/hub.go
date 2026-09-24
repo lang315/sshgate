@@ -205,14 +205,22 @@ func (h *Hub) Lock() { h.lockWithReason("manual") }
 // lock sink. The sink runs outside h.mu.
 func (h *Hub) lockWithReason(reason string) {
 	h.mu.Lock()
-	wasUnlocked := h.deps.MasterKey != nil
-	clear(h.deps.MasterKey)
-	h.deps.MasterKey = nil
-	sink := h.lockSink
+	sink := h.zeroKeyLocked()
 	h.mu.Unlock()
-	if wasUnlocked && sink != nil {
+	if sink != nil {
 		sink(reason)
 	}
+}
+
+// zeroKeyLocked drops the master key with h.mu held. It returns the lock
+// sink to call (outside h.mu) if the vault was unlocked, else nil.
+func (h *Hub) zeroKeyLocked() func(string) {
+	if h.deps.MasterKey == nil {
+		return nil
+	}
+	clear(h.deps.MasterKey)
+	h.deps.MasterKey = nil
+	return h.lockSink
 }
 
 func (h *Hub) Locked() bool {
@@ -398,8 +406,6 @@ func redactorFor(dcs ...sshx.DialConfig) *config.Redactor {
 }
 
 func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
-	h.touch()       // on submit
-	defer h.touch() // and on return, whatever the outcome
 	dc, err := h.resolveForAI(r.Server)
 	if err != nil {
 		var he *hiddenError
@@ -441,14 +447,14 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 		return ExecResponse{Stdout: "User chose to run this in their terminal; no output captured"}, nil
 	}
 
-	// Approved: count as running so the idle auto-lock waits for it.
+	// Approved: count as running so the idle auto-lock waits for it. AI
+	// traffic never touches lastActivity: the idle clock is UI input only.
 	h.mu.Lock()
 	h.running++
 	h.mu.Unlock()
 	defer func() {
 		h.mu.Lock()
 		h.running--
-		h.lastActivity = time.Now()
 		h.mu.Unlock()
 	}()
 
