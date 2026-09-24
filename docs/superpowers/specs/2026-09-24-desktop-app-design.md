@@ -1,7 +1,7 @@
 # ssh-mcp Desktop: AI-Aware SSH Client — Design (Slice 1)
 
 Date: 2026-09-24
-Status: Draft (sections approved in brainstorming; pending review of this document)
+Status: Approved. Slice 1a (Go core) implemented; amended 2026-09-24 to match it (see §Amendments).
 
 ## Goal
 
@@ -129,10 +129,14 @@ Renderer: React + xterm.js                     └─ internal/config   (vault, 
      list hosts, open/close terminals, terminal I/O, and approve/deny.
   2. **MCP door**: only `listServers`, `exec`, and `sudoExec`. Both exec
      calls always go through the broker. Transport per OS:
-     - macOS and Linux: Unix socket, mode 0600, in a per-user runtime
-       directory: `$XDG_RUNTIME_DIR/ssh-mcp/hub.sock` on Linux,
-       `$TMPDIR/ssh-mcp/hub.sock` on macOS, fallback
-       `/tmp/ssh-mcp-<uid>/hub.sock` with the directory at 0700. Not under
+     - macOS and Linux: Unix socket, mode 0600, at
+       `<base>/ssh-mcp/hub.sock`. `<base>` is `$SSH_MCP_RUNTIME_DIR` if set
+       (development and tests), else `/run/user/<uid>` on Linux when it
+       exists and is owned by the user, else `/tmp` with the directory
+       named `ssh-mcp-<uid>`. The path never depends on `TMPDIR` or
+       `XDG_RUNTIME_DIR`, because MCP clients may start the bridge with a
+       minimal environment. The directory must be a real directory owned by
+       the user with mode 0700; otherwise the hub refuses to start. Not under
        the config directory: macOS limits `sun_path` to 104 bytes and a
        long username under `~/Library/Application Support/` overflows it.
        The hub checks the peer UID (`SO_PEERCRED` / `LOCAL_PEERCRED`) on
@@ -241,7 +245,9 @@ change touches only the hub and Electron main.
      highlighted.
    - The requested timeout.
    - The `description`, rendered as plain text, labelled "AI's description
-     (unverified)". It is capped at 500 characters by `AppendDescription`.
+     (unverified)". It is validated with the same character rules as the
+     command and capped at 500 characters. The hub never executes it: it
+     is metadata that is shown and audited only.
    - The client name, labelled "(unverified)": any same-uid process can
      claim any name. The received time.
    - Actions:
@@ -335,8 +341,9 @@ never logged.** There is no rotation in slice 1.
 | Denied | "Denied by user" plus the reason, if given |
 | Approval expired | "Approval timed out after 5 minutes; you may retry" |
 | Cancelled while running | "Cancelled; the remote process may still be running" |
-| Host key mismatch | Generic failure; fingerprint detail is shown only in the app |
-| Auth failure or exec timeout | Redacted error |
+| Host key mismatch | "host key verification failed; check the server in the app"; fingerprint detail goes to the audit reason and the hub's stderr |
+| Connection, auth, or resolve failure | "connection to server failed; see the app for details"; detail goes to the audit reason and stderr (never hosts, ports, or paths to the AI) |
+| Exec timeout | Redacted timeout error |
 | Hub crash mid-request | "App closed or crashed"; Electron restarts the hub and pending requests are lost |
 
 `listServers` needs no approval and **works while the vault is locked**
@@ -491,3 +498,30 @@ SFTP, port forwarding, ProxyJump, ssh-agent on Windows (OpenSSH pipe and
 Pageant), split panes, local terminal (`node-pty`), host CRUD in the app,
 the host-key fingerprint prompt, any auto-approval rules (exact or pattern), audit
 rotation, sync, mobile, code signing, notarization, and auto-update.
+
+## Amendments
+
+Changes made after slice 1a was implemented, so this document matches the
+code. Each came from a review finding.
+
+- Socket path: see §Components, MCP door. It no longer uses `TMPDIR` or
+  `XDG_RUNTIME_DIR` (MCP clients may pass a minimal environment).
+- The description is never appended to the executed command. It could run
+  as code if the command ended in `\` or left a quote open.
+- A vault with a KDF and no key in memory is locked for every AI request,
+  including key-only and agent servers; the on-disk file is not verified
+  while locked. `listServers` still works and reports `locked: true`.
+- AI-facing connection errors are generic (see the errors table).
+- `hub --insecureIgnoreHostKey` is refused; host-key checking cannot be
+  turned off for AI execs.
+- UI-door protocol facts for the desktop app: integer JSON-RPC ids;
+  `term.write`, `term.ack` and `term.resize` are notifications, every
+  other method is a request; `term.open` takes a client-chosen id (1–64
+  characters of `[A-Za-z0-9_-]`); send nothing to a terminal before its
+  `term.open` reply; ignore data for unknown ids; `decided` events carry
+  outcomes `allowed`, `denied`, `sent_to_tab`, `expired`, and `withdrawn`;
+  `term.dropped {id, bytes}` reports input dropped because the queue was
+  full.
+- Not yet implemented, scheduled for slice 1b: the 15-minute idle
+  auto-lock (§Vault lifecycle) and a `hello` method that returns the hub
+  protocol version.
