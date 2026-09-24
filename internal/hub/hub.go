@@ -169,6 +169,13 @@ func (h *Hub) Lock() {
 func (h *Hub) Locked() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	return h.lockedLocked()
+}
+
+// lockedLocked reports, with h.mu held, whether an encrypted vault has no
+// key. Its MAC is unchecked then, so every server in it counts as locked,
+// including ones with no encrypted fields.
+func (h *Hub) lockedLocked() bool {
 	f := h.deps.File
 	return f != nil && f.KDF != nil && h.deps.MasterKey == nil
 }
@@ -199,8 +206,8 @@ func (h *Hub) Reload() error {
 	return nil
 }
 
-// ServersForMCP lists AIVisible servers. It works while locked: names are
-// plaintext.
+// ServersForMCP lists AIVisible servers. It works while locked (names are
+// plaintext); then every server is reported locked.
 func (h *Hub) ServersForMCP() []ServerInfo {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -210,7 +217,7 @@ func (h *Hub) ServersForMCP() []ServerInfo {
 	}
 	for _, s := range h.deps.File.Servers {
 		if s.AIVisible {
-			out = append(out, ServerInfo{Name: s.Name, Locked: h.deps.IsLocked(s.Name)})
+			out = append(out, ServerInfo{Name: s.Name, Locked: h.lockedLocked()})
 		}
 	}
 	return out
@@ -251,7 +258,7 @@ func (h *Hub) checkLocked(name string) error {
 	if !ok || !s.AIVisible {
 		return serverNotFound(name)
 	}
-	if h.deps.IsLocked(name) {
+	if h.lockedLocked() {
 		return ErrLocked
 	}
 	if s.HostKey == "" {

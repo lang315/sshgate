@@ -127,7 +127,7 @@ The AI only sees servers with "Visible to AI" checked in `ssh-mcp web` (off by d
 
     ssh-keyscan -p PORT -t ed25519 HOST 2>/dev/null | ssh-keygen -lf - | awk '{print $2}'
 
-Through the hub, `exec`/`sudo-exec` take a `timeoutSec` (1–600, default 60) instead of `--timeout`, `server` has no default (pass the exact name from `list-servers`), and `list-servers` lists only AI-visible servers, marking a locked one `[locked: unlock the app]`.
+Through the hub, `exec`/`sudo-exec` take a `timeoutSec` (1–600, default 60) instead of `--timeout`, `server` has no default (pass the exact name from `list-servers`), and `list-servers` lists only AI-visible servers, marking a locked one `[locked: unlock the app]`. While a vault with a master password is locked, every server in it is locked, including key/agent-only ones.
 
 ## Client Setup
 

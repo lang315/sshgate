@@ -289,7 +289,8 @@ func TestSetEventSinkReleaseIsPerInstall(t *testing.T) {
 }
 
 // newEncHub writes an encrypted vault: "enc" (AIVisible, pinned, password
-// "s3cr3t-pw") and "agent" (no encrypted fields, no pin). The hub starts
+// "s3cr3t-pw"), "agent" (no encrypted fields, no pin) and "keyonly" (no
+// encrypted fields, AIVisible, pinned). The hub starts
 // locked; the master password is "pw" and mk is returned.
 func newEncHub(t *testing.T, fe *fakeExec) (h *Hub, path string, mk []byte) {
 	t.Helper()
@@ -305,7 +306,8 @@ func newEncHub(t *testing.T, fe *fakeExec) (h *Hub, path string, mk []byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.Servers = []config.Server{s, {Name: "agent", Host: "h", Port: 22, User: "u", Auth: "agent"}}
+	f.Servers = []config.Server{s, {Name: "agent", Host: "h", Port: 22, User: "u", Auth: "agent"},
+		{Name: "keyonly", Host: "h", Port: 22, User: "u", Auth: "agent", HostKey: "SHA256:abc", AIVisible: true}}
 	if err := config.Save(path, f, mk); err != nil {
 		t.Fatal(err)
 	}
@@ -367,6 +369,32 @@ func TestLockedVaultRefusesEncryptedServer(t *testing.T) {
 	h.Lock()
 	if !h.Locked() {
 		t.Fatal("Lock did not lock")
+	}
+}
+
+// I2: while an encrypted vault is locked its MAC is unchecked, so no server
+// in it may run, even one with no encrypted fields.
+func TestLockedVaultRefusesKeyOnlyServer(t *testing.T) {
+	fe := &fakeExec{}
+	h, _, _ := newEncHub(t, fe)
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: "keyonly", Command: "ls"}); !errors.Is(err, ErrLocked) {
+		t.Fatalf("want ErrLocked, got %v", err)
+	}
+	if len(h.Broker().Pending()) != 0 || len(fe.calls) != 0 {
+		t.Fatal("locked vault reached the broker or ran")
+	}
+	for _, s := range h.ServersForMCP() {
+		if !s.Locked {
+			t.Fatalf("%s listed as unlocked in a locked vault", s.Name)
+		}
+	}
+	if err := h.Unlock("pw"); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range h.ServersForMCP() {
+		if s.Locked {
+			t.Fatalf("%s still locked after unlock", s.Name)
+		}
 	}
 }
 
