@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -30,6 +31,14 @@ func (s *safeBuf) String() string {
 	return s.b.String()
 }
 
+// waitOut waits until out contains want; test goroutine only.
+func waitOut(t *testing.T, out *safeBuf, want string) {
+	t.Helper()
+	if !waitFor(t, fmt.Sprintf("output %q", want), func() bool { return strings.Contains(out.String(), want) }) {
+		t.Fatalf("output so far: %q", out.String())
+	}
+}
+
 func TestCLIApproverAllowsAndDenies(t *testing.T) {
 	h, _ := newHub(t, &fakeExec{})
 	pr, pw := io.Pipe()
@@ -39,21 +48,17 @@ func TestCLIApproverAllowsAndDenies(t *testing.T) {
 	// Wait for the banner: RunCLIApprover installs the event sink before
 	// printing it, so once it's visible the sink is guaranteed installed and
 	// a request submitted below can't race ahead of it.
-	for !strings.Contains(out.String(), "Commands:") {
-		time.Sleep(time.Millisecond)
-	}
+	waitOut(t, out, "Commands:")
 
 	errc := make(chan error, 1)
 	go func() {
 		_, err := h.Exec(context.Background(), ExecRequest{Client: "claude", Server: "vis", Command: "ls -la", Description: "list"})
 		errc <- err
 	}()
-	for len(h.Broker().Pending()) == 0 {
-		time.Sleep(2 * time.Millisecond)
-	}
-	time.Sleep(50 * time.Millisecond)
-	if !strings.Contains(out.String(), "ls -la") || !strings.Contains(out.String(), "(unverified)") {
-		t.Fatalf("prompt missing command or unverified label: %q", out.String())
+	waitPending(t, h.Broker(), 1)
+	waitOut(t, out, "ls -la")
+	if !strings.Contains(out.String(), "(unverified)") {
+		t.Fatalf("prompt missing unverified label: %q", out.String())
 	}
 	pw.Write([]byte("d not now\n"))
 	if err := <-errc; err == nil || !strings.Contains(err.Error(), "not now") {
@@ -71,37 +76,30 @@ func TestCLIApproverBareCommandNeedsIDWithTwoPending(t *testing.T) {
 	defer pw.Close()
 	out := &safeBuf{}
 	go RunCLIApprover(context.Background(), h, pr, out)
-	for !strings.Contains(out.String(), "Commands:") {
-		time.Sleep(time.Millisecond)
-	}
+	waitOut(t, out, "Commands:")
 
 	errc1 := make(chan error, 1)
 	go func() {
 		_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "first"})
 		errc1 <- err
 	}()
-	for len(h.Broker().Pending()) < 1 {
-		time.Sleep(2 * time.Millisecond)
-	}
+	waitPending(t, h.Broker(), 1)
 	errc2 := make(chan error, 1)
 	go func() {
 		_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "second"})
 		errc2 <- err
 	}()
-	for len(h.Broker().Pending()) < 2 {
-		time.Sleep(2 * time.Millisecond)
-	}
+	waitPending(t, h.Broker(), 2)
 	pend := h.Broker().Pending()
 	firstID, secondID := pend[0].ID, pend[1].ID
 
 	// Bare "a" with two pending must decide nothing.
 	pw.Write([]byte("a\n"))
-	time.Sleep(30 * time.Millisecond)
+	// The guidance is printed once "a" has been handled, so the pending
+	// count checked after it is final.
+	waitOut(t, out, "several requests pending")
 	if got := len(h.Broker().Pending()); got != 2 {
 		t.Fatalf("bare a with 2 pending decided something: %d left pending", got)
-	}
-	if !strings.Contains(out.String(), "several requests pending") {
-		t.Fatalf("missing guidance for ambiguous bare command: %q", out.String())
 	}
 
 	// "a <id-of-second>" approves exactly the second; the first stays pending.
@@ -131,18 +129,14 @@ func TestCLIApproverBareApprovesSolePending(t *testing.T) {
 	defer pw.Close()
 	out := &safeBuf{}
 	go RunCLIApprover(context.Background(), h, pr, out)
-	for !strings.Contains(out.String(), "Commands:") {
-		time.Sleep(time.Millisecond)
-	}
+	waitOut(t, out, "Commands:")
 
 	errc := make(chan error, 1)
 	go func() {
 		_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "solo"})
 		errc <- err
 	}()
-	for len(h.Broker().Pending()) == 0 {
-		time.Sleep(2 * time.Millisecond)
-	}
+	waitPending(t, h.Broker(), 1)
 	pw.Write([]byte("a\n"))
 	if err := <-errc; err != nil {
 		t.Fatalf("bare a with one pending: %v", err)

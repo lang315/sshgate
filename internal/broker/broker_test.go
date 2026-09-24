@@ -101,7 +101,7 @@ func TestExpiryIsExpiredNotDenied(t *testing.T) {
 func TestExpiryEmitsDecidedEvent(t *testing.T) {
 	b, events, mu := newTestBroker(50 * time.Millisecond)
 	go b.Submit(context.Background(), Request{Server: "s", Command: "ls"})
-	waitForPending(t, b, 1)
+	// No waitForPending: with a 50 ms expiry the request may already be gone.
 	got := waitForEvents(t, mu, events, 2)
 	if len(got) != 2 || got[0].Kind != "pending" || got[1].Kind != "decided" || got[1].Decision.Outcome != Expired {
 		t.Fatalf("events = %+v", got)

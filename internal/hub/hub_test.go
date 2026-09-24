@@ -67,14 +67,41 @@ func newHubExpiry(t *testing.T, fe *fakeExec, expiry time.Duration) (*Hub, strin
 	return h, path
 }
 
-func decideFirst(b *broker.Broker, d broker.Decision) {
-	for len(b.Pending()) == 0 {
+const testWait = 10 * time.Second
+
+// waitFor polls cond until it holds. After testWait it reports a failure
+// with t.Errorf and returns false, so it is safe on any goroutine.
+func waitFor(t *testing.T, what string, cond func() bool) bool {
+	t.Helper()
+	deadline := time.Now().Add(testWait)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Errorf("timed out after %v waiting for %s", testWait, what)
+			return false
+		}
 		time.Sleep(2 * time.Millisecond)
 	}
-	b.Decide(b.Pending()[0].ID, d)
+	return true
 }
 
-func allowFirst(b *broker.Broker) { decideFirst(b, broker.Decision{Outcome: broker.Allowed}) }
+// waitPending waits for at least n pending requests; test goroutine only.
+func waitPending(t *testing.T, b *broker.Broker, n int) {
+	t.Helper()
+	if !waitFor(t, fmt.Sprintf("%d pending", n), func() bool { return len(b.Pending()) >= n }) {
+		t.FailNow()
+	}
+}
+
+// decideFirst runs on its own goroutine, so it only reports via waitFor.
+func decideFirst(t *testing.T, b *broker.Broker, d broker.Decision) {
+	if waitFor(t, "a pending request", func() bool { return len(b.Pending()) > 0 }) {
+		b.Decide(b.Pending()[0].ID, d)
+	}
+}
+
+func allowFirst(t *testing.T, b *broker.Broker) {
+	decideFirst(t, b, broker.Decision{Outcome: broker.Allowed})
+}
 
 func TestServersForMCPOnlyVisible(t *testing.T) {
 	h, _ := newHub(t, &fakeExec{})
@@ -115,7 +142,7 @@ func TestNoHostKeyRefusedWithoutDialing(t *testing.T) {
 func TestAllowedRunsAndReturnsStreams(t *testing.T) {
 	fe := &fakeExec{res: sshx.ExecResult{Stdout: "out\n", Stderr: "err\n", ExitCode: 2}}
 	h, _ := newHub(t, fe)
-	go allowFirst(h.Broker())
+	go allowFirst(t, h.Broker())
 	res, err := h.Exec(context.Background(), ExecRequest{Client: "t", Server: "vis", Command: "ls", Description: "list"})
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +158,7 @@ func TestAllowedRunsAndReturnsStreams(t *testing.T) {
 func TestDeniedAndExpiredAreDistinct(t *testing.T) {
 	fe := &fakeExec{}
 	h, _ := newHub(t, fe)
-	go decideFirst(h.Broker(), broker.Decision{Outcome: broker.Denied, Reason: "nope"})
+	go decideFirst(t, h.Broker(), broker.Decision{Outcome: broker.Denied, Reason: "nope"})
 	_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
 	var de *DeniedError
 	if !errors.As(err, &de) || de.Reason != "nope" || err.Error() != "Denied by user: nope" {
@@ -153,9 +180,7 @@ func TestApprovedAfterCancelDoesNotExecute(t *testing.T) {
 	errc := make(chan error, 1)
 	go func() { _, err := h.Exec(ctx, ExecRequest{Server: "vis", Command: "ls"}); errc <- err }()
 	b := h.Broker()
-	for len(b.Pending()) == 0 {
-		time.Sleep(2 * time.Millisecond)
-	}
+	waitPending(t, b, 1)
 	id := b.Pending()[0].ID
 	cancel()
 	if err := <-errc; !errors.Is(err, context.Canceled) {
@@ -197,7 +222,7 @@ func TestEventsReachSink(t *testing.T) {
 	h, _ := newHub(t, &fakeExec{})
 	kinds := make(chan string, 2)
 	h.setEventSink(func(e broker.Event) { kinds <- e.Kind })
-	go allowFirst(h.Broker())
+	go allowFirst(t, h.Broker())
 	if _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}); err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +322,7 @@ func TestLockedVaultRefusesEncryptedServer(t *testing.T) {
 	if err := h.Unlock("pw"); err != nil {
 		t.Fatal(err)
 	}
-	go allowFirst(h.Broker())
+	go allowFirst(t, h.Broker())
 	res, err := h.Exec(context.Background(), ExecRequest{Server: "enc", Command: "ls"})
 	if err != nil {
 		t.Fatal(err)
@@ -316,7 +341,7 @@ func TestAuditRedactsSecretsBeforeApproval(t *testing.T) {
 	if err := h.Unlock("pw"); err != nil {
 		t.Fatal(err)
 	}
-	go decideFirst(h.Broker(), broker.Decision{Outcome: broker.Denied})
+	go decideFirst(t, h.Broker(), broker.Decision{Outcome: broker.Denied})
 	_, err := h.Exec(context.Background(), ExecRequest{Server: "enc", Command: "echo s3cr3t-pw", Description: "prints s3cr3t-pw"})
 	var de *DeniedError
 	if !errors.As(err, &de) {
@@ -391,7 +416,7 @@ func TestAuditOutcomes(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			h, path := newHub(t, c.fe)
 			if c.decision != nil {
-				go decideFirst(h.Broker(), *c.decision)
+				go decideFirst(t, h.Broker(), *c.decision)
 			}
 			res, err := h.Exec(context.Background(), ExecRequest{Client: "t", Server: "vis", Command: "ls", Sudo: c.sudo})
 			raw, recs := readAudit(t, path)
@@ -416,9 +441,7 @@ func TestSixthPendingRefused(t *testing.T) {
 	for range 5 {
 		go func() { h.Exec(ctx, ExecRequest{Server: "vis", Command: "ls"}); done <- struct{}{} }()
 	}
-	for len(h.Broker().Pending()) < 5 {
-		time.Sleep(2 * time.Millisecond)
-	}
+	waitPending(t, h.Broker(), 5)
 	_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
 	if err == nil || err.Error() != "too many pending requests, try again later" {
 		t.Fatalf("got %v", err)
@@ -432,7 +455,7 @@ func TestSixthPendingRefused(t *testing.T) {
 func TestOutputCappedPerStream(t *testing.T) {
 	fe := &fakeExec{res: sshx.ExecResult{Stdout: "small", Stderr: strings.Repeat("e", 200*1024)}}
 	h, _ := newHub(t, fe)
-	go allowFirst(h.Broker())
+	go allowFirst(t, h.Broker())
 	res, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
 	if err != nil {
 		t.Fatal(err)

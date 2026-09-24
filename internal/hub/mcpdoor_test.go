@@ -62,13 +62,13 @@ func TestMCPDoorListAndExec(t *testing.T) {
 	if err := c.Call(context.Background(), "listServers", nil, &list); err != nil || len(list) != 2 {
 		t.Fatalf("list: %v %+v", err, list)
 	}
-	go allowFirst(h.Broker())
+	go allowFirst(t, h.Broker())
 	var res ExecResponse
 	err := c.Call(context.Background(), "exec", map[string]any{"client": "t", "server": "vis", "command": "echo hi"}, &res)
 	if err != nil || res.Stdout != "hi\n" {
 		t.Fatalf("exec: %v %+v", err, res)
 	}
-	go allowFirst(h.Broker())
+	go allowFirst(t, h.Broker())
 	if err := c.Call(context.Background(), "sudoExec", map[string]any{"server": "vis", "command": "id"}, &res); err != nil {
 		t.Fatal(err)
 	}
@@ -86,9 +86,7 @@ func TestMCPDoorCancelWithdrawsPending(t *testing.T) {
 		errc <- c.Call(context.Background(), "exec", map[string]any{"requestId": "r1", "server": "vis", "command": "ls"}, nil)
 	}()
 	b := h.Broker()
-	for len(b.Pending()) == 0 {
-		time.Sleep(2 * time.Millisecond)
-	}
+	waitPending(t, b, 1)
 	if err := c.Call(context.Background(), "cancel", map[string]any{"requestId": "r1"}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -121,16 +119,10 @@ func TestMCPDoorConnectionCloseWithdrawsPending(t *testing.T) {
 	c := rpc.NewClient(conn, conn, nil)
 	go c.Call(context.Background(), "exec", map[string]any{"server": "vis", "command": "ls"}, nil)
 	b := h.Broker()
-	for len(b.Pending()) == 0 {
-		time.Sleep(2 * time.Millisecond)
-	}
+	waitPending(t, b, 1)
 	conn.Close()
-	deadline := time.Now().Add(2 * time.Second)
-	for len(b.Pending()) != 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if len(b.Pending()) != 0 {
-		t.Fatal("pending survived connection close")
+	if !waitFor(t, "pending withdrawn on connection close", func() bool { return len(b.Pending()) == 0 }) {
+		t.FailNow()
 	}
 }
 
@@ -200,13 +192,13 @@ func TestMCPDoorIgnoresNotificationExec(t *testing.T) {
 	c := rpc.NewClient(conn, conn, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	// The server reads lines in order, so once this answers the
-	// notifications have been processed (or dropped).
+	// The server reads lines in order and drops a notification to a
+	// request-only method inline on the read loop, so once this answers the
+	// notifications are already gone: no sleep needed.
 	var list []ServerInfo
 	if err := c.Call(ctx, "listServers", nil, &list); err != nil {
 		t.Fatalf("read loop blocked: %v", err)
 	}
-	time.Sleep(50 * time.Millisecond)
 	if n := len(h.Broker().Pending()); n != 0 {
 		t.Fatalf("notification exec reached the broker: %d pending", n)
 	}
@@ -235,7 +227,7 @@ func TestMCPDoorCancelBeforeExecRefusesExec(t *testing.T) {
 		t.Fatalf("pending = %d", n)
 	}
 	// The early cancel is consumed: the same id can run again.
-	go allowFirst(h.Broker())
+	go allowFirst(t, h.Broker())
 	if err := c.Call(context.Background(), "exec", map[string]any{"requestId": "early", "server": "vis", "command": "ls"}, nil); err != nil {
 		t.Fatalf("reused id: %v", err)
 	}
