@@ -26,6 +26,12 @@ describe('allowEnabled', () => {
     expect(allowEnabled(item, 1499)).toBe(false)
     expect(allowEnabled(item, 1500)).toBe(true)
   })
+  it('restarts the delay whenever the list changes or the panel mounts', () => {
+    const [item] = seed([req('a')], 1000)
+    expect(allowEnabled(item, 5000, 4800)).toBe(false)
+    expect(allowEnabled(item, 5300, 4800)).toBe(true)
+    expect(allowEnabled(item, 1400, 900)).toBe(false) // older change: shownAt still wins
+  })
 })
 
 describe('highlightNonAscii', () => {

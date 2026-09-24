@@ -16,8 +16,11 @@ export function reduceApprovals(items: PendingItem[], e: HubEvent, now: number):
   return items
 }
 
-export function allowEnabled(item: PendingItem, now: number): boolean {
-  return now - item.shownAt >= ALLOW_DELAY_MS
+// Allow stays disabled for ALLOW_DELAY_MS after the item appeared and after the
+// last change to the list (or the panel mounting), so nothing that shifts under
+// the cursor is instantly clickable.
+export function allowEnabled(item: PendingItem, now: number, listChangedAt = 0): boolean {
+  return now - Math.max(item.shownAt, listChangedAt) >= ALLOW_DELAY_MS
 }
 
 // Merges a hub.pending() snapshot with items already known from live events,

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { ServerInfo } from '../shared/protocol'
 import { allowEnabled, blockKeyboardActivation, highlightNonAscii, type PendingItem } from './approvals'
 
@@ -12,7 +12,12 @@ export function ApprovalPanel({ items, servers, seedError, onDecide, onDenyAll, 
 }) {
   const [now, setNow] = useState(Date.now())
   const [denyAllError, setDenyAllError] = useState<string>()
-  const young = items.some((i) => !allowEnabled(i, now))
+  // Mount time and every change to the list restart the Allow delay (see allowEnabled).
+  const listKey = items.map((i) => i.request.id).join('\n')
+  const changed = useRef({ key: listKey, at: Date.now() })
+  if (changed.current.key !== listKey) changed.current = { key: listKey, at: Date.now() }
+  const changedAt = changed.current.at
+  const young = items.some((i) => !allowEnabled(i, now, changedAt))
   useEffect(() => {
     if (!young) return
     const t = setInterval(() => setNow(Date.now()), 100)
@@ -24,7 +29,8 @@ export function ApprovalPanel({ items, servers, seedError, onDecide, onDenyAll, 
   return (
     <aside className="approvals" aria-label="Approval requests">
       <h3>AI requests {items.length > 0 && `(${items.length})`}</h3>
-      {items.length > 1 && <button className="denyall" onClick={denyAll}>Deny all</button>}
+      {/* Always rendered so the list never shifts when it appears or disappears. */}
+      <button className="denyall" onClick={denyAll} disabled={items.length < 2}>Deny all</button>
       {denyAllError && <p className="error">{denyAllError}</p>}
       {items.length === 0 && (
         seedError
@@ -32,7 +38,7 @@ export function ApprovalPanel({ items, servers, seedError, onDecide, onDenyAll, 
           : <p className="muted">Nothing waiting.</p>
       )}
       {items.map((item) => (
-        <Item key={item.request.id} item={item} now={now}
+        <Item key={item.request.id} item={item} now={now} changedAt={changedAt}
           server={servers.find((s) => s.name === item.request.server)}
           onDecide={onDecide} onSendToTab={onSendToTab} />
       ))}
@@ -40,8 +46,8 @@ export function ApprovalPanel({ items, servers, seedError, onDecide, onDenyAll, 
   )
 }
 
-export function Item({ item, now, server, onDecide, onSendToTab }: {
-  item: PendingItem; now: number; server?: ServerInfo
+export function Item({ item, now, changedAt = 0, server, onDecide, onSendToTab }: {
+  item: PendingItem; now: number; changedAt?: number; server?: ServerInfo
   onDecide: (id: string, outcome: 'allowed' | 'denied', reason: string) => Promise<void>
   onSendToTab: (item: PendingItem) => Promise<void>
 }) {
@@ -71,7 +77,7 @@ export function Item({ item, now, server, onDecide, onSendToTab }: {
       <div className="actions">
         <button type="submit" className="deny" disabled={busy}>Deny</button>
         <button type="button" className="allow" tabIndex={-1} onKeyDown={blockKeyboardActivation}
-          disabled={busy || !allowEnabled(item, now)}
+          disabled={busy || !allowEnabled(item, now, changedAt)}
           onClick={() => { if (!busy) act(onDecide(r.id, 'allowed', '')) }}>Allow</button>
         <button type="button" tabIndex={-1} onKeyDown={blockKeyboardActivation} disabled={busy}
           onClick={() => { if (!busy) act(onSendToTab(item)) }}>Send to tab</button>
