@@ -40,3 +40,36 @@ func TestAppendDescription(t *testing.T) {
 		t.Fatal("newline in desc should error")
 	}
 }
+
+func TestSanitizeCommandRejectsControlAndFormatRunes(t *testing.T) {
+	cases := []struct {
+		name, in string
+	}{
+		{"esc", "ls\x1b[2Jrm -rf /"},
+		{"tab", "ls\t-la"},
+		{"bidi override", "echo ‮gnp.txt"},
+		{"zero width space", "rm​ -rf /"},
+		{"c1 control", "ls\u0085rm"},
+		{"nul", "ls\x00rm"},
+	}
+	for _, c := range cases {
+		if _, err := SanitizeCommand(c.in, 1000); err == nil {
+			t.Errorf("%s: expected error for %q", c.name, c.in)
+		} else if !strings.Contains(err.Error(), "forbidden character U+") {
+			t.Errorf("%s: error should name the rune, got %v", c.name, err)
+		}
+	}
+	// Ordinary non-ASCII text is allowed.
+	if _, err := SanitizeCommand("echo 'xin chào'", 1000); err != nil {
+		t.Fatalf("vietnamese should pass: %v", err)
+	}
+}
+
+func TestAppendDescriptionRejectsControlRunes(t *testing.T) {
+	if _, err := AppendDescription("ls", "safe\x1bdesc"); err == nil {
+		t.Fatal("ESC in description should error")
+	}
+	if _, err := AppendDescription("ls", "tab\tdesc"); err == nil {
+		t.Fatal("tab in description should error")
+	}
+}
