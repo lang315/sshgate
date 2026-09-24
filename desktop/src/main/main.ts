@@ -1,9 +1,10 @@
-import { app, BrowserWindow, type WebContents } from 'electron'
+import { app, BrowserWindow, session, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { setupAttention } from './attention'
 import { HubProcess } from './hubProcess'
 import { registerIpc } from './ipc'
+import { installMenu, recoverRenderer } from './window'
 
 let win: BrowserWindow | undefined
 
@@ -30,8 +31,8 @@ function getWindow(): BrowserWindow | undefined {
   return win && !win.isDestroyed() ? win : undefined
 }
 
-function isTrusted(sender: WebContents): boolean {
-  return !!win && !win.isDestroyed() && sender === win.webContents
+function isTrusted(e: IpcMainEvent | IpcMainInvokeEvent): boolean {
+  return !!win && !win.isDestroyed() && e.sender === win.webContents && e.senderFrame === win.webContents.mainFrame
 }
 
 function createWindow(): BrowserWindow {
@@ -49,11 +50,15 @@ function createWindow(): BrowserWindow {
   // Never let this window navigate to, or open, other content that could get window.sshmcp.
   w.webContents.on('will-navigate', (e) => e.preventDefault())
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  w.webContents.on('render-process-gone', (_e, d) => { void recoverRenderer(hub, w, d.reason) })
   w.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'))
   return w
 }
 
 app.whenReady().then(() => {
+  installMenu()
+  session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false))
+  session.defaultSession.setPermissionCheckHandler(() => false)
   win = createWindow()
   registerIpc(hub, getWindow, isTrusted)
   setupAttention(hub, getWindow)

@@ -4,7 +4,8 @@ vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn(), on: vi.fn() },
 }))
 
-import { guard, relayCall, relayNotify } from '../src/main/ipc'
+import { ipcMain } from 'electron'
+import { guard, registerIpc, relayCall, relayNotify } from '../src/main/ipc'
 
 const fakeHub = () => ({ call: vi.fn(async () => ({ ok: true })), notify: vi.fn() })
 
@@ -39,5 +40,18 @@ describe('sender guard', () => {
     const fn = vi.fn(async () => 'ok')
     await expect(guard(() => true, {} as never, fn)).resolves.toBe('ok')
     expect(fn).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('registerIpc hub:notify', () => {
+  it('drops a notification from an untrusted sender and relays a trusted one', () => {
+    const h = { ...fakeHub(), on: vi.fn(), state: { kind: 'running' } }
+    const trusted = { sender: 'app' }
+    registerIpc(h as never, () => undefined, (e) => e === (trusted as never))
+    const on = vi.mocked(ipcMain.on).mock.calls.find(([ch]) => ch === 'hub:notify')![1] as (e: unknown, m: unknown, p: unknown) => void
+    on({ sender: 'evil' }, 'term.write', { id: 'a', data: '' })
+    expect(h.notify).not.toHaveBeenCalled()
+    on(trusted, 'term.write', { id: 'a', data: '' })
+    expect(h.notify).toHaveBeenCalledTimes(1)
   })
 })
