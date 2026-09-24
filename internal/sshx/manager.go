@@ -297,16 +297,23 @@ func waitCommandOutput(ctx context.Context, r *bufio.Reader, timeoutMs int, mark
 		code int
 		err  error
 	}
+	// ctx's deadline wins when set — including over the inner read's own
+	// backstop timeout, which must therefore use the same effective
+	// duration; otherwise a longer ctx deadline would still get cut short
+	// by TimeoutMs inside readCommandOutput.
+	d := time.Duration(timeoutMs) * time.Millisecond
+	var timeout <-chan time.Time
+	if dl, has := ctx.Deadline(); has {
+		d = time.Until(dl)
+	} else {
+		timeout = time.After(d)
+	}
 	done := make(chan result, 1)
 	go func() {
-		out, code, err := readCommandOutput(r, time.Duration(timeoutMs)*time.Millisecond, marker)
+		out, code, err := readCommandOutput(r, d, marker)
 		done <- result{out, code, err}
 	}()
 
-	var timeout <-chan time.Time
-	if _, has := ctx.Deadline(); !has {
-		timeout = time.After(time.Duration(timeoutMs) * time.Millisecond)
-	}
 	select {
 	case res := <-done:
 		return res.out, res.code, res.err

@@ -151,8 +151,42 @@ func TestWaitCommandOutputCtxCancelReturnsErrCancelled(t *testing.T) {
 	if !errors.Is(err, ErrCancelled) {
 		t.Fatalf("want ErrCancelled, got %v", err)
 	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want errors.Is(err, context.Canceled), got %v", err)
+	}
 	if time.Since(start) > 2*time.Second {
 		t.Fatal("cancel did not return promptly")
+	}
+}
+
+// A ctx deadline longer than timeoutMs must win outright, including over
+// the inner read's own backstop timeout — not just over the outer
+// fallback channel (which is trivially nil'd out when ctx has a
+// deadline). Regression for a bug where readCommandOutput was still given
+// timeoutMs internally, so a slow-but-alive command was killed at
+// timeoutMs even though ctx allowed much longer.
+func TestWaitCommandOutputCtxDeadlineWinsOverShorterTimeoutMs(t *testing.T) {
+	pr, pw := io.Pipe()
+	r := bufio.NewReader(pr)
+	kill := func() { pw.CloseWithError(errors.New("killed")) }
+	defer kill()
+
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		pw.Write([]byte("line\n"))
+		time.Sleep(50 * time.Millisecond)
+		pw.Write([]byte("marker:0\n"))
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	out, code, err := waitCommandOutput(ctx, r, 100, "marker", kill)
+	if err != nil {
+		t.Fatalf("ctx deadline (5s) should have won over timeoutMs (100ms), got err=%v", err)
+	}
+	if code != 0 || !strings.Contains(out, "line") {
+		t.Fatalf("got out=%q code=%d", out, code)
 	}
 }
 
