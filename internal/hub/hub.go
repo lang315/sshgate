@@ -320,8 +320,8 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 	if err != nil {
 		return ExecResponse{}, err
 	}
-	cmd, err = config.AppendDescription(cmd, r.Description)
-	if err != nil {
+	// R39: the description is shown and audited, never executed.
+	if err := config.ValidateDescription(r.Description); err != nil {
 		return ExecResponse{}, err
 	}
 	timeout := clampTimeout(r.TimeoutSec)

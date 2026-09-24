@@ -38,15 +38,25 @@ func EscapeShellSingleQuote(s string) string {
 	return strings.ReplaceAll(s, "'", `'\''`)
 }
 
+// ValidateDescription applies the command's rune rules plus a 500-byte cap.
+func ValidateDescription(desc string) error {
+	if r, pos, bad := forbiddenRune(desc); bad {
+		return fmt.Errorf("description contains forbidden character U+%04X at position %d", r, pos)
+	}
+	if len(desc) > 500 {
+		return fmt.Errorf("description too long (max 500)")
+	}
+	return nil
+}
+
+// AppendDescription is for --host mode only. The hub never runs the
+// description: a trailing backslash or open quote would make it code.
 func AppendDescription(cmd, desc string) (string, error) {
 	if desc == "" {
 		return cmd, nil
 	}
-	if r, pos, bad := forbiddenRune(desc); bad {
-		return "", fmt.Errorf("description contains forbidden character U+%04X at position %d", r, pos)
-	}
-	if len(desc) > 500 {
-		return "", fmt.Errorf("description too long (max 500)")
+	if err := ValidateDescription(desc); err != nil {
+		return "", err
 	}
 	return cmd + " # " + strings.ReplaceAll(desc, "#", `\#`), nil
 }

@@ -150,8 +150,42 @@ func TestAllowedRunsAndReturnsStreams(t *testing.T) {
 	if res.ExitCode != 2 || res.Stdout != "out\n" || res.Stderr != "err\n" {
 		t.Fatalf("got %+v", res)
 	}
-	if len(fe.calls) != 1 || fe.calls[0] != "ls # list" {
+	if len(fe.calls) != 1 || fe.calls[0] != "ls" {
 		t.Fatalf("calls = %v", fe.calls)
+	}
+}
+
+// I1 / R39: the description is metadata. Appended as a shell comment, a
+// trailing backslash or an open quote would turn it into code.
+func TestDescriptionIsNeverExecuted(t *testing.T) {
+	fe := &fakeExec{}
+	h, _ := newHub(t, fe)
+	go func() {
+		waitPending(t, h.Broker(), 1)
+		r := h.Broker().Pending()[0]
+		if r.Command != "ls" || r.Description != `x \` {
+			t.Errorf("approver saw %q / %q", r.Command, r.Description)
+		}
+		h.Broker().Decide(r.ID, broker.Decision{Outcome: broker.Allowed})
+	}()
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls", Description: `x \`}); err != nil {
+		t.Fatal(err)
+	}
+	if len(fe.calls) != 1 || fe.calls[0] != "ls" {
+		t.Fatalf("calls = %q", fe.calls)
+	}
+}
+
+func TestDescriptionStillValidated(t *testing.T) {
+	fe := &fakeExec{}
+	h, _ := newHub(t, fe)
+	for _, d := range []string{"bad\x1bdesc", strings.Repeat("x", 501)} {
+		if _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls", Description: d}); err == nil || !strings.Contains(err.Error(), "description") {
+			t.Fatalf("%q: got %v", d, err)
+		}
+	}
+	if len(h.Broker().Pending()) != 0 || len(fe.calls) != 0 {
+		t.Fatal("invalid description reached the broker")
 	}
 }
 
