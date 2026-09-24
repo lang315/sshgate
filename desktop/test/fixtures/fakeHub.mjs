@@ -1,4 +1,4 @@
-// Fake ssh-mcp hub for tests. FAKE_HUB_MODE: "ok" | "crash" | "badproto".
+// Fake ssh-mcp hub for tests. FAKE_HUB_MODE: "ok" | "crash" | "badproto" | "crashBig" | "silent".
 import readline from 'node:readline'
 
 const mode = process.env.FAKE_HUB_MODE ?? 'ok'
@@ -6,9 +6,16 @@ if (mode === 'crash') {
   process.stderr.write('boom: fake hub crashed\n')
   process.exit(3)
 }
+if (mode === 'crashBig') {
+  const chunk = 'x'.repeat(1024)
+  for (let i = 0; i < 200; i++) process.stderr.write(chunk + '\n')
+  process.stderr.write('LAST-LINE\n')
+  process.exit(3)
+}
 const rl = readline.createInterface({ input: process.stdin })
 const send = (m) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m }) + '\n')
 rl.on('line', (line) => {
+  if (mode === 'silent') return // never respond, to simulate a hung handshake
   const m = JSON.parse(line)
   if (m.id === undefined) {
     if (m.method === 'term.write') send({ method: 'term.data', params: { id: m.params.id, data: m.params.data } })

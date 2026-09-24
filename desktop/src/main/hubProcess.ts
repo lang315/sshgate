@@ -7,12 +7,15 @@ export interface HubProcessOptions {
   command: string
   args: string[]
   env?: NodeJS.ProcessEnv
-  backoffMs?: number[]
-  crashWindowMs?: number
-  maxCrashes?: number
+  backoffMs?: number[]          // default [1000, 3000, 10000]
+  crashWindowMs?: number        // default 60000
+  maxCrashes?: number           // default 4
+  helloTimeoutMs?: number       // default 10000
 }
 
 interface Pending { resolve: (v: unknown) => void; reject: (e: Error) => void; timer?: NodeJS.Timeout }
+
+const STDERR_TAIL_LINES = 50
 
 export class HubProcess extends EventEmitter {
   private child?: ChildProcessWithoutNullStreams
@@ -31,8 +34,14 @@ export class HubProcess extends EventEmitter {
   private setState(s: HubState) { this._state = s; this.emit('state', s) }
 
   start(): void {
+    if (this.child || this.restartTimer) return // already running, or a restart is already scheduled
     this.stopping = false
     this.spawnChild()
+  }
+
+  private pushStderr(line: string): void {
+    this.stderrTail.push(line)
+    if (this.stderrTail.length > STDERR_TAIL_LINES) this.stderrTail.shift()
   }
 
   private spawnChild(): void {
@@ -40,13 +49,14 @@ export class HubProcess extends EventEmitter {
     const child = spawn(this.opts.command, this.opts.args, { env: this.opts.env, stdio: 'pipe' })
     this.child = child
     readline.createInterface({ input: child.stdout }).on('line', (l) => this.onLine(l))
-    readline.createInterface({ input: child.stderr }).on('line', (l) => {
-      this.stderrTail.push(l)
-      if (this.stderrTail.length > 50) this.stderrTail.shift()
-    })
-    child.on('error', (err) => this.stderrTail.push(String(err)))
-    child.on('exit', () => this.onExit(child))
-    this.call<{ protocol: number }>('hello', undefined, 10000).then((r) => {
+    readline.createInterface({ input: child.stderr }).on('line', (l) => this.pushStderr(l))
+    child.stdin.on('error', () => { /* EPIPE/write-after-end from a dying child; the close handler reports it */ })
+    child.on('error', (err) => this.pushStderr(String(err)))
+    // 'close' (not 'exit') fires once stdio has fully drained, and also after a spawn error
+    // (e.g. ENOENT) where 'exit' never fires at all.
+    child.on('close', () => this.onClose(child))
+    const helloTimeoutMs = this.opts.helloTimeoutMs ?? 10000
+    this.call<{ protocol: number }>('hello', undefined, helloTimeoutMs).then((r) => {
       if (this.child !== child) return
       if (r.protocol !== PROTOCOL_VERSION) {
         this.fail(`hub protocol ${r.protocol}, app expects ${PROTOCOL_VERSION}`)
@@ -54,7 +64,11 @@ export class HubProcess extends EventEmitter {
         return
       }
       this.setState({ kind: 'running' })
-    }, () => { /* exit handler reports it */ })
+    }, () => {
+      // hello timed out (or the call was rejected because the child already closed).
+      // If it's still our current child, kill it so the close handler counts the crash.
+      if (this.child === child) child.kill()
+    })
   }
 
   private onLine(line: string): void {
@@ -72,7 +86,7 @@ export class HubProcess extends EventEmitter {
     }
   }
 
-  private onExit(child: ChildProcessWithoutNullStreams): void {
+  private onClose(child: ChildProcessWithoutNullStreams): void {
     if (this.child !== child) return
     this.child = undefined
     for (const p of this.pending.values()) { if (p.timer) clearTimeout(p.timer); p.reject(new Error('hub restarted')) }
@@ -82,7 +96,7 @@ export class HubProcess extends EventEmitter {
     const windowMs = this.opts.crashWindowMs ?? 60000
     this.crashes = this.crashes.filter((t) => now - t < windowMs)
     this.crashes.push(now)
-    const max = this.opts.maxCrashes ?? 3
+    const max = this.opts.maxCrashes ?? 4
     if (this.crashes.length >= max) {
       this.fail(`the hub crashed ${this.crashes.length} times in ${Math.round(windowMs / 1000)} s`)
       return
@@ -90,7 +104,10 @@ export class HubProcess extends EventEmitter {
     const backoff = this.opts.backoffMs ?? [1000, 3000, 10000]
     const inMs = backoff[Math.min(this.crashes.length - 1, backoff.length - 1)]
     this.setState({ kind: 'restarting', attempt: this.crashes.length, inMs })
-    this.restartTimer = setTimeout(() => { if (!this.stopping) this.spawnChild() }, inMs)
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = undefined
+      if (!this.stopping) this.spawnChild()
+    }, inMs)
   }
 
   private fail(message: string): void {
@@ -115,12 +132,30 @@ export class HubProcess extends EventEmitter {
 
   async stop(): Promise<void> {
     this.stopping = true
-    if (this.restartTimer) clearTimeout(this.restartTimer)
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer)
+      this.restartTimer = undefined
+      // A restart was scheduled but hasn't happened yet: nothing to kill, but say so
+      // instead of leaving the UI showing a countdown that will never resolve.
+      if (this._state.kind === 'restarting') this.setState({ kind: 'failed', message: 'hub stopped', stderr: '' })
+    }
     const child = this.child
     if (!child) return
     await new Promise<void>((resolve) => {
-      const t = setTimeout(() => { child.kill(); resolve() }, 3000)
-      child.once('exit', () => { clearTimeout(t); resolve() })
+      let termTimer: NodeJS.Timeout | undefined
+      let killTimer: NodeJS.Timeout | undefined
+      child.once('close', () => {
+        if (termTimer) clearTimeout(termTimer)
+        if (killTimer) clearTimeout(killTimer)
+        resolve()
+      })
+      termTimer = setTimeout(() => {
+        child.kill()
+        killTimer = setTimeout(() => {
+          child.kill('SIGKILL')
+          resolve() // don't hang forever if stdio stays open (e.g. a grandchild holding the pipe)
+        }, 2000)
+      }, 3000)
       child.stdin.end()
     })
   }
