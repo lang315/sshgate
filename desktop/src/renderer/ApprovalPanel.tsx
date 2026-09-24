@@ -1,15 +1,17 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import type { ServerInfo } from '../shared/protocol'
-import { allowEnabled, highlightNonAscii, type PendingItem } from './approvals'
+import { allowEnabled, blockKeyboardActivation, highlightNonAscii, type PendingItem } from './approvals'
 
-export function ApprovalPanel({ items, servers, onDecide, onDenyAll, onSendToTab }: {
+export function ApprovalPanel({ items, servers, seedError, onDecide, onDenyAll, onSendToTab }: {
   items: PendingItem[]
   servers: ServerInfo[]
+  seedError?: string
   onDecide: (id: string, outcome: 'allowed' | 'denied', reason: string) => Promise<void>
   onDenyAll: () => Promise<void>
   onSendToTab: (item: PendingItem) => Promise<void>
 }) {
   const [now, setNow] = useState(Date.now())
+  const [denyAllError, setDenyAllError] = useState<string>()
   const young = items.some((i) => !allowEnabled(i, now))
   useEffect(() => {
     if (!young) return
@@ -17,11 +19,18 @@ export function ApprovalPanel({ items, servers, onDecide, onDenyAll, onSendToTab
     return () => clearInterval(t)
   }, [young])
 
+  const denyAll = () => onDenyAll().then(() => setDenyAllError(undefined), (e) => setDenyAllError((e as Error).message))
+
   return (
     <aside className="approvals" aria-label="Approval requests">
       <h3>AI requests {items.length > 0 && `(${items.length})`}</h3>
-      {items.length > 1 && <button className="denyall" onClick={() => onDenyAll()}>Deny all</button>}
-      {items.length === 0 && <p className="muted">Nothing waiting.</p>}
+      {items.length > 1 && <button className="denyall" onClick={denyAll}>Deny all</button>}
+      {denyAllError && <p className="error">{denyAllError}</p>}
+      {items.length === 0 && (
+        seedError
+          ? <p className="error">Could not load pending requests: {seedError}</p>
+          : <p className="muted">Nothing waiting.</p>
+      )}
       {items.map((item) => (
         <Item key={item.request.id} item={item} now={now}
           server={servers.find((s) => s.name === item.request.server)}
@@ -31,7 +40,7 @@ export function ApprovalPanel({ items, servers, onDecide, onDenyAll, onSendToTab
   )
 }
 
-function Item({ item, now, server, onDecide, onSendToTab }: {
+export function Item({ item, now, server, onDecide, onSendToTab }: {
   item: PendingItem; now: number; server?: ServerInfo
   onDecide: (id: string, outcome: 'allowed' | 'denied', reason: string) => Promise<void>
   onSendToTab: (item: PendingItem) => Promise<void>
@@ -39,8 +48,12 @@ function Item({ item, now, server, onDecide, onSendToTab }: {
   const r = item.request
   const [reason, setReason] = useState('')
   const [error, setError] = useState<string>()
-  const act = (p: Promise<void>) => p.catch((e) => setError((e as Error).message))
-  const deny = (e: FormEvent) => { e.preventDefault(); act(onDecide(r.id, 'denied', reason)) }
+  const [busy, setBusy] = useState(false)
+  const act = (p: Promise<void>) => {
+    setBusy(true); setError(undefined)
+    p.then(() => setBusy(false), (e) => { setBusy(false); setError((e as Error).message) })
+  }
+  const deny = (e: FormEvent) => { e.preventDefault(); if (!busy) act(onDecide(r.id, 'denied', reason)) }
   return (
     <form className="approval" onSubmit={deny}>
       <div className="who">
@@ -56,10 +69,12 @@ function Item({ item, now, server, onDecide, onSendToTab }: {
       <div className="muted">client: {r.client} (unverified) · {new Date(r.receivedAt).toLocaleTimeString()}</div>
       <input placeholder="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} />
       <div className="actions">
-        <button type="submit" className="deny">Deny</button>
-        <button type="button" className="allow" disabled={!allowEnabled(item, now)}
-          onClick={() => act(onDecide(r.id, 'allowed', ''))}>Allow</button>
-        <button type="button" onClick={() => act(onSendToTab(item))}>Send to tab</button>
+        <button type="submit" className="deny" disabled={busy}>Deny</button>
+        <button type="button" className="allow" tabIndex={-1} onKeyDown={blockKeyboardActivation}
+          disabled={busy || !allowEnabled(item, now)}
+          onClick={() => { if (!busy) act(onDecide(r.id, 'allowed', '')) }}>Allow</button>
+        <button type="button" tabIndex={-1} onKeyDown={blockKeyboardActivation} disabled={busy}
+          onClick={() => { if (!busy) act(onSendToTab(item)) }}>Send to tab</button>
       </div>
       {error && <p className="error">{error}</p>}
     </form>

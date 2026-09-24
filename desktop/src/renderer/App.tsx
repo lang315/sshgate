@@ -6,7 +6,7 @@ import { Unlock } from './Unlock'
 import { HostList } from './HostList'
 import { Terminals, type TerminalsHandle } from './TerminalTabs'
 import { ApprovalPanel } from './ApprovalPanel'
-import { reduceApprovals, seed, type PendingItem } from './approvals'
+import { mergeSeed, reduceApprovals, type PendingItem } from './approvals'
 
 export function App() {
   const [hubState, setHubState] = useState<HubState>({ kind: 'starting' })
@@ -40,10 +40,20 @@ export function App() {
   }, [screen.kind])
 
   const [items, setItems] = useState<PendingItem[]>([])
-  useEffect(() => hub.onEvent((e) => setItems((cur) => reduceApprovals(cur, e, Date.now()))), [])
+  const [seedError, setSeedError] = useState<string>()
+  const decidedSince = useRef(new Set<string>())
+  useEffect(() => hub.onEvent((e) => {
+    if (e.method === 'decided') decidedSince.current.add(e.params.request.id)
+    setItems((cur) => reduceApprovals(cur, e, Date.now()))
+  }), [])
   useEffect(() => {
-    if (screen.kind === 'ready') hub.pending().then((p) => setItems(seed(p, Date.now()))).catch(() => {})
-    if (hubState.kind !== 'running') setItems([])
+    if (screen.kind === 'ready') {
+      decidedSince.current = new Set()
+      hub.pending()
+        .then((p) => { setItems((cur) => mergeSeed(cur, p, decidedSince.current, Date.now())); setSeedError(undefined) })
+        .catch((e) => setSeedError((e as Error).message))
+    }
+    if (hubState.kind !== 'running') { setItems([]); setSeedError(undefined) }
   }, [screen.kind, hubState.kind])
 
   const unlock = async (pw: string) => {
@@ -77,7 +87,7 @@ export function App() {
         <main className="work" style={ready ? undefined : { display: 'none' }} inert={!ready}><Terminals ref={terms} /></main>
       )}
       {ready && (
-        <ApprovalPanel items={items} servers={servers}
+        <ApprovalPanel items={items} servers={servers} seedError={seedError}
           onDecide={(id, outcome, reason) => hub.decide(id, outcome, reason)}
           onDenyAll={() => hub.denyAll('denied all by user')}
           onSendToTab={async (item) => {

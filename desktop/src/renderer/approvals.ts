@@ -20,6 +20,31 @@ export function allowEnabled(item: PendingItem, now: number): boolean {
   return now - item.shownAt >= ALLOW_DELAY_MS
 }
 
+// Merges a hub.pending() snapshot with items already known from live events,
+// so a 'decided' event that overtakes the snapshot reply doesn't resurrect a
+// ghost, and a 'pending' event that overtakes it isn't hidden by the stale
+// snapshot overwriting the list.
+export function mergeSeed(current: PendingItem[], snapshot: ApprovalRequest[], decidedSince: Set<string>, now: number): PendingItem[] {
+  const byId = new Map(current.map((i) => [i.request.id, i]))
+  const seen = new Set<string>()
+  const out: PendingItem[] = []
+  for (const request of snapshot) {
+    if (decidedSince.has(request.id)) continue
+    seen.add(request.id)
+    const existing = byId.get(request.id)
+    out.push({ request, shownAt: existing ? existing.shownAt : now })
+  }
+  for (const item of current) {
+    if (seen.has(item.request.id) || decidedSince.has(item.request.id)) continue
+    out.push(item)
+  }
+  return out
+}
+
+export function blockKeyboardActivation(e: { key: string; preventDefault: () => void }): void {
+  if (e.key === 'Enter' || e.key === ' ') e.preventDefault()
+}
+
 export type Segment = { text: string; nonAscii: boolean }
 
 export function highlightNonAscii(s: string): Segment[] {

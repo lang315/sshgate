@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { allowEnabled, highlightNonAscii, reduceApprovals, seed } from '../src/renderer/approvals'
+import { describe, expect, it, vi } from 'vitest'
+import { allowEnabled, blockKeyboardActivation, highlightNonAscii, mergeSeed, reduceApprovals, seed } from '../src/renderer/approvals'
 import type { ApprovalRequest } from '../src/shared/protocol'
 
 const req = (id: string): ApprovalRequest => ({
@@ -36,5 +36,42 @@ describe('highlightNonAscii', () => {
     ])
     expect(highlightNonAscii('ls')).toEqual([{ text: 'ls', nonAscii: false }])
     expect(highlightNonAscii('')).toEqual([])
+  })
+})
+
+describe('mergeSeed', () => {
+  it('drops an id decided while the snapshot request was in flight (no ghost)', () => {
+    // reduceApprovals already removed 'a' from `current` when the decided event arrived
+    const merged = mergeSeed([], [req('a')], new Set(['a']), 100)
+    expect(merged).toEqual([])
+  })
+
+  it('keeps an id that became pending after the snapshot was taken (not hidden)', () => {
+    // reduceApprovals already appended 'x' to `current` from a live 'pending' event
+    const current = seed([req('x')], 50)
+    const merged = mergeSeed(current, [], new Set(), 999)
+    expect(merged).toEqual(current)
+  })
+
+  it('unions snapshot and current, keeping the existing shownAt for ids already known', () => {
+    const current = seed([req('a')], 10)
+    const merged = mergeSeed(current, [req('a'), req('b')], new Set(), 999)
+    expect(merged).toEqual([
+      { request: req('a'), shownAt: 10 },
+      { request: req('b'), shownAt: 999 },
+    ])
+  })
+})
+
+describe('blockKeyboardActivation', () => {
+  it('preventDefaults Enter and Space, not other keys', () => {
+    for (const key of ['Enter', ' ']) {
+      const preventDefault = vi.fn()
+      blockKeyboardActivation({ key, preventDefault })
+      expect(preventDefault).toHaveBeenCalled()
+    }
+    const preventDefault = vi.fn()
+    blockKeyboardActivation({ key: 'a', preventDefault })
+    expect(preventDefault).not.toHaveBeenCalled()
   })
 })
