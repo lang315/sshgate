@@ -120,13 +120,16 @@ Build first: `go build -o ssh-mcp ./cmd/ssh-mcp` at the repo root, then
   once you unlock, accepts typing again in the same shell without any
   reconnect — its SSH connection was never dropped.
 
-- [ ] **6. Allow cannot be triggered from the keyboard**
+- [x] **6. Allow cannot be triggered from the keyboard**
 
-  **Mostly covered by e2e:** `desktop/e2e/smoke.spec.ts` focuses Allow and
+  **Covered by e2e:** `desktop/e2e/smoke.spec.ts` focuses Allow and
   presses Space and Enter (the request stays pending), then checks that
   Enter in the reason field submits Deny and that Allow is disabled after
-  the list shifts. **Still manual:** tabbing through every stop in the
-  panel and pressing Enter and Space at each one.
+  the list shifts. `desktop/e2e/keyboard.spec.ts` tabs around the whole
+  window and checks that the panel's only stops are the reason field and
+  Deny (never Allow or Send to tab), that Space in the reason field leaves
+  the request pending, and that Space on Deny denies it. Not run on
+  Windows (the e2e launcher is Unix-only).
 
   Trigger an AI approval request so it appears in the panel. Without
   clicking, press Tab repeatedly through the panel, then press Enter and
@@ -170,6 +173,12 @@ Build first: `go build -o ssh-mcp ./cmd/ssh-mcp` at the repo root, then
     icon itself, where the OS supports it) restores/focuses the app.
 
 - [ ] **9. Windows and Linux: terminal keys are not menu shortcuts**
+
+  **Partly covered by e2e (Linux):** `desktop/e2e/clipboard.spec.ts` checks
+  that Ctrl+C, Ctrl+V, Ctrl+D, Ctrl+W and Ctrl+R reach the shell as control
+  characters and that the tab keeps its output afterwards (no reload, no
+  close), and that Ctrl+Shift+C/V copy and paste. **Still manual:**
+  Windows, the OS's right-click/middle-click paste, and the reason field.
 
   Windows and Linux only (macOS keeps Cmd+C/V for the clipboard). In a
   terminal tab, press Ctrl+R, Ctrl+W, and Ctrl+C.

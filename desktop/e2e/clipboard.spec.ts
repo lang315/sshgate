@@ -43,8 +43,10 @@ test('Ctrl+Shift+C copies the selection and Ctrl+Shift+V pastes', async () => {
   await expect(rows).toContainText('clipword pasted-text')
   expect(await writes()).toEqual([{ data: ' pasted-text', user: true }])
 
-  // Without Shift, Ctrl+C/V/D/W still reach the shell as control characters.
-  for (const k of ['C', 'V', 'D', 'W']) await win.keyboard.press(`Control+${k.toLowerCase()}`)
+  // Without Shift, Ctrl+C/V/D/W/R still reach the shell as control characters.
+  for (const k of ['C', 'V', 'D', 'W', 'R']) await win.keyboard.press(`Control+${k.toLowerCase()}`)
   let sent = ''
-  await expect.poll(async () => (sent += (await writes()).map((w) => w.data).join(''))).toBe('\x03\x16\x04\x17')
+  await expect.poll(async () => (sent += (await writes()).map((w) => w.data).join(''))).toBe('\x03\x16\x04\x17\x12')
+  // Ctrl+R did not reload and Ctrl+W did not close: the same tab still shows its output.
+  await expect(rows).toContainText('clipword pasted-text')
 })
