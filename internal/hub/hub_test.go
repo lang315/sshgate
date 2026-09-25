@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,10 +34,37 @@ func (f *fakeExec) ExecSudo(ctx context.Context, cmd string) (sshx.ExecResult, e
 	return f.res, f.err
 }
 
-// newHub writes a vault with key-auth servers: "vis" (AIVisible, pinned
-// host key), "nokey" (AIVisible, no pin) and "hid" (hidden). Key-auth
-// servers have no encrypted fields, so the vault has no KDF and is never
-// "locked".
+// testKDF and testMK are one master password ("pw") derived once for the
+// package: Argon2 per test would be slow under -race.
+var (
+	testKDFOnce sync.Once
+	testKDF     config.KDF
+	testMK      []byte
+)
+
+// testVault returns a copy of the shared KDF and its key.
+func testVault(t *testing.T) (*config.KDF, []byte) {
+	t.Helper()
+	testKDFOnce.Do(func() {
+		var err error
+		if testKDF, testMK, err = config.NewKDF("pw"); err != nil {
+			panic(err)
+		}
+	})
+	k := testKDF
+	return &k, testMK
+}
+
+// unlockForTest installs testMK without a second Argon2 run.
+func unlockForTest(h *Hub) {
+	h.mu.Lock()
+	h.deps.MasterKey = bytes.Clone(testMK)
+	h.mu.Unlock()
+}
+
+// newHub writes an unlocked vault (master password "pw", key testMK) with
+// agent-auth servers: "vis" (AIVisible, pinned host key), "nokey"
+// (AIVisible, no pin) and "hid" (hidden).
 func newHub(t *testing.T, fe *fakeExec) (*Hub, string) {
 	t.Helper()
 	return newHubExpiry(t, fe, 200*time.Millisecond)
@@ -51,7 +79,9 @@ func newHubExpiry(t *testing.T, fe *fakeExec, expiry time.Duration) (*Hub, strin
 		{Name: "nokey", Host: "h", Port: 22, User: "u", Auth: "agent", AIVisible: true},
 		{Name: "hid", Host: "h", Port: 22, User: "u", Auth: "agent", HostKey: "SHA256:abc"},
 	}}
-	if err := config.Save(path, f, nil); err != nil {
+	var mk []byte
+	f.KDF, mk = testVault(t)
+	if err := config.Save(path, f, mk); err != nil {
 		t.Fatal(err)
 	}
 	audit, err := broker.OpenAudit(filepath.Join(dir, "audit.jsonl"))
@@ -64,6 +94,7 @@ func newHubExpiry(t *testing.T, fe *fakeExec, expiry time.Duration) (*Hub, strin
 	if err != nil {
 		t.Fatal(err)
 	}
+	unlockForTest(h)
 	return h, path
 }
 
@@ -243,7 +274,7 @@ func TestReloadPicksUpRevisionChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.Servers[2].AIVisible = true // "hid" becomes visible
-	if err := config.Save(path, f, nil); err != nil {
+	if err := config.Save(path, f, testMK); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.Reload(); err != nil {
@@ -528,7 +559,7 @@ func TestResolveFailureIsGenericToAI(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.Servers[0].KeyPath = "/nonexistent/secret-dir/id_ed25519"
-	if err := config.Save(path, f, nil); err != nil {
+	if err := config.Save(path, f, testMK); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.Reload(); err != nil {
@@ -631,7 +662,7 @@ func TestApprovalBoundToEndpoint(t *testing.T) {
 	if got := h.Broker().Pending()[0].Target; got != "u@h:22" {
 		t.Fatalf("target = %q", got)
 	}
-	if err := config.Update(path, nil, func(f *config.File) error { f.Servers[0].Port = 2222; return nil }); err != nil {
+	if err := config.Update(path, testMK, func(f *config.File) error { f.Servers[0].Port = 2222; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.Reload(); err != nil {
@@ -689,10 +720,10 @@ func TestApprovalBoundToPin(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}); done <- err }()
 	waitPending(t, h.Broker(), 1)
-	if err := config.Update(path, nil, func(f *config.File) error { f.Servers[0].HostKey = ""; return nil }); err != nil {
+	if err := config.Update(path, testMK, func(f *config.File) error { f.Servers[0].HostKey = ""; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if err := config.RecordHostKey(path, "vis", "h", 22, "SHA256:other", "", nil); err != nil {
+	if err := config.RecordHostKey(path, "vis", "h", 22, "SHA256:other", "", testMK); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.Reload(); err != nil {
@@ -709,5 +740,54 @@ func TestApprovalBoundToPin(t *testing.T) {
 	last := recs[len(recs)-1]
 	if last["outcome"] != "error" || !strings.Contains(last["reason"].(string), "server changed") {
 		t.Fatalf("audit: %v", last)
+	}
+}
+
+// A store with no KDF was never MAC'd, so its aiVisible flags and pins are
+// unauthenticated: the hub treats it as no vault at all. The AI sees no
+// servers and every exec is refused (audited, never dialled); the UI door
+// refuses terminals.
+func TestNoVaultGivesAINothing(t *testing.T) {
+	for _, missing := range []bool{false, true} {
+		fe := &fakeExec{}
+		dir := t.TempDir()
+		path := filepath.Join(dir, "servers.json")
+		if !missing {
+			f := &config.File{Version: 1, Servers: []config.Server{
+				{Name: "vis", Host: "h", Port: 22, User: "u", Auth: "agent", HostKey: "SHA256:abc", AIVisible: true},
+			}}
+			if err := config.Save(path, f, nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+		audit, err := broker.OpenAudit(filepath.Join(dir, "audit.jsonl"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { audit.Close() })
+		h, err := New(Options{StorePath: path, Audit: audit, Dialer: func(sshx.DialConfig) Executor { return fe }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := h.ServersForMCP(); len(got) != 0 {
+			t.Fatalf("missing=%v: listServers = %+v", missing, got)
+		}
+		for _, sudo := range []bool{false, true} {
+			if _, err := h.Exec(context.Background(), ExecRequest{Client: "c", Server: "vis", Command: "ls", Sudo: sudo}); !errors.Is(err, ErrNoVault) {
+				t.Fatalf("missing=%v sudo=%v: want ErrNoVault, got %v", missing, sudo, err)
+			}
+		}
+		if len(fe.calls) != 0 || len(h.Broker().Pending()) != 0 {
+			t.Fatalf("missing=%v: no-vault exec reached the broker or dialled", missing)
+		}
+		_, recs := readAudit(t, path)
+		if len(recs) != 2 || recs[0]["outcome"] != "error" || recs[0]["reason"] != ErrNoVault.Error() || recs[0]["server"] != "vis" || recs[1]["sudo"] != true {
+			t.Fatalf("missing=%v: audit = %v", missing, recs)
+		}
+		c, _, _ := startTermDoor(t, h)
+		err = c.Call(context.Background(), "term.open", map[string]any{"id": "t1", "server": "vis", "rows": 24, "cols": 80}, nil)
+		if err == nil || err.Error() != errNoVault.Error() {
+			t.Fatalf("missing=%v: term.open: want %q, got %v", missing, errNoVault, err)
+		}
 	}
 }

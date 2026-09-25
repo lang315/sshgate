@@ -62,7 +62,7 @@ The ROADMAP gate for slice 2 ("slice 1 used daily for two weeks") is still unmet
 
 All are request-only and count as UI activity. Every write refuses a store with no vault ("create a vault first") and a locked hub (the locked error), so nothing is ever encrypted with a missing key. Every write runs through `config.Update`, then `h.Reload()`. Error codes: `-32602` for invalid params, `-32000` with a message for everything else. The renderer only displays the message, so no other codes are needed.
 
-**`status`** gains `hasVault` (the store has a KDF). The renderer shows "Create vault" when `hasVault` is false. A deliberately key-only store therefore sees that screen; creating a vault is then the only way forward, because slice 2a writes need a vault.
+**`status`** gains `hasVault` (the store has a KDF). The renderer shows "Create vault" when `hasVault` is false. A deliberately key-only store therefore sees that screen; creating a vault is then the only way forward, because slice 2a writes need a vault. Until then the hub treats a KDF-less store as no vault at all (its flags and pins were never MAC'd): the MCP door's `listServers` is empty, `exec`/`sudoExec` fail with "No vault yet; open the app and create one" (audited), and `term.open` fails with "create a vault first".
 
 **`vault.create {password}`**
 - The check for an existing KDF runs on a fresh `config.Load` before the key is derived, not on the hub's cached `deps.File`. It cannot run inside `config.Update`, because `Update` checks the key before its callback runs. It is refused if a KDF exists. The password must be at least 8 characters.

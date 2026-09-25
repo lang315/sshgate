@@ -334,6 +334,7 @@ never logged.** There is no rotation in slice 1.
 |---|---|
 | App or hub not running | "Open the app to approve commands" |
 | Vault locked | "Vault is locked; unlock it in the app" |
+| No vault (store missing or has no master password) | "No vault yet; open the app and create one" |
 | Unknown or hidden server | `server "x" not found` (byte-identical in both cases) |
 | No pinned host key | "connect to this server from the app once first" |
 | Too many pending | "too many pending requests, try again later" |

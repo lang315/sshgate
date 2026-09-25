@@ -34,6 +34,9 @@ var (
 	// ErrServerChanged: the server was edited between approval and run, so
 	// the approval (for the old user@host:port and pin) no longer applies.
 	ErrServerChanged = errors.New("server changed")
+	// ErrNoVault: the store has no master password (no file, or a KDF-less
+	// one whose flags and pins were never MAC'd), so the AI gets nothing.
+	ErrNoVault = errors.New("No vault yet; open the app and create one")
 )
 
 // serverNotFound is used for both hidden and nonexistent servers so the two
@@ -184,7 +187,7 @@ func (h *Hub) Unlock(pw string) error {
 	defer h.mu.Unlock()
 	f := h.deps.File
 	if f == nil || f.KDF == nil {
-		return nil // nothing encrypted; key/agent-only vault
+		return nil // no vault; the AI and terminals get nothing until vault.create
 	}
 	mk, err := f.KDF.DeriveKey(pw)
 	if err != nil {
@@ -242,6 +245,13 @@ func (h *Hub) lockedLocked() bool {
 	return f != nil && f.KDF != nil && h.deps.MasterKey == nil
 }
 
+// noVaultLocked reports, with h.mu held, whether the store has no master
+// password: no file, or a KDF-less one. Such a file was never MAC'd, so
+// nothing in it is trusted for the AI or for terminals.
+func (h *Hub) noVaultLocked() bool {
+	return h.deps.File == nil || h.deps.File.KDF == nil
+}
+
 // Reload re-reads the store when its on-disk Revision differs. The master
 // key is kept: the KDF params do not change on an ordinary save. If the MAC
 // no longer verifies (e.g. the master password changed elsewhere), the old
@@ -281,12 +291,13 @@ func (h *Hub) reloadLocked() error {
 }
 
 // ServersForMCP lists AIVisible servers. It works while locked (names are
-// plaintext); then every server is reported locked.
+// plaintext); then every server is reported locked. With no vault it is
+// empty.
 func (h *Hub) ServersForMCP() []ServerInfo {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	out := []ServerInfo{}
-	if h.deps.File == nil {
+	if h.noVaultLocked() {
 		return out
 	}
 	for _, s := range h.deps.File.Servers {
@@ -322,11 +333,11 @@ func (h *Hub) record(r broker.AuditRecord) {
 	}
 }
 
-// checkLocked validates the server with h.mu held: exists and AIVisible,
-// unlocked, host key pinned.
+// checkLocked validates the server with h.mu held: a vault exists, the
+// server exists and is AIVisible, unlocked, host key pinned.
 func (h *Hub) checkLocked(name string) error {
-	if h.deps.File == nil {
-		return serverNotFound(name)
+	if h.noVaultLocked() {
+		return ErrNoVault
 	}
 	s, ok := h.deps.File.FindServer(name)
 	if !ok || !s.AIVisible {
@@ -352,10 +363,14 @@ func (h *Hub) Resolve(name string) (sshx.DialConfig, error) {
 
 // resolveForTerm resolves a server for a new UI terminal. Like the AI path,
 // a locked encrypted vault refuses every server, key-only and agent ones
-// included (spec §Vault lifecycle: new connections need an unlock).
+// included (spec §Vault lifecycle: new connections need an unlock). With no
+// vault there is nothing trusted to connect to.
 func (h *Hub) resolveForTerm(name string) (sshx.DialConfig, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.noVaultLocked() {
+		return sshx.DialConfig{}, errNoVault
+	}
 	if h.lockedLocked() {
 		return sshx.DialConfig{}, ErrLocked
 	}
@@ -429,6 +444,11 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 		var he *hiddenError
 		if errors.As(err, &he) {
 			fmt.Fprintf(os.Stderr, "hub: resolve %q: %v\n", r.Server, he.detail)
+		}
+		if errors.Is(err, ErrNoVault) {
+			// No vault means no secrets, so there is nothing to redact.
+			h.record(broker.AuditRecord{Time: time.Now(), Client: r.Client, Server: r.Server, Command: r.Command,
+				Description: r.Description, Sudo: r.Sudo, Outcome: "error", Reason: err.Error()})
 		}
 		return ExecResponse{}, err
 	}

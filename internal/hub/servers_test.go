@@ -108,7 +108,7 @@ func TestServersSaveValidation(t *testing.T) {
 
 func TestServersWritesNeedUnlockedVault(t *testing.T) {
 	locked, _, _ := newEncHub(t, &fakeExec{})
-	noVault, _ := newHub(t, &fakeExec{})
+	noVault, _ := newHubAt(t, nil, nil)
 	in := config.ServerInput{Name: "x", Host: "h", Port: 22, User: "u", Auth: "agent"}
 	for h, want := range map[*Hub]error{locked: ErrLocked, noVault: errNoVault} {
 		if err := h.SaveServer("", in); !errors.Is(err, want) {

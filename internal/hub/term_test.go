@@ -49,7 +49,8 @@ func sendNote(t *testing.T, w io.Writer, method string, params any) {
 
 // fakeServerHub stores one key-auth server "fk" pointing at an in-process
 // SSH server whose shell echoes input. A non-empty masterPW gives the vault a
-// KDF with that password; the hub then starts locked.
+// KDF with that password and the hub starts locked; otherwise the vault uses
+// testVault and starts unlocked.
 func fakeServerHub(t *testing.T, masterPW ...string) *Hub {
 	t.Helper()
 	srv := sshtest.Start(t)
@@ -74,6 +75,8 @@ func fakeServerHub(t *testing.T, masterPW ...string) *Hub {
 			t.Fatal(err)
 		}
 		f.KDF, mk = &k, key
+	} else {
+		f.KDF, mk = testVault(t)
 	}
 	if err := config.Save(path, f, mk); err != nil {
 		t.Fatal(err)
@@ -81,6 +84,9 @@ func fakeServerHub(t *testing.T, masterPW ...string) *Hub {
 	h, err := New(Options{StorePath: path})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(masterPW) == 0 {
+		unlockForTest(h)
 	}
 	t.Cleanup(h.Registry().CloseAll)
 	return h
