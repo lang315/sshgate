@@ -68,7 +68,7 @@ test('create a vault, add a host, trust its key, edit the port, forget the key',
   await expect(editor).toContainText('SHA256:')
   await editor.getByRole('button', { name: 'Forget host key' }).click()
   await expect(editor).toContainText('Not pinned')
-  await editor.getByRole('button', { name: 'Close' }).click()
+  await editor.getByRole('button', { name: 'Close', exact: true }).click()
   await openBox()
   await expect(prompt).toBeVisible()
   await prompt.getByRole('button', { name: 'Cancel' }).click()

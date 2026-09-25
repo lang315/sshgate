@@ -39,9 +39,12 @@ export function toInput(d: HostDraft): ServerInput {
   return input
 }
 
-export function secretPlaceholder(saved: boolean, e: SecretEdit): string {
+// A saved secret the hub will drop (Clear, or a host/port change without a new
+// value) reads "will be cleared", so "saved" never promises what a save removes.
+export function secretPlaceholder(saved: boolean, e: SecretEdit, endpointChanged = false): string {
   if (e.cleared) return 'will be cleared'
-  return saved ? 'saved' : ''
+  if (!saved) return ''
+  return endpointChanged && e.value === '' ? 'will be cleared' : 'saved'
 }
 
 export function endpointChanged(s: ServerInfo | undefined, d: HostDraft): boolean {

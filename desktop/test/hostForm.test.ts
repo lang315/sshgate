@@ -31,6 +31,19 @@ describe('host editor secrets', () => {
     expect(html).toContain('SHA256:x')
     expect(html).toContain('Forget host key')
   })
+  it('says a saved secret will be cleared while the endpoint is changed', () => {
+    expect(secretPlaceholder(true, { value: '', cleared: false }, true)).toBe('will be cleared')
+    expect(secretPlaceholder(false, { value: '', cleared: false }, true)).toBe('')
+    expect(secretPlaceholder(true, { value: 'new', cleared: false }, true)).toBe('saved')
+  })
+  it('renders the sheet with the full fingerprint, a unique Close, and a labelled auth group', () => {
+    const html = renderToStaticMarkup(createElement(HostEditor, { server: box, openTabs: 0, onSave: noop, onForget: noop, onClose: () => {} }))
+    expect(html).toContain('ssh-ed25519 SHA256:x')
+    expect(html).toContain('aria-label="Close host editor"')
+    expect(html.match(/>Close</g)).toHaveLength(1)
+    expect(html).toContain('role="radiogroup" aria-label="Auth"')
+    expect(html).toContain('Never shown. Leave empty to keep what is saved.')
+  })
 })
 
 describe('host editor warnings', () => {
@@ -51,6 +64,12 @@ describe('host editor warnings', () => {
     expect(closesTabs(box, { ...d, user: 'root' })).toBe(true)
     expect(closesTabs(box, { ...d, secrets: { ...d.secrets, sudoPassword: { value: 'x', cleared: false } } })).toBe(true)
     expect(renderToStaticMarkup(createElement(EditorWarnings, { server: box, draft: { ...d, aiVisible: true }, openTabs: 2 }))).toBe('')
+  })
+  it('wraps warnings in one status box', () => {
+    const d = draftFrom(box)
+    const html = renderToStaticMarkup(createElement(EditorWarnings, { server: box, draft: { ...d, port: '2222' }, openTabs: 1 }))
+    expect(html.match(/role="status"/g)).toHaveLength(1)
+    expect(html).toContain('Saving will close 1 open tab.')
   })
 })
 
