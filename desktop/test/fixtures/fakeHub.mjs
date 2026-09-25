@@ -26,6 +26,8 @@ rl.on('line', (line) => {
       return send({ id: m.id, result: { protocol: mode === 'badproto' ? 99 : 1 } })
     case 'status':
       return send({ id: m.id, result: { locked: true, hasStore: true, pending: 0 } })
+    case 'never':
+      return // a hung hub that is still running
     case 'fail':
       return send({ id: m.id, error: { code: -32000, message: 'nope' } })
     case 'exit':

@@ -16,6 +16,7 @@ export interface HubProcessOptions {
 interface Pending { resolve: (v: unknown) => void; reject: (e: Error) => void; timer?: NodeJS.Timeout }
 
 const STDERR_TAIL_LINES = 50
+const DEFAULT_CALL_TIMEOUT_MS = 60_000
 
 export class HubProcess extends EventEmitter {
   private child?: ChildProcessWithoutNullStreams
@@ -36,6 +37,9 @@ export class HubProcess extends EventEmitter {
   start(): void {
     if (this.child || this.restartTimer) return // already running, or a restart is already scheduled
     this.stopping = false
+    // A manual (re)start after failed or stop() gets the full backoff budget.
+    this.crashes = []
+    this.stderrTail = []
     this.spawnChild()
   }
 
@@ -114,13 +118,14 @@ export class HubProcess extends EventEmitter {
     this.setState({ kind: 'failed', message, stderr: this.stderrTail.join('\n') })
   }
 
-  call<T = unknown>(method: string, params?: unknown, timeoutMs?: number): Promise<T> {
+  // timeoutMs defaults to 60 s, so a hung but running hub cannot freeze a UI action forever.
+  call<T = unknown>(method: string, params?: unknown, timeoutMs = DEFAULT_CALL_TIMEOUT_MS): Promise<T> {
     const child = this.child
     if (!child) return Promise.reject(new Error('hub is not running'))
     const id = this.nextId++
     return new Promise<T>((resolve, reject) => {
       const p: Pending = { resolve: resolve as (v: unknown) => void, reject }
-      if (timeoutMs) p.timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`${method} timed out`)) }, timeoutMs)
+      p.timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`hub did not answer in ${timeoutMs / 1000} s`)) }, timeoutMs)
       this.pending.set(id, p)
       child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params: params ?? {} }) + '\n')
     })

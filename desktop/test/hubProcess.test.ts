@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import * as path from 'node:path'
 import { HubProcess } from '../src/main/hubProcess'
 import type { HubState } from '../src/shared/protocol'
@@ -141,5 +141,38 @@ describe('HubProcess', () => {
     await waitState(h, 'restarting')
     await h.stop()
     expect(h.state).toEqual({ kind: 'failed', message: 'hub stopped', stderr: '' })
+  })
+
+  it('a call with no timeout rejects after the 60 s default', async () => {
+    const h = hub('ok')
+    h.start()
+    await waitState(h, 'running')
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const hung = h.call('never')
+      const settled = expect(hung).rejects.toThrow('hub did not answer in 60 s')
+      vi.advanceTimersByTime(59_999)
+      await expect(Promise.race([hung.then(() => 'done', () => 'done'), Promise.resolve('pending')])).resolves.toBe('pending')
+      vi.advanceTimersByTime(1)
+      await settled
+    } finally {
+      vi.useRealTimers()
+    }
+    await h.stop()
+  })
+
+  it('start() after failing gets the full crash budget and a fresh stderr tail', async () => {
+    const h = hub('crash')
+    const restarts: number[] = []
+    h.on('state', (s: HubState) => { if (s.kind === 'restarting') restarts.push(s.inMs) })
+    h.start()
+    await waitState(h, 'failed')
+    restarts.length = 0
+    h.start()
+    await waitState(h, 'restarting')
+    const s = await waitState(h, 'failed')
+    expect(restarts).toEqual([20, 40, 80])
+    expect(s.kind === 'failed' && s.stderr.match(/boom/g)?.length).toBe(4)
+    await h.stop()
   })
 })
