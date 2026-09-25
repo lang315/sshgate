@@ -78,6 +78,13 @@ export function App() {
   const seedGen = useRef(new Latest())
   const [aiOpen, setAiOpen] = useState(false)
   const seenIds = useRef(new Set<string>())
+  // Bumped by the terminal shortcut; the effect runs after the column (if it was
+  // just opened) has mounted in the same commit. Arriving requests never focus.
+  const [focusReason, setFocusReason] = useState(0)
+  useEffect(() => {
+    if (focusReason) (document.querySelector('.approvals .approval input') as HTMLInputElement | null)?.focus()
+  }, [focusReason])
+  const focusApprovals = useCallback(() => { setAiOpen(true); setFocusReason((n) => n + 1) }, [])
   useEffect(() => hub.onEvent((e) => {
     // Only approval events can change items. A no-op setItems still queues an update
     // (holding e) until App next renders, so calling it per term.data leaks every chunk.
@@ -160,7 +167,8 @@ export function App() {
         <div className="shell" style={ready ? undefined : { display: 'none' }} inert={!ready}>
           <main className="work">
             <Terminals ref={terms} theme={theme} hostKeys={hostKeys} onMismatch={setMismatch} onTrusted={reloadServers}
-              home={hostList} actions={actions} banner={<StoreErrorBanner message={status?.storeError} />} servers={servers} />
+              home={hostList} actions={actions} banner={<StoreErrorBanner message={status?.storeError} />} servers={servers}
+              onFocusApprovals={focusApprovals} />
           </main>
           {ready && aiOpen && (
             <ApprovalPanel items={items} seedError={seedError}
@@ -170,7 +178,8 @@ export function App() {
                 await terms.current!.sendToTab(item.request.server, item.request.command)
                 await hub.decide(item.request.id, 'sent_to_tab')
               }}
-              onClose={() => setAiOpen(false)} />
+              onClose={() => { setAiOpen(false); terms.current?.focusActive() }}
+              onEscape={() => terms.current?.focusActive()} />
           )}
         </div>
       )}

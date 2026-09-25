@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { doorCall } from './doorClient'
-import { launch, unlock, type Launched } from './launch'
+import { launch, openBox, unlock, type Launched } from './launch'
 
 // Checklist item 6: Tab, Enter and Space alone never allow an AI request.
 test.skip(process.platform === 'win32', 'the launcher and door client are Unix-only')
@@ -50,5 +50,31 @@ test('Tab never reaches Allow; the panel\'s only keyboard action is Deny', async
   await win.keyboard.press('Tab')
   await expect(panel.getByRole('button', { name: 'Deny', exact: true })).toBeFocused()
   await win.keyboard.press('Space')
+  await denied
+})
+
+test('an arriving request never takes focus; the shortcut and Esc move between terminal and Reason', async () => {
+  const win = await l.app.firstWindow()
+  const mod = process.platform === 'darwin' ? 'Meta' : 'Control'
+  await openBox(win)
+  const rows = win.locator('.xterm-rows')
+  await win.keyboard.type('abc')
+  const result = doorCall(l.socket, 'exec', { requestId: 'k2', client: 'e2e', server: 'box', command: 'echo k2', description: '' })
+  const reason = win.locator('.approvals').getByPlaceholder('Reason (optional)')
+  await expect(reason).toBeVisible()
+  await win.keyboard.type('def')
+  await expect(rows).toContainText('abcdef')
+  await expect(reason).toHaveValue('')
+
+  await win.keyboard.press(`${mod}+Shift+A`)
+  await expect(reason).toBeFocused()
+  await win.keyboard.press('Escape')
+  await expect(win.locator('.xterm-helper-textarea')).toBeFocused()
+  await win.keyboard.type('g')
+  await expect(rows).toContainText('abcdefg')
+
+  await win.keyboard.press(`${mod}+Shift+A`)
+  const denied = expect(result).rejects.toThrow('Denied by user')
+  await win.keyboard.press('Enter')
   await denied
 })

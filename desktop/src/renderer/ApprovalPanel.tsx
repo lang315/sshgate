@@ -2,13 +2,14 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { allowEnabled, blockKeyboardActivation, clickAllowed, highlightNonAscii, ListChanges, nonAsciiSummary, type PendingItem } from './approvals'
 import { CloseIcon, WarningIcon } from './icons'
 
-export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToTab, onClose }: {
+export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToTab, onClose, onEscape }: {
   items: PendingItem[]
   seedError?: string
   onDecide: (id: string, outcome: 'allowed' | 'denied', reason: string) => Promise<void>
   onDenyAll: () => Promise<void>
   onSendToTab: (item: PendingItem) => Promise<void>
   onClose: () => void
+  onEscape: () => void
 }) {
   const [now, setNow] = useState(Date.now())
   const [denyAllError, setDenyAllError] = useState<string>()
@@ -59,7 +60,7 @@ export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToT
           {items.map((item) => (
             <Item key={item.request.id} item={item} now={now} changedAt={changedAt}
               listChangedAt={() => changes.current!.at}
-              onDecide={onDecide} onSendToTab={onSendToTab} />
+              onDecide={onDecide} onSendToTab={onSendToTab} onEscape={onEscape} />
           ))}
         </div>
       </div>
@@ -67,10 +68,11 @@ export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToT
   )
 }
 
-export function Item({ item, now, changedAt = 0, listChangedAt = () => 0, onDecide, onSendToTab }: {
+export function Item({ item, now, changedAt = 0, listChangedAt = () => 0, onDecide, onSendToTab, onEscape }: {
   item: PendingItem; now: number; changedAt?: number; listChangedAt?: () => number
   onDecide: (id: string, outcome: 'allowed' | 'denied', reason: string) => Promise<void>
   onSendToTab: (item: PendingItem) => Promise<void>
+  onEscape: () => void
 }) {
   const r = item.request
   const [reason, setReason] = useState('')
@@ -101,7 +103,8 @@ export function Item({ item, now, changedAt = 0, listChangedAt = () => 0, onDeci
       )}
       <div className="meta">{`timeout ${r.timeoutSec}s · client ${r.client} (unverified)`}</div>
       <label className="reason">Reason (optional)
-        <input placeholder="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} />
+        <input placeholder="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onEscape() } }} />
       </label>
       <div className="actions">
         <button type="submit" className="btn deny" disabled={busy}>Deny<kbd aria-hidden="true">↵</kbd></button>

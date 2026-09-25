@@ -11,12 +11,13 @@ export interface TerminalsHandle {
   open(server: string): void
   sendToTab(server: string, text: string): Promise<void>
   openCount(server: string): number
+  focusActive(): void
 }
 
 export const Terminals = forwardRef<TerminalsHandle, {
   theme: Theme; hostKeys: HostKeyPrompts; onMismatch: (m: HostKeyMismatch) => void; onTrusted: () => void
-  home: ReactNode; actions: ReactNode; banner: ReactNode; servers: ServerInfo[]
-}>(function Terminals({ theme, hostKeys, onMismatch, onTrusted, home: homeContent, actions, banner, servers }, ref) {
+  home: ReactNode; actions: ReactNode; banner: ReactNode; servers: ServerInfo[]; onFocusApprovals: () => void
+}>(function Terminals({ theme, hostKeys, onMismatch, onTrusted, home: homeContent, actions, banner, servers, onFocusApprovals }, ref) {
   const tabs = useRef(new TabSet()).current
   const apis = useRef(new Map<string, TermApi>()).current
   const events = useRef(new Dispatcher<TermEvent>()).current
@@ -54,6 +55,7 @@ export const Terminals = forwardRef<TerminalsHandle, {
       apis.get(tab.id)!.paste(text)
     },
     openCount: (server) => tabs.openCount(server),
+    focusActive() { if (tabs.active) apis.get(tabs.active)?.focus() },
   }))
 
   const home = tabs.active === undefined
@@ -85,7 +87,7 @@ export const Terminals = forwardRef<TerminalsHandle, {
         <div className="homeview" style={{ display: home ? 'block' : 'none' }}>{homeContent}</div>
         {tabs.tabs.map((t) => (
           <TermView key={t.id} tab={t} tabs={tabs} events={events} visible={t.id === tabs.active} onChange={changed} register={register}
-            theme={theme} hostKeys={hostKeys} onMismatch={onMismatch} onTrusted={onTrusted} />
+            theme={theme} hostKeys={hostKeys} onMismatch={onMismatch} onTrusted={onTrusted} onFocusApprovals={onFocusApprovals} />
         ))}
       </div>
     </div>

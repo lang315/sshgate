@@ -14,7 +14,7 @@ describe('Item', () => {
     const [item] = seed([req], 0)
     const html = renderToStaticMarkup(createElement(Item, {
       item, now: 10_000,
-      onDecide: async () => {}, onSendToTab: async () => {},
+      onDecide: async () => {}, onSendToTab: async () => {}, onEscape: () => {},
     }))
     const buttons = [...html.matchAll(/<button([^>]*)>(.*?)<\/button>/g)]
       .map((m) => ({ attrs: m[1], text: m[2].replace(/<kbd[^>]*>.*?<\/kbd>/g, '').replace(/<[^>]+>/g, '') }))
@@ -34,13 +34,13 @@ describe('Item', () => {
 
   it('shows the user@host:port the request was submitted for', () => {
     const [item] = seed([req], 0)
-    const html = renderToStaticMarkup(createElement(Item, { item, now: 10_000, onDecide: async () => {}, onSendToTab: async () => {} }))
+    const html = renderToStaticMarkup(createElement(Item, { item, now: 10_000, onDecide: async () => {}, onSendToTab: async () => {}, onEscape: () => {} }))
     expect(html).toContain('u@h:22')
   })
 
   it('keeps Allow and Send to tab disabled while the item is young, and never autofocuses', () => {
     const [item] = seed([req], 0)
-    const html = renderToStaticMarkup(createElement(Item, { item, now: 100, onDecide: async () => {}, onSendToTab: async () => {} }))
+    const html = renderToStaticMarkup(createElement(Item, { item, now: 100, onDecide: async () => {}, onSendToTab: async () => {}, onEscape: () => {} }))
     const buttons = [...html.matchAll(/<button([^>]*)>(.*?)<\/button>/g)].map((m) => ({ attrs: m[1], text: m[2].replace(/<[^>]+>/g, '') }))
     expect(buttons.find((b) => b.text === 'Allow')!.attrs).toMatch(/disabled=""/)
     expect(buttons.find((b) => b.text === 'Send to tab')!.attrs).toMatch(/disabled=""/)
@@ -49,7 +49,7 @@ describe('Item', () => {
 
   it('labels the reason field, hides the Enter hint from the name, and flags sudo in red', () => {
     const [item] = seed([{ ...req, sudo: true, command: 'rm gіt', description: 'cleanup' }], 0)
-    const html = renderToStaticMarkup(createElement(Item, { item, now: 10_000, onDecide: async () => {}, onSendToTab: async () => {} }))
+    const html = renderToStaticMarkup(createElement(Item, { item, now: 10_000, onDecide: async () => {}, onSendToTab: async () => {}, onEscape: () => {} }))
     expect(html).toMatch(/<label[^>]*>Reason \(optional\)/)
     expect(html).toContain('placeholder="Reason (optional)"')
     expect(html).toMatch(/<kbd aria-hidden="true">↵<\/kbd>/)

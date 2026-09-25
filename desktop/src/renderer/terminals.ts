@@ -94,3 +94,14 @@ export function clipboardKey(
   if (platform.startsWith('Mac') || !e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return 'pass'
   return e.keyCode === 67 ? 'copy' : e.keyCode === 86 ? 'paste' : 'pass'
 }
+
+// Ctrl+Shift+A (Cmd+Shift+A on macOS) jumps from a terminal to the oldest AI
+// request: xterm keeps Tab, so without it the keyboard cannot reach Deny.
+export function approvalsKey(
+  e: { type: string; key: string; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean },
+  platform: string,
+): boolean {
+  const mac = platform.startsWith('Mac')
+  const mod = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
+  return mod && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'a'
+}

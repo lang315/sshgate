@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { clipboardKey, Debouncer, Dispatcher, newTermId, printable, TabSet, isUserInput } from '../src/renderer/terminals'
+import { approvalsKey, clipboardKey, Debouncer, Dispatcher, newTermId, printable, TabSet, isUserInput } from '../src/renderer/terminals'
 
 describe('newTermId', () => {
   it('matches the hub id rules and is unique', () => {
@@ -109,5 +109,22 @@ describe('clipboardKey', () => {
   })
   it('always passes on macOS', () => {
     for (const code of [C, V]) expect(clipboardKey(k(code, { ctrlKey: true, shiftKey: true }), 'MacIntel')).toBe('pass')
+  })
+})
+
+describe('approvalsKey', () => {
+  const k = (o: Partial<{ type: string; key: string; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean }>) =>
+    ({ type: 'keydown', key: 'A', ctrlKey: false, shiftKey: true, altKey: false, metaKey: false, ...o })
+  it('is Ctrl+Shift+A off macOS and Cmd+Shift+A on macOS', () => {
+    expect(approvalsKey(k({ ctrlKey: true }), 'Linux x86_64')).toBe(true)
+    expect(approvalsKey(k({ ctrlKey: true, key: 'a' }), 'Win32')).toBe(true)
+    expect(approvalsKey(k({ metaKey: true }), 'MacIntel')).toBe(true)
+  })
+  it('ignores other keys, missing Shift, extra modifiers, and the other platform binding', () => {
+    expect(approvalsKey(k({ ctrlKey: true, shiftKey: false }), 'Linux x86_64')).toBe(false)
+    expect(approvalsKey(k({ ctrlKey: true, altKey: true }), 'Linux x86_64')).toBe(false)
+    expect(approvalsKey(k({ ctrlKey: true, key: 'C' }), 'Linux x86_64')).toBe(false)
+    expect(approvalsKey(k({ ctrlKey: true }), 'MacIntel')).toBe(false)
+    expect(approvalsKey(k({ metaKey: true }), 'Linux x86_64')).toBe(false)
   })
 })

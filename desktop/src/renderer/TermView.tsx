@@ -5,17 +5,18 @@ import '@xterm/xterm/css/xterm.css'
 import { hub, fromBase64 } from './transport'
 import type { HostKeyMismatch, HubEvent } from '../shared/protocol'
 import type { HostKeyPrompts } from './hostkeys'
-import { clipboardKey, Debouncer, isUserInput, printable, type Dispatcher, type Tab, type TabSet } from './terminals'
+import { approvalsKey, clipboardKey, Debouncer, isUserInput, printable, type Dispatcher, type Tab, type TabSet } from './terminals'
 import { MONO_FONT, xtermTheme, type Theme } from './theme'
 
-export interface TermApi { paste(text: string): void }
+export interface TermApi { paste(text: string): void; focus(): void }
 // A hub event for this tab's id, or 'hub.stopped' when the hub leaves the running state.
 export type TermEvent = HubEvent | { method: 'hub.stopped' }
 
-export function TermView({ tab, tabs, events, visible, onChange, register, theme, hostKeys, onMismatch, onTrusted }: {
+export function TermView({ tab, tabs, events, visible, onChange, register, theme, hostKeys, onMismatch, onTrusted, onFocusApprovals }: {
   tab: Tab; tabs: TabSet; events: Dispatcher<TermEvent>; visible: boolean; onChange: () => void
   register: (id: string, api: TermApi | undefined) => void
   theme: Theme; hostKeys: HostKeyPrompts; onMismatch: (m: HostKeyMismatch) => void; onTrusted: () => void
+  onFocusApprovals: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal>(undefined)
@@ -36,6 +37,10 @@ export function TermView({ tab, tabs, events, visible, onChange, register, theme
     // Copy runs xterm's own copy handler; paste is left to Blink, whose paste event
     // xterm handles as a paste (bracketed). Neither sends the key itself to the shell.
     term.attachCustomKeyEventHandler((e) => {
+      if (approvalsKey(e, navigator.platform)) {
+        if (e.type === 'keydown') onFocusApprovals()
+        return false
+      }
       const a = clipboardKey(e, navigator.platform)
       if (a === 'copy' && e.type === 'keydown') document.execCommand('copy')
       return a === 'pass'
@@ -57,7 +62,7 @@ export function TermView({ tab, tabs, events, visible, onChange, register, theme
       onChange()
     }
 
-    register(tab.id, { paste: (text) => term.paste(text) })
+    register(tab.id, { paste: (text) => term.paste(text), focus: () => term.focus() })
 
     // An unknown host key goes to the user; each Trust retries once, with the
     // same id, pinned to exactly the confirmed key. A changed key is refused.
