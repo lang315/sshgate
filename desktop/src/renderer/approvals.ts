@@ -23,11 +23,12 @@ export function allowEnabled(item: PendingItem, now: number, listChangedAt = 0):
   return now - Math.max(item.shownAt, listChangedAt) >= ALLOW_DELAY_MS
 }
 
-// Merges a hub.pending() snapshot with items already known from live events,
-// so a 'decided' event that overtakes the snapshot reply doesn't resurrect a
-// ghost, and a 'pending' event that overtakes it isn't hidden by the stale
-// snapshot overwriting the list.
-export function mergeSeed(current: PendingItem[], snapshot: ApprovalRequest[], decidedSince: Set<string>, now: number): PendingItem[] {
+// Merges a hub.pending() snapshot with items already known from live events.
+// decidedSince and pendingSince hold ids from events that arrived after the call
+// started: a 'decided' event that overtakes the reply doesn't resurrect a ghost, a
+// 'pending' event that overtakes it isn't hidden, and any other current item the
+// snapshot lacks is stale and dropped.
+export function mergeSeed(current: PendingItem[], snapshot: ApprovalRequest[], decidedSince: Set<string>, pendingSince: Set<string>, now: number): PendingItem[] {
   const byId = new Map(current.map((i) => [i.request.id, i]))
   const seen = new Set<string>()
   const out: PendingItem[] = []
@@ -38,10 +39,17 @@ export function mergeSeed(current: PendingItem[], snapshot: ApprovalRequest[], d
     out.push({ request, shownAt: existing ? existing.shownAt : now })
   }
   for (const item of current) {
-    if (seen.has(item.request.id) || decidedSince.has(item.request.id)) continue
+    if (seen.has(item.request.id) || decidedSince.has(item.request.id) || !pendingSince.has(item.request.id)) continue
     out.push(item)
   }
   return out
+}
+
+// Generation counter: replies from superseded calls are ignored.
+export class Latest {
+  private n = 0
+  next(): number { return ++this.n }
+  isCurrent(gen: number): boolean { return gen === this.n }
 }
 
 export function blockKeyboardActivation(e: { key: string; preventDefault: () => void }): void {

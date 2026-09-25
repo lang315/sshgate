@@ -6,7 +6,7 @@ import { Unlock } from './Unlock'
 import { HostList } from './HostList'
 import { Terminals, type TerminalsHandle } from './TerminalTabs'
 import { ApprovalPanel } from './ApprovalPanel'
-import { mergeSeed, reduceApprovals, type PendingItem } from './approvals'
+import { Latest, mergeSeed, reduceApprovals, type PendingItem } from './approvals'
 
 export function App() {
   const [hubState, setHubState] = useState<HubState>({ kind: 'starting' })
@@ -45,19 +45,27 @@ export function App() {
   const [items, setItems] = useState<PendingItem[]>([])
   const [seedError, setSeedError] = useState<string>()
   const decidedSince = useRef(new Set<string>())
+  const pendingSince = useRef(new Set<string>())
+  const seedGen = useRef(new Latest())
   useEffect(() => hub.onEvent((e) => {
     // Only approval events can change items. A no-op setItems still queues an update
     // (holding e) until App next renders, so calling it per term.data leaks every chunk.
     if (e.method !== 'pending' && e.method !== 'decided') return
     if (e.method === 'decided') decidedSince.current.add(e.params.request.id)
+    else pendingSince.current.add(e.params.request.id)
     setItems((cur) => reduceApprovals(cur, e, Date.now()))
   }), [])
   useEffect(() => {
+    const gen = seedGen.current.next() // a reply to any earlier pending() call is now stale
     if (screen.kind === 'ready') {
       decidedSince.current = new Set()
+      pendingSince.current = new Set()
       hub.pending()
-        .then((p) => { setItems((cur) => mergeSeed(cur, p, decidedSince.current, Date.now())); setSeedError(undefined) })
-        .catch((e) => setSeedError((e as Error).message))
+        .then((p) => {
+          if (!seedGen.current.isCurrent(gen)) return
+          setItems((cur) => mergeSeed(cur, p, decidedSince.current, pendingSince.current, Date.now())); setSeedError(undefined)
+        })
+        .catch((e) => { if (seedGen.current.isCurrent(gen)) setSeedError((e as Error).message) })
     }
     if (hubState.kind !== 'running') { setItems([]); setSeedError(undefined) }
   }, [screen.kind, hubState.kind])

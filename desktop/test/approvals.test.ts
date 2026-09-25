@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { allowEnabled, blockKeyboardActivation, highlightNonAscii, mergeSeed, reduceApprovals, seed } from '../src/renderer/approvals'
+import { allowEnabled, blockKeyboardActivation, highlightNonAscii, Latest, mergeSeed, reduceApprovals, seed } from '../src/renderer/approvals'
 import type { ApprovalRequest } from '../src/shared/protocol'
 
 const req = (id: string): ApprovalRequest => ({
@@ -48,20 +48,27 @@ describe('highlightNonAscii', () => {
 describe('mergeSeed', () => {
   it('drops an id decided while the snapshot request was in flight (no ghost)', () => {
     // reduceApprovals already removed 'a' from `current` when the decided event arrived
-    const merged = mergeSeed([], [req('a')], new Set(['a']), 100)
+    const merged = mergeSeed([], [req('a')], new Set(['a']), new Set(), 100)
     expect(merged).toEqual([])
   })
 
   it('keeps an id that became pending after the snapshot was taken (not hidden)', () => {
     // reduceApprovals already appended 'x' to `current` from a live 'pending' event
     const current = seed([req('x')], 50)
-    const merged = mergeSeed(current, [], new Set(), 999)
+    const merged = mergeSeed(current, [], new Set(), new Set(['x']), 999)
     expect(merged).toEqual(current)
+  })
+
+  it('drops a current item the snapshot no longer has, unless it became pending since the call', () => {
+    // 'old' is left over from before (its decided event was missed); 'new' arrived during the call.
+    const current = seed([req('old'), req('new')], 50)
+    const merged = mergeSeed(current, [], new Set(), new Set(['new']), 999)
+    expect(merged.map((i) => i.request.id)).toEqual(['new'])
   })
 
   it('unions snapshot and current, keeping the existing shownAt for ids already known', () => {
     const current = seed([req('a')], 10)
-    const merged = mergeSeed(current, [req('a'), req('b')], new Set(), 999)
+    const merged = mergeSeed(current, [req('a'), req('b')], new Set(), new Set(), 999)
     expect(merged).toEqual([
       { request: req('a'), shownAt: 10 },
       { request: req('b'), shownAt: 999 },
@@ -79,5 +86,17 @@ describe('blockKeyboardActivation', () => {
     const preventDefault = vi.fn()
     blockKeyboardActivation({ key: 'a', preventDefault })
     expect(preventDefault).not.toHaveBeenCalled()
+  })
+})
+
+describe('Latest', () => {
+  it('only the most recent call is current', () => {
+    const l = new Latest()
+    const first = l.next()
+    const second = l.next()
+    expect(l.isCurrent(first)).toBe(false)
+    expect(l.isCurrent(second)).toBe(true)
+    l.next()
+    expect(l.isCurrent(second)).toBe(false)
   })
 })
