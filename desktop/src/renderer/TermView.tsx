@@ -61,7 +61,11 @@ export function TermView({ tab, tabs, events, visible, onChange, register }: {
         onChange()
         if (visibleRef.current) term.focus()
       },
-      (e) => { if (!disposed) end(`open failed: ${(e as Error).message}`) },
+      (e) => {
+        // A timed-out open may still finish in the hub later; close it so it is not orphaned.
+        hub.termClose(tab.id).catch(() => {})
+        if (!disposed) end(`open failed: ${(e as Error).message}`)
+      },
     )
 
     // Real user input in this terminal; capture phase, since xterm stops some events.

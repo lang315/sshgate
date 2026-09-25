@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ Menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() } }))
 
-import { CrashPolicy, menuTemplate, recoverRenderer } from '../src/main/window'
+import { CrashPolicy, hubGone, menuTemplate, recoverRenderer } from '../src/main/window'
 
 const roles = (t: unknown): string[] => JSON.stringify(t).match(/"role":"[^"]+"/g)?.map((r) => r.slice(8, -1)) ?? []
 
@@ -54,6 +54,14 @@ describe('recoverRenderer', () => {
     await recoverRenderer(hub, fakeWin(order), 'oom', new CrashPolicy())
     expect(order).toEqual(['lock', 'term.closeAll', "error:Could not lock the vault after a crash; quit the app to lock it."])
   })
+  it('treats a dead hub as locked and reloads', async () => {
+    for (const msg of ['hub is not running', 'hub restarted']) {
+      const order: string[] = []
+      const hub = { call: async (m: string) => { order.push(m); throw new Error(msg) } }
+      await recoverRenderer(hub, fakeWin(order), 'crashed', new CrashPolicy())
+      expect(order).toEqual(['lock', 'term.closeAll', 'reload'])
+    }
+  })
   it('still reloads if only term.closeAll fails', async () => {
     const order: string[] = []
     const hub = { call: async (m: string) => { order.push(m); if (m === 'term.closeAll') throw new Error('x') } }
@@ -71,5 +79,15 @@ describe('recoverRenderer', () => {
     const order: string[] = []
     await recoverRenderer(okHub(order), fakeWin(order, true), 'killed', new CrashPolicy())
     expect(order).toEqual(['lock', 'term.closeAll'])
+  })
+})
+
+describe('hubGone', () => {
+  it('matches only rejections from a hub process that is not there', () => {
+    expect(hubGone(new Error('hub is not running'))).toBe(true)
+    expect(hubGone(new Error('hub restarted'))).toBe(true)
+    expect(hubGone(new Error('hub did not answer in 5 s'))).toBe(false)
+    expect(hubGone(new Error('wrong master password'))).toBe(false)
+    expect(hubGone(undefined)).toBe(false)
   })
 })

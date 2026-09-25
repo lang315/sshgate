@@ -30,6 +30,13 @@ export class CrashPolicy {
   }
 }
 
+// A call rejected because the hub process is gone (HubProcess: not running, or it
+// exited mid-call). A dead hub holds no key: the vault is already locked.
+export function hubGone(e: unknown): boolean {
+  const m = (e as Error)?.message
+  return m === 'hub is not running' || m === 'hub restarted'
+}
+
 export const CRASH_LOOP_TEXT = 'The window crashed repeatedly. Quit and restart the app.'
 export const LOCK_FAILED_TEXT = 'Could not lock the vault after a crash; quit the app to lock it.'
 
@@ -46,6 +53,7 @@ export async function recoverRenderer(
   console.error('ssh-mcp: renderer gone:', reason)
   const decision = policy.record()
   const locked = await hub.call('lock', {}, 5000).then(() => true, (e) => {
+    if (hubGone(e)) return true
     console.error('ssh-mcp: lock after renderer crash failed:', (e as Error).message)
     return false
   })
