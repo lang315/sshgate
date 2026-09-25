@@ -4,7 +4,7 @@ Long-lived plan across every slice. Each slice gets its own spec in
 `specs/` and its own implementation plan in `plans/`, written when that
 slice starts. This file only fixes order, gates, and cross-slice decisions.
 
-Updated: 2026-09-25 (slice 2 specced)
+Updated: 2026-09-25 (slice 2a implemented)
 
 ## Standing decisions
 
@@ -33,7 +33,7 @@ plan note.
 |---|---|---|---|---|---|---|
 | 0 | Go conversion + web config UI | Done | `specs/2026-07-31-go-conversion-web-ui-design.md` | — | — | Merged on `feat/go-conversion`; CI runs `go test` |
 | 1 | Desktop app: hub, broker, MCP door, Electron shell, terminal tabs, approval panel | 1a and 1b done; manual checklist pending | `specs/2026-09-24-desktop-app-design.md` | 0 | Spec approved | Success criteria 1–6 in the spec; author uses it daily |
-| 2a | Host management in the app (create vault, host CRUD, Forget), host-key fingerprint prompt, no silent TOFU on any hub path, safe vault writes (`config.Update`) | Spec drafted; entry gate overridden by the author 2026-09-25 for 2a only | `specs/2026-09-25-desktop-slice2a-design.md` | 1 | Author override (unlocking twice for app + web blocks daily use) | Author manages hosts only in the app for a week; then delete `ssh-mcp web` |
+| 2a | Host management in the app (create vault, host CRUD, Forget), host-key fingerprint prompt, no silent TOFU on any hub path, safe vault writes (`config.Update`) | Implemented (`plans/2026-09-25-desktop-slice2a.md`); exit gate running. Entry gate overridden by the author 2026-09-25 for 2a only | `specs/2026-09-25-desktop-slice2a-design.md` | 1 | Author override (unlocking twice for app + web blocks daily use) | Author manages hosts only in the app for a week; then delete `ssh-mcp web` |
 | 2b | ProxyJump (one hop first) and `~/.ssh/config` + `known_hosts` import | Not specced | — | 2a | The author has a real host behind a bastion, or a real config to import | Bastion host connects and runs an approved AI command |
 | 2c | Split panes, local shell, Windows agent (OpenSSH pipe, Pageant) | Not specced | — | 2a | Daily use shows the need (panes, local shell); a Windows machine to test on (agent) | Author does not open another terminal for SSH work |
 | 3 | SFTP and port forwarding (local, remote, dynamic) | Not specced | — | 2a | Slice 2a done | File browser and tunnels usable from a saved host |
