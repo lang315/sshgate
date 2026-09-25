@@ -129,6 +129,7 @@ func TestTermOpenValidatesParams(t *testing.T) {
 		{"id": "ok", "server": "vis", "rows": 24, "cols": -1},
 		{"id": "ok", "server": "vis", "rows": 1001, "cols": 80},
 		{"id": "ok", "server": "vis", "rows": 24, "cols": 1001},
+		{"id": "ok", "server": "vis", "rows": 24, "cols": 80, "trustHostKey": map[string]string{"fingerprint": "SHA256:x"}},
 	} {
 		var re *rpc.Error
 		if err := c.Call(context.Background(), "term.open", p, nil); !errors.As(err, &re) || re.Code != -32602 {

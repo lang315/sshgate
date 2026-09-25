@@ -7,6 +7,7 @@ import (
 
 	"github.com/lang315/ssh-mcp/internal/broker"
 	"github.com/lang315/ssh-mcp/internal/config"
+	"github.com/lang315/ssh-mcp/internal/sshx"
 )
 
 // errNoVault: every write from the app needs a vault, the only thing that
@@ -166,5 +167,24 @@ func (h *Hub) ForgetHostKey(name string) error {
 	}
 	_ = h.Reload()
 	h.reg.Close(name)
+	return nil
+}
+
+// recordHostKey is a test seam.
+var recordHostKey = config.RecordHostKey
+
+// recordTrust pins the key a trusted open just verified. The write is
+// skipped, and the open fails, if the server got a pin or moved to another
+// host or port while the dial ran.
+func (h *Hub) recordTrust(name string, dc sshx.DialConfig) error {
+	key, err := h.writeKey()
+	if err != nil {
+		return err
+	}
+	defer clear(key)
+	if err := recordHostKey(h.o.StorePath, name, dc.Host, dc.Port, dc.HostKey, dc.HostKeyAlgo, key); err != nil {
+		return err
+	}
+	_ = h.Reload()
 	return nil
 }

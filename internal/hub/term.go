@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sync"
 	"time"
 
 	"github.com/lang315/ssh-mcp/internal/rpc"
 	"github.com/lang315/ssh-mcp/internal/sshx"
+	"golang.org/x/crypto/ssh"
 )
 
 var termIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
@@ -63,10 +65,14 @@ func registerTermMethods(s *rpc.Server, h *Hub) (closeAll func() int) {
 	s.HandleRequest("term.open", func(_ context.Context, raw json.RawMessage) (any, error) {
 		h.touch()
 		var p struct {
-			ID     string `json:"id"`
-			Server string `json:"server"`
-			Rows   int    `json:"rows"`
-			Cols   int    `json:"cols"`
+			ID           string `json:"id"`
+			Server       string `json:"server"`
+			Rows         int    `json:"rows"`
+			Cols         int    `json:"cols"`
+			TrustHostKey *struct {
+				Fingerprint string `json:"fingerprint"`
+				KeyType     string `json:"keyType"`
+			} `json:"trustHostKey"`
 		}
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return nil, &rpc.Error{Code: -32602, Message: "invalid params"}
@@ -76,6 +82,9 @@ func registerTermMethods(s *rpc.Server, h *Hub) (closeAll func() int) {
 		}
 		if !validDims(p.Rows, p.Cols) {
 			return nil, &rpc.Error{Code: -32602, Message: fmt.Sprintf("rows and cols must be 1-%d", maxTermDim)}
+		}
+		if tk := p.TrustHostKey; tk != nil && (tk.Fingerprint == "" || tk.KeyType == "") {
+			return nil, &rpc.Error{Code: -32602, Message: "trustHostKey needs fingerprint and keyType"}
 		}
 		e := &termEntry{}
 		mu.Lock()
@@ -101,6 +110,13 @@ func registerTermMethods(s *rpc.Server, h *Hub) (closeAll func() int) {
 			release()
 			return nil, err
 		}
+		// Trust applies only while the server has no pin; a pin set in the
+		// meantime governs instead. The retry dials pinned to exactly the key
+		// the user confirmed (a new config hash, so a fresh manager).
+		trust := p.TrustHostKey != nil && dc.HostKey == ""
+		if trust {
+			dc.HostKey, dc.HostKeyAlgo = p.TrustHostKey.Fingerprint, p.TrustHostKey.KeyType
+		}
 		mgr := h.Registry().Get(p.Server, dc)
 		mgr.StartKeepalive(30*time.Second, nil)
 		t, err := mgr.OpenTerm(p.Rows, p.Cols,
@@ -124,7 +140,18 @@ func registerTermMethods(s *rpc.Server, h *Hub) (closeAll func() int) {
 			})
 		if err != nil {
 			release()
+			if res := h.hostKeyResult(p.Server, dc, trust, err); res != nil {
+				return res, nil
+			}
 			return nil, err
+		}
+		if trust {
+			if err := h.recordTrust(p.Server, dc); err != nil {
+				release() // first, so the close below sends no term.exit
+				t.Close()
+				h.Registry().Close(p.Server)
+				return nil, err
+			}
 		}
 		mu.Lock()
 		gone := terms[p.ID] != e // closed (or exited) while opening
@@ -135,7 +162,7 @@ func registerTermMethods(s *rpc.Server, h *Hub) (closeAll func() int) {
 		if gone {
 			t.Close()
 		}
-		return map[string]string{"id": p.ID}, nil
+		return map[string]string{"status": "open", "id": p.ID}, nil
 	})
 	s.Handle("term.write", func(_ context.Context, raw json.RawMessage) (any, error) {
 		var p struct {
@@ -251,4 +278,37 @@ func registerTermMethods(s *rpc.Server, h *Hub) (closeAll func() int) {
 		return map[string]int{"closed": closeAll()}, nil
 	})
 	return closeAll
+}
+
+// hostKeyResult turns a host-key refusal into term.open's result; nil for
+// any other error. Nothing was opened or recorded on these paths. After a
+// trusted retry a different key is asked about again, never reported as a
+// mismatch: the user never confirmed that pin.
+func (h *Hub) hostKeyResult(name string, dc sshx.DialConfig, trusting bool, err error) map[string]any {
+	var unknown *sshx.HostKeyUnknownError
+	var mismatch *sshx.HostKeyMismatchError
+	switch {
+	case errors.As(err, &unknown):
+		return h.unknownResult(name, dc, unknown.Fingerprint, unknown.KeyType, unknown.Key)
+	case errors.As(err, &mismatch) && trusting:
+		h.reg.Close(name)
+		return h.unknownResult(name, dc, mismatch.Presented, mismatch.KeyType, mismatch.Key)
+	case errors.As(err, &mismatch):
+		return map[string]any{"status": "hostKeyMismatch", "server": name, "host": dc.Host, "port": dc.Port, "user": dc.User,
+			"pinned": mismatch.Pinned, "presented": mismatch.Presented}
+	}
+	return nil
+}
+
+func (h *Hub) unknownResult(name string, dc sshx.DialConfig, fp, keyType string, key ssh.PublicKey) map[string]any {
+	return map[string]any{"status": "hostKeyUnknown", "server": name, "host": dc.Host, "port": dc.Port, "user": dc.User,
+		"fingerprint": fp, "keyType": keyType, "knownHosts": sshx.KnownHostsHint(h.knownHostsPath(), dc.Host, dc.Port, key)}
+}
+
+func (h *Hub) knownHostsPath() string {
+	if h.o.KnownHostsPath != "" {
+		return h.o.KnownHostsPath
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".ssh", "known_hosts")
 }
