@@ -96,7 +96,7 @@ func registerTermMethods(s *rpc.Server, h *Hub) (closeAll func()) {
 		}
 
 		_ = h.Reload()
-		dc, err := h.Resolve(p.Server)
+		dc, err := h.resolveForTerm(p.Server)
 		if err != nil {
 			release()
 			return nil, err

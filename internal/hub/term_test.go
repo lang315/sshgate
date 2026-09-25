@@ -48,8 +48,9 @@ func sendNote(t *testing.T, w io.Writer, method string, params any) {
 }
 
 // fakeServerHub stores one key-auth server "fk" pointing at an in-process
-// SSH server whose shell echoes input.
-func fakeServerHub(t *testing.T) *Hub {
+// SSH server whose shell echoes input. A non-empty masterPW gives the vault a
+// KDF with that password; the hub then starts locked.
+func fakeServerHub(t *testing.T, masterPW ...string) *Hub {
 	t.Helper()
 	srv := sshtest.Start(t)
 	dir := t.TempDir()
@@ -66,7 +67,15 @@ func fakeServerHub(t *testing.T) *Hub {
 	f := &config.File{Version: 1, Servers: []config.Server{
 		{Name: "fk", Host: srv.Host, Port: srv.Port, User: "u", Auth: "key", KeyPath: keyPath},
 	}}
-	if err := config.Save(path, f, nil); err != nil {
+	var mk []byte
+	if len(masterPW) > 0 {
+		k, key, err := config.NewKDF(masterPW[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.KDF, mk = &k, key
+	}
+	if err := config.Save(path, f, mk); err != nil {
 		t.Fatal(err)
 	}
 	h, err := New(Options{StorePath: path})
@@ -190,5 +199,28 @@ func TestTermOpenWriteInOrderAndClose(t *testing.T) {
 	// The id is free again after close.
 	if err := c.Call(ctx, "term.open", open, nil); err != nil {
 		t.Fatalf("reopen: %v", err)
+	}
+}
+
+// Spec §Vault lifecycle: new connections need an unlock. A locked vault
+// refuses term.open for every server, key-only ones included, while the
+// server list stays available.
+func TestTermOpenRefusedWhileLocked(t *testing.T) {
+	h := fakeServerHub(t, "pw")
+	c, _, _ := startTermDoor(t, h)
+	ctx := context.Background()
+	var servers []map[string]any
+	if err := c.Call(ctx, "servers", nil, &servers); err != nil || len(servers) != 1 {
+		t.Fatalf("servers while locked: %v %+v", err, servers)
+	}
+	open := map[string]any{"id": "t1", "server": "fk", "rows": 24, "cols": 80}
+	if err := c.Call(ctx, "term.open", open, nil); err == nil || err.Error() != ErrLocked.Error() {
+		t.Fatalf("term.open while locked: want %q, got %v", ErrLocked, err)
+	}
+	if err := h.Unlock("pw"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Call(ctx, "term.open", open, nil); err != nil {
+		t.Fatalf("term.open after unlock: %v", err)
 	}
 }

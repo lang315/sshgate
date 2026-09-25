@@ -336,6 +336,18 @@ func (h *Hub) Resolve(name string) (sshx.DialConfig, error) {
 	return h.resolveLocked(name)
 }
 
+// resolveForTerm resolves a server for a new UI terminal. Like the AI path,
+// a locked encrypted vault refuses every server, key-only and agent ones
+// included (spec §Vault lifecycle: new connections need an unlock).
+func (h *Hub) resolveForTerm(name string) (sshx.DialConfig, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.lockedLocked() {
+		return sshx.DialConfig{}, ErrLocked
+	}
+	return h.resolveLocked(name)
+}
+
 func (h *Hub) resolveLocked(name string) (sshx.DialConfig, error) {
 	dc, err := h.deps.Resolve(name)
 	if err != nil {
