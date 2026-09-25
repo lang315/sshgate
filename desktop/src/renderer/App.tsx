@@ -14,13 +14,13 @@ import { StoreErrorBanner } from './StoreError'
 import { Latest, mergeSeed, reduceApprovals, type PendingItem } from './approvals'
 import { loadPref, resolveTheme, savePref, type ThemePref } from './theme'
 import { ThemeControl } from './ThemeControl'
-import { LockIcon } from './icons'
+import { LockIcon, Mark } from './icons'
 
 export function App() {
   const [hubState, setHubState] = useState<HubState>({ kind: 'starting' })
   const [status, setStatus] = useState<Status>()
   const [unlockError, setUnlockError] = useState<string>()
-  const [idleLocked, setIdleLocked] = useState(false)
+  const [lockReason, setLockReason] = useState<'idle' | 'manual'>()
   const [servers, setServers] = useState<ServerInfo[]>([])
   const terms = useRef<TerminalsHandle>(null)
   const [everReady, setEverReady] = useState(false)
@@ -47,7 +47,7 @@ export function App() {
     hub.getState().then(setHubState).catch(() => {})
     const offState = hub.onState(setHubState)
     const offEvent = hub.onEvent((e) => {
-      if (e.method === 'locked') { setIdleLocked(e.params?.reason === 'idle'); refresh() }
+      if (e.method === 'locked') { setLockReason(e.params?.reason === 'idle' ? 'idle' : 'manual'); refresh() }
       // The MCP door reloads the vault file on every AI call: re-read status
       // so a refused reload shows its banner before the user decides.
       if (e.method === 'pending') refresh()
@@ -57,7 +57,7 @@ export function App() {
 
   useEffect(() => {
     if (hubState.kind === 'running') refresh()
-    else { setStatus(undefined); setUnlockError(undefined); setIdleLocked(false) }
+    else { setStatus(undefined); setUnlockError(undefined); setLockReason(undefined) }
   }, [hubState, refresh])
 
   const screen = screenFor(hubState, status, unlockError)
@@ -115,7 +115,7 @@ export function App() {
   }, [screen.kind, hubState.kind])
 
   const unlock = async (pw: string) => {
-    try { await hub.unlock(pw); setUnlockError(undefined); setIdleLocked(false) } catch (e) { setUnlockError((e as Error).message) }
+    try { await hub.unlock(pw); setUnlockError(undefined); setLockReason(undefined) } catch (e) { setUnlockError((e as Error).message) }
     await refresh()
   }
   const createVault = async (pw: string) => { await hub.createVault(pw); await refresh() }
@@ -154,14 +154,11 @@ export function App() {
   return (
     <div className="app">
       {!ready && (screen.kind === 'hub' ? (
-        <HubScreen state={screen.state} />
+        <HubScreen key={screen.state.kind === 'restarting' ? `r${screen.state.attempt}` : screen.state.kind} state={screen.state} />
       ) : screen.kind === 'create-vault' ? (
-        <div className="center"><CreateVault servers={servers} onCreate={createVault} /></div>
+        <CreateVault servers={servers} onCreate={createVault} />
       ) : (
-        <div className="center">
-          {idleLocked && <p className="muted">Locked after inactivity.</p>}
-          <Unlock onUnlock={unlock} error={screen.error} />
-        </div>
+        <Unlock onUnlock={unlock} error={screen.error} lockReason={lockReason} storePath={status?.storePath} />
       ))}
       {(ready || everReady) && (
         <div className="shell" style={ready ? undefined : { display: 'none' }} inert={!ready}>
@@ -200,17 +197,37 @@ export function App() {
 }
 
 function HubScreen({ state }: { state: HubState }) {
+  const [now, setNow] = useState(Date.now())
+  const [since] = useState(Date.now())
+  useEffect(() => {
+    if (state.kind !== 'restarting') return
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [state])
   if (state.kind === 'failed') {
     return (
-      <div className="center">
-        <h2>The hub stopped</h2>
+      <div className="lockpage"><div className="lockcard wide">
+        <Mark />
+        <h1>The hub stopped</h1>
         <p>{state.message}</p>
-        <pre className="stderr">{state.stderr}</pre>
-      </div>
+        {state.stderr && <pre className="stderr">{state.stderr}</pre>}
+      </div></div>
     )
   }
   if (state.kind === 'restarting') {
-    return <div className="center"><p>Hub crashed; restarting in {Math.round(state.inMs / 1000)} s (attempt {state.attempt}).</p></div>
+    const left = Math.max(0, Math.round((since + state.inMs - now) / 1000))
+    return (
+      <div className="lockpage"><div className="lockcard">
+        <Mark />
+        <h1>{`Hub crashed. Restarting in ${left} s (attempt ${state.attempt}).`}</h1>
+        <p className="muted">The vault will be locked again after the restart. Open terminals will end.</p>
+      </div></div>
+    )
   }
-  return <div className="center"><p>Starting the hub…</p></div>
+  return (
+    <div className="lockpage"><div className="lockcard">
+      <Mark />
+      <p className="starting"><span className="spinner" aria-hidden="true" />Starting the hub…</p>
+    </div></div>
+  )
 }

@@ -60,10 +60,9 @@ export function closesTabs(s: ServerInfo | undefined, d: HostDraft): boolean {
     i.keyPath !== s.keyPath || SECRET_FIELDS.some(({ field }) => i[field] !== undefined)
 }
 
-export function vaultPasswordProblem(pw: string, again: string): string | undefined {
-  if (pw.length < 8) return 'Use at least 8 characters.'
-  if (pw !== again) return 'The passwords do not match.'
-  return undefined
+// Create vault's live checklist; the button stays disabled until both hold.
+export function passwordChecks(pw: string, again: string): { length: boolean; match: boolean } {
+  return { length: pw.length >= 8, match: again !== '' && pw === again }
 }
 
 // The Hosts search: a substring of the name, host or user, ignoring case.

@@ -62,7 +62,8 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 .center { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
 .shell { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; }
 .work { min-width: 0; overflow: hidden; }
-.store-error { padding: 10px 16px; background: var(--danger-tint); color: var(--danger); border-bottom: 1px solid var(--divider); }
+.store-error { min-height: 40px; display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--danger-tint); color: var(--danger); border-bottom: 1px solid var(--divider); }
+.store-error span::first-letter { text-transform: uppercase; }
 .stderr { max-width: 80%; max-height: 50%; overflow: auto; background: var(--term-bg); padding: 8px; }
 
 /* == hosts == */
@@ -190,4 +191,21 @@ input.is-changed { border-color: var(--wait); }
 .mismatch-text { color: var(--danger); }
 
 /* == lock == */
-.unlock { display: flex; flex-direction: column; gap: 8px; width: 280px; }
+.lockpage { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px; background: var(--bg); }
+.lockcard { width: 400px; max-width: 100%; background: var(--surface); border: 1px solid var(--divider); border-radius: 10px; padding: 28px; display: flex; flex-direction: column; gap: 14px; box-shadow: var(--shadow); }
+.lockcard.wide { width: 640px; }
+.lockcard h1 { font-size: 22px; letter-spacing: -0.02em; }
+.lockchip { align-self: flex-start; text-transform: none; letter-spacing: 0; font-size: 12px; }
+.btn.block { width: 100%; height: 38px; }
+.lockpath { font-size: 12px; }
+.checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.checklist li { display: flex; align-items: center; gap: 6px; }
+.checklist li .ico { opacity: 0.35; }
+.checklist li.done { color: var(--ok); }
+.checklist li.done .ico { opacity: 1; }
+.box { border-radius: 8px; padding: 10px 12px; background: var(--bg); display: flex; gap: 8px; align-items: flex-start; flex-direction: column; font-size: 12px; }
+.box.wait { flex-direction: row; background: var(--wait-tint); color: var(--wait); }
+.keptlist { margin: 0; padding-left: 16px; }
+.starting { display: flex; align-items: center; gap: 10px; }
+.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { closesTabs, draftFrom, endpointChanged, filterHosts, secretPlaceholder, toInput, vaultPasswordProblem } from '../src/renderer/hostForm'
+import { closesTabs, draftFrom, endpointChanged, filterHosts, passwordChecks, secretPlaceholder, toInput } from '../src/renderer/hostForm'
 import { EditorWarnings, HostEditor } from '../src/renderer/HostEditor'
 import type { ServerInfo } from '../src/shared/protocol'
 
@@ -85,10 +85,11 @@ describe('filterHosts', () => {
   })
 })
 
-describe('vaultPasswordProblem', () => {
-  it('needs 8 characters and a matching confirmation', () => {
-    expect(vaultPasswordProblem('short', 'short')).toMatch(/8 characters/)
-    expect(vaultPasswordProblem('password1', 'password2')).toMatch(/do not match/)
-    expect(vaultPasswordProblem('password1', 'password1')).toBeUndefined()
+describe('passwordChecks', () => {
+  it('needs 8 characters and a non-empty matching confirmation', () => {
+    expect(passwordChecks('short', 'short')).toEqual({ length: false, match: true })
+    expect(passwordChecks('password1', 'password2')).toEqual({ length: true, match: false })
+    expect(passwordChecks('password1', '')).toEqual({ length: true, match: false })
+    expect(passwordChecks('password1', 'password1')).toEqual({ length: true, match: true })
   })
 })
