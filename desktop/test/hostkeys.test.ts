@@ -50,9 +50,10 @@ describe('HostKeyPromptView', () => {
     expect(html).toContain('SHA256:abc')
     expect(html).toContain('u@h:22')
     expect(html).toContain('ssh-ed25519')
-    const buttons = [...html.matchAll(/<button([^>]*)>([^<]*)<\/button>/g)].map((m) => ({ attrs: m[1], text: m[2] }))
+    const buttons = [...html.matchAll(/<button([^>]*)>(.*?)<\/button>/g)]
+      .map((m) => ({ attrs: m[1], text: m[2].replace(/<kbd[^>]*>.*?<\/kbd>/g, '').replace(/<[^>]+>/g, '') }))
     expect(buttons.filter((b) => /type="submit"/.test(b.attrs)).map((b) => b.text)).toEqual(['Cancel'])
-    const trust = buttons.find((b) => b.text === 'Trust')!
+    const trust = buttons.find((b) => b.text === 'Trust and connect')!
     expect(trust.attrs).toMatch(/type="button"/)
     expect(trust.attrs).toMatch(/tabindex="-1"/)
     expect(trust.attrs).toMatch(/disabled=""/)
@@ -60,7 +61,14 @@ describe('HostKeyPromptView', () => {
   it('warns in the mismatch style when known_hosts lists a different key', () => {
     const html = renderToStaticMarkup(createElement(HostKeyPromptView,
       { info: info('SHA256:abc', 'different'), trustEnabled: true, onTrust: () => {}, onCancel: () => {} }))
-    expect(html).toContain('class="mismatch-text"')
+    expect(html).toContain('class="kh kh-different"')
     expect(html).toContain('lists a different key')
+  })
+  it('never says "first connection" and never styles a known_hosts match as success', () => {
+    const html = renderToStaticMarkup(createElement(HostKeyPromptView,
+      { info: info('SHA256:abc', 'match'), trustEnabled: true, onTrust: () => {}, onCancel: () => {} }))
+    expect(html).toContain('No host key is pinned for this server yet.')
+    expect(html).not.toMatch(/first connection/i)
+    expect(html).toContain('class="kh kh-match"')
   })
 })
