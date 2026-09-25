@@ -82,8 +82,8 @@ plan note.
   - A local shell while locked widens what a compromised renderer can do; justify it or refuse it.
   - `go-pageant` has had no release since 2021.
 - Slice 2 review → later: keyboard-interactive/2FA auth, agent forwarding, and host list search came up as daily-use gaps. Add them only if daily use hits them.
-- Slice 2a → follow-ups (deferred minors from the 2a reviews that matter for security; the rest were cosmetic):
-  - A hub *started* on a store whose `kdf` block was stripped treats it as key-only and serves its unauthenticated `aiVisible` flags and pins. Writes are refused, and `vault.create` resets both. Detecting this needs state kept outside the file.
-  - `status` and `SaveServer` ignore `Reload` errors, so a refused (tampered) reload is invisible in the UI.
-  - The web UI can write back a stale pin from its list. This fails closed and goes away when the web UI is deleted.
-  - "No second Argon2 run" in `vault.create` is not asserted by any test.
+- Slice 2a → follow-ups (security minors from the 2a reviews) — done:
+  - A KDF-less store (stripped `kdf`, or never a vault) is "no vault" to the hub: `listServers` is empty, AI exec fails with "No vault yet; open the app and create one" (audited, never dialled), and `term.open` fails with "create a vault first". No out-of-file state was needed (`68cac3c`).
+  - The hub remembers the last reload error; `status` returns it as `storeError` (fixed text), the app shows a red banner, and `servers.*` writes return a failed post-write reload (`7493f09`).
+  - The web UI's PUT treats a `hostKey` equal to the one it last served as unchanged and keeps the on-disk pin (`251eae9`).
+  - `vault.create` is asserted to derive the key once and never run Unlock's derivation (`newKDF`/`deriveKey` seams, `e28d64a`).
