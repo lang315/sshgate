@@ -33,7 +33,7 @@ plan note.
 |---|---|---|---|---|---|---|
 | 0 | Go conversion + web config UI | Done | `specs/2026-07-31-go-conversion-web-ui-design.md` | — | — | Merged on `feat/go-conversion`; CI runs `go test` |
 | 1 | Desktop app: hub, broker, MCP door, Electron shell, terminal tabs, approval panel | 1a and 1b done; manual checklist pending | `specs/2026-09-24-desktop-app-design.md` | 0 | Spec approved | Success criteria 1–6 in the spec; author uses it daily |
-| 2a | Host management in the app (create vault, host CRUD, Forget), host-key fingerprint prompt, no silent TOFU on any hub path, safe vault writes (`config.Update`) | Implemented (`plans/2026-09-25-desktop-slice2a.md`); exit gate running. Entry gate overridden by the author 2026-09-25 for 2a only | `specs/2026-09-25-desktop-slice2a-design.md` | 1 | Author override (unlocking twice for app + web blocks daily use) | Author manages hosts only in the app for a week; then delete `ssh-mcp web` |
+| 2a | Host management in the app (create vault, host CRUD, Forget), host-key fingerprint prompt, no silent TOFU on any hub path, safe vault writes (`config.Update`) | Implemented 2026-09-25 (`50c1eab..ef89053`, CI green); exit gate pending (author's week of app-only host management) | `specs/2026-09-25-desktop-slice2a-design.md` | 1 | Author override (unlocking twice for app + web blocks daily use) | Author manages hosts only in the app for a week; then delete `ssh-mcp web` |
 | 2b | ProxyJump (one hop first) and `~/.ssh/config` + `known_hosts` import | Not specced | — | 2a | The author has a real host behind a bastion, or a real config to import | Bastion host connects and runs an approved AI command |
 | 2c | Split panes, local shell, Windows agent (OpenSSH pipe, Pageant) | Not specced | — | 2a | Daily use shows the need (panes, local shell); a Windows machine to test on (agent) | Author does not open another terminal for SSH work |
 | 3 | SFTP and port forwarding (local, remote, dynamic) | Not specced | — | 2a | Slice 2a done | File browser and tunnels usable from a saved host |
@@ -82,3 +82,8 @@ plan note.
   - A local shell while locked widens what a compromised renderer can do; justify it or refuse it.
   - `go-pageant` has had no release since 2021.
 - Slice 2 review → later: keyboard-interactive/2FA auth, agent forwarding, and host list search came up as daily-use gaps. Add them only if daily use hits them.
+- Slice 2a → follow-ups (deferred minors from the 2a reviews that matter for security; the rest were cosmetic):
+  - A hub *started* on a store whose `kdf` block was stripped treats it as key-only and serves its unauthenticated `aiVisible` flags and pins. Writes are refused, and `vault.create` resets both. Detecting this needs state kept outside the file.
+  - `status` and `SaveServer` ignore `Reload` errors, so a refused (tampered) reload is invisible in the UI.
+  - The web UI can write back a stale pin from its list. This fails closed and goes away when the web UI is deleted.
+  - "No second Argon2 run" in `vault.create` is not asserted by any test.
