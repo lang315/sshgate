@@ -465,9 +465,12 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 			fmt.Fprintf(os.Stderr, "hub: resolve %q: %v\n", r.Server, he.detail)
 		}
 		if errors.Is(err, ErrNoVault) {
-			// No vault means no secrets, so there is nothing to redact.
-			h.record(broker.AuditRecord{Time: time.Now(), Client: r.Client, Server: r.Server, Command: r.Command,
-				Description: r.Description, Sudo: r.Sudo, Outcome: "error", Reason: err.Error()})
+			// No vault means no secrets, so there is nothing to redact. Nothing
+			// is validated yet either: cap every AI-supplied field so a call
+			// cannot write megabytes to the audit log.
+			c := config.CapOutput
+			h.record(broker.AuditRecord{Time: time.Now(), Client: c(r.Client, 256), Server: c(r.Server, 256),
+				Command: c(r.Command, 4096), Description: c(r.Description, 500), Sudo: r.Sudo, Outcome: "error", Reason: err.Error()})
 		}
 		return ExecResponse{}, err
 	}

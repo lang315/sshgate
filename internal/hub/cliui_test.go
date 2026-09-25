@@ -295,3 +295,15 @@ func TestCLIApproverPrintsExpired(t *testing.T) {
 	}
 	waitOut(t, out, "expired")
 }
+
+// With no vault, "u" has nothing to unlock: the CLI says so and how to make
+// one, instead of claiming it unlocked.
+func TestCLIApproverUnlockWithNoVault(t *testing.T) {
+	h, _ := newHubAt(t, nil, nil)
+	pw, out := startCLI(t, h)
+	pw.Write([]byte("u\n"))
+	waitOut(t, out, "no vault yet")
+	if strings.Contains(out.String(), "unlocked") || strings.Contains(out.String(), "master password:") {
+		t.Fatalf("output: %q", out.String())
+	}
+}

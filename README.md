@@ -132,7 +132,7 @@ Alternatively, paste the fingerprint yourself into the "Host key fingerprint" fi
 
     ssh-keyscan -p PORT -t ed25519 HOST 2>/dev/null | ssh-keygen -lf - | awk '{print $2}'
 
-Through the hub, `exec`/`sudo-exec` take a `timeoutSec` (1–600, default 60) instead of `--timeout`, `server` has no default (pass the exact name from `list-servers`), and `list-servers` lists only AI-visible servers, marking a locked one `[locked: unlock the app]`. While the vault is locked, every server in it is locked, including key/agent-only ones. A store with no master password (for example one left by an older version) is not a vault to the hub: `list-servers` is empty and every command fails with "No vault yet; open the app and create one" until you create one in the app.
+Through the hub, `exec`/`sudo-exec` take a `timeoutSec` (1–600, default 60) instead of `--timeout`, `server` has no default (pass the exact name from `list-servers`), and `list-servers` lists only AI-visible servers, marking a locked one `[locked: unlock the app]`. While the vault is locked, every server in it is locked, including key/agent-only ones. A store with no master password (for example one left by an older version) is not a vault to the hub: `list-servers` is empty and every command fails with "No vault yet; open the app and create one" until you create one. **Create vault** in the desktop app is the migration: it keeps the existing servers (with "Visible to AI" off and host keys unpinned). `hub --cli` cannot create a vault; headless, the only route is `ssh-mcp web`'s first-run setup, which starts with an empty server list.
 
 ## Desktop app
 

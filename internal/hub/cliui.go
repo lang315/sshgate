@@ -69,6 +69,10 @@ func RunCLIApprover(ctx context.Context, h *Hub, in io.Reader, out io.Writer) er
 		case "D":
 			h.broker.DenyAll(rest)
 		case "u":
+			if !h.hasVault() {
+				fmt.Fprintln(out, "no vault yet: create one in the desktop app (keeps existing servers) or with `ssh-mcp web` (starts empty)")
+				continue
+			}
 			fmt.Fprint(out, "master password: ")
 			pw, err := readLine(ctx, sc, true)
 			if err == io.EOF {

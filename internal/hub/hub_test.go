@@ -791,3 +791,27 @@ func TestNoVaultGivesAINothing(t *testing.T) {
 		}
 	}
 }
+
+// The no-vault refusal is audited before any validation, so it must not let
+// the AI write unbounded bytes to the audit log.
+func TestNoVaultAuditIsBounded(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "servers.json")
+	audit, err := broker.OpenAudit(filepath.Join(dir, "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { audit.Close() })
+	h, err := New(Options{StorePath: path, Audit: audit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	huge := strings.Repeat("x", 1<<20)
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: huge, Command: huge, Description: huge, Client: huge}); !errors.Is(err, ErrNoVault) {
+		t.Fatalf("got %v", err)
+	}
+	raw, recs := readAudit(t, path)
+	if len(recs) != 1 || recs[0]["reason"] != ErrNoVault.Error() || len(raw) > 8<<10 {
+		t.Fatalf("audit record is %d bytes: %v", len(raw), len(recs))
+	}
+}

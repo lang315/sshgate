@@ -34,6 +34,9 @@ export function App() {
     const offState = hub.onState(setHubState)
     const offEvent = hub.onEvent((e) => {
       if (e.method === 'locked') { setIdleLocked(e.params?.reason === 'idle'); refresh() }
+      // The MCP door reloads the vault file on every AI call: re-read status
+      // so a refused reload shows its banner before the user decides.
+      if (e.method === 'pending') refresh()
     })
     return () => { offState(); offEvent() }
   }, [refresh])
