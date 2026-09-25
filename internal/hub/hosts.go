@@ -16,8 +16,9 @@ import (
 var errNoVault = errors.New("create a vault first")
 
 // CreateVault gives a store with no master password (or no file yet) one.
-// Kept servers lose aiVisible: a KDF-less file was never MAC'd, so its flags
-// are unauthenticated. The key is derived once, here, and installed in the
+// Kept servers lose aiVisible and their pins: a KDF-less file was never
+// MAC'd, so its flags and pins are unauthenticated, and a pin must come
+// through the fingerprint prompt. The key is derived once, here, and installed in the
 // same h.mu section that saves and reloads, so nothing sees a vault that
 // exists but is locked. If that reload fails, the key is dropped and the hub
 // stays locked; the new password unlocks the vault. Lock order
@@ -46,6 +47,7 @@ func (h *Hub) CreateVault(pw string) error {
 				return errors.New("the store has encrypted fields but no master password; it is corrupt or was tampered with")
 			}
 			s.AIVisible = false
+			s.HostKey, s.HostKeyAlgo = "", ""
 			kept = append(kept, s.Name)
 		}
 		f.KDF = &k

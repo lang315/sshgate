@@ -267,6 +267,10 @@ func (h *Hub) reloadLocked() error {
 	if h.deps.File != nil && f.Revision == h.deps.File.Revision {
 		return nil
 	}
+	// A vault never loses its KDF; one that did lost its MAC check with it.
+	if f.KDF == nil && (h.deps.MasterKey != nil || h.deps.File != nil && h.deps.File.KDF != nil) {
+		return errors.New("store lost its master password; it was tampered with")
+	}
 	if h.deps.MasterKey != nil {
 		if err := f.VerifyMAC(h.deps.MasterKey); err != nil {
 			return err

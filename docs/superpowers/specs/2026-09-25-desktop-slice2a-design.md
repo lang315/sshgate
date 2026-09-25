@@ -68,7 +68,7 @@ All are request-only and count as UI activity. Every write refuses a store with 
 - The check for an existing KDF runs on a fresh `config.Load` before the key is derived, not on the hub's cached `deps.File`. It cannot run inside `config.Update`, because `Update` checks the key before its callback runs. It is refused if a KDF exists. The password must be at least 8 characters.
 - Servers already in the KDF-less file are kept, but:
   - it is refused if any of them has an `Enc*` field, because such a file is corrupt or tampered with;
-  - every kept server's `aiVisible` is reset to false, because a KDF-less file was never MAC'd and its flags are unauthenticated;
+  - every kept server's `aiVisible` is reset to false and its `hostKey`/`hostKeyAlgo` pin is cleared, because a KDF-less file was never MAC'd and its flags and pins are unauthenticated (a pin must come through the fingerprint prompt);
   - the Create vault screen lists the kept servers.
 - On success, `Save`, `Reload`, and setting `deps.MasterKey` all happen in one `h.mu` critical section. Nothing can observe "KDF present but locked" in between, and the hub does not run Argon2 a second time through `Unlock`.
 

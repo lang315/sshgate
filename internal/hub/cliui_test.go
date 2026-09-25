@@ -60,6 +60,9 @@ func TestCLIApproverAllowsAndDenies(t *testing.T) {
 	if !strings.Contains(out.String(), "(unverified)") {
 		t.Fatalf("prompt missing unverified label: %q", out.String())
 	}
+	if !strings.Contains(out.String(), "target : u@h:22\n") {
+		t.Fatalf("prompt missing the bound target: %q", out.String())
+	}
 	pw.Write([]byte("d not now\n"))
 	if err := <-errc; err == nil || !strings.Contains(err.Error(), "not now") {
 		t.Fatalf("got %v", err)

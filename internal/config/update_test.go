@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -107,5 +108,35 @@ func TestUpdateStartsEmptyAndWritesNothingOnError(t *testing.T) {
 	f, err := Load(path)
 	if err != nil || f.Version != 1 || f.Revision != 1 || len(f.Servers) != 1 {
 		t.Fatalf("%v %+v", err, f)
+	}
+}
+
+// A store stripped of its KDF (and so of its MAC check) must not be re-signed
+// by a caller that holds the key; one that adds the KDF in fn still saves.
+func TestUpdateRefusesStoreThatLostItsKDF(t *testing.T) {
+	path, mk := vaultAt(t)
+	f, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.KDF, f.MAC = nil, ""
+	f.Servers = append(f.Servers, Server{Name: "evil", Host: "x", Port: 22, User: "u", Auth: "agent", AIVisible: true})
+	f.Revision++
+	raw, _ := json.Marshal(f)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Update(path, mk, func(*File) error { return nil }); err == nil {
+		t.Fatal("a KDF-stripped store was re-signed")
+	}
+	if after, _ := os.ReadFile(path); !bytes.Equal(after, raw) {
+		t.Fatal("a refused update changed the file")
+	}
+	k, mk2, err := NewKDF("pw2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Update(path, mk2, func(f *File) error { f.KDF = &k; return nil }); err != nil {
+		t.Fatalf("creating a vault from a KDF-less file: %v", err)
 	}
 }

@@ -650,3 +650,64 @@ func TestApprovalBoundToEndpoint(t *testing.T) {
 		t.Fatalf("audit: %v", last)
 	}
 }
+
+// A store that lost its KDF lost its MAC check with it: the hub keeps the old
+// state, locked or unlocked, instead of trusting the stripped file.
+func TestReloadRejectsStoreThatLostItsKDF(t *testing.T) {
+	for _, unlock := range []bool{true, false} {
+		h, path, _ := newEncHub(t, &fakeExec{})
+		if unlock {
+			if err := h.Unlock("pw"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		f, err := config.Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.KDF, f.MAC = nil, ""
+		f.Servers[0].Host = "evil"
+		f.Revision++
+		b, _ := json.Marshal(f)
+		if err := os.WriteFile(path, b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := h.Reload(); err == nil {
+			t.Fatalf("unlocked=%v: KDF-stripped store accepted", unlock)
+		}
+		if s, _ := h.Deps().File.FindServer("enc"); s.Host != "h" || h.Deps().File.KDF == nil {
+			t.Fatalf("unlocked=%v: stripped file took effect: %+v", unlock, s)
+		}
+	}
+}
+
+// The pin leg of the binding: same endpoint, but the key was forgotten and a
+// different one trusted during the wait.
+func TestApprovalBoundToPin(t *testing.T) {
+	fe := &fakeExec{}
+	h, path := newHubExpiry(t, fe, time.Minute)
+	done := make(chan error, 1)
+	go func() { _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}); done <- err }()
+	waitPending(t, h.Broker(), 1)
+	if err := config.Update(path, nil, func(f *config.File) error { f.Servers[0].HostKey = ""; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.RecordHostKey(path, "vis", "h", 22, "SHA256:other", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	allowFirst(t, h.Broker())
+	if err := <-done; !errors.Is(err, ErrServerChanged) {
+		t.Fatalf("got %v", err)
+	}
+	if len(fe.calls) != 0 {
+		t.Fatalf("ran under the new pin: %v", fe.calls)
+	}
+	_, recs := readAudit(t, path)
+	last := recs[len(recs)-1]
+	if last["outcome"] != "error" || !strings.Contains(last["reason"].(string), "server changed") {
+		t.Fatalf("audit: %v", last)
+	}
+}

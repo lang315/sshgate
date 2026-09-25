@@ -143,6 +143,10 @@ func (a *App) handleServerByName(w http.ResponseWriter, r *http.Request) {
 					old := f.Servers[i]
 					updated := dtoToServer(dto)
 					updated.Name = name
+					// The form has no key type; keep the app's with its pin.
+					if updated.HostKey == old.HostKey {
+						updated.HostKeyAlgo = old.HostKeyAlgo
+					}
 					if err := preserveSecrets(&old, &updated, f, dto, sess.MasterKey); err != nil {
 						return err
 					}

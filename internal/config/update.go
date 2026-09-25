@@ -42,6 +42,12 @@ func Update(path string, masterKey []byte, fn func(*File) error) error {
 		if err := fn(f); err != nil {
 			return err
 		}
+		// A key with no KDF would MAC a file nothing authenticated: an
+		// encrypted store stripped of its KDF (and so of its MAC check).
+		// Creating a vault sets the KDF in fn, so it still passes.
+		if masterKey != nil && f.KDF == nil {
+			return errors.New("store has no master password but a key was given; it was tampered with")
+		}
 		return Save(path, f, masterKey)
 	})
 }

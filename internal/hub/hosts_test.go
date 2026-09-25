@@ -77,10 +77,11 @@ func TestVaultCreateOnEmptyStore(t *testing.T) {
 	}
 }
 
-// A KDF-less file was never MAC'd: its servers are kept, their AI flags are not.
-func TestVaultCreateKeepsServersButNotAIVisible(t *testing.T) {
+// A KDF-less file was never MAC'd: its servers are kept, their AI flags and
+// pins are not.
+func TestVaultCreateKeepsServersButNotAIVisibleOrPins(t *testing.T) {
 	h, path := newHubAt(t, &config.File{Version: 1, Servers: []config.Server{
-		{Name: "a", Host: "h", Port: 22, User: "u", Auth: "agent", AIVisible: true, HostKey: "SHA256:abc"}}}, nil)
+		{Name: "a", Host: "h", Port: 22, User: "u", Auth: "agent", AIVisible: true, HostKey: "SHA256:abc", HostKeyAlgo: "ssh-ed25519"}}}, nil)
 	if err := h.CreateVault("longenough"); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +89,7 @@ func TestVaultCreateKeepsServersButNotAIVisible(t *testing.T) {
 		t.Fatalf("AI still sees %v", got)
 	}
 	f, _ := config.Load(path)
-	if len(f.Servers) != 1 || f.Servers[0].Name != "a" || f.Servers[0].AIVisible || f.Servers[0].HostKey != "SHA256:abc" {
+	if len(f.Servers) != 1 || f.Servers[0].Name != "a" || f.Servers[0].AIVisible || f.Servers[0].HostKey != "" || f.Servers[0].HostKeyAlgo != "" {
 		t.Fatalf("kept servers: %+v", f.Servers)
 	}
 }

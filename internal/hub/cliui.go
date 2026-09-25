@@ -207,6 +207,7 @@ func printRequest(out io.Writer, r broker.Request) {
 	}
 	fmt.Fprintf(out, "\n=== pending id=%s from %q (unverified)%s\n", r.ID, r.Client, sudo)
 	fmt.Fprintf(out, "server : %s\n", r.Server)
+	fmt.Fprintf(out, "target : %s\n", r.Target)
 	fmt.Fprintf(out, "command: %s\n", r.Command)
 	fmt.Fprintf(out, "timeout: %ds\n", r.TimeoutSec)
 	if r.Description != "" {

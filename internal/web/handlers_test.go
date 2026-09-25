@@ -140,3 +140,26 @@ func TestPutStaleIfMatchConflicts(t *testing.T) {
 		t.Fatalf("stale If-Match must be 412, got %d body %s", w.Code, w.Body.String())
 	}
 }
+
+// The web form has no key type: an edit that keeps the pin keeps the app's
+// HostKeyAlgo (it is part of the dial config); a new pin drops it.
+func TestPutKeepsHostKeyAlgoWithThePin(t *testing.T) {
+	app, csrf := initApp(t)
+	doWrite(t, app, csrf, "POST", "/api/servers", `{"name":"p","host":"h","port":22,"user":"u","auth":"agent","hostKey":"SHA256:abc"}`)
+	if err := config.Update(app.Path, app.sess.MasterKey, func(f *config.File) error {
+		f.Servers[0].HostKeyAlgo = "ssh-ed25519"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ pin, algo string }{{"SHA256:abc", "ssh-ed25519"}, {"SHA256:new", ""}} {
+		w := doWrite(t, app, csrf, "PUT", "/api/servers/p", `{"name":"p","host":"h","port":22,"user":"u","auth":"agent","aiVisible":true,"hostKey":"`+c.pin+`"}`)
+		if w.Code != 200 {
+			t.Fatalf("PUT code %d body %s", w.Code, w.Body.String())
+		}
+		f, _ := config.Load(app.Path)
+		if s, _ := f.FindServer("p"); s.HostKey != c.pin || s.HostKeyAlgo != c.algo || !s.AIVisible {
+			t.Fatalf("pin %s: %+v", c.pin, s)
+		}
+	}
+}
