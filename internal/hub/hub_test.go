@@ -619,3 +619,34 @@ func TestHubNeverLearnsHostKeys(t *testing.T) {
 		t.Fatal("an AI exec on an unpinned server wrote the store or dialled")
 	}
 }
+
+// An approval is for user@host:port and pin as shown; an edit during the
+// wait voids it.
+func TestApprovalBoundToEndpoint(t *testing.T) {
+	fe := &fakeExec{}
+	h, path := newHubExpiry(t, fe, time.Minute)
+	done := make(chan error, 1)
+	go func() { _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}); done <- err }()
+	waitPending(t, h.Broker(), 1)
+	if got := h.Broker().Pending()[0].Target; got != "u@h:22" {
+		t.Fatalf("target = %q", got)
+	}
+	if err := config.Update(path, nil, func(f *config.File) error { f.Servers[0].Port = 2222; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	allowFirst(t, h.Broker())
+	if err := <-done; !errors.Is(err, ErrServerChanged) {
+		t.Fatalf("got %v", err)
+	}
+	if len(fe.calls) != 0 {
+		t.Fatalf("ran on the new endpoint: %v", fe.calls)
+	}
+	_, recs := readAudit(t, path)
+	last := recs[len(recs)-1]
+	if last["outcome"] != "error" || !strings.Contains(last["reason"].(string), "server changed") {
+		t.Fatalf("audit: %v", last)
+	}
+}

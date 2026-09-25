@@ -24,6 +24,7 @@ type Request struct {
 	ID          string    `json:"id"`
 	Client      string    `json:"client"`
 	Server      string    `json:"server"`
+	Target      string    `json:"target"` // user@host:port the approval is for
 	Command     string    `json:"command"`
 	Description string    `json:"description"`
 	Sudo        bool      `json:"sudo"`

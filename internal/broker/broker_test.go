@@ -261,11 +261,11 @@ func TestSubmitAlwaysAssignsFreshID(t *testing.T) {
 }
 
 func TestJSONTags(t *testing.T) {
-	rb, err := json.Marshal(Request{ID: "x", TimeoutSec: 5})
+	rb, err := json.Marshal(Request{ID: "x", TimeoutSec: 5, Target: "u@h:22"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s := string(rb); !strings.Contains(s, `"id":"x"`) || !strings.Contains(s, `"timeoutSec":5`) {
+	if s := string(rb); !strings.Contains(s, `"id":"x"`) || !strings.Contains(s, `"timeoutSec":5`) || !strings.Contains(s, `"target":"u@h:22"`) {
 		t.Fatalf("Request tags: %s", s)
 	}
 

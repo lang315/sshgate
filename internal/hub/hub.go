@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -29,6 +31,9 @@ var (
 	// the audit reason and stderr.
 	ErrHostKeyFailed = errors.New("host key verification failed; check the server in the app")
 	ErrConnFailed    = errors.New("connection to server failed; see the app for details")
+	// ErrServerChanged: the server was edited between approval and run, so
+	// the approval (for the old user@host:port and pin) no longer applies.
+	ErrServerChanged = errors.New("server changed")
 )
 
 // serverNotFound is used for both hidden and nonexistent servers so the two
@@ -409,6 +414,11 @@ func redactorFor(dcs ...sshx.DialConfig) *config.Redactor {
 	return config.NewRedactor(secrets...)
 }
 
+// target is the endpoint an approval is for, as the approval card shows it.
+func target(dc sshx.DialConfig) string {
+	return dc.User + "@" + net.JoinHostPort(dc.Host, strconv.Itoa(dc.Port))
+}
+
 func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 	dc, err := h.resolveForAI(r.Server)
 	if err != nil {
@@ -429,7 +439,7 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 	}
 	timeout := clampTimeout(r.TimeoutSec)
 
-	req := broker.Request{Client: r.Client, Server: r.Server, Command: cmd, Description: r.Description, Sudo: r.Sudo, TimeoutSec: timeout}
+	req := broker.Request{Client: r.Client, Server: r.Server, Target: target(dc), Command: cmd, Description: r.Description, Sudo: r.Sudo, TimeoutSec: timeout}
 	base := broker.AuditRecord{Time: time.Now(), Client: r.Client, Server: r.Server, Command: red.Redact(cmd), Description: red.Redact(r.Description), Sudo: r.Sudo, TimeoutSec: timeout}
 
 	d, err := h.broker.Submit(ctx, req)
@@ -473,6 +483,12 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 		h.record(base)
 		fmt.Fprintf(os.Stderr, "hub: resolve %q: %s\n", r.Server, base.Reason)
 		return ExecResponse{}, err
+	}
+	if target(dc2) != target(dc) || dc2.HostKey != dc.HostKey {
+		base.Outcome = "error"
+		base.Reason = fmt.Sprintf("server changed: approved %s %s, now %s %s", target(dc), dc.HostKey, target(dc2), dc2.HostKey)
+		h.record(base)
+		return ExecResponse{}, ErrServerChanged
 	}
 	// Secrets may have changed on a reload during the wait; mask both sets.
 	red = redactorFor(dc, dc2)
