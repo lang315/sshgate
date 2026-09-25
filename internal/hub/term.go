@@ -38,7 +38,7 @@ type termEntry struct {
 // they run on the rpc read loop and must not block, so they only enqueue or
 // adjust counters. An unknown id there is ignored: there is nobody to reply
 // to. Data is base64 in JSON ([]byte fields).
-func registerTermMethods(s *rpc.Server, h *Hub) (closeAll func()) {
+func registerTermMethods(s *rpc.Server, h *Hub) (closeAll func() int) {
 	var mu sync.Mutex
 	terms := map[string]*termEntry{}
 	get := func(id string) (*sshx.TermSession, error) {
@@ -224,9 +224,12 @@ func registerTermMethods(s *rpc.Server, h *Hub) (closeAll func()) {
 		return empty, nil
 	})
 
-	return func() {
+	// closeAll counts terminals still opening too: term.open sees its slot
+	// gone and closes the session itself.
+	closeAll = func() int {
 		var open []*sshx.TermSession
 		mu.Lock()
+		n := len(terms)
 		for _, e := range terms {
 			if e.t != nil {
 				open = append(open, e.t)
@@ -237,5 +240,12 @@ func registerTermMethods(s *rpc.Server, h *Hub) (closeAll func()) {
 		for _, t := range open {
 			t.Close()
 		}
+		return n
 	}
+	// term.closeAll is for Electron main after a renderer crash; the
+	// renderer's own whitelist does not include it.
+	s.HandleRequest("term.closeAll", func(context.Context, json.RawMessage) (any, error) {
+		return map[string]int{"closed": closeAll()}, nil
+	})
+	return closeAll
 }

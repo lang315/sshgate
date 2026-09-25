@@ -16,15 +16,42 @@ export function installMenu(): void {
   Menu.setApplicationMenu(t ? Menu.buildFromTemplate(t) : null)
 }
 
-// A crashed renderer is the only path that reloads the window: lock the vault first,
-// so the reloaded page starts at the unlock screen. Terminals the dead renderer had
-// open stay open in the hub, unreachable, until the hub restarts (known limitation).
+export const CRASH_LIMIT = 3
+export const CRASH_WINDOW_MS = 60_000
+
+// Stops the crash→reload loop: the CRASH_LIMIT-th renderer crash within
+// CRASH_WINDOW_MS gets an error page instead of another reload.
+export class CrashPolicy {
+  private crashes: number[] = []
+  record(now = Date.now()): 'reload' | 'error' {
+    this.crashes = this.crashes.filter((t) => now - t < CRASH_WINDOW_MS)
+    this.crashes.push(now)
+    return this.crashes.length >= CRASH_LIMIT ? 'error' : 'reload'
+  }
+}
+
+export const CRASH_LOOP_TEXT = 'The window crashed repeatedly. Quit and restart the app.'
+export const LOCK_FAILED_TEXT = 'Could not lock the vault after a crash; quit the app to lock it.'
+
+// A crashed renderer is the only path that reloads the window. Lock the vault first,
+// so the reloaded page starts at the unlock screen, and close the terminals the dead
+// renderer opened (nothing could reach them again). If the lock fails, or the renderer
+// keeps crashing, show a static text page instead: quitting stops the hub, which drops the key.
 export async function recoverRenderer(
   hub: { call(method: string, params?: unknown, timeoutMs?: number): Promise<unknown> },
-  win: { isDestroyed(): boolean; reload(): void },
+  win: { isDestroyed(): boolean; reload(): void; loadURL(url: string): Promise<void> },
   reason: string,
+  policy: CrashPolicy,
 ): Promise<void> {
   console.error('ssh-mcp: renderer gone:', reason)
-  await hub.call('lock', {}, 5000).catch((e) => console.error('ssh-mcp: lock after renderer crash failed:', (e as Error).message))
-  if (!win.isDestroyed()) win.reload()
+  const decision = policy.record()
+  const locked = await hub.call('lock', {}, 5000).then(() => true, (e) => {
+    console.error('ssh-mcp: lock after renderer crash failed:', (e as Error).message)
+    return false
+  })
+  await hub.call('term.closeAll', {}, 5000).catch((e) => console.error('ssh-mcp: term.closeAll after renderer crash failed:', (e as Error).message))
+  if (win.isDestroyed()) return
+  const text = !locked ? LOCK_FAILED_TEXT : decision === 'error' ? CRASH_LOOP_TEXT : undefined
+  if (text) await win.loadURL('data:text/plain;charset=utf-8,' + encodeURIComponent(text)).catch(() => {})
+  else win.reload()
 }

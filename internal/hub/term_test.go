@@ -224,3 +224,34 @@ func TestTermOpenRefusedWhileLocked(t *testing.T) {
 		t.Fatalf("term.open after unlock: %v", err)
 	}
 }
+
+// term.closeAll ends every terminal of this door (the desktop app calls it
+// after a renderer crash) and reports how many; no term.exit follows.
+func TestTermCloseAll(t *testing.T) {
+	h := fakeServerHub(t)
+	c, _, notes := startTermDoor(t, h)
+	ctx := context.Background()
+	for _, id := range []string{"a", "b"} {
+		if err := c.Call(ctx, "term.open", map[string]any{"id": id, "server": "fk", "rows": 24, "cols": 80}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var res struct {
+		Closed int `json:"closed"`
+	}
+	if err := c.Call(ctx, "term.closeAll", nil, &res); err != nil || res.Closed != 2 {
+		t.Fatalf("closeAll: %v %+v", err, res)
+	}
+	if err := c.Call(ctx, "term.close", map[string]any{"id": "a"}, nil); err == nil || err.Error() != `no terminal "a"` {
+		t.Fatalf("terminal still open after closeAll: %v", err)
+	}
+	if err := c.Call(ctx, "term.closeAll", nil, &res); err != nil || res.Closed != 0 {
+		t.Fatalf("second closeAll: %v %+v", err, res)
+	}
+	time.Sleep(200 * time.Millisecond)
+	for len(notes) > 0 {
+		if n := <-notes; n.method == "term.exit" {
+			t.Fatalf("unexpected term.exit after closeAll: %s", n.params)
+		}
+	}
+}

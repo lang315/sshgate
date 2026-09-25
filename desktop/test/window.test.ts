@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ Menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() } }))
 
-import { menuTemplate, recoverRenderer } from '../src/main/window'
+import { CrashPolicy, menuTemplate, recoverRenderer } from '../src/main/window'
 
 const roles = (t: unknown): string[] => JSON.stringify(t).match(/"role":"[^"]+"/g)?.map((r) => r.slice(8, -1)) ?? []
 
@@ -18,20 +18,58 @@ describe('menuTemplate', () => {
   })
 })
 
+describe('CrashPolicy', () => {
+  it('reloads twice, then gives up on the 3rd crash within 60 s', () => {
+    const p = new CrashPolicy()
+    expect(p.record(0)).toBe('reload')
+    expect(p.record(10_000)).toBe('reload')
+    expect(p.record(59_999)).toBe('error')
+  })
+  it('forgets crashes older than 60 s', () => {
+    const p = new CrashPolicy()
+    expect(p.record(0)).toBe('reload')
+    expect(p.record(30_000)).toBe('reload')
+    expect(p.record(60_000)).toBe('reload') // the crash at 0 has aged out
+    expect(p.record(89_999)).toBe('error')
+  })
+})
+
 describe('recoverRenderer', () => {
-  it('locks the hub before reloading, and still reloads if lock fails', async () => {
+  const fakeWin = (order: string[], destroyed = false) => ({
+    isDestroyed: () => destroyed,
+    reload: () => { order.push('reload') },
+    loadURL: async (u: string) => { order.push('error:' + decodeURIComponent(u.slice(u.indexOf(',') + 1))) },
+  })
+  const okHub = (order: string[]) => ({ call: async (m: string) => { order.push(m) } })
+
+  it('locks the hub and closes its terminals, then reloads', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const order: string[] = []
-    const win = { isDestroyed: () => false, reload: () => order.push('reload') }
-    await recoverRenderer({ call: async (m) => { order.push(m) } }, win, 'crashed')
-    expect(order).toEqual(['lock', 'reload'])
-    order.length = 0
-    await recoverRenderer({ call: async () => { throw new Error('hub down') } }, win, 'oom')
-    expect(order).toEqual(['reload'])
+    await recoverRenderer(okHub(order), fakeWin(order), 'crashed', new CrashPolicy())
+    expect(order).toEqual(['lock', 'term.closeAll', 'reload'])
   })
-  it('does not reload a destroyed window', async () => {
-    const reload = vi.fn()
-    await recoverRenderer({ call: async () => {} }, { isDestroyed: () => true, reload }, 'killed')
-    expect(reload).not.toHaveBeenCalled()
+  it('shows an error page instead of reloading when lock fails', async () => {
+    const order: string[] = []
+    const hub = { call: async (m: string) => { order.push(m); if (m === 'lock') throw new Error('lock timed out') } }
+    await recoverRenderer(hub, fakeWin(order), 'oom', new CrashPolicy())
+    expect(order).toEqual(['lock', 'term.closeAll', "error:Could not lock the vault after a crash; quit the app to lock it."])
+  })
+  it('still reloads if only term.closeAll fails', async () => {
+    const order: string[] = []
+    const hub = { call: async (m: string) => { order.push(m); if (m === 'term.closeAll') throw new Error('x') } }
+    await recoverRenderer(hub, fakeWin(order), 'oom', new CrashPolicy())
+    expect(order).toEqual(['lock', 'term.closeAll', 'reload'])
+  })
+  it('shows an error page on the 3rd crash within 60 s', async () => {
+    const order: string[] = []
+    const policy = new CrashPolicy()
+    for (let i = 0; i < 3; i++) await recoverRenderer(okHub(order), fakeWin(order), 'crashed', policy)
+    expect(order.filter((o) => o !== 'lock' && o !== 'term.closeAll')).toEqual(
+      ['reload', 'reload', 'error:The window crashed repeatedly. Quit and restart the app.'])
+  })
+  it('does not touch a destroyed window', async () => {
+    const order: string[] = []
+    await recoverRenderer(okHub(order), fakeWin(order, true), 'killed', new CrashPolicy())
+    expect(order).toEqual(['lock', 'term.closeAll'])
   })
 })

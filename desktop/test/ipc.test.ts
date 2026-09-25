@@ -19,6 +19,8 @@ describe('ipc whitelist', () => {
     const h = fakeHub()
     await expect(relayCall(h, 'exec', {})).rejects.toThrow('not allowed')
     await expect(relayCall(h, 42, {})).rejects.toThrow('not allowed')
+    // main calls term.closeAll itself after a renderer crash; the renderer may not.
+    await expect(relayCall(h, 'term.closeAll', {})).rejects.toThrow('not allowed')
     expect(h.call).not.toHaveBeenCalled()
   })
   it('relays only whitelisted notifications', () => {

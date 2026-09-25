@@ -4,9 +4,10 @@ import * as path from 'node:path'
 import { setupAttention } from './attention'
 import { HubProcess } from './hubProcess'
 import { registerIpc } from './ipc'
-import { installMenu, recoverRenderer } from './window'
+import { CrashPolicy, installMenu, recoverRenderer } from './window'
 
 let win: BrowserWindow | undefined
+const crashPolicy = new CrashPolicy()
 
 // Hub binary: SSH_MCP_BIN, else the repo-root build next to desktop/, else PATH.
 function hubCommand(): string {
@@ -52,7 +53,7 @@ function createWindow(): BrowserWindow {
   // Never let this window navigate to, or open, other content that could get window.sshmcp.
   w.webContents.on('will-navigate', (e) => e.preventDefault())
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  w.webContents.on('render-process-gone', (_e, d) => { void recoverRenderer(hub, w, d.reason) })
+  w.webContents.on('render-process-gone', (_e, d) => { void recoverRenderer(hub, w, d.reason, crashPolicy) })
   w.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'))
   return w
 }

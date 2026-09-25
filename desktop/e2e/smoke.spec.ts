@@ -138,4 +138,14 @@ test('unlock, open a terminal, approve an AI command', async () => {
     const wc = BrowserWindow.getAllWindows()[0].webContents
     return wc.isCrashed() || wc.isLoading() ? '' : wc.executeJavaScript('document.body.innerText')
   }), { timeout: 10000 }).toContain('Unlock vault')
+
+  // The 3rd crash within 60 s stops the reload loop and shows a static error page.
+  const bodyText = () => app.evaluate(({ BrowserWindow }) => {
+    const wc = BrowserWindow.getAllWindows()[0].webContents
+    return wc.isCrashed() || wc.isLoading() ? '' : wc.executeJavaScript('document.body.innerText')
+  })
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer())
+  await expect.poll(bodyText, { timeout: 10000 }).toContain('Unlock vault')
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer())
+  await expect.poll(bodyText, { timeout: 10000 }).toContain('The window crashed repeatedly. Quit and restart the app.')
 })
