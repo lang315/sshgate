@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { closesTabs, draftFrom, endpointChanged, secretPlaceholder, toInput, vaultPasswordProblem } from '../src/renderer/hostForm'
+import { closesTabs, draftFrom, endpointChanged, filterHosts, secretPlaceholder, toInput, vaultPasswordProblem } from '../src/renderer/hostForm'
 import { EditorWarnings, HostEditor } from '../src/renderer/HostEditor'
 import type { ServerInfo } from '../src/shared/protocol'
 
@@ -51,6 +51,18 @@ describe('host editor warnings', () => {
     expect(closesTabs(box, { ...d, user: 'root' })).toBe(true)
     expect(closesTabs(box, { ...d, secrets: { ...d.secrets, sudoPassword: { value: 'x', cleared: false } } })).toBe(true)
     expect(renderToStaticMarkup(createElement(EditorWarnings, { server: box, draft: { ...d, aiVisible: true }, openTabs: 2 }))).toBe('')
+  })
+})
+
+describe('filterHosts', () => {
+  const other: ServerInfo = { ...box, name: 'db-primary', host: '10.0.4.30', user: 'postgres' }
+  it('matches name, host or user, case-insensitively; empty query keeps all', () => {
+    expect(filterHosts([box, other], '')).toEqual([box, other])
+    expect(filterHosts([box, other], '  ')).toEqual([box, other])
+    expect(filterHosts([box, other], 'DB')).toEqual([other])
+    expect(filterHosts([box, other], '10.0.4')).toEqual([other])
+    expect(filterHosts([box, other], 'postgres')).toEqual([other])
+    expect(filterHosts([box, other], 'nothing')).toEqual([])
   })
 })
 

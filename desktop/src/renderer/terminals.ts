@@ -31,6 +31,8 @@ export class TabSet {
     this.active = id
     this.order = this.order.filter((x) => x !== id).concat(id)
   }
+  // No terminal active: the Hosts home tab shows.
+  showHome() { this.active = undefined }
   close(id: string) {
     this.tabs = this.tabs.filter((t) => t.id !== id)
     this.order = this.order.filter((x) => x !== id)

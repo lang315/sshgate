@@ -13,8 +13,9 @@ test('create a vault, add a host, trust its key, edit the port, forget the key',
   const hosts = win.locator('nav.hosts')
   const editor = win.getByRole('dialog', { name: 'Host editor' })
   const prompt = win.getByRole('dialog', { name: 'Unknown host key' })
-  const openBox = () => hosts.getByRole('button', { name: 'box', exact: true }).click()
-  const editBox = () => hosts.getByRole('button', { name: 'Edit box' }).click()
+  const home = () => win.locator('.tabbar .hometab').click()
+  const openBox = async () => { await home(); await hosts.getByRole('button', { name: 'box', exact: true }).click() }
+  const editBox = async () => { await home(); await hosts.getByRole('button', { name: 'Edit box' }).click() }
   const trust = async () => {
     await expect(prompt).toContainText('SHA256:')
     await expect(prompt).toContainText(`test@127.0.0.1:${l.port}`)
@@ -53,7 +54,7 @@ test('create a vault, add a host, trust its key, edit the port, forget the key',
   await expect(editor).toContainText('Changing host or port forgets the host key and saved passwords unless you re-enter them.')
   await expect(editor).toContainText('Saving will close 1 open tab.')
   await editor.getByRole('button', { name: 'Save' }).click()
-  await expect(win.locator('.tabbar .tab').first()).toContainText('(exited)')
+  await expect(win.locator('.tabbar .tab').first()).toContainText('exited')
   // Back to the real port: the pin went with the old endpoint, so connecting asks again.
   await editBox()
   await editor.getByLabel('Port', { exact: true }).fill(String(l.port))
@@ -72,5 +73,5 @@ test('create a vault, add a host, trust its key, edit the port, forget the key',
   await expect(prompt).toBeVisible()
   await prompt.getByRole('button', { name: 'Cancel' }).click()
   await expect(prompt).toBeHidden()
-  await expect(win.locator('.tabbar .tab').last()).toContainText('(exited)')
+  await expect(win.locator('.tabbar .tab').last()).toContainText('exited')
 })

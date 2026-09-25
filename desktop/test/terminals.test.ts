@@ -36,6 +36,16 @@ describe('TabSet', () => {
     expect(t.tabs.map((x) => x.id)).toEqual([a.id, b.id])
     expect(t.active).toBe(a.id) // previous in activation order
   })
+  it('shows the Hosts home when asked and after the last tab closes', () => {
+    const s = new TabSet()
+    const a = s.open('box')
+    expect(s.active).toBe(a.id)
+    s.showHome()
+    expect(s.active).toBeUndefined()
+    s.activate(a.id)
+    s.close(a.id)
+    expect(s.active).toBeUndefined()
+  })
 })
 
 describe('Debouncer', () => {

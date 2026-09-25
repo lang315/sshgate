@@ -14,6 +14,7 @@ import { StoreErrorBanner } from './StoreError'
 import { Latest, mergeSeed, reduceApprovals, type PendingItem } from './approvals'
 import { loadPref, resolveTheme, savePref, type ThemePref } from './theme'
 import { ThemeControl } from './ThemeControl'
+import { LockIcon } from './icons'
 
 export function App() {
   const [hubState, setHubState] = useState<HubState>({ kind: 'starting' })
@@ -112,25 +113,26 @@ export function App() {
   const ready = screen.kind === 'ready'
   useEffect(() => { if (ready) setEverReady(true) }, [ready])
 
-  // Once shown, terminals stay mounted (hidden and inert) through lock and hub restarts,
-  // so their SSH sessions survive a lock and a restart can end them with Reconnect.
+  const lock = async () => { try { await hub.lock(); setUnlockError(undefined); await refresh() } catch { /* the locked/hub-state events recover the UI */ } }
+  const actions = (
+    <>
+      <ThemeControl pref={themePref} onChange={chooseTheme} />
+      <button type="button" className="btn" onClick={lock}><LockIcon />Lock</button>
+    </>
+  )
+  const hostList = (
+    <HostList servers={servers} storePath={status?.storePath ?? ''} onOpen={(name) => terms.current?.open(name)}
+      onNew={() => setEditing({})}
+      onEdit={async (name) => { await reloadServers(); setEditing({ name }) }}
+      onDelete={deleteHost} />
+  )
+
+  // Once shown, the shell (tabs, terminals) stays mounted, hidden and inert, through
+  // lock and hub restarts, so SSH sessions survive a lock and a restart can end them
+  // with Reconnect.
   return (
-    <div className={ready ? 'layout' : 'app'}>
-      {ready ? (
-        <>
-          <StoreErrorBanner message={status?.storeError} />
-          <header>
-            <span>ssh-mcp</span>
-            <span className="spacer" />
-            <ThemeControl pref={themePref} onChange={chooseTheme} />
-            <button onClick={async () => { try { await hub.lock(); setUnlockError(undefined); await refresh() } catch { /* the locked/hub-state events recover the UI */ } }}>Lock</button>
-          </header>
-          <HostList servers={servers} storePath={status?.storePath ?? ''} onOpen={(name) => terms.current?.open(name)}
-            onNew={() => setEditing({})}
-            onEdit={async (name) => { await reloadServers(); setEditing({ name }) }}
-            onDelete={deleteHost} />
-        </>
-      ) : screen.kind === 'hub' ? (
+    <div className="app">
+      {!ready && (screen.kind === 'hub' ? (
         <HubScreen state={screen.state} />
       ) : screen.kind === 'create-vault' ? (
         <div className="center"><CreateVault servers={servers} onCreate={createVault} /></div>
@@ -139,18 +141,23 @@ export function App() {
           {idleLocked && <p className="muted">Locked after inactivity.</p>}
           <Unlock onUnlock={unlock} error={screen.error} />
         </div>
-      )}
+      ))}
       {(ready || everReady) && (
-        <main className="work" style={ready ? undefined : { display: 'none' }} inert={!ready}><Terminals ref={terms} theme={theme} hostKeys={hostKeys} onMismatch={setMismatch} onTrusted={reloadServers} /></main>
-      )}
-      {ready && (
-        <ApprovalPanel items={items} seedError={seedError}
-          onDecide={(id, outcome, reason) => hub.decide(id, outcome, reason)}
-          onDenyAll={() => hub.denyAll('denied all by user')}
-          onSendToTab={async (item) => {
-            await terms.current!.sendToTab(item.request.server, item.request.command)
-            await hub.decide(item.request.id, 'sent_to_tab')
-          }} />
+        <div className="shell" style={ready ? undefined : { display: 'none' }} inert={!ready}>
+          <main className="work">
+            <Terminals ref={terms} theme={theme} hostKeys={hostKeys} onMismatch={setMismatch} onTrusted={reloadServers}
+              home={hostList} actions={actions} banner={<StoreErrorBanner message={status?.storeError} />} servers={servers} />
+          </main>
+          {ready && (
+            <ApprovalPanel items={items} seedError={seedError}
+              onDecide={(id, outcome, reason) => hub.decide(id, outcome, reason)}
+              onDenyAll={() => hub.denyAll('denied all by user')}
+              onSendToTab={async (item) => {
+                await terms.current!.sendToTab(item.request.server, item.request.command)
+                await hub.decide(item.request.id, 'sent_to_tab')
+              }} />
+          )}
+        </div>
       )}
       {ready && editing && (
         <HostEditor key={editing.name ?? ''} server={servers.find((s) => s.name === editing.name)}

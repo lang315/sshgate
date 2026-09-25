@@ -60,34 +60,46 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 /* == layout == */
 .app { height: 100%; }
 .center { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
-.layout { height: 100%; display: grid; grid-template-rows: auto 36px 1fr; grid-template-columns: 200px 1fr 360px; }
-.store-error { grid-column: 1 / 4; grid-row: 1; padding: 6px 12px; background: var(--danger-tint); color: var(--danger); }
-.layout > .hosts, .layout > .work, .layout > .approvals { grid-row: 3; }
-.layout > header { grid-row: 2; grid-column: 1 / 4; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 0 12px; background: var(--surface); border-bottom: 1px solid var(--divider); }
-.layout > header .spacer { flex: 1; }
-.work { overflow: hidden; }
+.shell { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+.work { min-width: 0; overflow: hidden; }
+.store-error { padding: 10px 16px; background: var(--danger-tint); color: var(--danger); border-bottom: 1px solid var(--divider); }
 .stderr { max-width: 80%; max-height: 50%; overflow: auto; background: var(--term-bg); padding: 8px; }
 
 /* == hosts == */
-.hosts { overflow: auto; background: var(--surface); border-right: 1px solid var(--divider); }
-.hosts ul { list-style: none; padding: 0 8px; margin: 0; }
-.hosts li { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
-.hosts button { flex: 1; text-align: left; background: none; color: inherit; border: 0; cursor: pointer; padding: 4px; }
-.badge { font-size: 10px; padding: 1px 4px; border-radius: 3px; background: var(--accent-tint); color: var(--accent); }
-.badge.warn { background: var(--wait-tint); color: var(--wait); }
-.hosts .new, .hosts button.small { flex: none; }
-.hosts .new { margin: 0 8px 4px; padding: 4px 8px; border: 1px solid var(--line); }
-.hosts button.small { font-size: 11px; color: var(--muted); padding: 2px 4px; }
-.hosts footer { padding: 8px; word-break: break-all; }
+.homeview { position: absolute; inset: 0; overflow: auto; background: var(--bg); }
+.hosts { padding: 20px 24px; display: flex; flex-direction: column; gap: 12px; min-height: 100%; }
+.hosts-head { display: flex; gap: 8px; max-width: 720px; }
+.hosts-head input { flex: 1; }
+.section-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.hostgrid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.hostcard { position: relative; display: flex; background: var(--surface); border: 1px solid var(--divider); border-radius: 8px; }
+.hostcard:hover, .hostcard:focus-within { border-color: var(--line); }
+.hostcard-open { flex: 1; min-width: 0; display: flex; gap: 12px; align-items: center; padding: 12px; background: none; border: 0; text-align: left; border-radius: 8px; }
+.tile { width: 36px; height: 36px; flex: none; border-radius: 8px; display: grid; place-items: center; background: var(--accent-tint); color: var(--accent); font-weight: 600; font-size: 15px; }
+.hostcard-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.hostcard-name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.hostcard-addr { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hostcard-actions { display: flex; align-items: center; gap: 2px; padding-right: 8px; opacity: 0; }
+.hostcard:hover .hostcard-actions, .hostcard:focus-within .hostcard-actions { opacity: 1; }
+.empty { color: var(--muted); padding: 24px 0; }
+.hosts footer { margin-top: auto; padding-top: 12px; word-break: break-all; }
 
 /* == tabs == */
 .terms { height: 100%; display: flex; flex-direction: column; }
-.tabbar { display: flex; gap: 2px; background: var(--surface); overflow-x: auto; }
-.tab { display: flex; align-items: center; background: var(--raised); }
+.tabbar { height: 40px; flex: none; display: flex; align-items: flex-end; gap: 2px; padding: 0 8px; background: var(--surface); border-bottom: 1px solid var(--divider); overflow-x: auto; }
+.hometab, .tab { height: 32px; display: flex; align-items: center; gap: 6px; border-radius: 8px 8px 0 0; color: var(--muted); }
+.hometab { padding: 0 12px; background: none; border: 0; font-weight: 500; }
+.hometab.active, .tab.active { background: var(--bg); color: var(--text); }
 .tab.active { background: var(--term-bg); }
-.tab button { background: none; color: inherit; border: 0; padding: 6px 8px; cursor: pointer; }
-.termarea { flex: 1; position: relative; background: var(--term-bg); }
-.term { position: absolute; inset: 0; padding: 4px 8px; }
+.tab { padding-left: 4px; }
+.tab .tabname { height: 100%; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 8px; background: none; border: 0; color: inherit; font-weight: 500; white-space: nowrap; }
+.tab .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.tab.exited .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.tab .reconnect { background: var(--accent-tint); color: var(--accent); border: 0; border-radius: 4px; padding: 2px 6px; font-size: 12px; font-weight: 600; }
+.tab .tabclose { width: 22px; height: 22px; }
+.tabbar-actions { margin-left: auto; align-self: center; display: flex; align-items: center; gap: 8px; padding-left: 12px; }
+.termarea { flex: 1; min-height: 0; position: relative; background: var(--term-bg); }
+.term { position: absolute; inset: 0; padding: 6px 10px; }
 
 /* == approvals == */
 .approvals { overflow: auto; background: var(--surface); border-left: 1px solid var(--divider); padding: 0 8px; }

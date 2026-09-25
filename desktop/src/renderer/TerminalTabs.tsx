@@ -1,7 +1,8 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import type { HostKeyMismatch } from '../shared/protocol'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react'
+import type { HostKeyMismatch, ServerInfo } from '../shared/protocol'
 import { hub } from './transport'
 import type { HostKeyPrompts } from './hostkeys'
+import { CloseIcon, HomeIcon } from './icons'
 import { Dispatcher, TabSet } from './terminals'
 import { TermView, type TermApi, type TermEvent } from './TermView'
 import type { Theme } from './theme'
@@ -14,7 +15,8 @@ export interface TerminalsHandle {
 
 export const Terminals = forwardRef<TerminalsHandle, {
   theme: Theme; hostKeys: HostKeyPrompts; onMismatch: (m: HostKeyMismatch) => void; onTrusted: () => void
-}>(function Terminals({ theme, hostKeys, onMismatch, onTrusted }, ref) {
+  home: ReactNode; actions: ReactNode; banner: ReactNode; servers: ServerInfo[]
+}>(function Terminals({ theme, hostKeys, onMismatch, onTrusted, home: homeContent, actions, banner, servers }, ref) {
   const tabs = useRef(new TabSet()).current
   const apis = useRef(new Map<string, TermApi>()).current
   const events = useRef(new Dispatcher<TermEvent>()).current
@@ -54,22 +56,33 @@ export const Terminals = forwardRef<TerminalsHandle, {
     openCount: (server) => tabs.openCount(server),
   }))
 
+  const home = tabs.active === undefined
+  const target = (server: string) => {
+    const s = servers.find((x) => x.name === server)
+    return s ? `${s.user}@${s.host}:${s.port}` : server
+  }
   return (
     <div className="terms">
       <div className="tabbar">
+        <button type="button" className={'hometab' + (home ? ' active' : '')} onClick={() => { tabs.showHome(); changed() }}>
+          <HomeIcon />Hosts
+        </button>
         {tabs.tabs.map((t) => (
-          <div key={t.id} className={'tab' + (t.id === tabs.active ? ' active' : '')}>
-            <button onClick={() => { tabs.activate(t.id); changed() }}>
-              {t.server}{t.state === 'exited' ? ' (exited)' : ''}
+          <div key={t.id} className={'tab' + (t.id === tabs.active ? ' active' : '') + (t.state === 'exited' ? ' exited' : '')} title={target(t.server)}>
+            <button type="button" className="tabname" onClick={() => { tabs.activate(t.id); changed() }}>
+              <span className="dot" aria-hidden="true" />{t.server}{t.state === 'exited' ? ' · exited' : ''}
             </button>
             {t.state === 'exited' && (
-              <button onClick={() => { tabs.close(t.id); tabs.open(t.server); changed() }}>Reconnect</button>
+              <button type="button" className="reconnect" onClick={() => { tabs.close(t.id); tabs.open(t.server); changed() }}>Reconnect</button>
             )}
-            <button title="Close" aria-label="Close" onClick={() => { tabs.close(t.id); changed() }}>×</button>
+            <button type="button" className="icon tabclose" title="Close" aria-label="Close" onClick={() => { tabs.close(t.id); changed() }}><CloseIcon /></button>
           </div>
         ))}
+        <div className="tabbar-actions">{actions}</div>
       </div>
+      {banner}
       <div className="termarea">
+        <div className="homeview" style={{ display: home ? 'block' : 'none' }}>{homeContent}</div>
         {tabs.tabs.map((t) => (
           <TermView key={t.id} tab={t} tabs={tabs} events={events} visible={t.id === tabs.active} onChange={changed} register={register}
             theme={theme} hostKeys={hostKeys} onMismatch={onMismatch} onTrusted={onTrusted} />

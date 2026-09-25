@@ -62,3 +62,11 @@ export function vaultPasswordProblem(pw: string, again: string): string | undefi
   if (pw !== again) return 'The passwords do not match.'
   return undefined
 }
+
+// The Hosts search: a substring of the name, host or user, ignoring case.
+// Renderer-only, so typing never calls the hub (and never resets the idle lock).
+export function filterHosts(servers: ServerInfo[], query: string): ServerInfo[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return servers
+  return servers.filter((s) => [s.name, s.host, s.user].some((f) => f.toLowerCase().includes(q)))
+}

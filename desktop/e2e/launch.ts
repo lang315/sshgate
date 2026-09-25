@@ -47,6 +47,7 @@ export async function unlock(win: Page): Promise<void> {
 }
 
 export async function openBox(win: Page): Promise<void> {
+  await win.locator('.tabbar .hometab').click()
   await win.locator('nav.hosts').getByRole('button', { name: 'box', exact: true }).click()
   await win.locator('.xterm').click()
 }
