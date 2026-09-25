@@ -33,10 +33,12 @@ plan note.
 |---|---|---|---|---|---|---|
 | 0 | Go conversion + web config UI | Done | `specs/2026-07-31-go-conversion-web-ui-design.md` | — | — | Merged on `feat/go-conversion`; CI runs `go test` |
 | 1 | Desktop app: hub, broker, MCP door, Electron shell, terminal tabs, approval panel | 1a and 1b done; manual checklist pending | `specs/2026-09-24-desktop-app-design.md` | 0 | Spec approved | Success criteria 1–6 in the spec; author uses it daily |
-| 2 | Terminal completeness: host CRUD in the app (delete `ssh-mcp web`), host-key fingerprint prompt, split panes, `~/.ssh/config` import, ProxyJump, Windows agent (OpenSSH pipe, Pageant), local shell via a hub-side PTY (`go-pty`; replaces `node-pty`) | Spec drafted; entry gate overridden by the author 2026-09-25 | `specs/2026-09-25-desktop-slice2-design.md` | 1 | Slice 1 used daily for two weeks; throughput criteria passed; stdio transport decision settled | Author no longer opens `ssh-mcp web` or another terminal for SSH work |
-| 3 | SFTP and port forwarding (local, remote, dynamic) | Not specced | — | 2 | Slice 2 done | File browser and tunnels usable from a saved host |
+| 2a | Host management in the app (create vault, host CRUD, Forget), host-key fingerprint prompt, no silent TOFU on any hub path, safe vault writes (`config.Update`) | Spec drafted; entry gate overridden by the author 2026-09-25 for 2a only | `specs/2026-09-25-desktop-slice2a-design.md` | 1 | Author override (unlocking twice for app + web blocks daily use) | Author manages hosts only in the app for a week; then delete `ssh-mcp web` |
+| 2b | ProxyJump (one hop first) and `~/.ssh/config` + `known_hosts` import | Not specced | — | 2a | The author has a real host behind a bastion, or a real config to import | Bastion host connects and runs an approved AI command |
+| 2c | Split panes, local shell, Windows agent (OpenSSH pipe, Pageant) | Not specced | — | 2a | Daily use shows the need (panes, local shell); a Windows machine to test on (agent) | Author does not open another terminal for SSH work |
+| 3 | SFTP and port forwarding (local, remote, dynamic) | Not specced | — | 2a | Slice 2a done | File browser and tunnels usable from a saved host |
 | 4 | Egress and audit: pattern redaction of command output (private keys, `password=`, bearer tokens), audit rotation, audit viewer in the app | Not specced | — | 1 | A real incident, or a host with secrets the AI must query | Redaction tests pass on a corpus of real outputs |
-| 5 | Distribution: code signing, notarization, auto-update, installers, CI release builds | Not specced | — | 2 | A second user asks for a build | Signed builds for all three OSes from CI |
+| 5 | Distribution: code signing, notarization, auto-update, installers, CI release builds | Not specced | — | 2a | A second user asks for a build | Signed builds for all three OSes from CI |
 | — | Sync between machines, mobile, plugin API, Tabby plugin | Unscheduled | — | — | Explicit decision | — |
 
 ## Rules for this file
@@ -63,3 +65,20 @@ plan note.
 - Slice 1 → 4: which remote-host secrets actually appeared in command
   output during daily use; drives the redaction pattern list.
 - Slice 1b → 2 (answered): CI now also runs on pushes to `feat/go-conversion`. Its first runs found two real bugs, both fixed: su elevation could block forever on a silent shell (`278454b`), and keepalive never reported a connection that died before its first tick (`db94eb6`). They also found a hung-poll flake in the smoke test (`10d1d5e`). Both jobs, Docker integration tests included, pass as of run 36083544252; throughput on the runner was 38 MB/s.
+- Slice 2 review → 2b (2026-09-25, four-agent review of the bundled draft):
+  - A tunnelled dial has no handshake timeout. `ClientConfig.Timeout` covers only the TCP dial, and `ensure` holds `m.mu`. Bound `DialContext` + `NewClientConn` and give the whole chain one budget.
+  - `redactorFor` must walk the bastion's secrets.
+  - Changing `jump` must clear the pin.
+  - Start with one hop.
+  - The import must honour `Host *` defaults and `Include` (OrbStack/Colima add one) and use the alias as the hostname when there is no `HostName`.
+  - The import must keep `ProxyJump` or refuse the host rather than dial it directly.
+  - The import must validate names and dedupe.
+  - The import must offer `known_hosts` fingerprints instead of blind Trust prompts.
+- Slice 2 review → 2c:
+  - Never bind Ctrl+D, Ctrl+W, or bare Ctrl+Alt+Arrow for panes on Windows/Linux; `checklists/slice1-manual.md` item 9 needs Ctrl+W in the shell.
+  - The go-pty `LocalTerm` must be closed on process exit, or `newTerm`'s read-to-EOF never ends.
+  - Local-shell input must not count as idle activity.
+  - "Send to tab" must never target a local shell.
+  - A local shell while locked widens what a compromised renderer can do; justify it or refuse it.
+  - `go-pageant` has had no release since 2021.
+- Slice 2 review → later: keyboard-interactive/2FA auth, agent forwarding, and host list search came up as daily-use gaps. Add them only if daily use hits them.
