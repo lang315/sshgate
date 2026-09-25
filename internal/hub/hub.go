@@ -185,6 +185,9 @@ func (h *Hub) emit(e broker.Event) {
 	}
 }
 
+// deriveKey is Unlock's key derivation; a test seam.
+var deriveKey = (*config.KDF).DeriveKey
+
 // Unlock derives the master key, checks it against the verifier, and checks
 // the file MAC.
 func (h *Hub) Unlock(pw string) error {
@@ -194,7 +197,7 @@ func (h *Hub) Unlock(pw string) error {
 	if f == nil || f.KDF == nil {
 		return nil // no vault; the AI and terminals get nothing until vault.create
 	}
-	mk, err := f.KDF.DeriveKey(pw)
+	mk, err := deriveKey(f.KDF, pw)
 	if err != nil {
 		return err
 	}

@@ -15,6 +15,9 @@ import (
 // gives a key to encrypt with and to MAC under.
 var errNoVault = errors.New("create a vault first")
 
+// newKDF is config.NewKDF; a test seam that counts key derivations.
+var newKDF = config.NewKDF
+
 // CreateVault gives a store with no master password (or no file yet) one.
 // Kept servers lose aiVisible and their pins: a KDF-less file was never
 // MAC'd, so its flags and pins are unauthenticated, and a pin must come
@@ -33,7 +36,7 @@ func (h *Hub) CreateVault(pw string) error {
 	if f, err := config.Load(h.o.StorePath); err == nil && f.KDF != nil {
 		return errors.New("a vault already exists")
 	}
-	k, mk, err := config.NewKDF(pw)
+	k, mk, err := newKDF(pw)
 	if err != nil {
 		return err
 	}

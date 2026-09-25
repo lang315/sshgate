@@ -143,3 +143,24 @@ func TestVaultCreateReloadFailureLeavesHubLocked(t *testing.T) {
 		t.Fatalf("unlock with the new password: %v", err)
 	}
 }
+
+// vault.create derives the key exactly once (in NewKDF) and installs it
+// directly: it never runs Unlock's derivation, a second Argon2 pass.
+func TestVaultCreateDerivesKeyOnce(t *testing.T) {
+	h, _ := newHubAt(t, nil, nil)
+	var kdfRuns, derives int
+	newKDF = func(pw string) (config.KDF, []byte, error) { kdfRuns++; return config.NewKDF(pw) }
+	deriveKey = func(k *config.KDF, pw string) ([]byte, error) { derives++; return k.DeriveKey(pw) }
+	t.Cleanup(func() { newKDF, deriveKey = config.NewKDF, (*config.KDF).DeriveKey })
+	if err := h.CreateVault("longenough"); err != nil {
+		t.Fatal(err)
+	}
+	if kdfRuns != 1 || derives != 0 || h.Locked() {
+		t.Fatalf("NewKDF runs = %d, Unlock derivations = %d, locked = %v", kdfRuns, derives, h.Locked())
+	}
+	// The seam is live: Unlock does go through it.
+	h.Lock()
+	if err := h.Unlock("longenough"); err != nil || derives != 1 {
+		t.Fatalf("unlock: %v, derivations = %d", err, derives)
+	}
+}
