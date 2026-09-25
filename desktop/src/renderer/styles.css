@@ -169,10 +169,6 @@ input.is-changed { border-color: var(--wait); }
 /* == dialogs == */
 .modal { position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; }
 .dialog { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 20px 24px; width: 520px; max-width: calc(100% - 32px); max-height: 90%; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
-.dialog label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
-.dialog label.check { flex-direction: row; align-items: center; gap: 6px; }
-.dialog .row { display: flex; gap: 6px; align-items: flex-end; }
-.dialog .row label { flex: 1; }
 .dialog.mismatch { border-color: var(--danger); border-top-width: 3px; }
 .dialog-title { display: flex; align-items: center; gap: 10px; }
 .dialog-title h3 { font-size: 18px; }
@@ -188,7 +184,6 @@ input.is-changed { border-color: var(--wait); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .dialog-actions .allow { background: transparent; color: var(--ok); border: 1px solid var(--ok); }
 .dialog-actions kbd { margin-left: 6px; }
-.mismatch-text { color: var(--danger); }
 
 /* == lock == */
 .lockpage { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px; background: var(--bg); }

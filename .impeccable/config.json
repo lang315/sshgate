@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "desktop/src/renderer/styles.css"
+        ],
+        "createdAt": "2026-09-25T11:13:33.293Z",
+        "reason": "spec 2026-09-25-desktop-ui-redesign-design.md (user-approved rev 2) mandates a 3px left edge on approval cards as a state signal: amber waiting, red sudo"
+      }
+    ]
+  }
+}
