@@ -3,16 +3,18 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { hub, fromBase64 } from './transport'
-import type { HubEvent } from '../shared/protocol'
+import type { HostKeyMismatch, HubEvent } from '../shared/protocol'
+import type { HostKeyPrompts } from './hostkeys'
 import { clipboardKey, Debouncer, isUserInput, printable, type Dispatcher, type Tab, type TabSet } from './terminals'
 
 export interface TermApi { paste(text: string): void }
 // A hub event for this tab's id, or 'hub.stopped' when the hub leaves the running state.
 export type TermEvent = HubEvent | { method: 'hub.stopped' }
 
-export function TermView({ tab, tabs, events, visible, onChange, register }: {
+export function TermView({ tab, tabs, events, visible, onChange, register, hostKeys, onMismatch, onTrusted }: {
   tab: Tab; tabs: TabSet; events: Dispatcher<TermEvent>; visible: boolean; onChange: () => void
   register: (id: string, api: TermApi | undefined) => void
+  hostKeys: HostKeyPrompts; onMismatch: (m: HostKeyMismatch) => void; onTrusted: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal>(undefined)
@@ -46,6 +48,7 @@ export function TermView({ tab, tabs, events, visible, onChange, register }: {
     const end = (reason: string) => {
       if (phase === 'ended') return
       phase = 'ended'
+      hostKeys.drop(tab.id) // a prompt for a dead tab must not stay queued
       reason = printable(reason)
       term.write(`\r\n[exited: ${reason}]\r\n`)
       tabs.exited(tab.id, reason)
@@ -54,7 +57,23 @@ export function TermView({ tab, tabs, events, visible, onChange, register }: {
 
     register(tab.id, { paste: (text) => term.paste(text) })
 
-    const opening = hub.termOpen(tab.id, tab.server, sent.rows, sent.cols)
+    // An unknown host key goes to the user; each Trust retries once, with the
+    // same id, pinned to exactly the confirmed key. A changed key is refused.
+    const open = async (): Promise<void> => {
+      let r = await hub.termOpen(tab.id, tab.server, sent.rows, sent.cols)
+      let trusted = false
+      while (r.status === 'hostKeyUnknown') {
+        if (!(await hostKeys.ask(tab.id, r)) || disposed || phase !== 'opening') throw new Error('host key not trusted')
+        r = await hub.termOpen(tab.id, tab.server, sent.rows, sent.cols, { fingerprint: r.fingerprint, keyType: r.keyType })
+        trusted = true
+      }
+      if (r.status === 'hostKeyMismatch') {
+        onMismatch(r)
+        throw new Error('host key mismatch')
+      }
+      if (trusted) onTrusted()
+    }
+    const opening = open()
     opening.then(
       () => {
         if (disposed || phase !== 'opening') return
@@ -114,6 +133,7 @@ export function TermView({ tab, tabs, events, visible, onChange, register }: {
 
     return () => {
       disposed = true
+      hostKeys.drop(tab.id)
       ro.disconnect(); resize.cancel(); dataSub.dispose(); off()
       for (const t of inputEvents) el.removeEventListener(t, input, true)
       register(tab.id, undefined)

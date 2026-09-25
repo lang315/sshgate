@@ -1,5 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import type { HostKeyMismatch } from '../shared/protocol'
 import { hub } from './transport'
+import type { HostKeyPrompts } from './hostkeys'
 import { Dispatcher, TabSet } from './terminals'
 import { TermView, type TermApi, type TermEvent } from './TermView'
 
@@ -9,7 +11,9 @@ export interface TerminalsHandle {
   openCount(server: string): number
 }
 
-export const Terminals = forwardRef<TerminalsHandle>(function Terminals(_props, ref) {
+export const Terminals = forwardRef<TerminalsHandle, {
+  hostKeys: HostKeyPrompts; onMismatch: (m: HostKeyMismatch) => void; onTrusted: () => void
+}>(function Terminals({ hostKeys, onMismatch, onTrusted }, ref) {
   const tabs = useRef(new TabSet()).current
   const apis = useRef(new Map<string, TermApi>()).current
   const events = useRef(new Dispatcher<TermEvent>()).current
@@ -66,7 +70,8 @@ export const Terminals = forwardRef<TerminalsHandle>(function Terminals(_props, 
       </div>
       <div className="termarea">
         {tabs.tabs.map((t) => (
-          <TermView key={t.id} tab={t} tabs={tabs} events={events} visible={t.id === tabs.active} onChange={changed} register={register} />
+          <TermView key={t.id} tab={t} tabs={tabs} events={events} visible={t.id === tabs.active} onChange={changed} register={register}
+            hostKeys={hostKeys} onMismatch={onMismatch} onTrusted={onTrusted} />
         ))}
       </div>
     </div>

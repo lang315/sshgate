@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { HubState, ServerInfo, Status } from '../shared/protocol'
+import type { HostKeyMismatch, HubState, ServerInfo, Status } from '../shared/protocol'
 import { hub } from './transport'
 import { screenFor } from './shell'
 import { Unlock } from './Unlock'
 import { CreateVault } from './CreateVault'
 import { HostList } from './HostList'
 import { HostEditor } from './HostEditor'
+import { HostKeyDialog, HostKeyMismatchDialog } from './HostKeyDialog'
+import { HostKeyPrompts } from './hostkeys'
 import { Terminals, type TerminalsHandle } from './TerminalTabs'
 import { ApprovalPanel } from './ApprovalPanel'
 import { Latest, mergeSeed, reduceApprovals, type PendingItem } from './approvals'
@@ -19,6 +21,8 @@ export function App() {
   const terms = useRef<TerminalsHandle>(null)
   const [everReady, setEverReady] = useState(false)
   const [editing, setEditing] = useState<{ name?: string; focusForget?: boolean }>()
+  const hostKeys = useRef(new HostKeyPrompts()).current
+  const [mismatch, setMismatch] = useState<HostKeyMismatch>()
 
   const refresh = useCallback(async () => {
     try { setStatus(await hub.status()) } catch { setStatus(undefined) }
@@ -116,7 +120,7 @@ export function App() {
         </div>
       )}
       {(ready || everReady) && (
-        <main className="work" style={ready ? undefined : { display: 'none' }} inert={!ready}><Terminals ref={terms} /></main>
+        <main className="work" style={ready ? undefined : { display: 'none' }} inert={!ready}><Terminals ref={terms} hostKeys={hostKeys} onMismatch={setMismatch} onTrusted={reloadServers} /></main>
       )}
       {ready && (
         <ApprovalPanel items={items} seedError={seedError}
@@ -133,6 +137,11 @@ export function App() {
           onSave={async (input, original) => { await hub.saveServer(input, original); await reloadServers(); setEditing(undefined) }}
           onForget={async (name) => { await hub.forgetHostKey(name); await reloadServers() }}
           onClose={() => setEditing(undefined)} />
+      )}
+      {ready && <HostKeyDialog prompts={hostKeys} />}
+      {ready && mismatch && (
+        <HostKeyMismatchDialog info={mismatch} onClose={() => setMismatch(undefined)}
+          onEdit={async () => { const name = mismatch.server; setMismatch(undefined); await reloadServers(); setEditing({ name, focusForget: true }) }} />
       )}
     </div>
   )
