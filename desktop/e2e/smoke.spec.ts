@@ -25,6 +25,8 @@ test.beforeAll(async () => {
     cwd: path.resolve(__dirname, '..'),
     env: { ...process.env, SSH_MCP_BIN: path.join(bin, 'ssh-mcp' + exe), SSH_MCP_STORE: store, SSH_MCP_RUNTIME_DIR: tmp },
   })
+  // Main's stderr (recoverRenderer logs, hub stderr) shows up in the test output.
+  app.process().stderr?.on('data', (d) => process.stderr.write(`[main] ${d}`))
 })
 
 test.afterAll(async () => {
