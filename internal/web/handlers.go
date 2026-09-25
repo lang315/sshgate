@@ -143,7 +143,13 @@ func (a *App) handleServerByName(w http.ResponseWriter, r *http.Request) {
 					old := f.Servers[i]
 					updated := dtoToServer(dto)
 					updated.Name = name
-					// The form has no key type; keep the app's with its pin.
+					// The list may be stale: a pin equal to the one last served
+					// (a.file, not yet replaced) is "unchanged" and keeps the
+					// on-disk pin, which may be newer. The form has no key type;
+					// keep the app's with its pin.
+					if cached, _ := a.file.FindServer(name); updated.HostKey == cached.HostKey {
+						updated.HostKey = old.HostKey
+					}
 					if updated.HostKey == old.HostKey {
 						updated.HostKeyAlgo = old.HostKeyAlgo
 					}

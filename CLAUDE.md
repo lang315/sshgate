@@ -59,6 +59,7 @@ If Docker is unavailable, integration tests skip themselves instead of failing. 
 - The server binds `127.0.0.1:8422` only. `securityMiddleware` enforces a Host allowlist and sets CSP and no-store headers.
 - Mutating endpoints go through `writeGuard`, which checks Origin, requires JSON content-type, and compares the `X-CSRF-Token` header against the session.
 - On first run, a bootstrap token printed to stderr is needed to set the master password. Unlock has attempt-based lockout.
+- A server PUT treats a `hostKey` equal to the one the UI last served (`a.file`) as unchanged and keeps the on-disk pin and `HostKeyAlgo`, so a stale list never writes back an old pin; only a different value is an edit.
 - `testconn.go` returns deliberately generic failure messages so SSH error details do not leak.
 
 **`desktop/`** (Electron; wraps `internal/hub`'s UI door):

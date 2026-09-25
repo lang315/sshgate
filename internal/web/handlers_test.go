@@ -163,3 +163,34 @@ func TestPutKeepsHostKeyAlgoWithThePin(t *testing.T) {
 		}
 	}
 }
+
+// The web list can be stale: a PUT that carries the pin the web UI last
+// served keeps the newer pin on disk; only a different value is an edit.
+func TestPutDoesNotWriteBackStalePin(t *testing.T) {
+	app, csrf := initApp(t)
+	doWrite(t, app, csrf, "POST", "/api/servers", `{"name":"p","host":"h","port":22,"user":"u","auth":"agent","hostKey":"SHA256:old"}`)
+	// The app re-pins behind the web UI.
+	if err := config.Update(app.Path, app.sess.MasterKey, func(f *config.File) error {
+		f.Servers[0].HostKey, f.Servers[0].HostKeyAlgo = "SHA256:new", "ssh-ed25519"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	w := doWrite(t, app, csrf, "PUT", "/api/servers/p", `{"name":"p","host":"h","port":22,"user":"u","auth":"agent","aiVisible":true,"hostKey":"SHA256:old"}`)
+	if w.Code != 200 {
+		t.Fatalf("PUT code %d body %s", w.Code, w.Body.String())
+	}
+	f, _ := config.Load(app.Path)
+	if s, _ := f.FindServer("p"); s.HostKey != "SHA256:new" || s.HostKeyAlgo != "ssh-ed25519" || !s.AIVisible {
+		t.Fatalf("stale pin written back: %+v", s)
+	}
+	// An explicit edit (here, clearing the pin) still applies.
+	w = doWrite(t, app, csrf, "PUT", "/api/servers/p", `{"name":"p","host":"h","port":22,"user":"u","auth":"agent","hostKey":""}`)
+	if w.Code != 200 {
+		t.Fatalf("PUT code %d body %s", w.Code, w.Body.String())
+	}
+	f, _ = config.Load(app.Path)
+	if s, _ := f.FindServer("p"); s.HostKey != "" || s.HostKeyAlgo != "" {
+		t.Fatalf("explicit clear ignored: %+v", s)
+	}
+}
