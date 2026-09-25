@@ -40,7 +40,7 @@ Every AI-issued command blocks on an explicit human Allow. There are no auto-app
 
 - Name: ssh-mcp.
 - No logo for now (the user skipped it). Colours are delegated to the design work; no separate brand palette exists.
-- Standing visual preference (chosen 2026-09-25): the category standard, a Termius-like SSH client (navy dark, blue accent, host cards, top tabs), executed at Termius's craft level. Not Termius's name, logo, or assets.
+- Standing visual preference (2026-09-25): the user's own design (`ssh-mcp Desktop UI.html`): warm-neutral dark, teal focus/link accent, Termius-like structure (host cards, top tabs) at Termius's craft level. System fonts. Not Termius's name, logo, or assets.
 
 ## Evidence on Hand
 
