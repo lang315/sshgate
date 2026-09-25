@@ -1,4 +1,5 @@
 let csrf = null;
+let revision = null; // the list's ETag; PUT and DELETE send it as If-Match
 
 async function api(method, path, body) {
   const opts = { method, headers: {} };
@@ -6,8 +7,14 @@ async function api(method, path, body) {
     opts.headers['Content-Type'] = 'application/json';
     if (csrf) opts.headers['X-CSRF-Token'] = csrf;
   }
+  if ((method === 'PUT' || method === 'DELETE') && revision) opts.headers['If-Match'] = revision;
   if (body !== undefined) opts.body = JSON.stringify(body);
   const res = await fetch(path, opts);
+  if (res.headers.get('ETag')) revision = res.headers.get('ETag');
+  if (res.status === 412) {
+    showList();
+    throw new Error('The server list changed (another tab or app); it has been reloaded. Please redo your change.');
+  }
   if (!res.ok) throw new Error((await res.text()) || res.status);
   const ct = res.headers.get('content-type') || '';
   return ct.includes('json') ? res.json() : res.text();

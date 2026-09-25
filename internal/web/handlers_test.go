@@ -124,20 +124,78 @@ func TestServerDTOCarriesAIVisible(t *testing.T) {
 	}
 }
 
-func TestPutStaleIfMatchConflicts(t *testing.T) {
-	app, csrf := initApp(t)
-	doWrite(t, app, csrf, "POST", "/api/servers", `{"name":"p","host":"h","port":22,"user":"u","auth":"password","password":"x"}`)
-	r := httptest.NewRequest("PUT", "/api/servers/p", strings.NewReader(`{"name":"p","host":"h2","port":22,"user":"u","auth":"password"}`))
+func writeIfMatch(t *testing.T, app *App, csrf, method, path, body, ifMatch string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Origin", "http://127.0.0.1:8422")
 	r.Header.Set("X-CSRF-Token", csrf)
-	r.Header.Set("If-Match", "999")
+	r.Header.Set("If-Match", ifMatch)
 	c := cookieFor(app)
 	r.AddCookie(&c)
 	w := httptest.NewRecorder()
 	app.handleServerByName(w, r)
-	if w.Code != http.StatusPreconditionFailed {
-		t.Fatalf("stale If-Match must be 412, got %d body %s", w.Code, w.Body.String())
+	return w
+}
+
+// listETag GETs the list and returns its ETag, the revision to send back.
+func listETag(t *testing.T, app *App) string {
+	t.Helper()
+	r := httptest.NewRequest("GET", "/api/servers", nil)
+	c := cookieFor(app)
+	r.AddCookie(&c)
+	w := httptest.NewRecorder()
+	app.handleServers(w, r)
+	if w.Code != 200 {
+		t.Fatalf("GET code %d", w.Code)
+	}
+	return w.Header().Get("ETag")
+}
+
+// A stale If-Match on PUT or DELETE is 412 and changes nothing.
+func TestStaleIfMatchConflicts(t *testing.T) {
+	app, csrf := initApp(t)
+	doWrite(t, app, csrf, "POST", "/api/servers", `{"name":"p","host":"h","port":22,"user":"u","auth":"password","password":"x"}`)
+	for _, m := range []string{"PUT", "DELETE"} {
+		w := writeIfMatch(t, app, csrf, m, "/api/servers/p", `{"name":"p","host":"h2","port":22,"user":"u","auth":"password"}`, "999")
+		if w.Code != http.StatusPreconditionFailed {
+			t.Fatalf("%s: stale If-Match must be 412, got %d body %s", m, w.Code, w.Body.String())
+		}
+		f, err := config.Load(app.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s, ok := f.FindServer("p"); !ok || s.Host != "h" {
+			t.Fatalf("%s: stale write changed the store: %+v %v", m, s, ok)
+		}
+	}
+}
+
+// The list's ETag is the revision a write must match. A write from another
+// process makes it stale; the next list serves the new one.
+func TestListETagIsTheWriteRevision(t *testing.T) {
+	app, csrf := initApp(t)
+	doWrite(t, app, csrf, "POST", "/api/servers", `{"name":"p","host":"h","port":22,"user":"u","auth":"agent"}`)
+	old := listETag(t, app)
+	if old == "" {
+		t.Fatal("list has no ETag")
+	}
+	if err := config.RecordHostKey(app.Path, "p", "h", 22, "SHA256:x", "", app.sess.MasterKey); err != nil {
+		t.Fatal(err)
+	}
+	cur := listETag(t, app)
+	if cur == old {
+		t.Fatal("list ETag did not follow an outside write")
+	}
+	body := `{"name":"p","host":"h2","port":22,"user":"u","auth":"agent","hostKey":"SHA256:x"}`
+	if w := writeIfMatch(t, app, csrf, "PUT", "/api/servers/p", body, old); w.Code != http.StatusPreconditionFailed {
+		t.Fatalf("old ETag: got %d", w.Code)
+	}
+	if w := writeIfMatch(t, app, csrf, "PUT", "/api/servers/p", body, cur); w.Code != 200 {
+		t.Fatalf("current ETag: got %d body %s", w.Code, w.Body.String())
+	}
+	if w := writeIfMatch(t, app, csrf, "DELETE", "/api/servers/p", "", listETag(t, app)); w.Code != 204 {
+		t.Fatalf("DELETE with current ETag: got %d body %s", w.Code, w.Body.String())
 	}
 }
 

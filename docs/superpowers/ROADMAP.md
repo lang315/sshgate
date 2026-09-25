@@ -86,4 +86,5 @@ plan note.
   - A KDF-less store (stripped `kdf`, or never a vault) is "no vault" to the hub: `listServers` is empty, AI exec fails with "No vault yet; open the app and create one" (audited, never dialled), and `term.open` fails with "create a vault first". No out-of-file state was needed (`68cac3c`).
   - The hub remembers the last reload error; `status` returns it as `storeError` (fixed text), the app shows a red banner, and `servers.*` writes return a failed post-write reload (`7493f09`).
   - The web UI's PUT treats a `hostKey` equal to the one it last served as unchanged and keeps the on-disk pin (`251eae9`).
+  - The web UI sends the list's revision (`ETag`) as `If-Match` on PUT and DELETE; a stale one is 412 and the page reloads the list. `GET /api/servers` re-reads the store so the revision follows the hub's writes.
   - `vault.create` is asserted to derive the key once and never run Unlock's derivation (`newKDF`/`deriveKey` seams, `e28d64a`).

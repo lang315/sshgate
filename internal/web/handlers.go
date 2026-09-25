@@ -48,12 +48,19 @@ func (a *App) writeGuard(w http.ResponseWriter, r *http.Request) (*Session, bool
 func (a *App) handleServers(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		if _, err := a.requireSession(r); err != nil {
+		sess, err := a.requireSession(r)
+		if err != nil {
 			http.Error(w, "unauthorized", 401)
 			return
 		}
 		a.mu.Lock()
 		defer a.mu.Unlock()
+		// Other writers (the hub, another process) move the file on; serve
+		// the revision a write will be checked against.
+		if f, err := config.Load(a.Path); err == nil && f.KDF != nil && f.VerifyMAC(sess.MasterKey) == nil {
+			a.file = f
+		}
+		w.Header().Set("ETag", `"`+strconv.Itoa(a.file.Revision)+`"`)
 		var out []ServerDTO
 		for _, s := range a.file.Servers {
 			out = append(out, serverToDTO(s))
@@ -101,9 +108,16 @@ func (a *App) handleServerByName(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	ifMatch := 0
+	if h := r.Header.Get("If-Match"); h != "" {
+		ifMatch, _ = strconv.Atoi(strings.Trim(h, `"`))
+	}
 	switch r.Method {
 	case http.MethodDelete:
 		err := a.saveLocked(func(f *config.File) error {
+			if ifMatch != 0 && f.Revision != ifMatch {
+				return errRevisionConflict
+			}
 			out := f.Servers[:0]
 			found := false
 			for _, s := range f.Servers {
@@ -119,6 +133,10 @@ func (a *App) handleServerByName(w http.ResponseWriter, r *http.Request) {
 			f.Servers = out
 			return nil
 		})
+		if errors.Is(err, errRevisionConflict) {
+			http.Error(w, "revision conflict", http.StatusPreconditionFailed)
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), 404)
 			return
@@ -129,10 +147,6 @@ func (a *App) handleServerByName(w http.ResponseWriter, r *http.Request) {
 		if err := readJSON(r, &dto); err != nil {
 			http.Error(w, "bad request", 400)
 			return
-		}
-		ifMatch := 0
-		if h := r.Header.Get("If-Match"); h != "" {
-			ifMatch, _ = strconv.Atoi(h)
 		}
 		err := a.saveLocked(func(f *config.File) error {
 			if ifMatch != 0 && f.Revision != ifMatch {
