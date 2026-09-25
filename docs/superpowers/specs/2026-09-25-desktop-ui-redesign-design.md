@@ -5,7 +5,7 @@ Product context: `PRODUCT.md`. Visual reference: the user's design `ssh-mcp Desk
 
 ## Goal
 
-Replace the desktop app's placeholder look with a finished SSH client shell: one tab strip with a fixed Hosts home tab, a searchable host card grid, a docked AI approval column that opens itself and collapses when idle, a sectioned host editor, clearer host-key dialogs and lock screens, and dark, light and Auto themes. The terminal gets the full window width whenever nothing needs the user.
+Replace the desktop app's placeholder look with a finished SSH client shell: one tab strip with a fixed Hosts home tab, a searchable host card grid, a docked AI approval column that opens itself and that the user collapses, a sectioned host editor, clearer host-key dialogs and lock screens, and dark, light and Auto themes. The terminal gets the full window width whenever the column is collapsed.
 
 No hub, protocol, IPC or main-process change. Every approval and host-key safety rule survives, and four are added (§Safety).
 
@@ -42,7 +42,7 @@ No hub, protocol, IPC or main-process change. Every approval and host-key safety
 
 **Tab strip** (`TerminalTabs.tsx` renders it; `App` passes the right cluster as a `ReactNode` prop):
 - `⌂ Hosts` home tab, class `hometab` (not `tab`, so `.tabbar .tab` still means terminal tabs). Active when `TabSet.active` is undefined. Clicking it calls a new `TabSet.showHome()`. Closing the last terminal tab already leaves `active` undefined, which now shows Hosts.
-- Terminal tabs keep today's markup: `.tab` containing a name `<button>` first (not `role="tab"`; e2e takes `.tabbar .tab` → first button), `Reconnect` when exited, `×` with `aria-label="Close"`. Add a 7 px status dot (connected `--ok`, exited `--muted` ring) and ` · exited` text. Active tab: `--surface` background joined to the content below. Tab `title` = `user@host:port`.
+- Terminal tabs keep today's markup: `.tab` containing a name `<button>` first (not `role="tab"`; e2e takes `.tabbar .tab` → first button), `Reconnect` when exited, `×` with `aria-label="Close"`. Add a 7 px status dot (connected `--ok`, exited `--muted` ring) and ` · exited` text. Active tab: `--term-bg` background joined to the terminal below (`--bg` for the Hosts tab). Tab `title` = `user@host:port`.
 - Right cluster: AI button (`aria-label="AI requests"`, shows the count; toggles the column; amber when requests wait and the column is collapsed; hidden when the count is 0 and the column is collapsed), theme control, `Lock` button (icon + text).
 
 **Theme control:** segmented, `role="radiogroup"` `aria-label="Theme"`, three `role="radio"` buttons `☾` (`aria-label="Dark"`), `☀` (`Light`), `Auto`.

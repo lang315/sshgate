@@ -28,7 +28,7 @@ export function TermView({ tab, tabs, events, visible, onChange, register, theme
 
   useEffect(() => {
     const el = ref.current!
-    const term = new Terminal({ convertEol: false, fontFamily: MONO_FONT, fontSize: 13, lineHeight: 1.25, theme: xtermTheme(theme) })
+    const term = new Terminal({ convertEol: false, fontFamily: MONO_FONT, fontSize: 13, lineHeight: 1.4, theme: xtermTheme(theme) })
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(el)

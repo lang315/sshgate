@@ -6,6 +6,7 @@
   --accent: #56BFB9; --accent-tint: #16312F;
   --danger: #F28B73; --danger-fill: #B5412F; --danger-tint: #3D1D18;
   --wait: #E9A23B; --wait-tint: #3A2C14; --ok: #6CC58F; --on-wait: #1A1407;
+  --on-danger: #ffffff;
   --term-bg: #0E1012; --term-fg: #D8D4CC;
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
@@ -16,6 +17,7 @@
   --accent: #12766F; --accent-tint: #dcf1ec;
   --danger: #B5412F; --danger-fill: #B5412F; --danger-tint: #fbe2dc;
   --wait: #8B6123; --wait-tint: #fcefdc; --ok: #3F7A57; --on-wait: #ffffff;
+  --on-danger: #ffffff;
   --term-bg: #ffffff; --term-fg: #1b1f2e;
   --shadow: 0 8px 24px rgba(27, 31, 46, 0.12);
 }
@@ -80,7 +82,7 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 .hostcard-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .hostcard-name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; }
 .hostcard-addr { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hostcard-actions { display: flex; align-items: center; gap: 2px; padding-right: 8px; opacity: 0; }
+.hostcard-actions { position: absolute; top: 6px; right: 6px; background: var(--surface); border-radius: 6px; display: flex; align-items: center; gap: 2px; padding: 2px; opacity: 0; }
 .hostcard:hover .hostcard-actions, .hostcard:focus-within .hostcard-actions { opacity: 1; }
 .empty { color: var(--muted); padding: 24px 0; }
 .hosts footer { margin-top: auto; padding-top: 12px; word-break: break-all; }
@@ -106,7 +108,8 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 .approvals { width: 380px; min-height: 0; display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--divider); }
 .approvals-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 4px; }
 .approvals-head h3 { flex: 1; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
-.count { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; display: inline-grid; place-items: center; background: var(--wait); color: var(--on-wait); font-size: 12px; font-weight: 600; }
+.count { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; display: inline-grid; place-items: center; background: var(--raised); color: var(--muted); border: 1px solid var(--line); font-size: 12px; font-weight: 600; }
+.count.waiting { background: var(--wait); color: var(--on-wait); }
 .approvals-help { padding: 0 16px 12px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--divider); }
 .approvals-scroll { flex: 1; min-height: 0; overflow: auto; padding: 4px 12px 12px; }
 .approvals .empty { padding: 24px 4px; }
@@ -114,7 +117,7 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 .approval.sudo { border-left-color: var(--danger); }
 .cmd { white-space: pre-wrap; word-break: break-all; background: var(--term-bg); color: var(--term-fg); padding: 8px 10px; margin: 0; border-radius: 6px; }
 .cmd mark { background: var(--wait); color: var(--on-wait); unicode-bidi: isolate; }
-.actions .deny { background: var(--danger-fill); color: #fff; border: 0; }
+.actions .deny { background: var(--danger-fill); color: var(--on-danger); border: 0; }
 .actions .allow { background: transparent; color: var(--ok); border: 1px solid var(--ok); }
 .aibtn .count { margin-left: 2px; }
 .aibtn.waiting { border-color: var(--wait); color: var(--wait); animation: pulse 1.6s ease-in-out infinite; }

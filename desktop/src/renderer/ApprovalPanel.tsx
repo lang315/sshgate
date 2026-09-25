@@ -41,7 +41,7 @@ export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToT
   return (
     <aside className="approvals" aria-label="Approval requests">
       <div className="approvals-head">
-        <h3>AI requests {items.length > 0 && <span className="count">{items.length}</span>}</h3>
+        <h3>AI requests {items.length > 0 && <span className="count waiting">{items.length}</span>}</h3>
         {/* Always rendered so the list never shifts when it appears or disappears. */}
         <button type="button" className="btn danger-outline denyall" onClick={denyAll} disabled={items.length < 2}>Deny all</button>
         <button type="button" className="icon" aria-label="Close AI requests" title="Close" onClick={onClose}><CloseIcon /></button>

@@ -134,7 +134,7 @@ export function App() {
       {(aiOpen || items.length > 0) && (
         <button type="button" className={'btn aibtn' + (!aiOpen && items.length > 0 ? ' waiting' : '')}
           aria-label="AI requests" aria-expanded={aiOpen} onClick={() => setAiOpen((o) => !o)}>
-          AI <span className="count">{items.length}</span>
+          AI <span className={'count' + (items.length > 0 ? ' waiting' : '')}>{items.length}</span>
         </button>
       )}
       <ThemeControl pref={themePref} onChange={chooseTheme} />

@@ -111,6 +111,7 @@ test('screenshots of the redesigned screens, dark and light', async () => {
     await win.locator('.tabbar .hometab').click()
     await win.locator('nav.hosts').getByRole('button', { name: 'Edit box' }).click()
     await expect(win.getByRole('dialog', { name: 'Host editor' })).toBeVisible()
+    await win.locator('.sheet').evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)))
     await shot(`${t}-editor`)
     await win.getByRole('dialog', { name: 'Host editor' }).getByRole('button', { name: 'Close', exact: true }).click()
     await win.getByRole('button', { name: 'Lock' }).click()
