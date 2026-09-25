@@ -23,6 +23,24 @@ export function allowEnabled(item: PendingItem, now: number, listChangedAt = 0):
   return now - Math.max(item.shownAt, listChangedAt) >= ALLOW_DELAY_MS
 }
 
+// When the approval list last changed, for allowEnabled's listChangedAt: its ids
+// changed, or its rendered height did (e.g. inline error text appearing in an item
+// above shifts every item below it). The panel mounting counts as a change.
+export class ListChanges {
+  private height?: number
+  constructor(private key: string, public at: number) {}
+  setKey(key: string, now: number): void {
+    if (key !== this.key) { this.key = key; this.at = now }
+  }
+  // Returns whether the height changed; the first measurement is not a change.
+  setHeight(height: number, now: number): boolean {
+    const changed = this.height !== undefined && height !== this.height
+    this.height = height
+    if (changed) this.at = now
+    return changed
+  }
+}
+
 // Merges a hub.pending() snapshot with items already known from live events.
 // decidedSince and pendingSince hold ids from events that arrived after the call
 // started: a 'decided' event that overtakes the reply doesn't resurrect a ghost, a

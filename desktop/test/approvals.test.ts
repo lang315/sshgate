@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { allowEnabled, blockKeyboardActivation, highlightNonAscii, Latest, mergeSeed, reduceApprovals, seed } from '../src/renderer/approvals'
+import { allowEnabled, blockKeyboardActivation, highlightNonAscii, Latest, ListChanges, mergeSeed, reduceApprovals, seed } from '../src/renderer/approvals'
 import type { ApprovalRequest } from '../src/shared/protocol'
 
 const req = (id: string): ApprovalRequest => ({
@@ -98,5 +98,26 @@ describe('Latest', () => {
     expect(l.isCurrent(second)).toBe(true)
     l.next()
     expect(l.isCurrent(second)).toBe(false)
+  })
+})
+
+describe('ListChanges', () => {
+  it('restarts the Allow delay when the list\'s height changes, e.g. inline error text above an item', () => {
+    const [item] = seed([req('a')], 0)
+    const c = new ListChanges('a', 1000) // panel mount
+    expect(c.setHeight(100, 1010)).toBe(false) // first measurement is not a change
+    expect(c.setHeight(100, 1500)).toBe(false)
+    expect(c.at).toBe(1000)
+    expect(allowEnabled(item, 2000, c.at)).toBe(true)
+    expect(c.setHeight(130, 2000)).toBe(true)
+    expect(allowEnabled(item, 2499, c.at)).toBe(false)
+    expect(allowEnabled(item, 2500, c.at)).toBe(true)
+  })
+  it('restarts it when the ids change, not on the same ids', () => {
+    const c = new ListChanges('a', 1000)
+    c.setKey('a', 1200)
+    expect(c.at).toBe(1000)
+    c.setKey('a\nb', 1300)
+    expect(c.at).toBe(1300)
   })
 })

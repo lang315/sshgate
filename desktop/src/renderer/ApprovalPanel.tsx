@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { ServerInfo } from '../shared/protocol'
-import { allowEnabled, blockKeyboardActivation, highlightNonAscii, type PendingItem } from './approvals'
+import { allowEnabled, blockKeyboardActivation, highlightNonAscii, ListChanges, type PendingItem } from './approvals'
 
 export function ApprovalPanel({ items, servers, seedError, onDecide, onDenyAll, onSendToTab }: {
   items: PendingItem[]
@@ -12,11 +12,21 @@ export function ApprovalPanel({ items, servers, seedError, onDecide, onDenyAll, 
 }) {
   const [now, setNow] = useState(Date.now())
   const [denyAllError, setDenyAllError] = useState<string>()
-  // Mount time and every change to the list restart the Allow delay (see allowEnabled).
+  // Mount time and every change to the list (ids or height) restart the Allow delay
+  // (see allowEnabled).
   const listKey = items.map((i) => i.request.id).join('\n')
-  const changed = useRef({ key: listKey, at: Date.now() })
-  if (changed.current.key !== listKey) changed.current = { key: listKey, at: Date.now() }
-  const changedAt = changed.current.at
+  const changes = useRef<ListChanges>(null)
+  changes.current ??= new ListChanges(listKey, Date.now())
+  changes.current.setKey(listKey, Date.now())
+  const changedAt = changes.current.at
+  const listRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const ro = new ResizeObserver(([e]) => {
+      if (changes.current!.setHeight(e.contentRect.height, Date.now())) setNow(Date.now())
+    })
+    ro.observe(listRef.current!)
+    return () => ro.disconnect()
+  }, [])
   const young = items.some((i) => !allowEnabled(i, now, changedAt))
   useEffect(() => {
     if (!young) return
@@ -31,17 +41,20 @@ export function ApprovalPanel({ items, servers, seedError, onDecide, onDenyAll, 
       <h3>AI requests {items.length > 0 && `(${items.length})`}</h3>
       {/* Always rendered so the list never shifts when it appears or disappears. */}
       <button className="denyall" onClick={denyAll} disabled={items.length < 2}>Deny all</button>
-      {denyAllError && <p className="error">{denyAllError}</p>}
-      {items.length === 0 && (
-        seedError
-          ? <p className="error">Could not load pending requests: {seedError}</p>
-          : <p className="muted">Nothing waiting.</p>
-      )}
-      {items.map((item) => (
-        <Item key={item.request.id} item={item} now={now} changedAt={changedAt}
-          server={servers.find((s) => s.name === item.request.server)}
-          onDecide={onDecide} onSendToTab={onSendToTab} />
-      ))}
+      {/* Observed for height changes: anything that shifts the items lives in here. */}
+      <div ref={listRef}>
+        {denyAllError && <p className="error">{denyAllError}</p>}
+        {items.length === 0 && (
+          seedError
+            ? <p className="error">Could not load pending requests: {seedError}</p>
+            : <p className="muted">Nothing waiting.</p>
+        )}
+        {items.map((item) => (
+          <Item key={item.request.id} item={item} now={now} changedAt={changedAt}
+            server={servers.find((s) => s.name === item.request.server)}
+            onDecide={onDecide} onSendToTab={onSendToTab} />
+        ))}
+      </div>
     </aside>
   )
 }
