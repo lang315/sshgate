@@ -85,7 +85,7 @@ func TestEndToEndApprovalFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := sshx.NewManager(sshx.DialConfig{Host: srv.Host, Port: srv.Port, User: "test", Password: "testpass", Auth: "password", TimeoutMs: 30000,
-		OnLearnHostKey: func(fp string) { _ = config.RecordHostKey(store, "box", fp, mk) }})
+		OnLearnHostKey: func(fp string) { _ = config.RecordHostKey(store, "box", srv.Host, srv.Port, fp, "", mk) }})
 	if _, err := m.Exec(context.Background(), "true"); err != nil {
 		t.Fatal(err)
 	}

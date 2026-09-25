@@ -84,8 +84,16 @@ func (a *App) handleFirstRun(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "error", 500)
 		return
 	}
-	f := &config.File{Version: 1, KDF: &k, Servers: []config.Server{}}
-	if err := config.Save(a.Path, f, mk); err != nil {
+	var f *config.File
+	err = config.Update(a.Path, mk, func(cur *config.File) error {
+		if cur.KDF != nil {
+			return fmt.Errorf("already initialized")
+		}
+		cur.KDF, cur.Servers = &k, []config.Server{}
+		f = cur
+		return nil
+	})
+	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -163,25 +171,25 @@ func (a *App) requireSession(r *http.Request) (*Session, error) {
 	return a.sess, nil
 }
 
-// saveLocked performs a read-modify-write against the config file: it
-// requires an unlocked session, reloads the file from disk (another writer
-// may have changed it), applies mutate, and saves. The reload+save is
-// wrapped in an OS file lock (withFlock) to serialize concurrent writers
-// across processes.
+// saveLocked runs mutate through config.Update, which reloads the file,
+// checks its MAC, and serializes with every other writer, the hub included.
+// It needs an unlocked session.
 func (a *App) saveLocked(mutate func(*config.File) error) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.sess == nil {
 		return fmt.Errorf("locked")
 	}
-	return withFlock(a.Path, func() error {
-		// reload latest from disk (another writer may have changed it)
-		if f, err := config.Load(a.Path); err == nil {
-			a.file = f
-		}
-		if err := mutate(a.file); err != nil {
+	var saved *config.File
+	err := config.Update(a.Path, a.sess.MasterKey, func(f *config.File) error {
+		if err := mutate(f); err != nil {
 			return err
 		}
-		return config.Save(a.Path, a.file, a.sess.MasterKey)
+		saved = f
+		return nil
 	})
+	if err == nil {
+		a.file = saved
+	}
+	return err
 }

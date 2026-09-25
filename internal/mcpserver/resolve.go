@@ -120,8 +120,9 @@ func (d *Deps) Resolve(name string) (sshx.DialConfig, error) {
 		}
 		dc.PrivateKey = string(data)
 	}
+	host, port := dc.Host, dc.Port
 	dc.OnLearnHostKey = func(fp string) {
-		_ = config.RecordHostKey(d.Path, name, fp, d.MasterKey)
+		_ = config.RecordHostKey(d.Path, name, host, port, fp, "", d.MasterKey)
 	}
 	return dc, nil
 }

@@ -353,14 +353,14 @@ func (h *Hub) resolveLocked(name string) (sshx.DialConfig, error) {
 	if err != nil {
 		return sshx.DialConfig{}, err
 	}
-	path := h.deps.Path
+	path, host, port := h.deps.Path, dc.Host, dc.Port
 	key := bytes.Clone(h.deps.MasterKey)
 	encrypted := h.deps.File != nil && h.deps.File.KDF != nil
 	dc.OnLearnHostKey = func(fp string) {
 		if encrypted && key == nil {
 			return
 		}
-		_ = config.RecordHostKey(path, name, fp, key)
+		_ = config.RecordHostKey(path, name, host, port, fp, "", key)
 	}
 	return dc, nil
 }

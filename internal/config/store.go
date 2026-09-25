@@ -20,6 +20,7 @@ type Server struct {
 	Auth             string `json:"auth"`
 	KeyPath          string `json:"keyPath,omitempty"`
 	HostKey          string `json:"hostKey,omitempty"`
+	HostKeyAlgo      string `json:"hostKeyAlgo,omitempty"` // pinned key's type, e.g. ssh-ed25519
 	AIVisible        bool   `json:"aiVisible,omitempty"`
 	EncPassword      string `json:"encPassword,omitempty"`
 	EncSuPassword    string `json:"encSuPassword,omitempty"`

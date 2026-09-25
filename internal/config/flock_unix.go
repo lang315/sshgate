@@ -2,7 +2,7 @@
 
 package config
 
-// ponytail: duplicated from internal/web to avoid a web→config layering issue; consolidate if a third user appears
+// Only Update calls withFlock; every store writer goes through Update.
 
 import (
 	"os"

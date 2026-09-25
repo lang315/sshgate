@@ -54,7 +54,7 @@ func (a *App) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 		Insecure: false, TimeoutMs: 8000,
 	}
 	dc.OnLearnHostKey = func(fp string) {
-		_ = config.RecordHostKey(a.Path, s.Name, fp, sess.MasterKey)
+		_ = config.RecordHostKey(a.Path, s.Name, s.Host, s.Port, fp, "", sess.MasterKey)
 		// The list is served from a.file; reload so the new pin shows.
 		if f, err := config.Load(a.Path); err == nil {
 			a.mu.Lock()
