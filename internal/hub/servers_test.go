@@ -336,6 +336,46 @@ func TestStatusReportsStoreError(t *testing.T) {
 	}
 }
 
+// A vault file deleted under a running hub is a store error, not "no vault":
+// the last good copy is still served, writes fail, and a restored file
+// clears the error.
+func TestStatusReportsDeletedVault(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	c, _ := startUI(t, h)
+	status := func() map[string]any {
+		var st map[string]any
+		if err := c.Call(context.Background(), "status", nil, &st); err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	good, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if st := status(); st["storeError"] != errStoreReload.Error() || st["hasVault"] != true {
+		t.Fatalf("status after delete: %v", st)
+	}
+	if got := h.ServersForMCP(); len(got) != 2 {
+		t.Fatalf("in-memory servers after delete: %+v", got)
+	}
+	if err := h.SaveServer("", config.ServerInput{Name: "x", Host: "h", Port: 22, User: "u", Auth: "agent"}); err == nil {
+		t.Fatal("write succeeded with the vault file missing")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("a failed write left a file: %v", err)
+	}
+	if err := os.WriteFile(path, good, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if st := status(); st["storeError"] != nil {
+		t.Fatalf("storeError after restore: %v", st["storeError"])
+	}
+}
+
 // A write that succeeds on disk but whose reload fails reports the reload
 // error to the caller, as vault.create does.
 func TestWritesReturnReloadError(t *testing.T) {

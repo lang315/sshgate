@@ -289,6 +289,11 @@ func (h *Hub) reloadLocked() (err error) {
 	f, err := loadStore(h.o.StorePath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			// A vault that vanished is an error, not "no vault": keep
+			// serving the last good copy.
+			if h.deps.File != nil && h.deps.File.KDF != nil {
+				return errStoreReload
+			}
 			return nil
 		}
 		return err
