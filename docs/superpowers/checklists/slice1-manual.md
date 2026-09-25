@@ -177,3 +177,11 @@ Build first: `go build -o ssh-mcp ./cmd/ssh-mcp` at the repo root, then
   Pass: each reaches the remote shell (Ctrl+R starts reverse history
   search, Ctrl+W deletes the previous word, Ctrl+C interrupts); the window
   never reloads or closes, and the tab keeps its session.
+
+  With no menu there, clipboard keys come from Chromium alone, so also check:
+  - Paste into the terminal (Ctrl+Shift+V, Ctrl+V, and the OS's
+    right-click or middle-click paste where it has one). Pass: the pasted
+    text reaches the remote shell once, without being run.
+  - In an approval request's reason field: type, then cut, copy, paste,
+    select all and undo with the usual Ctrl shortcuts and the right-click
+    menu. Pass: each works in the field, and Enter still submits Deny.

@@ -50,18 +50,13 @@ plan note.
 
 ## Findings carried forward
 
-- Slice 1 → 2: whether base64-in-JSON stdio is fast enough, or binary
-  frames were needed.
+- Slice 1 → 2 (answered): base64-in-JSON stdio is fast enough; binary
+  frames are not needed for now. Measured on macOS with
+  `desktop/e2e/throughput.spec.ts`: 47–49 MB/s, 18 ms max frame gap
+  (`checklists/slice1-manual.md` item 2).
 - Slice 1 → 2: whether Claude Code resets its tool timeout on
   `notifications/progress`, and the value of `MCP_TOOL_TIMEOUT`.
 - Slice 1 → 2: `go-winio` v0.6.2 gets first-instance semantics from `NtCreateNamedPipeFile` with `FILE_CREATE` (`pipe.go:378-381`) rather than the flag. Windows runtime behaviour (DACL, SID checks) is still untested on a real Windows machine.
 - Slice 1 → 4: which remote-host secrets actually appeared in command
   output during daily use; drives the redaction pattern list.
-- Slice 1a → 2: in the UI door, `servers` and `term.open` still allow key-only servers while an encrypted vault is locked (the AI path refuses them). Decide whether the human path should match.
 - Slice 1b → 2: the CI `desktop` job (`.github/workflows/ci.yml`) is new and has not yet run against a real PR; its first run is the first signal that `npm ci`/typecheck/vitest/Playwright-under-`xvfb` actually pass in CI, not just locally.
-- Slice 1b → 2: `desktop/src/renderer/App.tsx`'s `hub.pending()` snapshot fetch has no generation guard — if the effect re-fires before an in-flight call resolves, `decidedSince` is reset synchronously and the stale response's `mergeSeed` can land after it, missing a decision made in between. `mergeSeed` (`approvals.ts`) only guards a `decided` event crossing one snapshot, not two overlapping snapshots. Revisit if approvals are ever seen duplicated or resurrected after a fast lock/unlock.
-- Slice 1b → 2: `desktop/src/main/hubProcess.ts`'s `start()` is a no-op once a child is running and never resets the crash counter; a manual `stop()` followed by `start()` inside the 60 s crash window still counts toward the 4-crash failure threshold. Revisit if a "restart hub" UI action is ever added.
-- Slice 1b → 2 (R17): xterm.js answers some terminal queries (device attributes, cursor position reports) by itself through `onData`, and those auto-replies go to the hub as `term.write`, which resets the idle clock. A remote program that polls the terminal can therefore keep the vault from auto-locking. Revisit if the idle lock is seen not firing with an open tab.
-- Slice 1b → 2: renderer→hub calls have no default timeout (`transport.ts` → `ipc.ts` `relayCall` → `HubProcess.call` without `timeoutMs`), so a hung hub that is still running freezes the UI action that is waiting on it. Add a default timeout if that is ever seen.
-- Slice 1b → 2: after a renderer crash the app locks and reloads, but terminals the crashed renderer opened stay open in the hub until it restarts (unreachable). Track terminal ids in main or add a hub-side `term.closeAll` on reload. The crash→reload path has no loop cap and reloads even if the lock call failed; cap it like the hub restart policy and show an error page instead of reloading when lock fails.
-- Slice 1b → 2: macOS Edit menu has only Copy, Paste, Select All (no Cut/Undo); the main-frame trust predicate has no negative test; the Allow delay does not restart when an item's own height changes (inline error text); manual checklist item 9 should also check paste on Windows/Linux.

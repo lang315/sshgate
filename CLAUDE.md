@@ -37,7 +37,7 @@ If Docker is unavailable, integration tests skip themselves instead of failing. 
 **mcpserver.Deps holds one connection source at a time** (`internal/mcpserver/resolve.go`):
 - Standalone `--host` mode: `buildDeps` builds `Deps.CLI` from `config.ParseArgv`'s `--key=value` flags (`--host`, `--user`, `--password`, `--key`, `--sudoPassword`, `--suPassword`, ...) as the `"(default)"` server; it never reads the on-disk store (`Deps.File` stays nil).
 - `ssh-mcp hub` builds `Deps.File` from the on-disk store and never sets `Deps.CLI`; there's no `"(default)"` server through the hub.
-- `Deps.Resolve(name)` still has both branches (shared code) and turns either source into a `sshx.DialConfig`, decrypting secrets on demand. Without a master key, encrypted servers are "locked" and fail with a clear error. Key/agent-only servers still resolve there, but the hub refuses every AI exec while an encrypted vault (one with a KDF) is locked — its MAC is unchecked until unlock — and `listServers` then reports every server locked.
+- `Deps.Resolve(name)` still has both branches (shared code) and turns either source into a `sshx.DialConfig`, decrypting secrets on demand. Without a master key, encrypted servers are "locked" and fail with a clear error. Key/agent-only servers still resolve there, but the hub refuses every AI exec, and every UI-door `term.open`, while an encrypted vault (one with a KDF) is locked — its MAC is unchecked until unlock — and `listServers` then reports every server locked.
 
 **Store crypto** (`internal/config/crypto.go`, `store.go`):
 - Argon2id derives the master key, and the KDF params plus a verifier blob are stored in the file.

@@ -526,3 +526,18 @@ code. Each came from a review finding.
   lifecycle) and a `hello` method that returns the hub protocol version.
 - Hub restart policy as implemented: backoff 1 s, 3 s, 10 s; the app gives
   up on the 4th crash within 60 s and shows the hub's last stderr.
+- Slice 1 residual fixes (2026-09-25):
+  - The UI door's `term.open` refuses every server with the AI path's
+    locked error while an encrypted vault is locked, key-only and agent
+    servers included (§Vault lifecycle). `servers` still lists them.
+  - `term.write` takes an optional `user` flag. Only flagged writes reset
+    the idle clock; the app sets it within 1 s of real input in the tab,
+    so xterm's own replies to terminal queries do not hold off the lock.
+  - `term.closeAll` (request, returns `{closed}`) closes every terminal of
+    the door. Electron main calls it after a renderer crash; it is not in
+    the renderer's method whitelist.
+  - Renderer crash: main locks the vault and closes its terminals before
+    reloading. If the lock fails, or on the 3rd crash within 60 s, the
+    window shows a static text page instead of reloading.
+  - Every renderer→hub call times out after 60 s unless it sets its own
+    timeout.
