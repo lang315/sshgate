@@ -13,10 +13,21 @@ test('idle auto-lock keeps terminals and waits for pending AI requests', async (
   const win = await l.app.firstWindow()
   const rows = win.locator('.xterm-rows')
   const password = win.getByLabel('Master password')
+  // R17: count term.write notifications main relays, by their user flag.
+  await l.app.evaluate(({ ipcMain }) => {
+    const g = globalThis as unknown as { __writes: { user: number; other: number } }
+    g.__writes = { user: 0, other: 0 }
+    ipcMain.on('hub:notify', (_e, method, params) => {
+      if (method === 'term.write') g.__writes[(params as { user?: boolean }).user === true ? 'user' : 'other']++
+    })
+  })
   await unlock(win)
   await openBox(win)
   await win.keyboard.type('echo before')
   await expect(rows).toContainText('echo before')
+  // Typed keys are sent as user input (the flag that holds off the idle lock).
+  const writes = await l.app.evaluate(() => (globalThis as unknown as { __writes: { user: number; other: number } }).__writes)
+  expect(writes.user).toBeGreaterThanOrEqual('echo before'.length)
 
   // No input: the vault locks on its own and says why.
   await expect(password).toBeVisible({ timeout: 15000 })

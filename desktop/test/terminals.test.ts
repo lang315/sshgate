@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Debouncer, Dispatcher, newTermId, printable, TabSet } from '../src/renderer/terminals'
+import { Debouncer, Dispatcher, newTermId, printable, TabSet, isUserInput } from '../src/renderer/terminals'
 
 describe('newTermId', () => {
   it('matches the hub id rules and is unique', () => {
@@ -59,5 +59,14 @@ describe('Dispatcher', () => {
     expect(b).toHaveBeenCalledWith('all')
     offA(); d.emit('a', 'z')
     expect(a).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('isUserInput', () => {
+  it('is true only within 1000 ms of real user input', () => {
+    expect(isUserInput(10_000, 10_000)).toBe(true)
+    expect(isUserInput(10_000, 10_999)).toBe(true)
+    expect(isUserInput(10_000, 11_000)).toBe(false)
+    expect(isUserInput(-Infinity, 5)).toBe(false) // no input yet
   })
 })

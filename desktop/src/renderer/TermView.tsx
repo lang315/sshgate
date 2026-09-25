@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { hub, fromBase64 } from './transport'
 import type { HubEvent } from '../shared/protocol'
-import { Debouncer, printable, type Dispatcher, type Tab, type TabSet } from './terminals'
+import { Debouncer, isUserInput, printable, type Dispatcher, type Tab, type TabSet } from './terminals'
 
 export interface TermApi { paste(text: string): void }
 // A hub event for this tab's id, or 'hub.stopped' when the hub leaves the running state.
@@ -64,7 +64,14 @@ export function TermView({ tab, tabs, events, visible, onChange, register }: {
       (e) => { if (!disposed) end(`open failed: ${(e as Error).message}`) },
     )
 
-    const dataSub = term.onData((s) => { if (phase === 'open') hub.termWrite(tab.id, enc.encode(s)) })
+    // Real user input in this terminal; capture phase, since xterm stops some events.
+    let lastInputAt = -Infinity
+    const input = () => { lastInputAt = Date.now() }
+    const inputEvents = ['keydown', 'paste', 'compositionend', 'mousedown'] as const
+    for (const t of inputEvents) el.addEventListener(t, input, true)
+    const dataSub = term.onData((s) => {
+      if (phase === 'open') hub.termWrite(tab.id, enc.encode(s), isUserInput(lastInputAt, Date.now()))
+    })
     const off = events.on(tab.id, (e) => {
       if (phase === 'ended') return
       if (e.method === 'hub.stopped') {
@@ -97,6 +104,7 @@ export function TermView({ tab, tabs, events, visible, onChange, register }: {
     return () => {
       disposed = true
       ro.disconnect(); resize.cancel(); dataSub.dispose(); off()
+      for (const t of inputEvents) el.removeEventListener(t, input, true)
       register(tab.id, undefined)
       // Closing while opening waits for the reply; an ended session needs no close.
       if (phase !== 'ended') opening.then(() => hub.termClose(tab.id)).catch(() => {})

@@ -138,14 +138,17 @@ func registerTermMethods(s *rpc.Server, h *Hub) (closeAll func() int) {
 		return map[string]string{"id": p.ID}, nil
 	})
 	s.Handle("term.write", func(_ context.Context, raw json.RawMessage) (any, error) {
-		h.touch()
 		var p struct {
 			ID   string `json:"id"`
 			Data []byte `json:"data"`
+			User bool   `json:"user"` // sent right after real input; xterm's own query replies are not
 		}
 		if err := json.Unmarshal(raw, &p); err != nil {
 			badNote("term.write", err)
 			return nil, err
+		}
+		if p.User {
+			h.touch()
 		}
 		t, err := get(p.ID)
 		if err != nil {

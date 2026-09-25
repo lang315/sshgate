@@ -26,9 +26,9 @@ describe('transport', () => {
     expect(fromBase64(toBase64(b))).toEqual(b)
   })
 
-  it('termWrite sends base64 as a notification', () => {
-    hub.termWrite('t1', new TextEncoder().encode('ls\r'))
-    expect(bridge.notify).toHaveBeenCalledWith('term.write', { id: 't1', data: Buffer.from('ls\r').toString('base64') })
+  it('termWrite sends base64 and the user flag as a notification', () => {
+    hub.termWrite('t1', new TextEncoder().encode('ls\r'), true)
+    expect(bridge.notify).toHaveBeenCalledWith('term.write', { id: 't1', data: Buffer.from('ls\r').toString('base64'), user: true })
   })
 
   it('decide passes outcome and reason', async () => {

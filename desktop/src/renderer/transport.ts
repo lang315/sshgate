@@ -52,7 +52,7 @@ export const hub = {
     await call('term.open', { id, server, rows, cols })
   },
   termClose: async (id: string) => { await call('term.close', { id }) },
-  termWrite: (id: string, data: Uint8Array) => bridge().notify('term.write', { id, data: toBase64(data) }),
+  termWrite: (id: string, data: Uint8Array, user: boolean) => bridge().notify('term.write', { id, data: toBase64(data), user }),
   termAck: (id: string, n: number) => bridge().notify('term.ack', { id, n }),
   termResize: (id: string, rows: number, cols: number) => bridge().notify('term.resize', { id, rows, cols }),
   onEvent: (cb: (e: HubEvent) => void) => bridge().onEvent(cb),

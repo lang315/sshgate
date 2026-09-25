@@ -52,6 +52,18 @@ export class Debouncer {
   cancel() { if (this.timer) clearTimeout(this.timer) }
 }
 
+export const USER_INPUT_WINDOW_MS = 1000
+
+// Whether term.write data counts as user input for the hub's idle auto-lock: xterm
+// also answers terminal queries (device attributes, cursor reports) through onData,
+// and those replies must not keep the vault unlocked (R17).
+// ponytail: time heuristic; an auto-reply within 1 s of real input still counts as
+// input (at most 1 s of extra hold-off per keystroke). Upgrade path: tag xterm's own
+// replies at the source if xterm ever exposes that.
+export function isUserInput(lastInputAt: number, now: number): boolean {
+  return now - lastInputAt < USER_INPUT_WINDOW_MS
+}
+
 // Hub-supplied text written into xterm must not carry escape sequences.
 export const printable = (s: string) => s.replace(/[\x00-\x1f\x7f-\x9f]/g, '')
 

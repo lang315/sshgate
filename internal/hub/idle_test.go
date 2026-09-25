@@ -173,3 +173,26 @@ func TestIdleLockHeldOffByRunningCommand(t *testing.T) {
 		t.Fatal("did not lock after the command finished")
 	}
 }
+
+// R17: xterm answers terminal queries by itself through term.write. Only
+// writes the app marks as user input hold off the idle lock.
+func TestIdleLockTermWriteNeedsUserFlag(t *testing.T) {
+	for _, user := range []bool{false, true} {
+		h, _ := newEncryptedHub(t, Options{IdleLock: 300 * time.Millisecond})
+		_, w, _ := startTermDoor(t, h)
+		if err := h.Unlock("pw"); err != nil {
+			t.Fatal(err)
+		}
+		p := map[string]any{"id": "t1", "data": "Gw=="}
+		if user {
+			p["user"] = true
+		}
+		for range 10 {
+			time.Sleep(100 * time.Millisecond)
+			sendNote(t, w, "term.write", p)
+		}
+		if h.Locked() == user {
+			t.Fatalf("user=%v: locked=%v after 1 s of term.write", user, h.Locked())
+		}
+	}
+}
