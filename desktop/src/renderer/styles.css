@@ -127,9 +127,9 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 .desc-label { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .approval .meta { color: var(--muted); font-size: 12px; }
 .approval .reason { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--label); }
-.actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.actions .btn { height: 36px; }
-.actions .deny kbd { margin-left: 6px; }
+.approval .actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.approval .actions .btn { height: 36px; }
+.approval .actions .deny kbd { margin-left: 6px; }
 
 /* == editor == */
 .link-legacy { color: var(--accent); }
