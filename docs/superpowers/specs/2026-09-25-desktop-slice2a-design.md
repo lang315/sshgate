@@ -60,12 +60,12 @@ The ROADMAP gate for slice 2 ("slice 1 used daily for two weeks") is still unmet
 
 ### UI-door methods
 
-All are request-only and count as UI activity. Every write runs through `config.Update`, then `h.Reload()`. Error codes: `-32602` for invalid params, `-32000` with a message for everything else. The renderer only displays the message, so no other codes are needed.
+All are request-only and count as UI activity. Every write refuses a store with no vault ("create a vault first") and a locked hub (the locked error), so nothing is ever encrypted with a missing key. Every write runs through `config.Update`, then `h.Reload()`. Error codes: `-32602` for invalid params, `-32000` with a message for everything else. The renderer only displays the message, so no other codes are needed.
 
 **`status`** gains `hasVault` (the store has a KDF). The renderer shows "Create vault" when `hasVault` is false. A deliberately key-only store therefore sees that screen; creating a vault is then the only way forward, because slice 2a writes need a vault.
 
 **`vault.create {password}`**
-- The KDF check runs inside `config.Update` on a fresh load, not on the hub's cached `deps.File`. It is refused if a KDF exists. The password must be at least 8 characters.
+- The check for an existing KDF runs on a fresh `config.Load` before the key is derived, not on the hub's cached `deps.File`. It cannot run inside `config.Update`, because `Update` checks the key before its callback runs. It is refused if a KDF exists. The password must be at least 8 characters.
 - Servers already in the KDF-less file are kept, but:
   - it is refused if any of them has an `Enc*` field, because such a file is corrupt or tampered with;
   - every kept server's `aiVisible` is reset to false, because a KDF-less file was never MAC'd and its flags are unauthenticated;
@@ -92,7 +92,12 @@ All are request-only and count as UI activity. Every write runs through `config.
 
 **`servers.delete {name}`**: `Registry.Close(name)`, and deny its pending requests.
 
-**`servers.forgetHostKey {name}`**: clears `hostKey` and `hostKeyAlgo`, then `Registry.Close(name)`.
+**`servers.forgetHostKey {name}`**:
+- It clears `hostKey` and `hostKeyAlgo`, then calls `Registry.Close(name)`.
+- On a server with no pin it succeeds and does nothing.
+- An unknown name fails with "not found".
+
+A rename closes the old name's tabs. Their Reconnect then fails with "not found"; the user opens the renamed host from the list.
 
 **`status`** also returns `storePath`. The app shows it in the host list footer ("Vault file: … — copy it to back up") because copying the file is the export story.
 
@@ -106,15 +111,17 @@ A new method that closes and removes one manager. Its terminals see EOF and send
 
 - `config.Server` gains `HostKeyAlgo string` (for example `ssh-ed25519`). It is covered by the MAC.
 - `sshx.HostKeyCallback` gains a strict mode, used on every hub path:
-  - an empty pin returns `*HostKeyUnknownError{Fingerprint, KeyType}` and never accepts;
-  - a different key returns `*HostKeyMismatchError{Pinned, Presented}`, which wraps `ErrHostKeyMismatch`.
+  - an empty pin returns `*HostKeyUnknownError{Fingerprint, KeyType, Key}` and never accepts;
+  - a different key returns `*HostKeyMismatchError{Pinned, Presented, KeyType, Key}`, which wraps `ErrHostKeyMismatch`.
+  - `Key` is the presented `ssh.PublicKey`, which the `knownHosts` hint needs.
+  - Strict mode is an explicit `DialConfig.StrictHostKey`, set only in the file branch of `Deps.Resolve` (hub only). A nil learner cannot signal it, because `--host` mode has none either.
 - The learner closure is removed from the hub path, both from `resolveLocked` (`hub.go:359-364`) and from the file branch of `Deps.Resolve`. `--host` mode keeps its TOFU.
 - When a pin has an algorithm, the dial sets `ClientConfig.HostKeyAlgorithms` to that algorithm's family. Old pins without one negotiate as today.
 - The Registry's substitution of an empty pin with the cached one (`registry.go:34-36`) stays for `--host` mode only. The hub path always passes the stored pin, and a forget has already closed the old manager.
 
 ### `term.open` (changed)
 
-New optional param: `trustHostKey: {fingerprint}`.
+New optional param: `trustHostKey: {fingerprint, keyType}`. The key type is needed so the dialled config (pin plus algorithm) matches what gets recorded; otherwise the next open would see a different config hash and close the tab that was just trusted.
 
 The reply is always a result:
 
@@ -126,7 +133,7 @@ Other failures stay errors, as today.
 
 The trusted retry works as follows:
 
-1. The hub sets `dc.HostKey = trustHostKey.fingerprint` before `Registry.Get`. The config hash differs, so a fresh manager dials and the normal pin check enforces that exact key.
+1. The hub sets `dc.HostKey = trustHostKey.fingerprint` and `dc.HostKeyAlgo = trustHostKey.keyType` before `Registry.Get`. The config hash differs, so a fresh manager dials and the normal pin check enforces that exact key.
 2. After the handshake succeeds, the hub records `hostKey` and `hostKeyAlgo` through `config.Update`, but only if the server still has no pin and still has the dialled `host` and `port`. An edit that lands in between must not pin the old endpoint's key on the new one. If recording fails or is skipped, the open fails and `Registry.Close(name)` runs.
 3. If the server presents a different key than the one trusted, the hub closes that manager and replies `hostKeyUnknown` with the new fingerprint. It never replies `hostKeyMismatch`, because the user never confirmed that pin.
 
@@ -207,7 +214,8 @@ No secret value is ever written.
   - an AIVisible-only change keeps open terminals;
   - a dial-config change closes them;
   - pending requests for that server are denied.
-- `servers.delete` and `forgetHostKey`: each closes its manager, and the next `term.open` returns `hostKeyUnknown`.
+- `servers.delete` closes its manager. Re-creating a server at the same endpoint then prompts again.
+- `forgetHostKey` closes its manager, and the next `term.open` returns `hostKeyUnknown`.
 - The trust flow:
   - unknown host, then trust with the right fingerprint, pins it along with its algorithm;
   - trust with a wrong fingerprint returns `hostKeyUnknown` carrying the real fingerprint, and records nothing;
@@ -235,8 +243,8 @@ No secret value is ever written.
   1. create a vault on an empty store;
   2. add a host pointing at `sshtestd`;
   3. connect, see the prompt, Trust, and get a shell;
-  4. edit the port, and the tab closes;
-  5. forget the key, reconnect, and see the prompt again.
+  4. edit the port to a dead port and back, and the tab closes (the pin is cleared too);
+  5. reconnect, Trust again, then Forget, reconnect, and see the prompt again.
 
 ## Success criteria
 
