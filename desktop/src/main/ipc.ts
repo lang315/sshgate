@@ -24,6 +24,13 @@ export function relayNotify(hub: HubLike, method: unknown, params: unknown): voi
 // Trusted means the app's own window and its main frame (not a subframe).
 export type IsTrusted = (e: IpcMainEvent | IpcMainInvokeEvent) => boolean
 
+export function isMainFrameOf(
+  win: { isDestroyed(): boolean; webContents: { mainFrame: unknown } } | undefined,
+  e: { sender: unknown; senderFrame: unknown },
+): boolean {
+  return !!win && !win.isDestroyed() && e.sender === win.webContents && e.senderFrame === win.webContents.mainFrame
+}
+
 // Rejects with "untrusted sender" instead of calling fn, so a page that isn't the app's
 // own window (e.g. loaded via a followed link or a dropped URL) can't reach the hub.
 export function guard(isTrusted: IsTrusted, e: IpcMainEvent | IpcMainInvokeEvent, fn: () => Promise<unknown>): Promise<unknown> {

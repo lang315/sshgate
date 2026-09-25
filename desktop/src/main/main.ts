@@ -3,7 +3,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { setupAttention } from './attention'
 import { HubProcess } from './hubProcess'
-import { registerIpc } from './ipc'
+import { isMainFrameOf, registerIpc } from './ipc'
 import { CrashPolicy, installMenu, recoverRenderer } from './window'
 
 let win: BrowserWindow | undefined
@@ -35,7 +35,7 @@ function getWindow(): BrowserWindow | undefined {
 }
 
 function isTrusted(e: IpcMainEvent | IpcMainInvokeEvent): boolean {
-  return !!win && !win.isDestroyed() && e.sender === win.webContents && e.senderFrame === win.webContents.mainFrame
+  return isMainFrameOf(win, e)
 }
 
 function createWindow(): BrowserWindow {

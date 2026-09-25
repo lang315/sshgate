@@ -5,7 +5,7 @@ vi.mock('electron', () => ({
 }))
 
 import { ipcMain } from 'electron'
-import { guard, registerIpc, relayCall, relayNotify } from '../src/main/ipc'
+import { guard, isMainFrameOf, registerIpc, relayCall, relayNotify } from '../src/main/ipc'
 
 const fakeHub = () => ({ call: vi.fn(async () => ({ ok: true })), notify: vi.fn() })
 
@@ -55,5 +55,25 @@ describe('registerIpc hub:notify', () => {
     expect(h.notify).not.toHaveBeenCalled()
     on(trusted, 'term.write', { id: 'a', data: '' })
     expect(h.notify).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('isMainFrameOf', () => {
+  const mainFrame = { name: 'main' }
+  const wc = { mainFrame }
+  const win = (destroyed = false) => ({ isDestroyed: () => destroyed, webContents: wc })
+  it('trusts the window\'s own main frame', () => {
+    expect(isMainFrameOf(win(), { sender: wc, senderFrame: mainFrame })).toBe(true)
+  })
+  it('rejects another webContents', () => {
+    expect(isMainFrameOf(win(), { sender: { mainFrame }, senderFrame: mainFrame })).toBe(false)
+  })
+  it('rejects a subframe of the same webContents', () => {
+    expect(isMainFrameOf(win(), { sender: wc, senderFrame: { name: 'sub' } })).toBe(false)
+    expect(isMainFrameOf(win(), { sender: wc, senderFrame: null })).toBe(false)
+  })
+  it('rejects a destroyed or missing window', () => {
+    expect(isMainFrameOf(win(true), { sender: wc, senderFrame: mainFrame })).toBe(false)
+    expect(isMainFrameOf(undefined, { sender: wc, senderFrame: mainFrame })).toBe(false)
   })
 })
