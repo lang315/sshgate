@@ -23,6 +23,22 @@ type AuditRecord struct {
 	StderrBytes int       `json:"stderrBytes,omitempty"`
 }
 
+// ConfigRecord is an audit line for a vault change made from the app. It
+// never holds a secret: Changed names a changed secret field, nothing more.
+type ConfigRecord struct {
+	Time           time.Time `json:"time"`
+	Kind           string    `json:"kind"`   // always "config"; exec records have none
+	Action         string    `json:"action"` // trust, forgetHostKey, delete, vaultCreate, save
+	Server         string    `json:"server,omitempty"`
+	Host           string    `json:"host,omitempty"`
+	Port           int       `json:"port,omitempty"`
+	Fingerprint    string    `json:"fingerprint,omitempty"`
+	Algo           string    `json:"algo,omitempty"`
+	OldFingerprint string    `json:"oldFingerprint,omitempty"`
+	KeptServers    []string  `json:"keptServers,omitempty"`
+	Changed        []string  `json:"changed,omitempty"`
+}
+
 // Audit appends one JSON object per line. Output content is never part of a
 // record; only byte counts are.
 type Audit struct {
@@ -45,8 +61,15 @@ func OpenAudit(path string) (*Audit, error) {
 	return &Audit{f: f}, nil
 }
 
-func (a *Audit) Write(r AuditRecord) error {
-	line, err := json.Marshal(r)
+func (a *Audit) Write(r AuditRecord) error { return a.append(r) }
+
+func (a *Audit) WriteConfig(r ConfigRecord) error {
+	r.Kind = "config"
+	return a.append(r)
+}
+
+func (a *Audit) append(v any) error {
+	line, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}

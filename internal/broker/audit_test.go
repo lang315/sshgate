@@ -67,3 +67,26 @@ func TestOpenAuditTightensExistingFileMode(t *testing.T) {
 		t.Fatalf("perm = %v, want 0600", info.Mode().Perm())
 	}
 }
+
+func TestAuditConfigRecordShape(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	a, err := OpenAudit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.WriteConfig(ConfigRecord{Time: time.Now(), Action: "trust", Server: "s", Host: "h", Port: 22, Fingerprint: "SHA256:x", Algo: "ssh-ed25519"}); err != nil {
+		t.Fatal(err)
+	}
+	a.Close()
+	raw, _ := os.ReadFile(path)
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m["kind"] != "config" || m["action"] != "trust" || m["fingerprint"] != "SHA256:x" || m["algo"] != "ssh-ed25519" {
+		t.Fatalf("got %v", m)
+	}
+	if _, has := m["command"]; has {
+		t.Fatal("a config record carries exec fields")
+	}
+}

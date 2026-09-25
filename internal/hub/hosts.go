@@ -3,6 +3,7 @@ package hub
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/lang315/ssh-mcp/internal/broker"
@@ -37,6 +38,7 @@ func (h *Hub) CreateVault(pw string) error {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	var kept []string
 	err = config.Update(h.o.StorePath, mk, func(f *config.File) error {
 		for i := range f.Servers {
 			s := &f.Servers[i]
@@ -44,6 +46,7 @@ func (h *Hub) CreateVault(pw string) error {
 				return errors.New("the store has encrypted fields but no master password; it is corrupt or was tampered with")
 			}
 			s.AIVisible = false
+			kept = append(kept, s.Name)
 		}
 		f.KDF = &k
 		return nil
@@ -58,7 +61,49 @@ func (h *Hub) CreateVault(pw string) error {
 	clear(h.deps.MasterKey)
 	h.deps.MasterKey = mk
 	h.lastActivity = time.Now()
+	h.auditConfig(broker.ConfigRecord{Action: "vaultCreate", KeptServers: kept})
 	return nil
+}
+
+// auditConfig never takes h.mu, so CreateVault may call it holding h.mu.
+func (h *Hub) auditConfig(r broker.ConfigRecord) {
+	if h.audit != nil {
+		r.Time = time.Now()
+		_ = h.audit.WriteConfig(r)
+	}
+}
+
+// changes lists what a save changed: before→after for plain fields and the
+// pin, and only the name of a secret that was re-supplied or dropped.
+func changes(a, b config.Server, in config.ServerInput) []string {
+	var out []string
+	for _, f := range []struct {
+		name string
+		x, y any
+	}{
+		{"name", a.Name, b.Name}, {"host", a.Host, b.Host}, {"port", a.Port, b.Port}, {"user", a.User, b.User},
+		{"auth", a.Auth, b.Auth}, {"keyPath", a.KeyPath, b.KeyPath}, {"aiVisible", a.AIVisible, b.AIVisible},
+		{"hostKey", a.HostKey, b.HostKey},
+	} {
+		if f.x != f.y {
+			out = append(out, fmt.Sprintf("%s: %v → %v", f.name, f.x, f.y))
+		}
+	}
+	for _, s := range []struct {
+		name string
+		in   *string
+		x, y string
+	}{
+		{"password", in.Password, a.EncPassword, b.EncPassword},
+		{"suPassword", in.SuPassword, a.EncSuPassword, b.EncSuPassword},
+		{"sudoPassword", in.SudoPassword, a.EncSudoPassword, b.EncSudoPassword},
+		{"keyPassphrase", in.KeyPassphrase, a.EncKeyPassphrase, b.EncKeyPassphrase},
+	} {
+		if s.in != nil || (s.x != "" && s.y == "") {
+			out = append(out, s.name)
+		}
+	}
+	return out
 }
 
 // writeKey returns a copy of the master key for a store write.
@@ -118,6 +163,7 @@ func (h *Hub) SaveServer(original string, in config.ServerInput) error {
 		h.reg.Close(name)
 	}
 	h.denyPending(name)
+	h.auditConfig(broker.ConfigRecord{Action: "save", Server: after.Name, Changed: changes(before, after, in)})
 	return nil
 }
 
@@ -142,6 +188,7 @@ func (h *Hub) DeleteServer(name string) error {
 	_ = h.Reload()
 	h.reg.Close(name)
 	h.denyPending(name)
+	h.auditConfig(broker.ConfigRecord{Action: "delete", Server: name})
 	return nil
 }
 
@@ -153,9 +200,11 @@ func (h *Hub) ForgetHostKey(name string) error {
 		return err
 	}
 	defer clear(key)
+	var old string
 	err = config.Update(h.o.StorePath, key, func(f *config.File) error {
 		for i := range f.Servers {
 			if f.Servers[i].Name == name {
+				old = f.Servers[i].HostKey
 				f.Servers[i].HostKey, f.Servers[i].HostKeyAlgo = "", ""
 				return nil
 			}
@@ -167,6 +216,7 @@ func (h *Hub) ForgetHostKey(name string) error {
 	}
 	_ = h.Reload()
 	h.reg.Close(name)
+	h.auditConfig(broker.ConfigRecord{Action: "forgetHostKey", Server: name, OldFingerprint: old})
 	return nil
 }
 
@@ -186,5 +236,6 @@ func (h *Hub) recordTrust(name string, dc sshx.DialConfig) error {
 		return err
 	}
 	_ = h.Reload()
+	h.auditConfig(broker.ConfigRecord{Action: "trust", Server: name, Host: dc.Host, Port: dc.Port, Fingerprint: dc.HostKey, Algo: dc.HostKeyAlgo})
 	return nil
 }
