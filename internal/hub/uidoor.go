@@ -6,20 +6,28 @@ import (
 	"io"
 
 	"github.com/lang315/ssh-mcp/internal/broker"
+	"github.com/lang315/ssh-mcp/internal/config"
 	"github.com/lang315/ssh-mcp/internal/rpc"
 )
 
 // uiServer is the UI door's server listing shape: every stored server
-// (visible or hidden), with connection metadata but never a secret field.
+// (visible or hidden), with connection metadata but never a secret field;
+// has* only says whether one is stored.
 type uiServer struct {
-	Name      string `json:"name"`
-	Host      string `json:"host"`
-	Port      int    `json:"port"`
-	User      string `json:"user"`
-	Auth      string `json:"auth"`
-	HostKey   string `json:"hostKey"`
-	AIVisible bool   `json:"aiVisible"`
-	Locked    bool   `json:"locked"`
+	Name             string `json:"name"`
+	Host             string `json:"host"`
+	Port             int    `json:"port"`
+	User             string `json:"user"`
+	Auth             string `json:"auth"`
+	KeyPath          string `json:"keyPath"`
+	HostKey          string `json:"hostKey"`
+	HostKeyAlgo      string `json:"hostKeyAlgo"`
+	AIVisible        bool   `json:"aiVisible"`
+	Locked           bool   `json:"locked"`
+	HasPassword      bool   `json:"hasPassword"`
+	HasSuPassword    bool   `json:"hasSuPassword"`
+	HasSudoPassword  bool   `json:"hasSudoPassword"`
+	HasKeyPassphrase bool   `json:"hasKeyPassphrase"`
 }
 
 // hasStore reports whether a store file was loaded, under h.mu.
@@ -47,8 +55,10 @@ func (h *Hub) serversForUI() []uiServer {
 	}
 	for _, s := range h.deps.File.Servers {
 		out = append(out, uiServer{
-			Name: s.Name, Host: s.Host, Port: s.Port, User: s.User, Auth: s.Auth,
-			HostKey: s.HostKey, AIVisible: s.AIVisible, Locked: h.deps.IsLocked(s.Name),
+			Name: s.Name, Host: s.Host, Port: s.Port, User: s.User, Auth: s.Auth, KeyPath: s.KeyPath,
+			HostKey: s.HostKey, HostKeyAlgo: s.HostKeyAlgo, AIVisible: s.AIVisible, Locked: h.deps.IsLocked(s.Name),
+			HasPassword: s.EncPassword != "", HasSuPassword: s.EncSuPassword != "",
+			HasSudoPassword: s.EncSudoPassword != "", HasKeyPassphrase: s.EncKeyPassphrase != "",
 		})
 	}
 	return out
@@ -111,6 +121,37 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 			return nil, &rpc.Error{Code: -32602, Message: "password must be at least 8 characters"}
 		}
 		return empty, h.CreateVault(p.Password)
+	})
+	req("servers.save", func(_ context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			Original string             `json:"original"`
+			Server   config.ServerInput `json:"server"`
+		}
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return nil, &rpc.Error{Code: -32602, Message: "invalid params"}
+		}
+		if err := p.Server.Validate(); err != nil {
+			return nil, &rpc.Error{Code: -32602, Message: err.Error()}
+		}
+		return empty, h.SaveServer(p.Original, p.Server)
+	})
+	req("servers.delete", func(_ context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return nil, &rpc.Error{Code: -32602, Message: "invalid params"}
+		}
+		return empty, h.DeleteServer(p.Name)
+	})
+	req("servers.forgetHostKey", func(_ context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return nil, &rpc.Error{Code: -32602, Message: "invalid params"}
+		}
+		return empty, h.ForgetHostKey(p.Name)
 	})
 	req("servers", func(context.Context, json.RawMessage) (any, error) {
 		_ = h.Reload()
