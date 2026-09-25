@@ -122,6 +122,8 @@ Then register the bridge with your MCP client, with no flags:
 
 With the hub closed, every tool call fails with "Open the app to approve commands". There is no headless mode for the vault.
 
+A tool call waits for your decision for up to 5 minutes, then fails as expired. Claude Code does not time out first: its hard per-call limit (`MCP_TOOL_TIMEOUT`) defaults to about 28 hours, and its idle limit for stdio servers is 30 minutes. Other MCP clients may use shorter timeouts; raise them above 5 minutes if calls fail while an approval is still pending.
+
 The hub and the bridge meet on a per-user socket: `$SSH_MCP_RUNTIME_DIR/ssh-mcp/hub.sock` if that variable is set, else `/run/user/<uid>/ssh-mcp/hub.sock` when that directory exists (Linux), else `/tmp/ssh-mcp-<uid>/hub.sock`. `TMPDIR` and `XDG_RUNTIME_DIR` are ignored, since MCP clients often do not pass them to the bridge. If you set `SSH_MCP_RUNTIME_DIR`, set the same value for the hub and in the MCP client's environment for the bridge. On Windows it is a per-user named pipe.
 
 The AI only sees servers with "Visible to AI" checked in `ssh-mcp web` (off by default), and only once a host key is pinned for them — the hub refuses an AI-visible server that has no pin rather than learning one on the fly. To pin one, leave "Host key fingerprint" blank, save, and click **Test connection** on the server's row in `ssh-mcp web`: the first successful connection pins the key the server presents, and the list shows it in the "Host key" column. Only do this on a network you trust for that first connection.
