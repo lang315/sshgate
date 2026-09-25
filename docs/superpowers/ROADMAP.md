@@ -85,7 +85,7 @@ plan note.
 - Slice 2a → follow-ups (security minors from the 2a reviews) — done:
   - A KDF-less store (stripped `kdf`, or never a vault) is "no vault" to the hub: `listServers` is empty, AI exec fails with "No vault yet; open the app and create one" (audited, never dialled), and `term.open` fails with "create a vault first". No out-of-file state was needed (`68cac3c`).
   - The hub remembers the last reload error; `status` returns it as `storeError` (fixed text), the app shows a red banner, and `servers.*` writes return a failed post-write reload (`7493f09`).
-  - A vault file deleted while the hub runs is a `storeError` too (same fixed text); the hub keeps serving the last good copy, writes fail closed, and restoring the file clears it. A missing file with no vault ever loaded stays "no vault".
+  - A vault file deleted while the hub runs is a `storeError` too (same fixed text); the hub keeps serving the last good copy, writes fail closed, and restoring the file clears it. A missing file with no vault ever loaded stays "no vault". `vault.create` is refused meanwhile ("a vault already exists"), so the in-memory vault cannot be replaced.
   - A trusted `term.open` whose post-pin reload fails still opens (the pin is written, the key verified) and sets `storeError`; pinned by a test.
   - The web UI's PUT treats a `hostKey` equal to the one it last served as unchanged and keeps the on-disk pin (`251eae9`).
   - The web UI sends the list's revision (`ETag`) as `If-Match` on PUT and DELETE; a stale one is 412 and the page reloads the list. `GET /api/servers` re-reads the store so the revision follows the hub's writes.

@@ -33,7 +33,8 @@ func (h *Hub) CreateVault(pw string) error {
 	// A fresh load, not deps.File. It must come first: Update checks the key
 	// before fn runs, so an existing vault would only fail as "wrong master
 	// key" (and a race still fails that way, closed).
-	if f, err := config.Load(h.o.StorePath); err == nil && f.KDF != nil {
+	// The in-memory vault counts too: its file may have gone missing.
+	if f, err := config.Load(h.o.StorePath); h.hasVault() || err == nil && f.KDF != nil {
 		return errors.New("a vault already exists")
 	}
 	k, mk, err := newKDF(pw)

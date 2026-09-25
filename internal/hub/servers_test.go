@@ -391,3 +391,18 @@ func TestWritesReturnReloadError(t *testing.T) {
 		}
 	}
 }
+
+// A vault the hub holds is not replaced by vault.create just because its
+// file went missing.
+func TestVaultCreateRefusedWhileVaultFileMissing(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.CreateVault("new-password"); err == nil || err.Error() != "a vault already exists" {
+		t.Fatalf("vault.create with the file missing: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("vault.create wrote a file: %v", err)
+	}
+}
