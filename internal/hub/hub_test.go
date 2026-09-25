@@ -597,36 +597,25 @@ func TestReloadRejectsTamperedStoreWhenUnlocked(t *testing.T) {
 	}
 }
 
-func TestResolveLearnHostKeyNeedsKeyForEncryptedVault(t *testing.T) {
-	h, path, mk := newEncHub(t, &fakeExec{})
-	dc, err := h.Resolve("agent") // locked, but "agent" has no encrypted fields
-	if err != nil {
-		t.Fatal(err)
+// No hub path can learn a host key: every resolved config is strict with no
+// learner, and an AI exec on an unpinned server leaves the store untouched.
+func TestHubNeverLearnsHostKeys(t *testing.T) {
+	fe := &fakeExec{}
+	h, path := newHub(t, fe)
+	for _, name := range []string{"vis", "nokey", "hid"} {
+		dc, err := h.Resolve(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !dc.StrictHostKey || dc.OnLearnHostKey != nil {
+			t.Fatalf("%s: not strict: %+v", name, dc)
+		}
 	}
 	before, _ := os.ReadFile(path)
-	dc.OnLearnHostKey("SHA256:new")
-	after, _ := os.ReadFile(path)
-	if !bytes.Equal(before, after) {
-		t.Fatal("locked encrypted vault was modified")
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: "nokey", Command: "ls"}); !errors.Is(err, ErrNoHostKey) {
+		t.Fatalf("want ErrNoHostKey, got %v", err)
 	}
-
-	if err := h.Unlock("pw"); err != nil {
-		t.Fatal(err)
-	}
-	dc, err = h.Resolve("agent")
-	if err != nil {
-		t.Fatal(err)
-	}
-	h.Lock() // the closure owns its own key copy
-	dc.OnLearnHostKey("SHA256:new")
-	f, err := config.Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s, _ := f.FindServer("agent"); s.HostKey != "SHA256:new" {
-		t.Fatalf("host key not recorded: %+v", s)
-	}
-	if f.MAC == "" || f.VerifyMAC(mk) != nil {
-		t.Fatal("recording must keep a valid MAC")
+	if after, _ := os.ReadFile(path); !bytes.Equal(before, after) || len(fe.calls) != 0 {
+		t.Fatal("an AI exec on an unpinned server wrote the store or dialled")
 	}
 }

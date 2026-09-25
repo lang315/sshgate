@@ -65,7 +65,7 @@ func fakeServerHub(t *testing.T, masterPW ...string) *Hub {
 	}
 	path := filepath.Join(dir, "servers.json")
 	f := &config.File{Version: 1, Servers: []config.Server{
-		{Name: "fk", Host: srv.Host, Port: srv.Port, User: "u", Auth: "key", KeyPath: keyPath},
+		{Name: "fk", Host: srv.Host, Port: srv.Port, User: "u", Auth: "key", KeyPath: keyPath, HostKey: srv.Fingerprint()},
 	}}
 	var mk []byte
 	if len(masterPW) > 0 {

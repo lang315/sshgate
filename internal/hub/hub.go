@@ -3,7 +3,6 @@
 package hub
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -324,12 +323,9 @@ func (h *Hub) checkLocked(name string) error {
 	return nil
 }
 
-// Resolve turns a stored server into a DialConfig. Deps.Resolve runs under
-// h.mu because it reads File and MasterKey; it is short (decrypt plus an
-// optional key-file read). Its OnLearnHostKey closure would read Deps
-// unlocked later, so it is replaced by one that owns a copy of the key taken
-// here. With an encrypted vault and no key, the closure records nothing: a
-// nil-key Save would strip the vault's MAC.
+// Resolve turns a stored server into a strict DialConfig (no learner: see
+// Deps.Resolve). It runs under h.mu because it reads File and MasterKey; it
+// is short (decrypt plus an optional key-file read).
 func (h *Hub) Resolve(name string) (sshx.DialConfig, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -349,20 +345,7 @@ func (h *Hub) resolveForTerm(name string) (sshx.DialConfig, error) {
 }
 
 func (h *Hub) resolveLocked(name string) (sshx.DialConfig, error) {
-	dc, err := h.deps.Resolve(name)
-	if err != nil {
-		return sshx.DialConfig{}, err
-	}
-	path, host, port := h.deps.Path, dc.Host, dc.Port
-	key := bytes.Clone(h.deps.MasterKey)
-	encrypted := h.deps.File != nil && h.deps.File.KDF != nil
-	dc.OnLearnHostKey = func(fp string) {
-		if encrypted && key == nil {
-			return
-		}
-		_ = config.RecordHostKey(path, name, host, port, fp, "", key)
-	}
-	return dc, nil
+	return h.deps.Resolve(name)
 }
 
 // resolveForAI checks the server (exists, AIVisible, unlocked, pinned) and

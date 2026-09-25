@@ -1,11 +1,12 @@
 package sshx
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"errors"
 	"net"
 	"testing"
 
-	"crypto/rand"
-	"crypto/ed25519"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -32,9 +33,11 @@ func TestTOFULearns(t *testing.T) {
 
 func TestPinnedMismatchRejected(t *testing.T) {
 	pk := testKey(t)
-	cb := HostKeyCallback("sha256:WRONG", false, nil)
-	if err := cb("h:22", &net.TCPAddr{}, pk); err == nil {
-		t.Fatal("mismatched pin must be rejected")
+	err := HostKeyCallback("sha256:WRONG", false, nil)("h:22", &net.TCPAddr{}, pk)
+	var m *HostKeyMismatchError
+	if !errors.As(err, &m) || !errors.Is(err, ErrHostKeyMismatch) || m.Pinned != "sha256:WRONG" ||
+		m.Presented != Fingerprint(pk) || m.KeyType != ssh.KeyAlgoED25519 || m.Key == nil {
+		t.Fatalf("got %v", err)
 	}
 }
 
@@ -44,5 +47,27 @@ func TestInsecureAcceptsAnyKeyEvenWithMismatchedPin(t *testing.T) {
 	cb := HostKeyCallback("sha256:DELIBERATELY-WRONG", true, nil)
 	if err := cb("h:22", &net.TCPAddr{}, pk); err != nil {
 		t.Fatalf("insecure=true must accept any key, got error: %v", err)
+	}
+}
+
+func TestStrictRefusesUnpinnedKey(t *testing.T) {
+	pk := testKey(t)
+	err := HostKeyCallback("", false, nil)("h:22", &net.TCPAddr{}, pk)
+	var u *HostKeyUnknownError
+	if !errors.As(err, &u) || u.Fingerprint != Fingerprint(pk) || u.KeyType != ssh.KeyAlgoED25519 || u.Key == nil {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestHostKeyAlgorithms(t *testing.T) {
+	if got := hostKeyAlgorithms(""); got != nil {
+		t.Fatalf("no pinned algo must negotiate as before, got %v", got)
+	}
+	if got := hostKeyAlgorithms(ssh.KeyAlgoED25519); len(got) != 1 || got[0] != ssh.KeyAlgoED25519 {
+		t.Fatalf("ed25519: %v", got)
+	}
+	got := hostKeyAlgorithms(ssh.KeyAlgoRSA)
+	if len(got) != 3 || got[0] != ssh.KeyAlgoRSASHA512 || got[1] != ssh.KeyAlgoRSASHA256 || got[2] != ssh.KeyAlgoRSA {
+		t.Fatalf("rsa family: %v", got)
 	}
 }

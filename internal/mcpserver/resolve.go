@@ -108,10 +108,12 @@ func (d *Deps) Resolve(name string) (sshx.DialConfig, error) {
 	if err != nil {
 		return sshx.DialConfig{}, err
 	}
+	// The file branch serves only the hub: strict, with no learner, so a
+	// host key is pinned only by the user's Trust in the app.
 	dc := sshx.DialConfig{
 		Host: s.Host, Port: s.Port, User: s.User, Password: pw, Auth: s.Auth,
-		SuPassword: su, SudoPassword: sudo, Passphrase: passphrase, HostKey: s.HostKey, Insecure: d.Insecure,
-		TimeoutMs: 60000,
+		SuPassword: su, SudoPassword: sudo, Passphrase: passphrase, HostKey: s.HostKey, HostKeyAlgo: s.HostKeyAlgo,
+		Insecure: d.Insecure, StrictHostKey: true, TimeoutMs: 60000,
 	}
 	if s.KeyPath != "" {
 		data, err := os.ReadFile(expandPath(s.KeyPath))
@@ -119,10 +121,6 @@ func (d *Deps) Resolve(name string) (sshx.DialConfig, error) {
 			return sshx.DialConfig{}, fmt.Errorf("reading key file %q: %w", s.KeyPath, err)
 		}
 		dc.PrivateKey = string(data)
-	}
-	host, port := dc.Host, dc.Port
-	dc.OnLearnHostKey = func(fp string) {
-		_ = config.RecordHostKey(d.Path, name, host, port, fp, "", d.MasterKey)
 	}
 	return dc, nil
 }

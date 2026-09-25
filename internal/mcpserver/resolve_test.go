@@ -68,3 +68,19 @@ func TestResolveNamedDecryptsPassword(t *testing.T) {
 		t.Fatalf("password=%q", dc.Password)
 	}
 }
+
+// The file branch serves only the hub: strict, no learner, algorithm pinned.
+func TestResolveNamedIsStrictWithNoLearner(t *testing.T) {
+	f := &config.File{Version: 1, Servers: []config.Server{{Name: "p", Host: "h", Port: 22, User: "u", Auth: "agent", HostKey: "SHA256:x", HostKeyAlgo: "ssh-ed25519"}}}
+	dc, err := (&Deps{File: f}).Resolve("p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dc.StrictHostKey || dc.OnLearnHostKey != nil || dc.HostKeyAlgo != "ssh-ed25519" {
+		t.Fatalf("got %+v", dc)
+	}
+	cli, err := (&Deps{CLI: &config.CLIConfig{Host: "h", Port: 22, User: "u", HasHost: true}}).Resolve("")
+	if err != nil || cli.StrictHostKey {
+		t.Fatalf("--host mode must keep TOFU: %v %+v", err, cli)
+	}
+}

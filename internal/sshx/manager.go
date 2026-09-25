@@ -24,8 +24,10 @@ import (
 type DialConfig struct {
 	Host, User, Password, PrivateKey, Passphrase string
 	SuPassword, SudoPassword, HostKey, Auth      string
+	HostKeyAlgo                                  string // the pinned key's type; limits negotiation to its family
 	Port, TimeoutMs                              int
 	Insecure                                     bool
+	StrictHostKey                                bool // hub paths: no TOFU, an unpinned host fails with *HostKeyUnknownError
 	OnLearnHostKey                               func(fp string)
 }
 
@@ -102,11 +104,16 @@ func (m *Manager) ensure() error {
 	if err != nil {
 		return err
 	}
+	learn := m.learn
+	if m.cfg.StrictHostKey {
+		learn = nil
+	}
 	cc := &ssh.ClientConfig{
-		User:            m.cfg.User,
-		Auth:            auth,
-		HostKeyCallback: HostKeyCallback(*m.pin.Load(), m.cfg.Insecure, m.learn),
-		Timeout:         30 * time.Second,
+		User:              m.cfg.User,
+		Auth:              auth,
+		HostKeyCallback:   HostKeyCallback(*m.pin.Load(), m.cfg.Insecure, learn),
+		HostKeyAlgorithms: hostKeyAlgorithms(m.cfg.HostKeyAlgo),
+		Timeout:           30 * time.Second,
 	}
 	addr := net.JoinHostPort(m.cfg.Host, strconv.Itoa(m.cfg.Port))
 	client, err := ssh.Dial("tcp", addr, cc)
