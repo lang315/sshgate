@@ -383,3 +383,19 @@ func TestExecTimeoutIsErrTimeout(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// A shell that never prints a su password prompt must fail elevation at the
+// setup deadline, not block forever inside a read.
+func TestSuWithoutPromptTimesOut(t *testing.T) {
+	old := suSetupTimeout
+	suSetupTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { suSetupTimeout = old })
+	srv := sshtest.Start(t)
+	m := NewManager(DialConfig{Host: srv.Host, Port: srv.Port, User: "u", Password: "p", SuPassword: "x", Auth: "password", Insecure: true, TimeoutMs: 30000})
+	t.Cleanup(m.Close)
+	within(t, "su elevation", func() {
+		if _, err := m.Exec(context.Background(), "id -u"); err == nil {
+			t.Error("elevation without a prompt succeeded")
+		}
+	})
+}

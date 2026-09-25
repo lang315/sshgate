@@ -377,6 +377,9 @@ func (m *Manager) dropSu(sh *suShell) {
 	m.mu.Unlock()
 }
 
+// suSetupTimeout bounds all of startSu; a var so tests can shorten it.
+var suSetupTimeout = 30 * time.Second
+
 // startSu opens a PTY shell on client and elevates it with su. It touches no
 // Manager state.
 func (m *Manager) startSu(client *ssh.Client) (*suShell, error) {
@@ -396,6 +399,11 @@ func (m *Manager) startSu(client *ssh.Client) (*suShell, error) {
 		return nil, err
 	}
 	sh := &suShell{client: client, sess: sess, stdin: stdin, stdout: stdout, buf: bufio.NewReader(stdout)}
+	// The read helpers only check their deadlines between reads, so a shell
+	// that goes silent would block them forever. Closing the session unblocks
+	// the read; the elevation then fails closed.
+	watchdog := time.AfterFunc(suSetupTimeout, func() { sess.Close() })
+	defer watchdog.Stop()
 	fmt.Fprint(stdin, "export LANG=C LC_ALL=C\n")
 	fmt.Fprint(stdin, "su -\n")
 	if err := readUntilAny(sh.buf, 10*time.Second, []string{"assword"}); err != nil {
@@ -499,7 +507,7 @@ func readUntilAny(r *bufio.Reader, timeout time.Duration, needles []string) erro
 	for time.Now().Before(deadline) {
 		b, err := r.ReadByte()
 		if err != nil {
-			return err
+			return fmt.Errorf("%w (shell output tail: %q)", err, tail(acc.String(), 120))
 		}
 		acc.WriteByte(b)
 		s := acc.String()
@@ -512,7 +520,14 @@ func readUntilAny(r *bufio.Reader, timeout time.Duration, needles []string) erro
 			return fmt.Errorf("su reported failure")
 		}
 	}
-	return fmt.Errorf("timeout waiting for prompt")
+	return fmt.Errorf("timeout waiting for prompt (shell output tail: %q)", tail(acc.String(), 120))
+}
+
+func tail(s string, n int) string {
+	if len(s) > n {
+		return s[len(s)-n:]
+	}
+	return s
 }
 
 func readCommandOutput(r *bufio.Reader, timeout time.Duration, marker string) (string, int, error) {
