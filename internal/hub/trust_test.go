@@ -106,6 +106,29 @@ func TestTrustPinsExactlyTheConfirmedKey(t *testing.T) {
 	noNote(t, notes, "term.exit", "t1", 300*time.Millisecond)
 }
 
+// The pin is written and the key verified, so a failed reload after a
+// trusted open keeps the terminal open but shows as storeError.
+func TestTrustReloadFailureOpensAndReports(t *testing.T) {
+	h, srv, c, _ := trustHub(t)
+	r := openTerm(t, c, "t1", nil)
+	recordHostKey = func(path, name, host string, port int, fp, algo string, mk []byte) error {
+		err := config.RecordHostKey(path, name, host, port, fp, algo, mk)
+		loadStore = func(string) (*config.File, error) { return nil, errors.New("boom") }
+		return err
+	}
+	t.Cleanup(func() { recordHostKey, loadStore = config.RecordHostKey, config.Load })
+	if o := openTerm(t, c, "t1", trusting(r)); o.Status != "open" {
+		t.Fatalf("trusted open: %+v", o)
+	}
+	if got := h.storeError(); got != errStoreReload.Error() {
+		t.Fatalf("storeError = %q", got)
+	}
+	f, _ := config.Load(h.o.StorePath)
+	if s, _ := f.FindServer("box"); s.HostKey != srv.Fingerprint() {
+		t.Fatalf("pin not written: %+v", s)
+	}
+}
+
 func TestRotatedKeyIsAMismatch(t *testing.T) {
 	h, srv, c, _ := trustHub(t)
 	openTerm(t, c, "t1", trusting(openTerm(t, c, "t1", nil)))

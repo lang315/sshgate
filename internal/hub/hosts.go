@@ -240,6 +240,9 @@ func (h *Hub) recordTrust(name string, dc sshx.DialConfig) error {
 	if err := recordHostKey(h.o.StorePath, name, dc.Host, dc.Port, dc.HostKey, dc.HostKeyAlgo, key); err != nil {
 		return err
 	}
+	// Unlike servers.*, a failed reload does not fail the call: the pin is
+	// written and the key verified, so the open proceeds. Reload remembers
+	// the failure as storeError.
 	_ = h.Reload()
 	h.auditConfig(broker.ConfigRecord{Action: "trust", Server: name, Host: dc.Host, Port: dc.Port, Fingerprint: dc.HostKey, Algo: dc.HostKeyAlgo})
 	return nil
