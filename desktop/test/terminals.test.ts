@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Debouncer, Dispatcher, newTermId, printable, TabSet, isUserInput } from '../src/renderer/terminals'
+import { clipboardKey, Debouncer, Dispatcher, newTermId, printable, TabSet, isUserInput } from '../src/renderer/terminals'
 
 describe('newTermId', () => {
   it('matches the hub id rules and is unique', () => {
@@ -68,5 +68,27 @@ describe('isUserInput', () => {
     expect(isUserInput(10_000, 10_999)).toBe(true)
     expect(isUserInput(10_000, 11_000)).toBe(false)
     expect(isUserInput(-Infinity, 5)).toBe(false) // no input yet
+  })
+})
+
+describe('clipboardKey', () => {
+  const k = (keyCode: number, mods: Partial<Record<'ctrlKey' | 'shiftKey' | 'altKey' | 'metaKey', boolean>> = {}) =>
+    ({ keyCode, ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, ...mods })
+  const C = 67, V = 86, D = 68, W = 87
+  it('copies and pastes on Ctrl+Shift+C/V off macOS', () => {
+    for (const p of ['Win32', 'Linux x86_64']) {
+      expect(clipboardKey(k(C, { ctrlKey: true, shiftKey: true }), p)).toBe('copy')
+      expect(clipboardKey(k(V, { ctrlKey: true, shiftKey: true }), p)).toBe('paste')
+    }
+  })
+  it('passes Ctrl without Shift, other keys, and extra modifiers', () => {
+    for (const code of [C, V, D, W]) expect(clipboardKey(k(code, { ctrlKey: true }), 'Linux x86_64')).toBe('pass')
+    expect(clipboardKey(k(D, { ctrlKey: true, shiftKey: true }), 'Win32')).toBe('pass')
+    expect(clipboardKey(k(C, { shiftKey: true }), 'Win32')).toBe('pass')
+    expect(clipboardKey(k(C, { ctrlKey: true, shiftKey: true, altKey: true }), 'Win32')).toBe('pass')
+    expect(clipboardKey(k(V, { ctrlKey: true, shiftKey: true, metaKey: true }), 'Win32')).toBe('pass')
+  })
+  it('always passes on macOS', () => {
+    for (const code of [C, V]) expect(clipboardKey(k(code, { ctrlKey: true, shiftKey: true }), 'MacIntel')).toBe('pass')
   })
 })

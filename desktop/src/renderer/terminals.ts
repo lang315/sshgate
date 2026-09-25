@@ -78,3 +78,13 @@ export class Dispatcher<E> {
   emit(id: string, e: E): void { this.handlers.get(id)?.(e) }
   emitAll(e: E): void { for (const h of [...this.handlers.values()]) h(e) }
 }
+
+// Ctrl+Shift+C/V copy and paste on Windows/Linux, like GNOME Terminal; keyCode, as
+// Blink's own paste binding uses. macOS has Cmd+C/V through the Edit menu.
+export function clipboardKey(
+  e: { keyCode: number; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean },
+  platform: string,
+): 'copy' | 'paste' | 'pass' {
+  if (platform.startsWith('Mac') || !e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return 'pass'
+  return e.keyCode === 67 ? 'copy' : e.keyCode === 86 ? 'paste' : 'pass'
+}

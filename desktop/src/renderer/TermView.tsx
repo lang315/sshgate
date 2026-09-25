@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { hub, fromBase64 } from './transport'
 import type { HubEvent } from '../shared/protocol'
-import { Debouncer, isUserInput, printable, type Dispatcher, type Tab, type TabSet } from './terminals'
+import { clipboardKey, Debouncer, isUserInput, printable, type Dispatcher, type Tab, type TabSet } from './terminals'
 
 export interface TermApi { paste(text: string): void }
 // A hub event for this tab's id, or 'hub.stopped' when the hub leaves the running state.
@@ -29,6 +29,13 @@ export function TermView({ tab, tabs, events, visible, onChange, register }: {
     term.open(el)
     fit.fit()
     termRef.current = term
+    // Copy runs xterm's own copy handler; paste is left to Blink, whose paste event
+    // xterm handles as a paste (bracketed). Neither sends the key itself to the shell.
+    term.attachCustomKeyEventHandler((e) => {
+      const a = clipboardKey(e, navigator.platform)
+      if (a === 'copy' && e.type === 'keydown') document.execCommand('copy')
+      return a === 'pass'
+    })
     const enc = new TextEncoder()
     // Nothing is sent for this id before the term.open reply, nor after it ends.
     let phase: 'opening' | 'open' | 'ended' = 'opening'
