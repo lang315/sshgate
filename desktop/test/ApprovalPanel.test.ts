@@ -6,14 +6,14 @@ import { seed } from '../src/renderer/approvals'
 import type { ApprovalRequest } from '../src/shared/protocol'
 
 const req: ApprovalRequest = {
-  id: 'a', client: 'claude-code', server: 'box', command: 'ls', description: '', sudo: false, timeoutSec: 60, receivedAt: '2024-01-01T00:00:00Z',
+  id: 'a', client: 'claude-code', server: 'box', target: 'u@h:22', command: 'ls', description: '', sudo: false, timeoutSec: 60, receivedAt: '2024-01-01T00:00:00Z',
 }
 
 describe('Item', () => {
   it('makes Allow and Send to tab keyboard-unreachable; only Deny is a submit button', () => {
     const [item] = seed([req], 0)
     const html = renderToStaticMarkup(createElement(Item, {
-      item, now: 10_000, server: undefined,
+      item, now: 10_000,
       onDecide: async () => {}, onSendToTab: async () => {},
     }))
     const buttons = [...html.matchAll(/<button([^>]*)>([^<]*)<\/button>/g)].map((m) => ({ attrs: m[1], text: m[2] }))
@@ -29,5 +29,11 @@ describe('Item', () => {
     const sendToTab = buttons.find((b) => b.text === 'Send to tab')!
     expect(sendToTab.attrs).toMatch(/type="button"/)
     expect(sendToTab.attrs).toMatch(/tabindex="-1"/)
+  })
+
+  it('shows the user@host:port the request was submitted for', () => {
+    const [item] = seed([req], 0)
+    const html = renderToStaticMarkup(createElement(Item, { item, now: 10_000, onDecide: async () => {}, onSendToTab: async () => {} }))
+    expect(html).toContain('u@h:22')
   })
 })

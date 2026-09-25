@@ -1,4 +1,4 @@
-import type { ApprovalRequest, HubEvent, HubState, ServerInfo } from '../shared/protocol'
+import type { ApprovalRequest, HubEvent, HubState, ServerInfo, ServerInput, Status, TermOpenResult } from '../shared/protocol'
 
 interface Bridge {
   call(method: string, params?: unknown): Promise<unknown>
@@ -39,7 +39,7 @@ export function fromBase64(s: string): Uint8Array {
 
 export const hub = {
   hello: () => call<{ protocol: number }>('hello'),
-  status: () => call<{ locked: boolean; hasStore: boolean; pending: number }>('status'),
+  status: () => call<Status>('status'),
   unlock: async (password: string) => { await call('unlock', { password }) },
   lock: async () => { await call('lock') },
   servers: () => call<ServerInfo[]>('servers'),
@@ -48,9 +48,13 @@ export const hub = {
     await call('decide', { id, outcome, reason })
   },
   denyAll: async (reason = '') => { await call('denyAll', { reason }) },
-  termOpen: async (id: string, server: string, rows: number, cols: number) => {
-    await call('term.open', { id, server, rows, cols })
-  },
+  createVault: async (password: string) => { await call('vault.create', { password }) },
+  saveServer: async (server: ServerInput, original?: string) => { await call('servers.save', { original, server }) },
+  deleteServer: async (name: string) => { await call('servers.delete', { name }) },
+  forgetHostKey: async (name: string) => { await call('servers.forgetHostKey', { name }) },
+  // A host-key outcome is a result, not an error; trustHostKey retries pinned to exactly that key.
+  termOpen: (id: string, server: string, rows: number, cols: number, trustHostKey?: { fingerprint: string; keyType: string }) =>
+    call<TermOpenResult>('term.open', trustHostKey ? { id, server, rows, cols, trustHostKey } : { id, server, rows, cols }),
   termClose: async (id: string) => { await call('term.close', { id }) },
   termWrite: (id: string, data: Uint8Array, user: boolean) => bridge().notify('term.write', { id, data: toBase64(data), user }),
   termAck: (id: string, n: number) => bridge().notify('term.ack', { id, n }),

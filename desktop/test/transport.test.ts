@@ -36,9 +36,25 @@ describe('transport', () => {
     expect(bridge.call).toHaveBeenCalledWith('decide', { id: 'abc', outcome: 'denied', reason: 'no' })
   })
 
-  it('termOpen sends the client-chosen id', async () => {
-    await hub.termOpen('t2', 'box', 24, 80)
+  it('termOpen returns the hub result and sends trustHostKey only on a trusted retry', async () => {
+    bridge.call.mockResolvedValueOnce({ status: 'open' })
+    expect(await hub.termOpen('t2', 'box', 24, 80)).toEqual({ status: 'open' })
     expect(bridge.call).toHaveBeenCalledWith('term.open', { id: 't2', server: 'box', rows: 24, cols: 80 })
+    await hub.termOpen('t2', 'box', 24, 80, { fingerprint: 'SHA256:x', keyType: 'ssh-ed25519' })
+    expect(bridge.call).toHaveBeenLastCalledWith('term.open',
+      { id: 't2', server: 'box', rows: 24, cols: 80, trustHostKey: { fingerprint: 'SHA256:x', keyType: 'ssh-ed25519' } })
+  })
+
+  it('host management calls', async () => {
+    await hub.createVault('password1')
+    expect(bridge.call).toHaveBeenLastCalledWith('vault.create', { password: 'password1' })
+    const s = { name: 'box', host: 'h', port: 22, user: 'u', auth: 'password', keyPath: '', aiVisible: false, password: '' }
+    await hub.saveServer(s, 'old')
+    expect(bridge.call).toHaveBeenLastCalledWith('servers.save', { original: 'old', server: s })
+    await hub.deleteServer('box')
+    expect(bridge.call).toHaveBeenLastCalledWith('servers.delete', { name: 'box' })
+    await hub.forgetHostKey('box')
+    expect(bridge.call).toHaveBeenLastCalledWith('servers.forgetHostKey', { name: 'box' })
   })
 
   it('cleanError strips the electron invoke prefix, with or without the inner "Error: "', () => {

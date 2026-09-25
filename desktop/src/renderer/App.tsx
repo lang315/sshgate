@@ -104,7 +104,7 @@ export function App() {
         <main className="work" style={ready ? undefined : { display: 'none' }} inert={!ready}><Terminals ref={terms} /></main>
       )}
       {ready && (
-        <ApprovalPanel items={items} servers={servers} seedError={seedError}
+        <ApprovalPanel items={items} seedError={seedError}
           onDecide={(id, outcome, reason) => hub.decide(id, outcome, reason)}
           onDenyAll={() => hub.denyAll('denied all by user')}
           onSendToTab={async (item) => {

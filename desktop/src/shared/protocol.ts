@@ -7,14 +7,37 @@ export type HubState =
 export type Outcome = 'allowed' | 'denied' | 'expired' | 'withdrawn' | 'sent_to_tab'
 
 export interface ApprovalRequest {
-  id: string; client: string; server: string; command: string
+  id: string; client: string; server: string; target: string; command: string
   description: string; sudo: boolean; timeoutSec: number; receivedAt: string
 }
 
 export interface ServerInfo {
-  name: string; host: string; port: number; user: string; auth: string
-  hostKey: string; aiVisible: boolean; locked: boolean
+  name: string; host: string; port: number; user: string; auth: string; keyPath: string
+  hostKey: string; hostKeyAlgo: string; aiVisible: boolean; locked: boolean
+  hasPassword: boolean; hasSuPassword: boolean; hasSudoPassword: boolean; hasKeyPassphrase: boolean
 }
+
+export type SecretField = 'password' | 'suPassword' | 'sudoPassword' | 'keyPassphrase'
+
+// Secrets are write-only: an omitted one is kept, '' clears it.
+export interface ServerInput {
+  name: string; host: string; port: number; user: string; auth: string; keyPath: string; aiVisible: boolean
+  password?: string; suPassword?: string; sudoPassword?: string; keyPassphrase?: string
+}
+
+export interface Status { locked: boolean; hasStore: boolean; hasVault: boolean; storePath: string; pending: number }
+
+export interface HostKeyUnknown {
+  status: 'hostKeyUnknown'; server: string; host: string; port: number; user: string
+  fingerprint: string; keyType: string; knownHosts: 'match' | 'different' | 'absent'
+}
+
+export interface HostKeyMismatch {
+  status: 'hostKeyMismatch'; server: string; host: string; port: number; user: string
+  pinned: string; presented: string
+}
+
+export type TermOpenResult = { status: 'open' } | HostKeyUnknown | HostKeyMismatch
 
 export type HubEvent =
   | { method: 'pending'; params: { request: ApprovalRequest } }
@@ -25,8 +48,9 @@ export type HubEvent =
   | { method: 'term.dropped'; params: { id: string; bytes: number } }
 
 export const REQUEST_METHODS = ['hello', 'status', 'unlock', 'lock', 'servers', 'pending',
-  'decide', 'denyAll', 'term.open', 'term.close'] as const
+  'decide', 'denyAll', 'term.open', 'term.close',
+  'vault.create', 'servers.save', 'servers.delete', 'servers.forgetHostKey'] as const
 export type RequestMethod = (typeof REQUEST_METHODS)[number]
 export const NOTIFY_METHODS = ['term.write', 'term.ack', 'term.resize'] as const
 export type NotifyMethod = (typeof NOTIFY_METHODS)[number]
-export const PROTOCOL_VERSION = 1
+export const PROTOCOL_VERSION = 2

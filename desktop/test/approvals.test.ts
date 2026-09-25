@@ -3,7 +3,7 @@ import { allowEnabled, blockKeyboardActivation, highlightNonAscii, Latest, ListC
 import type { ApprovalRequest } from '../src/shared/protocol'
 
 const req = (id: string): ApprovalRequest => ({
-  id, client: 'claude-code', server: 'box', command: 'ls', description: '', sudo: false, timeoutSec: 60, receivedAt: '',
+  id, client: 'claude-code', server: 'box', target: 'u@h:22', command: 'ls', description: '', sudo: false, timeoutSec: 60, receivedAt: '',
 })
 
 describe('reduceApprovals', () => {

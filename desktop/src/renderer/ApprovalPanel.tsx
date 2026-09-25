@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import type { ServerInfo } from '../shared/protocol'
 import { allowEnabled, blockKeyboardActivation, highlightNonAscii, ListChanges, type PendingItem } from './approvals'
 
-export function ApprovalPanel({ items, servers, seedError, onDecide, onDenyAll, onSendToTab }: {
+export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToTab }: {
   items: PendingItem[]
-  servers: ServerInfo[]
   seedError?: string
   onDecide: (id: string, outcome: 'allowed' | 'denied', reason: string) => Promise<void>
   onDenyAll: () => Promise<void>
@@ -51,7 +49,6 @@ export function ApprovalPanel({ items, servers, seedError, onDecide, onDenyAll, 
         )}
         {items.map((item) => (
           <Item key={item.request.id} item={item} now={now} changedAt={changedAt}
-            server={servers.find((s) => s.name === item.request.server)}
             onDecide={onDecide} onSendToTab={onSendToTab} />
         ))}
       </div>
@@ -59,8 +56,8 @@ export function ApprovalPanel({ items, servers, seedError, onDecide, onDenyAll, 
   )
 }
 
-export function Item({ item, now, changedAt = 0, server, onDecide, onSendToTab }: {
-  item: PendingItem; now: number; changedAt?: number; server?: ServerInfo
+export function Item({ item, now, changedAt = 0, onDecide, onSendToTab }: {
+  item: PendingItem; now: number; changedAt?: number
   onDecide: (id: string, outcome: 'allowed' | 'denied', reason: string) => Promise<void>
   onSendToTab: (item: PendingItem) => Promise<void>
 }) {
@@ -77,7 +74,8 @@ export function Item({ item, now, changedAt = 0, server, onDecide, onSendToTab }
     <form className="approval" onSubmit={deny}>
       <div className="who">
         <strong>{r.server}</strong>
-        {server && <span className="muted"> {server.user}@{server.host}:{server.port}</span>}
+        {/* The endpoint this approval is bound to; the hub refuses the run if it changes. */}
+        <span className="muted">{` ${r.target}`}</span>
         {r.sudo && <span className="badge warn">SUDO</span>}
       </div>
       <pre className="cmd">

@@ -14,6 +14,7 @@ describe('ipc whitelist', () => {
     const h = fakeHub()
     expect(await relayCall(h, 'servers', {})).toEqual({ ok: true })
     expect(h.call).toHaveBeenCalledWith('servers', {})
+    expect(await relayCall(h, 'servers.save', { server: {} })).toEqual({ ok: true })
   })
   it('rejects anything else', async () => {
     const h = fakeHub()

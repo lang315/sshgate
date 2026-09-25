@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('electron', () => ({}))
 const { notificationText, PendingCounter, trayTitle, trayTooltip, ICON_PNG_BASE64 } = await import('../src/main/attention')
 
-const req = { id: 'a', client: 'c', server: 'box', command: 'x'.repeat(200), description: '', sudo: true, timeoutSec: 60, receivedAt: '' }
+const req = { id: 'a', client: 'c', server: 'box', target: 'u@h:22', command: 'x'.repeat(200), description: '', sudo: true, timeoutSec: 60, receivedAt: '' }
 
 describe('attention', () => {
   it('formats tray text', () => {
