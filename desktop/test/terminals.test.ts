@@ -10,6 +10,15 @@ describe('newTermId', () => {
 })
 
 describe('TabSet', () => {
+  it('counts the tabs still open per server', () => {
+    const t = new TabSet()
+    const a = t.open('box')
+    t.open('box')
+    t.open('other')
+    t.exited(a.id, 'bye')
+    expect(t.openCount('box')).toBe(1)
+    expect(t.openCount('none')).toBe(0)
+  })
   it('tracks lifecycle and activation order', () => {
     const t = new TabSet()
     const a = t.open('box')

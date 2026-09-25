@@ -43,6 +43,10 @@ export class TabSet {
     }
     return undefined
   }
+
+  openCount(server: string): number {
+    return this.tabs.filter((t) => t.server === server && t.state !== 'exited').length
+  }
 }
 
 export class Debouncer {

@@ -1,0 +1,63 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, it } from 'vitest'
+import { closesTabs, draftFrom, endpointChanged, secretPlaceholder, toInput, vaultPasswordProblem } from '../src/renderer/hostForm'
+import { EditorWarnings, HostEditor } from '../src/renderer/HostEditor'
+import type { ServerInfo } from '../src/shared/protocol'
+
+const box: ServerInfo = {
+  name: 'box', host: 'h', port: 22, user: 'u', auth: 'password', keyPath: '', hostKey: 'SHA256:x', hostKeyAlgo: 'ssh-ed25519',
+  aiVisible: false, locked: false, hasPassword: true, hasSuPassword: false, hasSudoPassword: false, hasKeyPassphrase: false,
+}
+const noop = async () => {}
+
+describe('host editor secrets', () => {
+  it('omits untouched secrets, sends "" for cleared ones and the value for typed ones', () => {
+    const d = draftFrom(box)
+    d.secrets.password = { value: '', cleared: true }
+    d.secrets.suPassword = { value: 'su!', cleared: false }
+    const input = toInput(d)
+    expect(input).toEqual({ name: 'box', host: 'h', port: 22, user: 'u', auth: 'password', keyPath: '', aiVisible: false, password: '', suPassword: 'su!' })
+    expect('sudoPassword' in input).toBe(false)
+    expect('keyPassphrase' in input).toBe(false)
+  })
+  it('shows "saved" for a stored secret and offers Clear only for it', () => {
+    expect(secretPlaceholder(true, { value: '', cleared: false })).toBe('saved')
+    expect(secretPlaceholder(false, { value: '', cleared: false })).toBe('')
+    expect(secretPlaceholder(true, { value: '', cleared: true })).toBe('will be cleared')
+    const html = renderToStaticMarkup(createElement(HostEditor, { server: box, openTabs: 0, onSave: noop, onForget: noop, onClose: () => {} }))
+    expect(html.match(/placeholder="saved"/g)).toHaveLength(1)
+    expect(html.match(/>Clear</g)).toHaveLength(1)
+    expect(html).toContain('SHA256:x')
+    expect(html).toContain('Forget host key')
+  })
+})
+
+describe('host editor warnings', () => {
+  it('warns that a new host or port forgets the key and saved passwords', () => {
+    const d = draftFrom(box)
+    expect(endpointChanged(box, d)).toBe(false)
+    expect(endpointChanged(box, { ...d, user: 'root' })).toBe(false)
+    expect(endpointChanged(box, { ...d, port: '2222' })).toBe(true)
+    expect(endpointChanged(box, { ...d, host: 'h2' })).toBe(true)
+    expect(endpointChanged(undefined, d)).toBe(false)
+    const html = renderToStaticMarkup(createElement(EditorWarnings, { server: box, draft: { ...d, port: '2222' }, openTabs: 2 }))
+    expect(html).toContain('Changing host or port forgets the host key and saved passwords unless you re-enter them.')
+    expect(html).toContain('Saving will close 2 open tabs.')
+  })
+  it('closes tabs only for connection changes, not for Visible to AI', () => {
+    const d = draftFrom(box)
+    expect(closesTabs(box, { ...d, aiVisible: true })).toBe(false)
+    expect(closesTabs(box, { ...d, user: 'root' })).toBe(true)
+    expect(closesTabs(box, { ...d, secrets: { ...d.secrets, sudoPassword: { value: 'x', cleared: false } } })).toBe(true)
+    expect(renderToStaticMarkup(createElement(EditorWarnings, { server: box, draft: { ...d, aiVisible: true }, openTabs: 2 }))).toBe('')
+  })
+})
+
+describe('vaultPasswordProblem', () => {
+  it('needs 8 characters and a matching confirmation', () => {
+    expect(vaultPasswordProblem('short', 'short')).toMatch(/8 characters/)
+    expect(vaultPasswordProblem('password1', 'password2')).toMatch(/do not match/)
+    expect(vaultPasswordProblem('password1', 'password1')).toBeUndefined()
+  })
+})

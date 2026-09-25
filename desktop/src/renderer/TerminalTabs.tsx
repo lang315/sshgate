@@ -6,6 +6,7 @@ import { TermView, type TermApi, type TermEvent } from './TermView'
 export interface TerminalsHandle {
   open(server: string): void
   sendToTab(server: string, text: string): Promise<void>
+  openCount(server: string): number
 }
 
 export const Terminals = forwardRef<TerminalsHandle>(function Terminals(_props, ref) {
@@ -45,6 +46,7 @@ export const Terminals = forwardRef<TerminalsHandle>(function Terminals(_props, 
       await waitReady(tab.id)
       apis.get(tab.id)!.paste(text)
     },
+    openCount: (server) => tabs.openCount(server),
   }))
 
   return (

@@ -1,21 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { HubState, ServerInfo } from '../shared/protocol'
+import type { HubState, ServerInfo, Status } from '../shared/protocol'
 import { hub } from './transport'
 import { screenFor } from './shell'
 import { Unlock } from './Unlock'
+import { CreateVault } from './CreateVault'
 import { HostList } from './HostList'
+import { HostEditor } from './HostEditor'
 import { Terminals, type TerminalsHandle } from './TerminalTabs'
 import { ApprovalPanel } from './ApprovalPanel'
 import { Latest, mergeSeed, reduceApprovals, type PendingItem } from './approvals'
 
 export function App() {
   const [hubState, setHubState] = useState<HubState>({ kind: 'starting' })
-  const [status, setStatus] = useState<{ locked: boolean; hasStore: boolean }>()
+  const [status, setStatus] = useState<Status>()
   const [unlockError, setUnlockError] = useState<string>()
   const [idleLocked, setIdleLocked] = useState(false)
   const [servers, setServers] = useState<ServerInfo[]>([])
   const terms = useRef<TerminalsHandle>(null)
   const [everReady, setEverReady] = useState(false)
+  const [editing, setEditing] = useState<{ name?: string; focusForget?: boolean }>()
 
   const refresh = useCallback(async () => {
     try { setStatus(await hub.status()) } catch { setStatus(undefined) }
@@ -37,10 +40,13 @@ export function App() {
 
   const screen = screenFor(hubState, status, unlockError)
 
+  // One fetch per screen change or host edit, never a poll: every call but
+  // status counts as UI activity and would hold off the idle lock.
+  const reloadServers = useCallback(() => hub.servers().then(setServers).catch(() => setServers([])), [])
   useEffect(() => {
-    if (screen.kind === 'ready') hub.servers().then(setServers).catch(() => setServers([]))
+    if (screen.kind === 'ready' || screen.kind === 'create-vault') reloadServers()
     else setServers([])
-  }, [screen.kind])
+  }, [screen.kind, reloadServers])
 
   const [items, setItems] = useState<PendingItem[]>([])
   const [seedError, setSeedError] = useState<string>()
@@ -74,6 +80,12 @@ export function App() {
     try { await hub.unlock(pw); setUnlockError(undefined); setIdleLocked(false) } catch (e) { setUnlockError((e as Error).message) }
     await refresh()
   }
+  const createVault = async (pw: string) => { await hub.createVault(pw); await refresh() }
+  const deleteHost = async (name: string) => {
+    if (!window.confirm(`Delete ${name}? Its saved passwords and host key are removed and its open tabs close.`)) return
+    try { await hub.deleteServer(name) } catch (e) { window.alert((e as Error).message) }
+    await reloadServers()
+  }
 
   const ready = screen.kind === 'ready'
   useEffect(() => { if (ready) setEverReady(true) }, [ready])
@@ -88,12 +100,15 @@ export function App() {
             <span>ssh-mcp</span>
             <button onClick={async () => { try { await hub.lock(); setUnlockError(undefined); await refresh() } catch { /* the locked/hub-state events recover the UI */ } }}>Lock</button>
           </header>
-          <HostList servers={servers} onOpen={(name) => terms.current?.open(name)} />
+          <HostList servers={servers} storePath={status?.storePath ?? ''} onOpen={(name) => terms.current?.open(name)}
+            onNew={() => setEditing({})}
+            onEdit={async (name) => { await reloadServers(); setEditing({ name }) }}
+            onDelete={deleteHost} />
         </>
       ) : screen.kind === 'hub' ? (
         <HubScreen state={screen.state} />
-      ) : screen.kind === 'no-store' ? (
-        <div className="center"><p>No vault yet. Run <code>ssh-mcp web</code> to add servers, then restart the app.</p></div>
+      ) : screen.kind === 'create-vault' ? (
+        <div className="center"><CreateVault servers={servers} onCreate={createVault} /></div>
       ) : (
         <div className="center">
           {idleLocked && <p className="muted">Locked after inactivity.</p>}
@@ -111,6 +126,13 @@ export function App() {
             await terms.current!.sendToTab(item.request.server, item.request.command)
             await hub.decide(item.request.id, 'sent_to_tab')
           }} />
+      )}
+      {ready && editing && (
+        <HostEditor key={editing.name ?? ''} server={servers.find((s) => s.name === editing.name)}
+          openTabs={editing.name ? terms.current?.openCount(editing.name) ?? 0 : 0} focusForget={editing.focusForget}
+          onSave={async (input, original) => { await hub.saveServer(input, original); await reloadServers(); setEditing(undefined) }}
+          onForget={async (name) => { await hub.forgetHostKey(name); await reloadServers() }}
+          onClose={() => setEditing(undefined)} />
       )}
     </div>
   )
