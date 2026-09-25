@@ -62,4 +62,4 @@ plan note.
 - Slice 1 → 2: `go-winio` v0.6.2 gets first-instance semantics from `NtCreateNamedPipeFile` with `FILE_CREATE` (`pipe.go:378-381`) rather than the flag. Windows runtime behaviour (DACL, SID checks) is still untested on a real Windows machine.
 - Slice 1 → 4: which remote-host secrets actually appeared in command
   output during daily use; drives the redaction pattern list.
-- Slice 1b → 2 (answered): CI now also runs on pushes to `feat/go-conversion`. Its first run found a real bug (su elevation could block forever on a silent shell, fixed in `278454b`) and a hung-poll flake in the smoke test (fixed in `10d1d5e`); the `desktop` job then passed, with 38 MB/s throughput on the runner.
+- Slice 1b → 2 (answered): CI now also runs on pushes to `feat/go-conversion`. Its first runs found two real bugs, both fixed: su elevation could block forever on a silent shell (`278454b`), and keepalive never reported a connection that died before its first tick (`db94eb6`). They also found a hung-poll flake in the smoke test (`10d1d5e`). Both jobs, Docker integration tests included, pass as of run 36083544252; throughput on the runner was 38 MB/s.
