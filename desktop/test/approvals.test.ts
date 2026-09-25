@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { allowEnabled, blockKeyboardActivation, highlightNonAscii, Latest, ListChanges, mergeSeed, reduceApprovals, seed } from '../src/renderer/approvals'
+import { allowEnabled, blockKeyboardActivation, clickAllowed, highlightNonAscii, Latest, ListChanges, mergeSeed, nonAsciiSummary, reduceApprovals, seed } from '../src/renderer/approvals'
 import type { ApprovalRequest } from '../src/shared/protocol'
 
 const req = (id: string): ApprovalRequest => ({
@@ -42,6 +42,38 @@ describe('highlightNonAscii', () => {
     ])
     expect(highlightNonAscii('ls')).toEqual([{ text: 'ls', nonAscii: false }])
     expect(highlightNonAscii('')).toEqual([])
+  })
+})
+
+describe('nonAsciiSummary', () => {
+  it('is undefined for plain ASCII', () => {
+    expect(nonAsciiSummary('ls -la /tmp')).toBeUndefined()
+  })
+  it('counts every non-ASCII character and lists distinct code points', () => {
+    expect(nonAsciiSummary('curl gіthub.com')).toBe('1 non-ASCII character highlighted (U+0456)')
+    expect(nonAsciiSummary('іі')).toBe('2 non-ASCII characters highlighted (U+0456)')
+  })
+  it('lists at most five code points', () => {
+    expect(nonAsciiSummary('àáâãäå')).toBe('6 non-ASCII characters highlighted (U+00E0, U+00E1, U+00E2, U+00E3, U+00E4, +1 more)')
+  })
+})
+
+describe('clickAllowed', () => {
+  it('is false for a young item', () => {
+    const [item] = seed([req('a')], 1000)
+    expect(clickAllowed(item, 1499, 0, false)).toBe(false)
+  })
+  it('is false while busy', () => {
+    const [item] = seed([req('a')], 1000)
+    expect(clickAllowed(item, 5000, 0, true)).toBe(false)
+  })
+  it('is true for an old item, not busy, no recent list change', () => {
+    const [item] = seed([req('a')], 1000)
+    expect(clickAllowed(item, 5000, 0, false)).toBe(true)
+  })
+  it('is false right after a list change even if the item itself is old', () => {
+    const [item] = seed([req('a')], 1000)
+    expect(clickAllowed(item, 5000, 4800, false)).toBe(false)
   })
 })
 

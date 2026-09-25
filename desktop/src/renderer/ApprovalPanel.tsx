@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { allowEnabled, blockKeyboardActivation, highlightNonAscii, ListChanges, type PendingItem } from './approvals'
-import { CloseIcon } from './icons'
+import { allowEnabled, blockKeyboardActivation, clickAllowed, highlightNonAscii, ListChanges, nonAsciiSummary, type PendingItem } from './approvals'
+import { CloseIcon, WarningIcon } from './icons'
 
 export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToTab, onClose }: {
   items: PendingItem[]
@@ -58,6 +58,7 @@ export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToT
           )}
           {items.map((item) => (
             <Item key={item.request.id} item={item} now={now} changedAt={changedAt}
+              listChangedAt={() => changes.current!.at}
               onDecide={onDecide} onSendToTab={onSendToTab} />
           ))}
         </div>
@@ -66,8 +67,8 @@ export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToT
   )
 }
 
-export function Item({ item, now, changedAt = 0, onDecide, onSendToTab }: {
-  item: PendingItem; now: number; changedAt?: number
+export function Item({ item, now, changedAt = 0, listChangedAt = () => 0, onDecide, onSendToTab }: {
+  item: PendingItem; now: number; changedAt?: number; listChangedAt?: () => number
   onDecide: (id: string, outcome: 'allowed' | 'denied', reason: string) => Promise<void>
   onSendToTab: (item: PendingItem) => Promise<void>
 }) {
@@ -80,29 +81,37 @@ export function Item({ item, now, changedAt = 0, onDecide, onSendToTab }: {
     p.then(() => setBusy(false), (e) => { setBusy(false); setError((e as Error).message) })
   }
   const deny = (e: FormEvent) => { e.preventDefault(); if (!busy) act(onDecide(r.id, 'denied', reason)) }
+  const summary = nonAsciiSummary(r.command)
+  const received = r.receivedAt ? new Date(r.receivedAt).toLocaleTimeString() : ''
   return (
-    <form className="approval" onSubmit={deny}>
+    <form className={'approval' + (r.sudo ? ' sudo' : '')} onSubmit={deny}>
       <div className="who">
         <strong>{r.server}</strong>
-        {/* The endpoint this approval is bound to; the hub refuses the run if it changes. */}
-        <span className="muted">{` ${r.target}`}</span>
-        {r.sudo && <span className="badge warn">SUDO</span>}
+        {r.sudo && <span className="chip danger">SUDO</span>}
+        <span className="when mono">{received}</span>
       </div>
+      {/* The endpoint this approval is bound to; the hub refuses the run if it changes. */}
+      <div className="target mono">{r.target}</div>
       <pre className="cmd">
         {highlightNonAscii(r.command).map((s, i) => (s.nonAscii ? <mark key={i}>{s.text}</mark> : <span key={i}>{s.text}</span>))}
       </pre>
-      <div className="muted">timeout: {r.timeoutSec}s</div>
-      {r.description && <div className="desc">AI's description (unverified): {r.description}</div>}
-      <div className="muted">client: {r.client} (unverified) · {new Date(r.receivedAt).toLocaleTimeString()}</div>
-      <input placeholder="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} />
+      {summary && <p className="nonascii"><WarningIcon />{summary}</p>}
+      {r.description && (
+        <div className="desc"><span className="desc-label">AI&apos;s description · unverified</span>{r.description}</div>
+      )}
+      <div className="meta">{`timeout ${r.timeoutSec}s · client ${r.client} (unverified)`}</div>
+      <label className="reason">Reason (optional)
+        <input placeholder="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} />
+      </label>
       <div className="actions">
-        <button type="submit" className="deny" disabled={busy}>Deny</button>
-        <button type="button" className="allow" tabIndex={-1} onKeyDown={blockKeyboardActivation}
+        <button type="submit" className="btn deny" disabled={busy}>Deny<kbd aria-hidden="true">↵</kbd></button>
+        {/* Between Deny and Allow, so a click that misses Deny does not land on Allow. */}
+        <button type="button" className="btn" tabIndex={-1} onKeyDown={blockKeyboardActivation}
           disabled={busy || !allowEnabled(item, now, changedAt)}
-          onClick={() => { if (!busy) act(onDecide(r.id, 'allowed', '')) }}>Allow</button>
-        <button type="button" tabIndex={-1} onKeyDown={blockKeyboardActivation}
+          onClick={() => { if (clickAllowed(item, Date.now(), listChangedAt(), busy)) act(onSendToTab(item)) }}>Send to tab</button>
+        <button type="button" className="btn allow" tabIndex={-1} onKeyDown={blockKeyboardActivation}
           disabled={busy || !allowEnabled(item, now, changedAt)}
-          onClick={() => { if (!busy) act(onSendToTab(item)) }}>Send to tab</button>
+          onClick={() => { if (clickAllowed(item, Date.now(), listChangedAt(), busy)) act(onDecide(r.id, 'allowed', '')) }}>Allow</button>
       </div>
       {error && <p className="error">{error}</p>}
     </form>

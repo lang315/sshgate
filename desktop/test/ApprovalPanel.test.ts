@@ -16,7 +16,8 @@ describe('Item', () => {
       item, now: 10_000,
       onDecide: async () => {}, onSendToTab: async () => {},
     }))
-    const buttons = [...html.matchAll(/<button([^>]*)>([^<]*)<\/button>/g)].map((m) => ({ attrs: m[1], text: m[2] }))
+    const buttons = [...html.matchAll(/<button([^>]*)>(.*?)<\/button>/g)]
+      .map((m) => ({ attrs: m[1], text: m[2].replace(/<kbd[^>]*>.*?<\/kbd>/g, '').replace(/<[^>]+>/g, '') }))
 
     const submitButtons = buttons.filter((b) => /type="submit"/.test(b.attrs))
     expect(submitButtons).toHaveLength(1)
@@ -44,5 +45,17 @@ describe('Item', () => {
     expect(buttons.find((b) => b.text === 'Allow')!.attrs).toMatch(/disabled=""/)
     expect(buttons.find((b) => b.text === 'Send to tab')!.attrs).toMatch(/disabled=""/)
     expect(html).not.toMatch(/autofocus/i)
+  })
+
+  it('labels the reason field, hides the Enter hint from the name, and flags sudo in red', () => {
+    const [item] = seed([{ ...req, sudo: true, command: 'rm gіt', description: 'cleanup' }], 0)
+    const html = renderToStaticMarkup(createElement(Item, { item, now: 10_000, onDecide: async () => {}, onSendToTab: async () => {} }))
+    expect(html).toMatch(/<label[^>]*>Reason \(optional\)/)
+    expect(html).toContain('placeholder="Reason (optional)"')
+    expect(html).toMatch(/<kbd aria-hidden="true">↵<\/kbd>/)
+    expect(html).toContain('class="approval sudo"')
+    expect(html).toContain('1 non-ASCII character highlighted (U+0456)')
+    expect(html).toContain('AI&#x27;s description · unverified')
+    expect(html).toContain('client claude-code (unverified)')
   })
 })

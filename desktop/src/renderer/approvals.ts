@@ -78,13 +78,39 @@ export function blockKeyboardActivation(e: { key: string; preventDefault: () => 
 
 export type Segment = { text: string; nonAscii: boolean }
 
+export const isNonAscii = (cp: number) => cp > 0x7e || cp < 0x20
+
 export function highlightNonAscii(s: string): Segment[] {
   const out: Segment[] = []
   for (const ch of s) {
-    const nonAscii = ch.codePointAt(0)! > 0x7e || ch.codePointAt(0)! < 0x20
+    const nonAscii = isNonAscii(ch.codePointAt(0)!)
     const last = out[out.length - 1]
     if (last && last.nonAscii === nonAscii) last.text += ch
     else out.push({ text: ch, nonAscii })
   }
   return out
+}
+
+// "N non-ASCII characters highlighted (U+0456, …)": the code points make a
+// homoglyph (Cyrillic і in "gіthub") visible even where the glyphs look identical.
+export function nonAsciiSummary(s: string): string | undefined {
+  const cps: number[] = []
+  let n = 0
+  for (const ch of s) {
+    const cp = ch.codePointAt(0)!
+    if (!isNonAscii(cp)) continue
+    n++
+    if (!cps.includes(cp)) cps.push(cp)
+  }
+  if (n === 0) return undefined
+  const shown = cps.slice(0, 5).map((cp) => 'U+' + cp.toString(16).toUpperCase().padStart(4, '0'))
+  if (cps.length > 5) shown.push(`+${cps.length - 5} more`)
+  return `${n} non-ASCII character${n === 1 ? '' : 's'} highlighted (${shown.join(', ')})`
+}
+
+// Click-time re-check for Allow/Send to tab: React may not have committed the
+// disabled state yet right after a scroll/resize touches listChangedAt, so the
+// click handler re-verifies at the moment of the click, not just at last render.
+export function clickAllowed(item: PendingItem, now: number, listChangedAt: number, busy: boolean): boolean {
+  return !busy && allowEnabled(item, now, listChangedAt)
 }
