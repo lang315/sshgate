@@ -45,7 +45,7 @@ func startDoor(t *testing.T, h *Hub) *rpc.Client {
 func TestMCPDoorRejectsUIOnlyMethods(t *testing.T) {
 	h, _ := newHub(t, &fakeExec{})
 	c := startDoor(t, h)
-	for _, m := range []string{"unlock", "lock", "decide", "denyAll", "pending", "term.open", "servers"} {
+	for _, m := range []string{"unlock", "lock", "decide", "denyAll", "pending", "term.open", "servers", "vault.create"} {
 		err := c.Call(context.Background(), m, map[string]any{"password": "x"}, nil)
 		if err == nil || !strings.Contains(err.Error(), "method not found") {
 			t.Fatalf("%s: want method not found, got %v", m, err)

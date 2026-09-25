@@ -243,7 +243,15 @@ func (h *Hub) lockedLocked() bool {
 func (h *Hub) Reload() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	f, err := config.Load(h.o.StorePath)
+	return h.reloadLocked()
+}
+
+// loadStore is config.Load; tests swap it to make a reload fail.
+var loadStore = config.Load
+
+// reloadLocked is Reload with h.mu held.
+func (h *Hub) reloadLocked() error {
+	f, err := loadStore(h.o.StorePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil

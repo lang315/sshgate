@@ -29,6 +29,13 @@ func (h *Hub) hasStore() bool {
 	return h.deps.File != nil
 }
 
+// hasVault reports whether the store has a master password (a KDF), under h.mu.
+func (h *Hub) hasVault() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.deps.File != nil && h.deps.File.KDF != nil
+}
+
 // serversForUI lists every stored server, unlike ServersForMCP which hides
 // non-AIVisible ones. No secret field is ever included.
 func (h *Hub) serversForUI() []uiServer {
@@ -81,7 +88,8 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 	// must never block inbound dispatch that way.
 	s.HandleRequest("status", func(context.Context, json.RawMessage) (any, error) {
 		_ = h.Reload()
-		return map[string]any{"locked": h.Locked(), "hasStore": h.hasStore(), "pending": len(h.Broker().Pending())}, nil
+		return map[string]any{"locked": h.Locked(), "hasStore": h.hasStore(), "hasVault": h.hasVault(),
+			"storePath": h.o.StorePath, "pending": len(h.Broker().Pending())}, nil
 	})
 	req("unlock", func(_ context.Context, raw json.RawMessage) (any, error) {
 		var p struct {
@@ -93,6 +101,16 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 	req("lock", func(context.Context, json.RawMessage) (any, error) {
 		h.Lock()
 		return empty, nil
+	})
+	req("vault.create", func(_ context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			Password string `json:"password"`
+		}
+		json.Unmarshal(raw, &p)
+		if len(p.Password) < 8 {
+			return nil, &rpc.Error{Code: -32602, Message: "password must be at least 8 characters"}
+		}
+		return empty, h.CreateVault(p.Password)
 	})
 	req("servers", func(context.Context, json.RawMessage) (any, error) {
 		_ = h.Reload()
