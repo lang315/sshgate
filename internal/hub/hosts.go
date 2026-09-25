@@ -156,7 +156,7 @@ func (h *Hub) SaveServer(original string, in config.ServerInput) error {
 	if err != nil {
 		return err
 	}
-	_ = h.Reload()
+	reloadErr := h.Reload()
 	name := original
 	if name == "" {
 		name = in.Name
@@ -166,7 +166,7 @@ func (h *Hub) SaveServer(original string, in config.ServerInput) error {
 	}
 	h.denyPending(name)
 	h.auditConfig(broker.ConfigRecord{Action: "save", Server: after.Name, Changed: changes(before, after, in)})
-	return nil
+	return reloadErr // the write itself succeeded
 }
 
 func (h *Hub) DeleteServer(name string) error {
@@ -187,11 +187,11 @@ func (h *Hub) DeleteServer(name string) error {
 	if err != nil {
 		return err
 	}
-	_ = h.Reload()
+	reloadErr := h.Reload()
 	h.reg.Close(name)
 	h.denyPending(name)
 	h.auditConfig(broker.ConfigRecord{Action: "delete", Server: name})
-	return nil
+	return reloadErr // the write itself succeeded
 }
 
 // ForgetHostKey clears a server's pin and closes its connection, so the next
@@ -216,10 +216,10 @@ func (h *Hub) ForgetHostKey(name string) error {
 	if err != nil {
 		return err
 	}
-	_ = h.Reload()
+	reloadErr := h.Reload()
 	h.reg.Close(name)
 	h.auditConfig(broker.ConfigRecord{Action: "forgetHostKey", Server: name, OldFingerprint: old})
-	return nil
+	return reloadErr // the write itself succeeded
 }
 
 // recordHostKey is a test seam.

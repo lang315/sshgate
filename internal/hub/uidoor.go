@@ -97,9 +97,13 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 	// rather than running inline on the read loop. unlock runs argon2 and
 	// must never block inbound dispatch that way.
 	s.HandleRequest("status", func(context.Context, json.RawMessage) (any, error) {
-		_ = h.Reload()
-		return map[string]any{"locked": h.Locked(), "hasStore": h.hasStore(), "hasVault": h.hasVault(),
-			"storePath": h.o.StorePath, "pending": len(h.Broker().Pending())}, nil
+		_ = h.Reload() // a failure is remembered and shown as storeError
+		st := map[string]any{"locked": h.Locked(), "hasStore": h.hasStore(), "hasVault": h.hasVault(),
+			"storePath": h.o.StorePath, "pending": len(h.Broker().Pending())}
+		if e := h.storeError(); e != "" {
+			st["storeError"] = e
+		}
+		return st, nil
 	})
 	req("unlock", func(_ context.Context, raw json.RawMessage) (any, error) {
 		var p struct {

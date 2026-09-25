@@ -10,6 +10,7 @@ import { HostKeyDialog, HostKeyMismatchDialog } from './HostKeyDialog'
 import { HostKeyPrompts } from './hostkeys'
 import { Terminals, type TerminalsHandle } from './TerminalTabs'
 import { ApprovalPanel } from './ApprovalPanel'
+import { StoreErrorBanner } from './StoreError'
 import { Latest, mergeSeed, reduceApprovals, type PendingItem } from './approvals'
 
 export function App() {
@@ -45,8 +46,9 @@ export function App() {
   const screen = screenFor(hubState, status, unlockError)
 
   // One fetch per screen change or host edit, never a poll: every call but
-  // status counts as UI activity and would hold off the idle lock.
-  const reloadServers = useCallback(() => hub.servers().then(setServers).catch(() => setServers([])), [])
+  // status counts as UI activity and would hold off the idle lock. status
+  // follows, so a refused reload of the vault file shows as storeError.
+  const reloadServers = useCallback(() => hub.servers().then(setServers).catch(() => setServers([])).finally(refresh), [refresh])
   useEffect(() => {
     if (screen.kind === 'ready' || screen.kind === 'create-vault') reloadServers()
     else setServers([])
@@ -100,6 +102,7 @@ export function App() {
     <div className={ready ? 'layout' : 'app'}>
       {ready ? (
         <>
+          <StoreErrorBanner message={status?.storeError} />
           <header>
             <span>ssh-mcp</span>
             <button onClick={async () => { try { await hub.lock(); setUnlockError(undefined); await refresh() } catch { /* the locked/hub-state events recover the UI */ } }}>Lock</button>

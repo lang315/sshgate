@@ -25,7 +25,9 @@ export interface ServerInput {
   password?: string; suPassword?: string; sudoPassword?: string; keyPassphrase?: string
 }
 
-export interface Status { locked: boolean; hasStore: boolean; hasVault: boolean; storePath: string; pending: number }
+// storeError is set while the hub's last reload of the vault file was
+// refused (tampered or unreadable); the hub keeps the last good copy.
+export interface Status { locked: boolean; hasStore: boolean; hasVault: boolean; storePath: string; pending: number; storeError?: string }
 
 export interface HostKeyUnknown {
   status: 'hostKeyUnknown'; server: string; host: string; port: number; user: string

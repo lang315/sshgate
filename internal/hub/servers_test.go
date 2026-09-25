@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -293,6 +294,60 @@ func TestServersDeleteAndForgetRejectMalformedParams(t *testing.T) {
 		var re *rpc.Error
 		if err := c.Call(context.Background(), m, []int{1}, nil); !errors.As(err, &re) || re.Code != -32602 || re.Message != "invalid params" {
 			t.Errorf("%s: got %v", m, err)
+		}
+	}
+}
+
+// A refused reload (here, a tampered file) shows in status as a fixed
+// message, never file contents, and clears once the file is good again.
+func TestStatusReportsStoreError(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	c, _ := startUI(t, h)
+	storeError := func() (string, bool) {
+		var st map[string]any
+		if err := c.Call(context.Background(), "status", nil, &st); err != nil {
+			t.Fatal(err)
+		}
+		s, ok := st["storeError"].(string)
+		return s, ok
+	}
+	if s, ok := storeError(); ok {
+		t.Fatalf("storeError on a good store: %q", s)
+	}
+	f, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Servers[0].Host = "evil-host"
+	f.Revision++
+	b, _ := json.Marshal(f)
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := storeError(); s != errStoreReload.Error() {
+		t.Fatalf("storeError after tamper = %q", s)
+	}
+	f.Servers[0].Host = "h"
+	if err := config.Save(path, f, testMK); err != nil {
+		t.Fatal(err)
+	}
+	if s, ok := storeError(); ok {
+		t.Fatalf("storeError after fix: %q", s)
+	}
+}
+
+// A write that succeeds on disk but whose reload fails reports the reload
+// error to the caller, as vault.create does.
+func TestWritesReturnReloadError(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	loadStore = func(string) (*config.File, error) { return nil, errors.New("boom") }
+	t.Cleanup(func() { loadStore = config.Load })
+	in := config.ServerInput{Name: "x", Host: "h", Port: 22, User: "u", Auth: "agent"}
+	for what, err := range map[string]error{
+		"save": h.SaveServer("", in), "forget": h.ForgetHostKey("vis"), "delete": h.DeleteServer("hid"),
+	} {
+		if err == nil || !strings.Contains(err.Error(), "boom") {
+			t.Errorf("%s: want the reload error, got %v", what, err)
 		}
 	}
 }

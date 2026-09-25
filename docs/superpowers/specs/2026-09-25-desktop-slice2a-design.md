@@ -99,6 +99,8 @@ All are request-only and count as UI activity. Every write refuses a store with 
 
 A rename closes the old name's tabs. Their Reconnect then fails with "not found"; the user opens the renamed host from the list.
 
+**`status`** also returns `storeError` while the hub's last reload was refused (a tampered or unreadable file; the hub keeps the last good copy). It is a fixed message, never file contents, and the renderer shows it as a red banner on the main screen until a reload succeeds. A write whose post-write reload fails returns that reload error.
+
 **`status`** also returns `storePath`. The app shows it in the host list footer ("Vault file: … — copy it to back up") because copying the file is the export story.
 
 **`servers`** adds `keyPath`, `hostKeyAlgo`, and the booleans `hasPassword`, `hasSuPassword`, `hasSudoPassword`, `hasKeyPassphrase`. It still returns no secret.

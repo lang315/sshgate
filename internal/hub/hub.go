@@ -39,6 +39,10 @@ var (
 	ErrNoVault = errors.New("No vault yet; open the app and create one")
 )
 
+// errStoreReload is what status shows while the last reload was refused; the
+// detail (paths, parse errors) is never included.
+var errStoreReload = errors.New("the vault file failed its integrity check or could not be read; the app keeps the last good copy")
+
 // serverNotFound is used for both hidden and nonexistent servers so the two
 // are byte-identical.
 func serverNotFound(name string) error { return fmt.Errorf("server %q not found", name) }
@@ -86,7 +90,7 @@ type ExecResponse struct {
 
 type Hub struct {
 	o       Options
-	mu      sync.Mutex // guards deps.File, deps.MasterKey, sinks, lastActivity and running
+	mu      sync.Mutex // guards deps.File, deps.MasterKey, storeErr, sinks, lastActivity and running
 	deps    *mcpserver.Deps
 	sink    func(broker.Event)
 	sinkGen uint64 // bumped on every setEventSink; lets release() no-op if superseded
@@ -94,6 +98,7 @@ type Hub struct {
 	broker  *broker.Broker
 	audit   *broker.Audit
 
+	storeErr     error // the last reload's error; guarded by h.mu
 	lockSink     func(reason string)
 	lockSinkGen  uint64
 	lastActivity time.Time
@@ -265,8 +270,19 @@ func (h *Hub) Reload() error {
 // loadStore is config.Load; tests swap it to make a reload fail.
 var loadStore = config.Load
 
-// reloadLocked is Reload with h.mu held.
-func (h *Hub) reloadLocked() error {
+// storeError returns errStoreReload's text if the last reload failed, else "".
+func (h *Hub) storeError() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.storeErr == nil {
+		return ""
+	}
+	return errStoreReload.Error()
+}
+
+// reloadLocked is Reload with h.mu held. Its result is remembered for status.
+func (h *Hub) reloadLocked() (err error) {
+	defer func() { h.storeErr = err }()
 	f, err := loadStore(h.o.StorePath)
 	if err != nil {
 		if os.IsNotExist(err) {
