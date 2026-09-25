@@ -25,7 +25,7 @@ const (
 type bridgeExecInput struct {
 	Server      string `json:"server" jsonschema:"connection name from list-servers"`
 	Command     string `json:"command" jsonschema:"shell command to execute; requires human approval in the app"`
-	Description string `json:"description,omitempty" jsonschema:"what this command does; shown to the human as unverified"`
+	Description string `json:"description,omitempty" jsonschema:"one sentence on what the command does and why; shown to the approver next to the command (marked unverified) and recorded in the audit log, never executed; at most 500 bytes, no control characters"`
 	TimeoutSec  int    `json:"timeoutSec,omitempty" jsonschema:"execution timeout in seconds, 1-600, default 60"`
 }
 
@@ -139,9 +139,18 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 		}
 	}
 
-	mcp.AddTool(s, &mcp.Tool{Name: "exec", Description: "Run a shell command on a saved SSH server. A human must approve it in the ssh-mcp app first."}, execTool("exec"))
-	mcp.AddTool(s, &mcp.Tool{Name: "sudo-exec", Description: "Run a shell command with sudo on a saved SSH server. A human must approve it in the ssh-mcp app first."}, execTool("sudoExec"))
-	mcp.AddTool(s, &mcp.Tool{Name: "list-servers", Description: "List the SSH servers the user has made visible to AI, with lock status."},
+	mcp.AddTool(s, &mcp.Tool{Name: "exec", Description: "Run a shell command on a saved SSH server through the ssh-mcp desktop app. " +
+		"Each call waits until a human approves or denies it in the app; after 5 minutes without a decision it fails as expired, so combine related steps into one command. " +
+		"Each call runs in a fresh non-interactive shell: the working directory, environment variables and activated virtualenvs do not carry over, and ~/.bashrc is usually not read, so write `cd /app && ./run.sh` as one command. " +
+		"(On a server configured with a su password, commands run as root inside one persistent root shell instead.) " +
+		"The result is `exit code:` followed by `stdout:` and `stderr:` sections; a non-zero exit code is a normal result, not a tool error. Each stream is capped at 64 KiB (the middle is cut) and saved secrets are masked. " +
+		"The call fails if the app is closed, no vault exists yet, the vault is locked, the server is not visible to AI or has no pinned host key, the human denies it, or 5 requests are already waiting."}, execTool("exec"))
+	mcp.AddTool(s, &mcp.Tool{Name: "sudo-exec", Description: "Run a shell command with sudo on a saved SSH server through the ssh-mcp desktop app. " +
+		"The command runs as `sudo -S` with the server's saved sudo password, or as `sudo -n` when none is saved (which fails if sudo asks for a password). " +
+		"Approval, fresh-shell, output and failure rules are the same as exec."}, execTool("sudoExec"))
+	mcp.AddTool(s, &mcp.Tool{Name: "list-servers", Description: "List the saved SSH servers the user has made visible to AI, one per line as `- name`. " +
+		"A server marked `[locked: unlock the app]` cannot run commands until the user unlocks the app. " +
+		"Use these names as the `server` argument of exec and sudo-exec; servers the user has not made visible never appear. Needs no approval."},
 		func(ctx context.Context, req *mcp.CallToolRequest, _ ListInput) (*mcp.CallToolResult, any, error) {
 			res, err := withHub(ctx, func(c *rpc.Client) (*mcp.CallToolResult, error) {
 				var list []struct {

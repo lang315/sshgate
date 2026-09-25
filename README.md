@@ -70,7 +70,7 @@ Both `exec` and `sudo-exec` return their result as `exit code: N`, followed by a
     - Default: `1000`
     - No-limit mode: set `--maxChars=none` or any `<= 0` value (e.g. `--maxChars=0`)
 
-- `list-servers`: List configured SSH connection names (no secrets). Useful for discovering which `server` values are available when running in multi-server mode.
+- `list-servers`: List connection names (no secrets). In `--host` mode that is the single command-line connection; through the hub it is every saved server marked "Visible to AI", with lock status.
 
 ## Install
 
