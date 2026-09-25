@@ -52,7 +52,7 @@ input::placeholder { color: var(--muted); }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; padding: 2px; gap: 2px; background: var(--bg); }
 .seg button { border: 0; background: transparent; color: var(--muted); height: 26px; min-width: 30px; padding: 0 8px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; font-size: 12px; }
 .seg button[aria-checked="true"] { background: var(--raised); color: var(--text); }
-kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: rgba(255, 255, 255, 0.18); }
+kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix(in srgb, currentColor 18%, transparent); }
 .mark { display: flex; align-items: center; gap: 8px; font-weight: 600; letter-spacing: -0.01em; }
 .mark-tile { width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center; background: var(--accent-tint); color: var(--accent); }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
