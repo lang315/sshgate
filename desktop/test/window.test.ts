@@ -11,9 +11,9 @@ describe('menuTemplate', () => {
     expect(menuTemplate('win32')).toBeNull()
     expect(menuTemplate('linux')).toBeNull()
   })
-  it('on macOS keeps only app and clipboard items: no reload, close, devtools or undo', () => {
+  it('on macOS keeps only app and edit items: no reload, close or devtools', () => {
     const r = roles(menuTemplate('darwin'))
-    expect(r).toEqual(expect.arrayContaining(['quit', 'copy', 'paste', 'selectAll']))
+    expect(r).toEqual(expect.arrayContaining(['quit', 'undo', 'redo', 'cut', 'copy', 'paste', 'selectAll']))
     for (const bad of ['reload', 'forceReload', 'close', 'toggleDevTools', 'viewMenu', 'windowMenu', 'fileMenu']) expect(r).not.toContain(bad)
   })
 })

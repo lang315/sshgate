@@ -2,12 +2,12 @@ import { Menu, type MenuItemConstructorOptions } from 'electron'
 
 // No Reload (it would drop the renderer without closing its hub terminals) and no
 // Close-window accelerator; on Windows/Linux no menu at all, so Ctrl+R/W/C… reach
-// the terminal. macOS keeps an app menu and Copy/Paste/Select All for the clipboard.
+// the terminal. macOS keeps an app menu and the Edit roles text fields need there.
 export function menuTemplate(platform: NodeJS.Platform): MenuItemConstructorOptions[] | null {
   if (platform !== 'darwin') return null
   return [
     { role: 'appMenu', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
-    { role: 'editMenu', submenu: [{ role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
+    { role: 'editMenu', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
   ]
 }
 
