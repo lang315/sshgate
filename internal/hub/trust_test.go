@@ -205,3 +205,20 @@ func TestTrustedOpenFailsWhenPinNotRecorded(t *testing.T) {
 		t.Fatalf("after failed trust: %+v", o)
 	}
 }
+
+// Two trusted opens of one key can both pass the unpinned check before
+// either records; the second record must not fail (and close the shared
+// connection under the first tab).
+func TestSecondTrustOfTheSameKeyRecordsFine(t *testing.T) {
+	h, srv, _, _ := trustHub(t)
+	dc, err := h.Resolve("box")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dc.HostKey, dc.HostKeyAlgo = srv.Fingerprint(), "ssh-ed25519"
+	for i := range 2 {
+		if err := h.recordTrust("box", dc); err != nil {
+			t.Fatalf("record %d: %v", i, err)
+		}
+	}
+}
