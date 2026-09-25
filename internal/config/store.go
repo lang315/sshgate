@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,6 +53,9 @@ func computeMAC(masterKey []byte, f File) string {
 
 func (f *File) VerifyMAC(masterKey []byte) error {
 	if f.MAC == "" {
+		if f.KDF != nil {
+			return errors.New("store has a master password but no MAC; it may have been tampered with")
+		}
 		return nil // key/agent-only vault; perms are the protection
 	}
 	want := computeMAC(masterKey, *f)
@@ -83,6 +87,9 @@ func Load(path string) (*File, error) {
 }
 
 func Save(path string, f *File, masterKey []byte) error {
+	if f.KDF != nil && masterKey == nil {
+		return errors.New("store is encrypted; unlock it before saving")
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
