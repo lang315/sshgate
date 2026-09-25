@@ -136,16 +136,19 @@ test('unlock, open a terminal, approve an AI command', async () => {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer())
   // Playwright's page dies with the renderer, so read the reloaded page through main
   // (executeJavaScript on a crashed or loading page can hang, so skip those polls).
-  await expect.poll(() => app.evaluate(({ BrowserWindow }) => {
-    const wc = BrowserWindow.getAllWindows()[0].webContents
-    return wc.isCrashed() || wc.isLoading() ? '' : wc.executeJavaScript('document.body.innerText')
-  }), { timeout: 10000 }).toContain('Unlock vault')
-
-  // The 3rd crash within 60 s stops the reload loop and shows a static error page.
+  // executeJavaScript issued while the old frame is being torn down can never
+  // settle, which would stall the whole poll, so each read gives up after 1 s.
   const bodyText = () => app.evaluate(({ BrowserWindow }) => {
     const wc = BrowserWindow.getAllWindows()[0].webContents
-    return wc.isCrashed() || wc.isLoading() ? '' : wc.executeJavaScript('document.body.innerText')
+    if (wc.isCrashed() || wc.isLoading()) return ''
+    return Promise.race([
+      wc.executeJavaScript('document.body.innerText') as Promise<string>,
+      new Promise<string>((r) => setTimeout(() => r(''), 1000)),
+    ])
   })
+  await expect.poll(bodyText, { timeout: 10000 }).toContain('Unlock vault')
+
+  // The 3rd crash within 60 s stops the reload loop and shows a static error page.
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer())
   await expect.poll(bodyText, { timeout: 10000 }).toContain('Unlock vault')
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer())
