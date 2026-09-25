@@ -40,7 +40,10 @@ The ROADMAP gate for slice 2 ("slice 1 used daily for two weeks") is still unmet
 | Prompt transport | `term.open` resolves with a status, never an error, for host-key outcomes | Error `code`/`data` are dropped by `hubProcess.ts`, IPC, and `transport.ts` |
 | Closing tabs on edit | Only when the dial config changes (not on an AIVisible toggle) | Toggling AI visibility must not kill a working session |
 | Approvals across edits | Saving or deleting a server denies its pending AI requests; an approved exec re-checks the endpoint | An approval was for `user@host:port` as shown, not for whatever the name points at later |
-| Protocol | `hello` → `protocol: 2` | `term.open` changes meaning (no silent TOFU, status results) |
+| Protocol | `hello` → `protocol: 2` (`ProtocolVersion` in `internal/hub/idle.go` and `PROTOCOL_VERSION` in `desktop/src/shared/protocol.ts`) | `term.open` changes meaning (no silent TOFU, status results) |
+| Config audit | Trust, Forget, delete, `vault.create`, and security-relevant save diffs go to the audit log, never secrets | Once the web UI is gone, "when did this host become AI-visible, with which pin?" must have an answer |
+| `known_hosts` | Consulted only as a hint in the Trust prompt, never auto-pinned | Lets the user compare against what OpenSSH already trusts without importing unauthenticated data |
+| Concurrent edits | Last write wins per server; no revision check | One hub and one window; the web UI (while it lives) edits rarely. Each `config.Update` reloads first, so edits to different servers never clobber each other |
 
 ## Hub
 
@@ -62,9 +65,12 @@ All are request-only and count as UI activity. Every write runs through `config.
 **`status`** gains `hasVault` (the store has a KDF). The renderer shows "Create vault" when `hasVault` is false. A deliberately key-only store therefore sees that screen; creating a vault is then the only way forward, because slice 2a writes need a vault.
 
 **`vault.create {password}`**
-- Refused if a KDF exists. The password must be at least 8 characters.
-- Servers already in a KDF-less file are kept; they hold no secrets.
-- On success the hub is unlocked with the new key.
+- The KDF check runs inside `config.Update` on a fresh load, not on the hub's cached `deps.File`. It is refused if a KDF exists. The password must be at least 8 characters.
+- Servers already in the KDF-less file are kept, but:
+  - it is refused if any of them has an `Enc*` field, because such a file is corrupt or tampered with;
+  - every kept server's `aiVisible` is reset to false, because a KDF-less file was never MAC'd and its flags are unauthenticated;
+  - the Create vault screen lists the kept servers.
+- On success, `Save`, `Reload`, and setting `deps.MasterKey` all happen in one `h.mu` critical section. Nothing can observe "KDF present but locked" in between, and the hub does not run Argon2 a second time through `Unlock`.
 
 **`servers.save {original?, server}`**
 
@@ -87,6 +93,8 @@ All are request-only and count as UI activity. Every write runs through `config.
 **`servers.delete {name}`**: `Registry.Close(name)`, and deny its pending requests.
 
 **`servers.forgetHostKey {name}`**: clears `hostKey` and `hostKeyAlgo`, then `Registry.Close(name)`.
+
+**`status`** also returns `storePath`. The app shows it in the host list footer ("Vault file: … — copy it to back up") because copying the file is the export story.
 
 **`servers`** adds `keyPath`, `hostKeyAlgo`, and the booleans `hasPassword`, `hasSuPassword`, `hasSudoPassword`, `hasKeyPassphrase`. It still returns no secret.
 
@@ -119,10 +127,28 @@ Other failures stay errors, as today.
 The trusted retry works as follows:
 
 1. The hub sets `dc.HostKey = trustHostKey.fingerprint` before `Registry.Get`. The config hash differs, so a fresh manager dials and the normal pin check enforces that exact key.
-2. After the handshake succeeds, the hub records `hostKey` and `hostKeyAlgo` through `config.Update`. If recording fails, the open fails and `Registry.Close(name)` runs.
+2. After the handshake succeeds, the hub records `hostKey` and `hostKeyAlgo` through `config.Update`, but only if the server still has no pin and still has the dialled `host` and `port`. An edit that lands in between must not pin the old endpoint's key on the new one. If recording fails or is skipped, the open fails and `Registry.Close(name)` runs.
 3. If the server presents a different key than the one trusted, the hub closes that manager and replies `hostKeyUnknown` with the new fingerprint. It never replies `hostKeyMismatch`, because the user never confirmed that pin.
 
 The renderer retries once per prompt, reusing the terminal id. The hub releases the id when it returns a non-`open` status.
+
+`hostKeyUnknown` also carries `host`, `port`, `user`, and `knownHosts`:
+- `"match"`: `~/.ssh/known_hosts` has this key for `host:port`;
+- `"different"`: it has another key for `host:port`;
+- `"absent"`: it has no entry.
+
+`knownHosts` is read with `golang.org/x/crypto/ssh/knownhosts`, which handles hashed names. It is a hint for the human only and is never pinned automatically: the file is outside the MAC.
+
+### Audit
+
+The existing audit log (`broker/audit.go`) gains config records:
+- `trust {server, host, port, fingerprint, algo}`;
+- `forgetHostKey {server, oldFingerprint}`;
+- `delete {server}`;
+- `vaultCreate {keptServers}`;
+- `save {server, changed}`, where `changed` lists before→after for `name`, `host`, `port`, `user`, `auth`, `keyPath`, and `aiVisible`, and only the field names of changed secrets.
+
+No secret value is ever written.
 
 ### AI exec
 
@@ -144,11 +170,13 @@ The renderer retries once per prompt, reusing the terminal id. The hub releases 
   - Save shows "Saving will close N open tabs" when the change will close tabs. N is counted in the renderer from tabs on that server.
   - Delete asks for confirmation.
 - **Host key prompt**, shown on `hostKeyUnknown`:
-  - It shows the server, key type, and `SHA256:…` fingerprint.
+  - It shows the server name, `user@host:port`, the key type, the `SHA256:…` fingerprint, and the `knownHosts` hint. For `"different"` it shows a warning in the mismatch style.
   - Cancel is the default and has focus.
-  - Trust is mouse-only and disabled for 500 ms, the same rule as Allow.
+  - Trust is mouse-only and disabled for 500 ms.
   - Trust retries `term.open` with `trustHostKey`.
-- **Host key mismatch dialog**:
+  - Prompts from several tabs queue and show one at a time. The 500 ms delay restarts whenever the dialog's content changes.
+  - Why the delay: the user asked for the connection, but a queued prompt can replace the dialog under the cursor. That is the same hazard as the approval list shifting.
+- **Host key mismatch dialog** (also shows `user@host:port`):
   - It shows both fingerprints and says the connection may be intercepted.
   - It has two buttons: Close, and "Open host editor", which jumps to the Forget button.
   - The dialog itself cannot re-pin.
@@ -187,7 +215,14 @@ The renderer retries once per prompt, reusing the terminal id. The hub releases 
   - forget, then another open, prompts again.
 - An AI exec on an unpinned server never writes the store (a spy on `config.Update`).
 - An endpoint edit between approval and run fails the exec with "server changed".
-- The set of MCP-door methods is unchanged (an explicit list is asserted).
+- The MCP door answers method-not-found for every new UI-door method name: `vault.create`, `servers.save`, `servers.delete`, `servers.forgetHostKey`. This extends the probe list in `mcpdoor_test.go`.
+- `vault.create`:
+  - refuses a file with `Enc*` fields;
+  - resets `aiVisible` on kept servers;
+  - leaves the hub unlocked, with no second Argon2 run.
+- The trust record is skipped when host or port changed between the dial and the record.
+- The audit gets one record per config action, and no secret appears in any of them (grep the log for each test secret).
+- `knownHosts` hint: `match`, `different`, and `absent` against a temporary `known_hosts`, including a hashed entry.
 
 **Desktop**:
 
@@ -221,4 +256,9 @@ Everything moved to the ROADMAP (slices 2b and 2c):
 - the local shell;
 - the Windows agent.
 
-Also out: changing the master password, and keyboard-interactive / 2FA auth.
+Also out:
+- **Changing the master password.** Neither the web UI nor the app has it today, so it is not a regression.
+- **Keyboard-interactive / 2FA auth.**
+- **A way to test su/sudo passwords from the UI.** A typo shows up only when the first AI sudo command fails. The error is generic to the AI but detailed in the audit reason.
+
+If daily use hits any of these, it goes on the ROADMAP.
