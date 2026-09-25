@@ -268,10 +268,12 @@ func (m *Manager) StartKeepalive(interval time.Duration, onDead func(reason stri
 	}
 	stop := make(chan struct{})
 	m.kaStop = stop
+	// Seeded with the current client, so a connection that dies before the
+	// first tick is still pinged and reported rather than silently dropped.
+	last := m.client // alive at the previous tick
 	go func() {
 		t := time.NewTicker(interval)
 		defer t.Stop()
-		var last *ssh.Client // alive at the previous tick
 		for {
 			select {
 			case <-stop:

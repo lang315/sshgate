@@ -399,3 +399,24 @@ func TestSuWithoutPromptTimesOut(t *testing.T) {
 		}
 	})
 }
+
+// A connection that dies before the first keepalive tick must still be
+// reported. CI hit this: the container stopped within one interval.
+func TestKeepaliveReportsDeathBeforeFirstTick(t *testing.T) {
+	m := fakeManager(t, sshtest.Start(t))
+	m.mu.Lock()
+	if err := m.ensure(); err != nil {
+		m.mu.Unlock()
+		t.Fatal(err)
+	}
+	c := m.client
+	m.mu.Unlock()
+	dead := make(chan string, 1)
+	m.StartKeepalive(100*time.Millisecond, func(r string) { dead <- r })
+	c.Close()
+	select {
+	case <-dead:
+	case <-time.After(2 * time.Second):
+		t.Fatal("death before the first tick was not reported")
+	}
+}

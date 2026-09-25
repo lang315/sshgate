@@ -50,7 +50,8 @@ func startSSHWithRoot(t *testing.T) (host string, port int, cleanup func()) {
 	if err != nil {
 		t.Skipf("docker unavailable: %v", err)
 	}
-	code, _, err := c.Exec(ctx, []string{"sh", "-c", "echo 'root:rootpass' | chpasswd"})
+	// The image ships su without the setuid bit ("su: must be suid to work properly").
+	code, _, err := c.Exec(ctx, []string{"sh", "-c", `echo 'root:rootpass' | chpasswd && chmod u+s "$(readlink -f "$(command -v su)")"`})
 	if err != nil || code != 0 {
 		c.Terminate(ctx)
 		t.Skipf("could not prepare image for su (set root password): err=%v code=%d", err, code)
