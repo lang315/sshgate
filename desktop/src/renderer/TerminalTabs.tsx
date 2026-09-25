@@ -4,6 +4,7 @@ import { hub } from './transport'
 import type { HostKeyPrompts } from './hostkeys'
 import { Dispatcher, TabSet } from './terminals'
 import { TermView, type TermApi, type TermEvent } from './TermView'
+import type { Theme } from './theme'
 
 export interface TerminalsHandle {
   open(server: string): void
@@ -12,8 +13,8 @@ export interface TerminalsHandle {
 }
 
 export const Terminals = forwardRef<TerminalsHandle, {
-  hostKeys: HostKeyPrompts; onMismatch: (m: HostKeyMismatch) => void; onTrusted: () => void
-}>(function Terminals({ hostKeys, onMismatch, onTrusted }, ref) {
+  theme: Theme; hostKeys: HostKeyPrompts; onMismatch: (m: HostKeyMismatch) => void; onTrusted: () => void
+}>(function Terminals({ theme, hostKeys, onMismatch, onTrusted }, ref) {
   const tabs = useRef(new TabSet()).current
   const apis = useRef(new Map<string, TermApi>()).current
   const events = useRef(new Dispatcher<TermEvent>()).current
@@ -71,7 +72,7 @@ export const Terminals = forwardRef<TerminalsHandle, {
       <div className="termarea">
         {tabs.tabs.map((t) => (
           <TermView key={t.id} tab={t} tabs={tabs} events={events} visible={t.id === tabs.active} onChange={changed} register={register}
-            hostKeys={hostKeys} onMismatch={onMismatch} onTrusted={onTrusted} />
+            theme={theme} hostKeys={hostKeys} onMismatch={onMismatch} onTrusted={onTrusted} />
         ))}
       </div>
     </div>

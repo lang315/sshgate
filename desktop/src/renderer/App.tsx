@@ -12,6 +12,8 @@ import { Terminals, type TerminalsHandle } from './TerminalTabs'
 import { ApprovalPanel } from './ApprovalPanel'
 import { StoreErrorBanner } from './StoreError'
 import { Latest, mergeSeed, reduceApprovals, type PendingItem } from './approvals'
+import { loadPref, resolveTheme, savePref, type ThemePref } from './theme'
+import { ThemeControl } from './ThemeControl'
 
 export function App() {
   const [hubState, setHubState] = useState<HubState>({ kind: 'starting' })
@@ -24,6 +26,17 @@ export function App() {
   const [editing, setEditing] = useState<{ name?: string; focusForget?: boolean }>()
   const hostKeys = useRef(new HostKeyPrompts()).current
   const [mismatch, setMismatch] = useState<HostKeyMismatch>()
+  const [themePref, setThemePref] = useState<ThemePref>(() => loadPref())
+  const [prefersDark, setPrefersDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches)
+  useEffect(() => {
+    const m = matchMedia('(prefers-color-scheme: dark)')
+    const on = (e: MediaQueryListEvent) => setPrefersDark(e.matches)
+    m.addEventListener('change', on)
+    return () => m.removeEventListener('change', on)
+  }, [])
+  const theme = resolveTheme(themePref, prefersDark)
+  useEffect(() => { document.documentElement.dataset.theme = theme }, [theme])
+  const chooseTheme = (p: ThemePref) => { setThemePref(p); savePref(p) }
 
   const refresh = useCallback(async () => {
     try { setStatus(await hub.status()) } catch { setStatus(undefined) }
@@ -108,6 +121,8 @@ export function App() {
           <StoreErrorBanner message={status?.storeError} />
           <header>
             <span>ssh-mcp</span>
+            <span className="spacer" />
+            <ThemeControl pref={themePref} onChange={chooseTheme} />
             <button onClick={async () => { try { await hub.lock(); setUnlockError(undefined); await refresh() } catch { /* the locked/hub-state events recover the UI */ } }}>Lock</button>
           </header>
           <HostList servers={servers} storePath={status?.storePath ?? ''} onOpen={(name) => terms.current?.open(name)}
@@ -126,7 +141,7 @@ export function App() {
         </div>
       )}
       {(ready || everReady) && (
-        <main className="work" style={ready ? undefined : { display: 'none' }} inert={!ready}><Terminals ref={terms} hostKeys={hostKeys} onMismatch={setMismatch} onTrusted={reloadServers} /></main>
+        <main className="work" style={ready ? undefined : { display: 'none' }} inert={!ready}><Terminals ref={terms} theme={theme} hostKeys={hostKeys} onMismatch={setMismatch} onTrusted={reloadServers} /></main>
       )}
       {ready && (
         <ApprovalPanel items={items} seedError={seedError}

@@ -6,15 +6,16 @@ import { hub, fromBase64 } from './transport'
 import type { HostKeyMismatch, HubEvent } from '../shared/protocol'
 import type { HostKeyPrompts } from './hostkeys'
 import { clipboardKey, Debouncer, isUserInput, printable, type Dispatcher, type Tab, type TabSet } from './terminals'
+import { MONO_FONT, xtermTheme, type Theme } from './theme'
 
 export interface TermApi { paste(text: string): void }
 // A hub event for this tab's id, or 'hub.stopped' when the hub leaves the running state.
 export type TermEvent = HubEvent | { method: 'hub.stopped' }
 
-export function TermView({ tab, tabs, events, visible, onChange, register, hostKeys, onMismatch, onTrusted }: {
+export function TermView({ tab, tabs, events, visible, onChange, register, theme, hostKeys, onMismatch, onTrusted }: {
   tab: Tab; tabs: TabSet; events: Dispatcher<TermEvent>; visible: boolean; onChange: () => void
   register: (id: string, api: TermApi | undefined) => void
-  hostKeys: HostKeyPrompts; onMismatch: (m: HostKeyMismatch) => void; onTrusted: () => void
+  theme: Theme; hostKeys: HostKeyPrompts; onMismatch: (m: HostKeyMismatch) => void; onTrusted: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal>(undefined)
@@ -22,10 +23,11 @@ export function TermView({ tab, tabs, events, visible, onChange, register, hostK
   visibleRef.current = visible
 
   useEffect(() => { if (visible) termRef.current?.focus() }, [visible])
+  useEffect(() => { if (termRef.current) termRef.current.options.theme = xtermTheme(theme) }, [theme])
 
   useEffect(() => {
     const el = ref.current!
-    const term = new Terminal({ convertEol: false, fontFamily: 'Menlo, Consolas, monospace', fontSize: 13 })
+    const term = new Terminal({ convertEol: false, fontFamily: MONO_FONT, fontSize: 13, lineHeight: 1.25, theme: xtermTheme(theme) })
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(el)
