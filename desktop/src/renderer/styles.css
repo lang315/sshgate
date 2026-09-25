@@ -102,14 +102,24 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 .term { position: absolute; inset: 0; padding: 6px 10px; }
 
 /* == approvals == */
-.approvals { overflow: auto; background: var(--surface); border-left: 1px solid var(--divider); padding: 0 8px; }
-.approval { border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; background: var(--raised); }
-.cmd { white-space: pre-wrap; word-break: break-all; background: var(--term-bg); padding: 6px; margin: 0; }
-.cmd mark { background: var(--wait); color: var(--bg); unicode-bidi: isolate; }
-.desc { font-size: 12px; font-style: italic; color: var(--label); }
+.approvals { width: 380px; min-height: 0; display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--divider); }
+.approvals-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 4px; }
+.approvals-head h3 { flex: 1; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.count { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; display: inline-grid; place-items: center; background: var(--wait); color: #1A1407; font-size: 12px; font-weight: 600; }
+.approvals-help { padding: 0 16px 12px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--divider); }
+.approvals-scroll { flex: 1; min-height: 0; overflow: auto; padding: 4px 12px 12px; }
+.approvals .empty { padding: 24px 4px; }
+.approval { border: 1px solid var(--line); border-left: 3px solid var(--wait); border-radius: 8px; padding: 10px 12px; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; background: var(--raised); }
+.approval.sudo { border-left-color: var(--danger); }
+.cmd { white-space: pre-wrap; word-break: break-all; background: var(--term-bg); color: var(--term-fg); padding: 8px 10px; margin: 0; border-radius: 6px; }
+.cmd mark { background: var(--wait); color: #1A1407; unicode-bidi: isolate; }
+.desc { font-size: 12px; color: var(--label); }
 .actions { display: flex; gap: 6px; }
 .actions .deny { background: var(--danger-fill); color: #fff; border: 0; }
 .actions .allow { background: transparent; color: var(--ok); border: 1px solid var(--ok); }
+.aibtn .count { margin-left: 2px; }
+.aibtn.waiting { border-color: var(--wait); color: var(--wait); animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 3px var(--wait-tint); } }
 
 /* == editor == */
 .link-legacy { color: var(--accent); }

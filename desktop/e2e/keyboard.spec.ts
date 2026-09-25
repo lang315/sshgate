@@ -32,12 +32,12 @@ test('Tab never reaches Allow; the panel\'s only keyboard action is Deny', async
     const s = await win.evaluate(() => {
       const a = document.activeElement as HTMLElement | null
       if (!a?.closest('.approvals')) return null
-      return a.tagName === 'INPUT' ? 'reason' : (a.textContent ?? '')
+      return a.tagName === 'INPUT' ? 'reason' : (a.getAttribute('aria-label') ?? a.textContent ?? '').replace('↵', '').trim()
     })
     if (s !== null) stops.add(s)
     await win.keyboard.press('Tab')
   }
-  expect([...stops].sort()).toEqual(['Deny', 'reason'])
+  expect([...stops].sort()).toEqual(['Close AI requests', 'Deny', 'reason'])
 
   // Space and Enter in the reason field: Space types, Enter would deny (covered by
   // smoke.spec.ts), so only Space here; the request stays pending.

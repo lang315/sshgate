@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
+import { doorCall } from './doorClient'
 import { launch, unlock, type Launched } from './launch'
 
 // Redesign behaviour (spec 2026-09-25-desktop-ui-redesign-design.md). The tests
@@ -41,4 +42,53 @@ test('Hosts is the home tab, search filters the cards, closing the last tab retu
   await expect(hosts).toBeHidden()
   await win.locator('.tabbar .tab').first().getByRole('button', { name: 'Close' }).click()
   await expect(hosts).toBeVisible()
+})
+
+const exec = (id: string) => doorCall(l.socket, 'exec', { requestId: id, client: 'e2e', server: 'box', command: `echo ${id}`, description: '' })
+// Resolves true once p settles either way, false after ms; never leaks a rejection.
+const settledWithin = (p: Promise<unknown>, ms: number) =>
+  Promise.race([p.then(() => true, () => true), new Promise<boolean>((r) => setTimeout(() => r(false), ms))])
+
+test('the AI column opens itself; collapsing keeps the request; reopening restarts the delays', async () => {
+  const column = win.locator('.approvals')
+  const req = exec('c1')
+  await expect(column).toBeVisible()
+  await expect(column.getByRole('button', { name: 'Allow' })).toBeEnabled({ timeout: 2000 })
+
+  await column.getByRole('button', { name: 'Close AI requests' }).click()
+  await expect(column).toBeHidden()
+  const aiButton = win.getByRole('button', { name: 'AI requests' })
+  await expect(aiButton).toHaveClass(/waiting/)
+  expect(await settledWithin(req, 500)).toBe(false)
+
+  await aiButton.click()
+  // Sampled in-page on the frame the column appears, so a slow poll cannot miss it.
+  const fresh = await win.waitForFunction(() => {
+    const allow = document.querySelector('.approvals button.allow') as HTMLButtonElement | null
+    const send = [...document.querySelectorAll('.approvals .approval button')].find((b) => b.textContent === 'Send to tab') as HTMLButtonElement | undefined
+    return allow && send ? { allow: allow.disabled, send: send.disabled } : null
+  }, undefined, { polling: 'raf' })
+  expect(await fresh.jsonValue()).toEqual({ allow: true, send: true })
+
+  const denied = expect(req).rejects.toThrow('Denied by user')
+  await column.getByRole('button', { name: 'Deny', exact: true }).click()
+  await denied
+})
+
+test('scrolling the request list disables Allow again', async () => {
+  const reqs = ['s1', 's2', 's3', 's4', 's5'].map(exec)
+  for (const r of reqs) r.catch(() => {}) // denied below
+  const column = win.locator('.approvals')
+  await expect(column.locator('.approval')).toHaveCount(5)
+  await expect(column.locator('button.allow').first()).toBeEnabled({ timeout: 2000 })
+  const afterScroll = await win.evaluate(async () => {
+    const list = document.querySelector('.approvals-scroll')!
+    if (list.scrollHeight <= list.clientHeight) return 'not scrollable'
+    list.scrollTop += 120
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    return [...document.querySelectorAll('.approvals button.allow')].every((b) => (b as HTMLButtonElement).disabled)
+  })
+  expect(afterScroll).toBe(true)
+  await column.getByRole('button', { name: 'Deny all' }).click()
+  await expect(column.locator('.approval')).toHaveCount(0)
 })

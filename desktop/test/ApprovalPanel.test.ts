@@ -36,4 +36,13 @@ describe('Item', () => {
     const html = renderToStaticMarkup(createElement(Item, { item, now: 10_000, onDecide: async () => {}, onSendToTab: async () => {} }))
     expect(html).toContain('u@h:22')
   })
+
+  it('keeps Allow and Send to tab disabled while the item is young, and never autofocuses', () => {
+    const [item] = seed([req], 0)
+    const html = renderToStaticMarkup(createElement(Item, { item, now: 100, onDecide: async () => {}, onSendToTab: async () => {} }))
+    const buttons = [...html.matchAll(/<button([^>]*)>(.*?)<\/button>/g)].map((m) => ({ attrs: m[1], text: m[2].replace(/<[^>]+>/g, '') }))
+    expect(buttons.find((b) => b.text === 'Allow')!.attrs).toMatch(/disabled=""/)
+    expect(buttons.find((b) => b.text === 'Send to tab')!.attrs).toMatch(/disabled=""/)
+    expect(html).not.toMatch(/autofocus/i)
+  })
 })

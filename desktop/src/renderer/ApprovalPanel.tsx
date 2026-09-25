@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { allowEnabled, blockKeyboardActivation, highlightNonAscii, ListChanges, type PendingItem } from './approvals'
+import { CloseIcon } from './icons'
 
-export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToTab }: {
+export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToTab, onClose }: {
   items: PendingItem[]
   seedError?: string
   onDecide: (id: string, outcome: 'allowed' | 'denied', reason: string) => Promise<void>
   onDenyAll: () => Promise<void>
   onSendToTab: (item: PendingItem) => Promise<void>
+  onClose: () => void
 }) {
   const [now, setNow] = useState(Date.now())
   const [denyAllError, setDenyAllError] = useState<string>()
@@ -34,23 +36,31 @@ export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToT
 
   const denyAll = () => onDenyAll().then(() => setDenyAllError(undefined), (e) => setDenyAllError((e as Error).message))
 
+  const scrolled = () => { changes.current!.touch(Date.now()); setNow(Date.now()) }
   return (
     <aside className="approvals" aria-label="Approval requests">
-      <h3>AI requests {items.length > 0 && `(${items.length})`}</h3>
-      {/* Always rendered so the list never shifts when it appears or disappears. */}
-      <button className="denyall" onClick={denyAll} disabled={items.length < 2}>Deny all</button>
-      {/* Observed for height changes: anything that shifts the items lives in here. */}
-      <div ref={listRef}>
-        {denyAllError && <p className="error">{denyAllError}</p>}
-        {items.length === 0 && (
-          seedError
-            ? <p className="error">Could not load pending requests: {seedError}</p>
-            : <p className="muted">Nothing waiting.</p>
-        )}
-        {items.map((item) => (
-          <Item key={item.request.id} item={item} now={now} changedAt={changedAt}
-            onDecide={onDecide} onSendToTab={onSendToTab} />
-        ))}
+      <div className="approvals-head">
+        <h3>AI requests {items.length > 0 && <span className="count">{items.length}</span>}</h3>
+        {/* Always rendered so the list never shifts when it appears or disappears. */}
+        <button type="button" className="btn danger-outline denyall" onClick={denyAll} disabled={items.length < 2}>Deny all</button>
+        <button type="button" className="icon" aria-label="Close AI requests" title="Close" onClick={onClose}><CloseIcon /></button>
+      </div>
+      <p className="approvals-help">Every command waits for you. Enter in a request denies; Allow takes a mouse click.</p>
+      {/* Scrolling moves a different Allow under a still cursor: it restarts the delay. */}
+      <div className="approvals-scroll" onScroll={scrolled}>
+        {/* Observed for height changes: anything that shifts the items lives in here. */}
+        <div ref={listRef}>
+          {denyAllError && <p className="error">{denyAllError}</p>}
+          {items.length === 0 && (
+            seedError
+              ? <p className="error">Could not load pending requests: {seedError}</p>
+              : <p className="muted empty">Nothing waiting.</p>
+          )}
+          {items.map((item) => (
+            <Item key={item.request.id} item={item} now={now} changedAt={changedAt}
+              onDecide={onDecide} onSendToTab={onSendToTab} />
+          ))}
+        </div>
       </div>
     </aside>
   )
@@ -90,7 +100,8 @@ export function Item({ item, now, changedAt = 0, onDecide, onSendToTab }: {
         <button type="button" className="allow" tabIndex={-1} onKeyDown={blockKeyboardActivation}
           disabled={busy || !allowEnabled(item, now, changedAt)}
           onClick={() => { if (!busy) act(onDecide(r.id, 'allowed', '')) }}>Allow</button>
-        <button type="button" tabIndex={-1} onKeyDown={blockKeyboardActivation} disabled={busy}
+        <button type="button" tabIndex={-1} onKeyDown={blockKeyboardActivation}
+          disabled={busy || !allowEnabled(item, now, changedAt)}
           onClick={() => { if (!busy) act(onSendToTab(item)) }}>Send to tab</button>
       </div>
       {error && <p className="error">{error}</p>}

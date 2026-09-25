@@ -39,6 +39,8 @@ export class ListChanges {
     if (changed) this.at = now
     return changed
   }
+  // Something moved the items without changing ids or height (scrolling the list).
+  touch(now: number): void { this.at = now }
 }
 
 // Merges a hub.pending() snapshot with items already known from live events.

@@ -76,6 +76,8 @@ export function App() {
   const decidedSince = useRef(new Set<string>())
   const pendingSince = useRef(new Set<string>())
   const seedGen = useRef(new Latest())
+  const [aiOpen, setAiOpen] = useState(false)
+  const seenIds = useRef(new Set<string>())
   useEffect(() => hub.onEvent((e) => {
     // Only approval events can change items. A no-op setItems still queues an update
     // (holding e) until App next renders, so calling it per term.data leaks every chunk.
@@ -83,6 +85,11 @@ export function App() {
     if (e.method === 'decided') decidedSince.current.add(e.params.request.id)
     else pendingSince.current.add(e.params.request.id)
     setItems((cur) => reduceApprovals(cur, e, Date.now()))
+    // Collapsing is the user's choice; a new request reopens the column.
+    if (e.method === 'pending' && !seenIds.current.has(e.params.request.id)) {
+      seenIds.current.add(e.params.request.id)
+      setAiOpen(true)
+    }
   }), [])
   useEffect(() => {
     const gen = seedGen.current.next() // a reply to any earlier pending() call is now stale
@@ -93,6 +100,7 @@ export function App() {
         .then((p) => {
           if (!seedGen.current.isCurrent(gen)) return
           setItems((cur) => mergeSeed(cur, p, decidedSince.current, pendingSince.current, Date.now())); setSeedError(undefined)
+          if (p.length > 0) { for (const r of p) seenIds.current.add(r.id); setAiOpen(true) }
         })
         .catch((e) => { if (seedGen.current.isCurrent(gen)) setSeedError((e as Error).message) })
     }
@@ -116,6 +124,12 @@ export function App() {
   const lock = async () => { try { await hub.lock(); setUnlockError(undefined); await refresh() } catch { /* the locked/hub-state events recover the UI */ } }
   const actions = (
     <>
+      {(aiOpen || items.length > 0) && (
+        <button type="button" className={'btn aibtn' + (!aiOpen && items.length > 0 ? ' waiting' : '')}
+          aria-label="AI requests" aria-expanded={aiOpen} onClick={() => setAiOpen((o) => !o)}>
+          AI <span className="count">{items.length}</span>
+        </button>
+      )}
       <ThemeControl pref={themePref} onChange={chooseTheme} />
       <button type="button" className="btn" onClick={lock}><LockIcon />Lock</button>
     </>
@@ -148,14 +162,15 @@ export function App() {
             <Terminals ref={terms} theme={theme} hostKeys={hostKeys} onMismatch={setMismatch} onTrusted={reloadServers}
               home={hostList} actions={actions} banner={<StoreErrorBanner message={status?.storeError} />} servers={servers} />
           </main>
-          {ready && (
+          {ready && aiOpen && (
             <ApprovalPanel items={items} seedError={seedError}
               onDecide={(id, outcome, reason) => hub.decide(id, outcome, reason)}
               onDenyAll={() => hub.denyAll('denied all by user')}
               onSendToTab={async (item) => {
                 await terms.current!.sendToTab(item.request.server, item.request.command)
                 await hub.decide(item.request.id, 'sent_to_tab')
-              }} />
+              }}
+              onClose={() => setAiOpen(false)} />
           )}
         </div>
       )}

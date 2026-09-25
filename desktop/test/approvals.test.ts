@@ -121,3 +121,11 @@ describe('ListChanges', () => {
     expect(c.at).toBe(1300)
   })
 })
+
+describe('ListChanges.touch', () => {
+  it('records a change at the given time (scrolling moves items under the cursor)', () => {
+    const c = new ListChanges('a', 0)
+    c.touch(700)
+    expect(c.at).toBe(700)
+  })
+})
