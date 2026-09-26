@@ -145,6 +145,22 @@ func TestMkdirAndRename(t *testing.T) {
 	}
 }
 
+// A new name the next listing would hide as bad (here a backslash) is refused,
+// or the folder or file could never be selected again.
+func TestMkdirAndRenameRefuseBadNewNames(t *testing.T) {
+	c, _, root := remote(t)
+	write(t, filepath.Join(root, "home", "a"), "a", 0o644)
+	if err := Mkdir(c, `/home/x\y`); err == nil {
+		t.Fatal(`mkdir made a name with \`)
+	}
+	if err := Rename(c, "/home/a", `/home/x\y`); err == nil {
+		t.Fatal(`rename made a name with \`)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "home", `x\y`)); err == nil {
+		t.Fatal("the bad name exists")
+	}
+}
+
 func TestRenameRefusesRootAndHomeAsTarget(t *testing.T) {
 	c, _, root := remote(t)
 	write(t, filepath.Join(root, "home", "a"), "a", 0o644)

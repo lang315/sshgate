@@ -86,9 +86,13 @@ func List(ctx context.Context, c *sftp.Client, p string) (Listing, error) {
 	return l, nil
 }
 
-// Mkdir creates one folder.
+// Mkdir creates one folder. Its name must pass the listing's name rules, or
+// the next listing would hide it.
 func Mkdir(c *sftp.Client, p string) error {
 	if err := CheckAbs(p); err != nil {
+		return err
+	}
+	if err := checkRemoteName(path.Base(p)); err != nil {
 		return err
 	}
 	return c.Mkdir(p)
@@ -109,6 +113,9 @@ func Rename(c *sftp.Client, from, to string) error {
 		return err
 	}
 	if err := checkMutable(to, home); err != nil {
+		return err
+	}
+	if err := checkRemoteName(path.Base(to)); err != nil { // as Mkdir
 		return err
 	}
 	if _, err := c.Lstat(to); err == nil {
