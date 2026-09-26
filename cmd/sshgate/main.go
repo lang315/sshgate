@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/lang315/ssh-mcp/internal/config"
-	"github.com/lang315/ssh-mcp/internal/hub"
-	"github.com/lang315/ssh-mcp/internal/mcpserver"
-	"github.com/lang315/ssh-mcp/internal/sshx"
+	"github.com/lang315/sshgate/internal/config"
+	"github.com/lang315/sshgate/internal/hub"
+	"github.com/lang315/sshgate/internal/mcpserver"
+	"github.com/lang315/sshgate/internal/sshx"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -29,7 +29,7 @@ func route(args []string) (string, []string) {
 
 func storePath() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "ssh-mcp", "servers.json")
+	return filepath.Join(home, ".config", "sshgate", "servers.json")
 }
 
 // buildDeps builds Deps for --host (standalone CLI) mode only, from args
@@ -56,7 +56,7 @@ func runMCP(args []string) error {
 
 	m := config.ParseArgv(args)
 	if _, hasHost := m["host"]; !hasHost {
-		fmt.Fprintln(os.Stderr, "SSH MCP bridge on stdio (forwarding to ssh-mcp hub)")
+		fmt.Fprintln(os.Stderr, "sshgate bridge on stdio (forwarding to sshgate hub)")
 		return mcpserver.BuildBridgeServer(hub.DialMCPDoor).Run(ctx, &mcp.StdioTransport{})
 	}
 
@@ -67,7 +67,7 @@ func runMCP(args []string) error {
 	reg := sshx.NewRegistry()
 	defer reg.CloseAll()
 	srv := mcpserver.BuildServer(d, reg, disableSudo, maxChars)
-	fmt.Fprintln(os.Stderr, "SSH MCP Server running on stdio (standalone --host mode)")
+	fmt.Fprintln(os.Stderr, "sshgate running on stdio (standalone --host mode)")
 	return srv.Run(ctx, &mcp.StdioTransport{})
 }
 

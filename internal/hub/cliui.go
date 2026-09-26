@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/lang315/ssh-mcp/internal/broker"
+	"github.com/lang315/sshgate/internal/broker"
 )
 
 // ReadPassword, when set, reads the master password for the "u" command
@@ -35,7 +35,7 @@ func RunCLIApprover(ctx context.Context, h *Hub, in io.Reader, out io.Writer) er
 		}
 	})
 	defer release()
-	fmt.Fprintln(out, "ssh-mcp hub (CLI approver). Commands: a [id]=allow  d [id] [reason]=deny  D=deny all  s [id]=send to tab  u=unlock  p=list pending  q=quit (id required when 2+ pending; p lists ids)")
+	fmt.Fprintln(out, "sshgate hub (CLI approver). Commands: a [id]=allow  d [id] [reason]=deny  D=deny all  s [id]=send to tab  u=unlock  p=list pending  q=quit (id required when 2+ pending; p lists ids)")
 
 	sc := bufio.NewScanner(in)
 	for {
@@ -70,7 +70,7 @@ func RunCLIApprover(ctx context.Context, h *Hub, in io.Reader, out io.Writer) er
 			h.broker.DenyAll(rest)
 		case "u":
 			if !h.hasVault() {
-				fmt.Fprintln(out, "no vault yet: create one in the desktop app (keeps existing servers) or with `ssh-mcp web` (starts empty)")
+				fmt.Fprintln(out, "no vault yet: create one in the desktop app (keeps existing servers) or with `sshgate web` (starts empty)")
 				continue
 			}
 			fmt.Fprint(out, "master password: ")

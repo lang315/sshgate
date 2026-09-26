@@ -25,6 +25,8 @@ type KDF struct {
 	Verifier    string `json:"verifier"`
 }
 
+// Part of the vault format, not the product name: existing vaults were
+// created with this value, so it stays when the product is renamed.
 const verifierConst = "ssh-mcp-verifier-v1"
 
 func NewKDF(masterPw string) (KDF, []byte, error) {

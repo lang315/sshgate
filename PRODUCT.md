@@ -10,11 +10,11 @@ web
 
 ## Users
 
-One user: the author, a developer/ops person managing a handful to a few dozen of their own servers. The app stays open all day. They use it for two jobs at once: working in SSH terminal tabs by hand, and approving or denying shell commands that Claude Code (through the ssh-mcp MCP bridge) asks to run on those servers. A second user does not exist yet; design for this one person until one does.
+One user: the author, a developer/ops person managing a handful to a few dozen of their own servers. The app stays open all day. They use it for two jobs at once: working in SSH terminal tabs by hand, and approving or denying shell commands that Claude Code (through the sshgate MCP bridge) asks to run on those servers. A second user does not exist yet; design for this one person until one does.
 
 ## Product Purpose
 
-ssh-mcp lets an AI agent run commands on real servers only with a human decision on every single command. The desktop app is that human's control surface: it holds the unlocked vault, the SSH terminals, and the approval queue. Success means the author does their SSH work in this app instead of another terminal, and never approves an AI command they did not mean to.
+sshgate lets an AI agent run commands on real servers only with a human decision on every single command. The desktop app is that human's control surface: it holds the unlocked vault, the SSH terminals, and the approval queue. Success means the author does their SSH work in this app instead of another terminal, and never approves an AI command they did not mean to.
 
 ## Positioning
 
@@ -38,7 +38,7 @@ Every AI-issued command blocks on an explicit human Allow. There are no auto-app
 
 ## Brand Commitments
 
-- Name: ssh-mcp.
+- Name: sshgate (renamed from ssh-mcp on 2026-09-26, when the project left the tufantunc/ssh-mcp fork).
 - No logo for now (the user skipped it). Colours are delegated to the design work; no separate brand palette exists.
 - Standing visual preference (2026-09-25): the user's own design (`ssh-mcp Desktop UI.html`): warm-neutral dark, teal focus/link accent, Termius-like structure (host cards, top tabs) at Termius's craft level. System fonts. Not Termius's name, logo, or assets.
 

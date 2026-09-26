@@ -9,8 +9,8 @@ export const ICON_PNG_BASE64 =
 export function trayTitle(count: number): string { return count === 0 ? '' : String(count) }
 
 export function trayTooltip(count: number): string {
-  if (count === 0) return 'ssh-mcp'
-  return `ssh-mcp: ${count} request${count === 1 ? '' : 's'} waiting`
+  if (count === 0) return 'sshgate'
+  return `sshgate: ${count} request${count === 1 ? '' : 's'} waiting`
 }
 
 export function notificationText(req: ApprovalRequest): { title: string; body: string } {

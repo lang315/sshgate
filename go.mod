@@ -1,4 +1,4 @@
-module github.com/lang315/ssh-mcp
+module github.com/lang315/sshgate
 
 go 1.26.5
 

@@ -19,9 +19,9 @@ var runUserBase, tmpBase = "/run/user", "/tmp"
 // ~/Library is unusable). The windows pipe name is in listen_windows.go.
 //
 // R37: MCP clients may start the bridge without TMPDIR or XDG_RUNTIME_DIR,
-// so neither is consulted. The directory is $SSH_MCP_RUNTIME_DIR/ssh-mcp if
-// that is set, else /run/user/<uid>/ssh-mcp when /run/user/<uid> is a real
-// directory owned by us (Linux), else /tmp/ssh-mcp-<uid>.
+// so neither is consulted. The directory is $SSHGATE_RUNTIME_DIR/sshgate if
+// that is set, else /run/user/<uid>/sshgate when /run/user/<uid> is a real
+// directory owned by us (Linux), else /tmp/sshgate-<uid>.
 //
 // The socket directory must be a real directory owned by us with mode 0700.
 // An existing directory is never chmodded or followed through a symlink:
@@ -31,12 +31,12 @@ func SocketPath() (string, error) {
 	var dir string
 	runUser := filepath.Join(runUserBase, strconv.Itoa(uid))
 	switch {
-	case os.Getenv("SSH_MCP_RUNTIME_DIR") != "":
-		dir = filepath.Join(os.Getenv("SSH_MCP_RUNTIME_DIR"), "ssh-mcp")
+	case os.Getenv("SSHGATE_RUNTIME_DIR") != "":
+		dir = filepath.Join(os.Getenv("SSHGATE_RUNTIME_DIR"), "sshgate")
 	case ownedDir(runUser, uid):
-		dir = filepath.Join(runUser, "ssh-mcp")
+		dir = filepath.Join(runUser, "sshgate")
 	default:
-		dir = filepath.Join(tmpBase, fmt.Sprintf("ssh-mcp-%d", uid))
+		dir = filepath.Join(tmpBase, fmt.Sprintf("sshgate-%d", uid))
 	}
 	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
 		return "", err

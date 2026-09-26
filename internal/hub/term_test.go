@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lang315/ssh-mcp/internal/config"
-	"github.com/lang315/ssh-mcp/internal/rpc"
-	"github.com/lang315/ssh-mcp/internal/sshx/sshtest"
+	"github.com/lang315/sshgate/internal/config"
+	"github.com/lang315/sshgate/internal/rpc"
+	"github.com/lang315/sshgate/internal/sshx/sshtest"
 	"golang.org/x/crypto/ssh"
 )
 

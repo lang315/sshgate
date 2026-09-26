@@ -30,7 +30,7 @@ func SocketPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return `\\.\pipe\ssh-mcp-hub-` + sid, nil
+	return `\\.\pipe\sshgate-hub-` + sid, nil
 }
 
 func ListenMCPDoor() (net.Listener, error) {

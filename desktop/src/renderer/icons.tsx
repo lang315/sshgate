@@ -26,7 +26,7 @@ export function Mark() {
   return (
     <div className="mark">
       <span className="mark-tile"><TerminalIcon /></span>
-      <span className="mark-word">ssh-mcp</span>
+      <span className="mark-word">sshgate</span>
     </div>
   )
 }

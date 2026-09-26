@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/lang315/ssh-mcp/internal/config"
+	"github.com/lang315/sshgate/internal/config"
 )
 
 func ParseSSHConfig(text string) ([]ServerDTO, []string) {
@@ -219,7 +219,7 @@ func (a *App) handleExport(w http.ResponseWriter, r *http.Request) {
 
 func writeExport(w http.ResponseWriter, f config.File) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Disposition", "attachment; filename=ssh-mcp-export.json")
+	w.Header().Set("Content-Disposition", "attachment; filename=sshgate-export.json")
 	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(f)
 }

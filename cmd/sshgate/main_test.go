@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lang315/ssh-mcp/internal/config"
+	"github.com/lang315/sshgate/internal/config"
 )
 
 func TestRoute(t *testing.T) {
@@ -33,7 +33,7 @@ func TestRoute(t *testing.T) {
 // that silently turns that off. It refuses before touching the store.
 func TestHubRejectsInsecureIgnoreHostKey(t *testing.T) {
 	// If the refusal regressed, keep the hub away from the real socket.
-	t.Setenv("SSH_MCP_RUNTIME_DIR", t.TempDir())
+	t.Setenv("SSHGATE_RUNTIME_DIR", t.TempDir())
 	store := t.TempDir() + "/sub/servers.json"
 	err := runHub([]string{"--insecureIgnoreHostKey", "--store=" + store})
 	if err == nil || !strings.Contains(err.Error(), "--insecureIgnoreHostKey is not supported by hub") {
@@ -71,7 +71,7 @@ func TestParseIdleLock(t *testing.T) {
 
 // An invalid --idleLock fails at startup, before the store is touched.
 func TestHubRejectsBadIdleLock(t *testing.T) {
-	t.Setenv("SSH_MCP_RUNTIME_DIR", t.TempDir())
+	t.Setenv("SSHGATE_RUNTIME_DIR", t.TempDir())
 	store := t.TempDir() + "/sub/servers.json"
 	err := runHub([]string{"--idleLock=500ms", "--store=" + store})
 	if err == nil || !strings.Contains(err.Error(), "--idleLock") {

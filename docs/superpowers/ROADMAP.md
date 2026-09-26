@@ -1,10 +1,10 @@
-# ssh-mcp Roadmap
+# sshgate Roadmap
 
 Long-lived plan across every slice. Each slice gets its own spec in
 `specs/` and its own implementation plan in `plans/`, written when that
 slice starts. This file only fixes order, gates, and cross-slice decisions.
 
-Updated: 2026-09-25 (slice 2a implemented)
+Updated: 2026-09-26 (renamed ssh-mcp → sshgate, own repo lang315/sshgate; slice 2a implemented)
 
 ## Standing decisions
 

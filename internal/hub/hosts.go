@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lang315/ssh-mcp/internal/broker"
-	"github.com/lang315/ssh-mcp/internal/config"
-	"github.com/lang315/ssh-mcp/internal/sshx"
+	"github.com/lang315/sshgate/internal/broker"
+	"github.com/lang315/sshgate/internal/config"
+	"github.com/lang315/sshgate/internal/sshx"
 )
 
 // errNoVault: every write from the app needs a vault, the only thing that

@@ -13,9 +13,9 @@ test.skip(process.platform === 'win32', 'door client uses a Unix socket')
 
 test.beforeAll(async () => {
   tmp = fs.mkdtempSync('/tmp/sme')
-  // Binaries go in bin/: the hub's socket directory is <tmp>/ssh-mcp.
+  // Binaries go in bin/: the hub's socket directory is <tmp>/sshgate.
   const bin = path.join(tmp, 'bin')
-  execFileSync('go', ['build', '-o', path.join(bin, 'ssh-mcp' + exe), './cmd/ssh-mcp'], { cwd: repo, stdio: 'inherit' })
+  execFileSync('go', ['build', '-o', path.join(bin, 'sshgate' + exe), './cmd/sshgate'], { cwd: repo, stdio: 'inherit' })
   execFileSync('go', ['build', '-o', path.join(bin, 'sshtestd' + exe), './internal/sshx/sshtest/sshtestd'], { cwd: repo, stdio: 'inherit' })
   const store = path.join(tmp, 'store', 'servers.json')
   sshd = spawn(path.join(bin, 'sshtestd' + exe), [`-write-store=${store}`, '-password=pw'], { stdio: ['pipe', 'pipe', 'inherit'] })
@@ -23,7 +23,7 @@ test.beforeAll(async () => {
   app = await electron.launch({
     args: ['.'],
     cwd: path.resolve(__dirname, '..'),
-    env: { ...process.env, SSH_MCP_BIN: path.join(bin, 'ssh-mcp' + exe), SSH_MCP_STORE: store, SSH_MCP_RUNTIME_DIR: tmp },
+    env: { ...process.env, SSHGATE_BIN: path.join(bin, 'sshgate' + exe), SSHGATE_STORE: store, SSHGATE_RUNTIME_DIR: tmp },
   })
   // Main's stderr (recoverRenderer logs, hub stderr) shows up in the test output.
   app.process().stderr?.on('data', (d) => process.stderr.write(`[main] ${d}`))
@@ -65,7 +65,7 @@ test('unlock, open a terminal, approve an AI command', async () => {
   await win.keyboard.type(' after-lock')
   await expect(win.locator('.xterm-rows')).toContainText('echo smoke-ok after-lock')
 
-  const socket = path.join(tmp, 'ssh-mcp', 'hub.sock')
+  const socket = path.join(tmp, 'sshgate', 'hub.sock')
   const result = doorCall(socket, 'exec', { requestId: 'r1', client: 'e2e', server: 'box', command: 'echo approved', description: 'smoke' })
   const allow = win.getByRole('button', { name: 'Allow' })
   await expect(allow).toBeVisible()

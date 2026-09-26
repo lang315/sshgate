@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lang315/ssh-mcp/internal/rpc"
+	"github.com/lang315/sshgate/internal/rpc"
 )
 
 func startUI(t *testing.T, h *Hub) (*rpc.Client, chan string) {

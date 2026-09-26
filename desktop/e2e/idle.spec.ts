@@ -6,7 +6,7 @@ import { launch, openBox, unlock, type Launched } from './launch'
 test.skip(process.platform === 'win32', 'door client uses a Unix socket')
 
 let l: Launched
-test.beforeAll(async () => { l = await launch({ SSH_MCP_IDLE_LOCK: '3s' }) })
+test.beforeAll(async () => { l = await launch({ SSHGATE_IDLE_LOCK: '3s' }) })
 test.afterAll(async () => { await l?.close() })
 
 test('idle auto-lock keeps terminals and waits for pending AI requests', async () => {

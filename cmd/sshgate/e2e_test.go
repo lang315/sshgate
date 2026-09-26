@@ -9,17 +9,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lang315/ssh-mcp/internal/broker"
-	"github.com/lang315/ssh-mcp/internal/config"
-	"github.com/lang315/ssh-mcp/internal/hub"
-	"github.com/lang315/ssh-mcp/internal/sshx"
-	"github.com/lang315/ssh-mcp/internal/sshx/sshtest"
+	"github.com/lang315/sshgate/internal/broker"
+	"github.com/lang315/sshgate/internal/config"
+	"github.com/lang315/sshgate/internal/hub"
+	"github.com/lang315/sshgate/internal/sshx"
+	"github.com/lang315/sshgate/internal/sshx/sshtest"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func buildBinary(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "ssh-mcp")
+	bin := filepath.Join(t.TempDir(), "sshgate")
 	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
@@ -58,7 +58,7 @@ func assertNoExec(t *testing.T, srv *sshtest.Server) {
 }
 
 // TestEndToEndApprovalFlow proves the whole approval flow end to end: a real
-// MCP client spawns the built ssh-mcp binary in bridge mode, which forwards
+// MCP client spawns the built sshgate binary in bridge mode, which forwards
 // to an in-process hub over the MCP door socket, which runs the approved
 // command over SSH against an in-process fake sshd (internal/sshx/sshtest),
 // no Docker required.
@@ -108,7 +108,7 @@ func TestEndToEndApprovalFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(smDir) })
-	t.Setenv("SSH_MCP_RUNTIME_DIR", smDir)
+	t.Setenv("SSHGATE_RUNTIME_DIR", smDir)
 
 	auditPath := filepath.Join(dir, "audit.jsonl")
 	audit, err := broker.OpenAudit(auditPath)

@@ -23,7 +23,7 @@ func ListenMCPDoor() (net.Listener, error) {
 	switch {
 	case err == nil:
 		c.Close()
-		return nil, errors.New("another ssh-mcp hub is already running")
+		return nil, errors.New("another sshgate hub is already running")
 	case errors.Is(err, syscall.ECONNREFUSED):
 		if err := os.Remove(p); err != nil {
 			return nil, err

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/lang315/ssh-mcp/internal/config"
-	"github.com/lang315/ssh-mcp/internal/sshx"
+	"github.com/lang315/sshgate/internal/config"
+	"github.com/lang315/sshgate/internal/sshx"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -89,9 +89,9 @@ func nameOr(s string) string {
 }
 
 func BuildServer(d *Deps, reg *sshx.Registry, disableSudo bool, maxChars int) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "SSH MCP Server", Version: "2.0.0"}, nil)
+	s := mcp.NewServer(&mcp.Implementation{Name: "sshgate", Version: "2.0.0"}, nil)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "exec", Description: "Run a shell command on the SSH server given on this ssh-mcp server's command line. It runs immediately, without human approval. " +
+	mcp.AddTool(s, &mcp.Tool{Name: "exec", Description: "Run a shell command on the SSH server given on this sshgate server's command line. It runs immediately, without human approval. " +
 		"If a su password was configured, the command runs as root inside one persistent root shell; otherwise each call runs in a fresh non-interactive shell, so `cd` and environment changes do not carry over between calls. " +
 		"The result is `exit code:` followed by `stdout:` and `stderr:` sections; a non-zero exit code is a normal result. Each stream is capped at 64 KiB (the middle is cut) and configured secrets are masked. " +
 		"Commands containing control characters, or longer than the configured maximum length, are rejected."},
@@ -101,7 +101,7 @@ func BuildServer(d *Deps, reg *sshx.Registry, disableSudo bool, maxChars int) *m
 		})
 
 	if !disableSudo {
-		mcp.AddTool(s, &mcp.Tool{Name: "sudo-exec", Description: "Run a shell command with sudo on the SSH server given on this ssh-mcp server's command line, without human approval. " +
+		mcp.AddTool(s, &mcp.Tool{Name: "sudo-exec", Description: "Run a shell command with sudo on the SSH server given on this sshgate server's command line, without human approval. " +
 			"It runs as `sudo -S` with the configured sudo password, or `sudo -n` when none is configured (which fails if sudo asks for a password). Output and rejection rules are the same as exec."},
 			func(ctx context.Context, req *mcp.CallToolRequest, in ExecInput) (*mcp.CallToolResult, any, error) {
 				res, err := runExec(ctx, d, reg, maxChars, true, in)
@@ -109,7 +109,7 @@ func BuildServer(d *Deps, reg *sshx.Registry, disableSudo bool, maxChars int) *m
 			})
 	}
 
-	mcp.AddTool(s, &mcp.Tool{Name: "list-servers", Description: "List the connection this ssh-mcp server exposes: the one given on its command line, shown as `(default)`. Returns names only, never secrets."},
+	mcp.AddTool(s, &mcp.Tool{Name: "list-servers", Description: "List the connection this sshgate server exposes: the one given on its command line, shown as `(default)`. Returns names only, never secrets."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in ListInput) (*mcp.CallToolResult, any, error) {
 			var b string
 			for _, n := range d.ServerNames() {

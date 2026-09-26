@@ -19,7 +19,7 @@ func TestSocketPathIsShortAndPerUser(t *testing.T) {
 	if len(p) > 100 {
 		t.Fatalf("path too long for sun_path: %d %q", len(p), p)
 	}
-	if !strings.HasSuffix(p, "/ssh-mcp/hub.sock") && !strings.Contains(p, "/ssh-mcp-") {
+	if !strings.HasSuffix(p, "/sshgate/hub.sock") && !strings.Contains(p, "/sshgate-") {
 		t.Fatalf("unexpected path %q", p)
 	}
 	info, err := os.Stat(strings.TrimSuffix(p, "/hub.sock"))
@@ -43,7 +43,7 @@ func TestListenMCPDoorSocketIsOwnerOnly(t *testing.T) {
 }
 
 func TestSocketPathRejectsLooseDir(t *testing.T) {
-	dir := filepath.Join(isolateDoor(t), "ssh-mcp")
+	dir := filepath.Join(isolateDoor(t), "sshgate")
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestSocketPathRejectsSymlinkDir(t *testing.T) {
 	if err := os.Mkdir(target, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(target, filepath.Join(base, "ssh-mcp")); err != nil {
+	if err := os.Symlink(target, filepath.Join(base, "sshgate")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := SocketPath(); err == nil || !strings.Contains(err.Error(), "not a private directory owned by you") {
@@ -79,25 +79,25 @@ func TestSocketPathIgnoresTMPDIRAndXDG(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	p, err := SocketPath()
-	if err != nil || p != filepath.Join(dir, "ssh-mcp", "hub.sock") {
+	if err != nil || p != filepath.Join(dir, "sshgate", "hub.sock") {
 		t.Fatalf("got %q, %v", p, err)
 	}
 
 	runUser := isolateDoor(t) // stands in for /run/user
 	tmp := isolateDoor(t)     // stands in for /tmp
-	t.Setenv("SSH_MCP_RUNTIME_DIR", "")
+	t.Setenv("SSHGATE_RUNTIME_DIR", "")
 	oldRun, oldTmp := runUserBase, tmpBase
 	runUserBase, tmpBase = runUser, tmp
 	t.Cleanup(func() { runUserBase, tmpBase = oldRun, oldTmp })
 
 	uid := strconv.Itoa(os.Getuid())
-	if p, err := SocketPath(); err != nil || p != filepath.Join(tmp, "ssh-mcp-"+uid, "hub.sock") {
+	if p, err := SocketPath(); err != nil || p != filepath.Join(tmp, "sshgate-"+uid, "hub.sock") {
 		t.Fatalf("no /run/user/<uid>: got %q, %v", p, err)
 	}
 	if err := os.Mkdir(filepath.Join(runUser, uid), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if p, err := SocketPath(); err != nil || p != filepath.Join(runUser, uid, "ssh-mcp", "hub.sock") {
+	if p, err := SocketPath(); err != nil || p != filepath.Join(runUser, uid, "sshgate", "hub.sock") {
 		t.Fatalf("with /run/user/<uid>: got %q, %v", p, err)
 	}
 }

@@ -21,11 +21,11 @@ test('the theme control switches data-theme and remembers the choice', async () 
   await unlock(win)
   await win.getByRole('radio', { name: 'Light' }).click()
   await expect(html).toHaveAttribute('data-theme', 'light')
-  expect(await win.evaluate(() => localStorage.getItem('ssh-mcp.theme'))).toBe('light')
+  expect(await win.evaluate(() => localStorage.getItem('sshgate.theme'))).toBe('light')
   await win.getByRole('radio', { name: 'Dark' }).click()
   await expect(html).toHaveAttribute('data-theme', 'dark')
   await win.getByRole('radio', { name: 'Auto' }).click()
-  expect(await win.evaluate(() => localStorage.getItem('ssh-mcp.theme'))).toBe('auto')
+  expect(await win.evaluate(() => localStorage.getItem('sshgate.theme'))).toBe('auto')
 })
 
 test('Hosts is the home tab, search filters the cards, closing the last tab returns home', async () => {

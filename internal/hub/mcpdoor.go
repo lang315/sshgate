@@ -8,7 +8,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/lang315/ssh-mcp/internal/rpc"
+	"github.com/lang315/sshgate/internal/rpc"
 )
 
 const maxEarlyCancels = 64

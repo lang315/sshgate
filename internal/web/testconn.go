@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lang315/ssh-mcp/internal/config"
-	"github.com/lang315/ssh-mcp/internal/sshx"
+	"github.com/lang315/sshgate/internal/config"
+	"github.com/lang315/sshgate/internal/sshx"
 )
 
 func expandHome(p string) string {
@@ -69,7 +69,7 @@ func (a *App) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 		if s.KeyPath != "" {
 			data, err := os.ReadFile(expandHome(s.KeyPath))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "[ssh-mcp] test-connection %s: reading key file: %v\n", in.Name, err)
+				fmt.Fprintf(os.Stderr, "[sshgate] test-connection %s: reading key file: %v\n", in.Name, err)
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "connection test failed"})
 				return
@@ -84,7 +84,7 @@ func (a *App) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 	_, err := mgr.Exec(ctx, "true")
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[ssh-mcp] test-connection %s failed: %v\n", in.Name, err)
+		fmt.Fprintf(os.Stderr, "[sshgate] test-connection %s failed: %v\n", in.Name, err)
 		json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "connection test failed"})
 		return
 	}

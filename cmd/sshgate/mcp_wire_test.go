@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/lang315/ssh-mcp/internal/config"
+	"github.com/lang315/sshgate/internal/config"
 )
 
 func TestBuildDepsHostOnlyIgnoresStore(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lang315/ssh-mcp/internal/rpc"
-	"github.com/lang315/ssh-mcp/internal/sshx"
+	"github.com/lang315/sshgate/internal/rpc"
+	"github.com/lang315/sshgate/internal/sshx"
 )
 
 // isolateDoor points SocketPath at a fresh short directory so tests never
@@ -21,7 +21,7 @@ func isolateDoor(t *testing.T) string {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
-	t.Setenv("SSH_MCP_RUNTIME_DIR", dir)
+	t.Setenv("SSHGATE_RUNTIME_DIR", dir)
 	return dir
 }
 
@@ -129,7 +129,7 @@ func TestMCPDoorConnectionCloseWithdrawsPending(t *testing.T) {
 func TestListenMCPDoorRefusesSecondHub(t *testing.T) {
 	h, _ := newHub(t, &fakeExec{})
 	c := startDoor(t, h) // first hub, listening and serving
-	if ln2, err := ListenMCPDoor(); err == nil || !strings.Contains(err.Error(), "another ssh-mcp hub is already running") {
+	if ln2, err := ListenMCPDoor(); err == nil || !strings.Contains(err.Error(), "another sshgate hub is already running") {
 		if ln2 != nil {
 			ln2.Close()
 		}

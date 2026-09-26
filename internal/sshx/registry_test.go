@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/lang315/ssh-mcp/internal/sshx/sshtest"
+	"github.com/lang315/sshgate/internal/sshx/sshtest"
 )
 
 func TestRegistryReusesSameConfig(t *testing.T) {

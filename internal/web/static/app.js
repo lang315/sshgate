@@ -80,7 +80,7 @@ async function showList() {
       test.disabled = true;
       try {
         const r = await api('POST', '/api/test-connection', { name: s.name });
-        alert(r.ok ? 'Connection OK (' + s.name + ')' : 'Connection failed (' + s.name + '); details are in the terminal running ssh-mcp web');
+        alert(r.ok ? 'Connection OK (' + s.name + ')' : 'Connection failed (' + s.name + '); details are in the terminal running sshgate web');
       } catch (e) {
         alert('' + e.message);
       }
@@ -179,7 +179,7 @@ async function doExport() {
   const res = await fetch('/api/export', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify(body) });
   if (!res.ok) { alert(await res.text()); return; }
   const blob = await res.blob();
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'ssh-mcp-export.json'; a.click();
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'sshgate-export.json'; a.click();
 }
 
 boot();

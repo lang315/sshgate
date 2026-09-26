@@ -9,7 +9,7 @@ import (
 	"syscall"
 )
 
-// withFlock serializes writers across processes (e.g. two `ssh-mcp web`
+// withFlock serializes writers across processes (e.g. two `sshgate web`
 // instances) using an OS advisory lock on a sidecar "<path>.lock" file.
 func withFlock(path string, fn func() error) error {
 	f, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)

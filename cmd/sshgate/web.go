@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/lang315/ssh-mcp/internal/config"
-	"github.com/lang315/ssh-mcp/internal/web"
+	"github.com/lang315/sshgate/internal/config"
+	"github.com/lang315/sshgate/internal/web"
 )
 
 func runWeb(args []string) error {
@@ -18,7 +18,7 @@ func runWeb(args []string) error {
 		fmt.Sscanf(*p, "%d", &port)
 	}
 	home, _ := os.UserHomeDir()
-	path := filepath.Join(home, ".config", "ssh-mcp", "servers.json")
+	path := filepath.Join(home, ".config", "sshgate", "servers.json")
 	app, err := web.NewApp(port, path)
 	if err != nil {
 		return err
@@ -30,6 +30,6 @@ func runWeb(args []string) error {
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
 	}
-	fmt.Fprintf(os.Stderr, "ssh-mcp web UI on http://127.0.0.1:%d\n", port)
+	fmt.Fprintf(os.Stderr, "sshgate web UI on http://127.0.0.1:%d\n", port)
 	return srv.ListenAndServe()
 }

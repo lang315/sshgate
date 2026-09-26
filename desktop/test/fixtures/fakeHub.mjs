@@ -1,4 +1,4 @@
-// Fake ssh-mcp hub for tests. FAKE_HUB_MODE: "ok" | "crash" | "badproto" | "crashBig" | "silent".
+// Fake sshgate hub for tests. FAKE_HUB_MODE: "ok" | "crash" | "badproto" | "crashBig" | "silent".
 import readline from 'node:readline'
 
 const mode = process.env.FAKE_HUB_MODE ?? 'ok'

@@ -9,9 +9,9 @@ describe('attention', () => {
   it('formats tray text', () => {
     expect(trayTitle(0)).toBe('')
     expect(trayTitle(3)).toBe('3')
-    expect(trayTooltip(0)).toBe('ssh-mcp')
-    expect(trayTooltip(1)).toBe('ssh-mcp: 1 request waiting')
-    expect(trayTooltip(2)).toBe('ssh-mcp: 2 requests waiting')
+    expect(trayTooltip(0)).toBe('sshgate')
+    expect(trayTooltip(1)).toBe('sshgate: 1 request waiting')
+    expect(trayTooltip(2)).toBe('sshgate: 2 requests waiting')
   })
   it('formats notifications and truncates', () => {
     const n = notificationText(req)

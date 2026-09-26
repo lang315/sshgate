@@ -28,8 +28,8 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
-        run: go build -trimpath -ldflags="-s -w" -o "ssh-mcp_${{ github.event.release.tag_name }}_${GOOS}_${GOARCH}${{ matrix.ext }}" ./cmd/ssh-mcp
+        run: go build -trimpath -ldflags="-s -w" -o "sshgate_${{ github.event.release.tag_name }}_${GOOS}_${GOARCH}${{ matrix.ext }}" ./cmd/sshgate
       - name: Upload to release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" ssh-mcp_* --clobber
+        run: gh release upload "${{ github.event.release.tag_name }}" sshgate_* --clobber

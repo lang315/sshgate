@@ -3,7 +3,7 @@
 // because the CSP forbids inline scripts.
 (function () {
   var p = 'auto'
-  try { p = localStorage.getItem('ssh-mcp.theme') || 'auto' } catch (e) { /* Auto */ }
+  try { p = localStorage.getItem('sshgate.theme') || 'auto' } catch (e) { /* Auto */ }
   if (p !== 'dark' && p !== 'light') p = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
   document.documentElement.dataset.theme = p
 })()

@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lang315/ssh-mcp/internal/rpc"
-	"github.com/lang315/ssh-mcp/internal/sshx"
+	"github.com/lang315/sshgate/internal/rpc"
+	"github.com/lang315/sshgate/internal/sshx"
 	"golang.org/x/crypto/ssh"
 )
 

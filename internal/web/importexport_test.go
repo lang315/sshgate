@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lang315/ssh-mcp/internal/config"
+	"github.com/lang315/sshgate/internal/config"
 )
 
 func TestParseSSHConfig(t *testing.T) {

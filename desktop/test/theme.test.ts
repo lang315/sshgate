@@ -23,7 +23,7 @@ describe('theme preference storage', () => {
     expect(loadPref(broken)).toBe('auto')
     expect(() => savePref('dark', broken)).not.toThrow()
   })
-  it('round-trips through storage under ssh-mcp.theme', () => {
+  it('round-trips through storage under sshgate.theme', () => {
     const m = new Map<string, string>()
     const s = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v) } }
     savePref('light', s)

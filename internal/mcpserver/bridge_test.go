@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lang315/ssh-mcp/internal/config"
-	"github.com/lang315/ssh-mcp/internal/rpc"
+	"github.com/lang315/sshgate/internal/config"
+	"github.com/lang315/sshgate/internal/rpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

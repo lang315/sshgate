@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"io"
 
-	"github.com/lang315/ssh-mcp/internal/broker"
-	"github.com/lang315/ssh-mcp/internal/config"
-	"github.com/lang315/ssh-mcp/internal/rpc"
+	"github.com/lang315/sshgate/internal/broker"
+	"github.com/lang315/sshgate/internal/config"
+	"github.com/lang315/sshgate/internal/rpc"
 )
 
 // uiServer is the UI door's server listing shape: every stored server

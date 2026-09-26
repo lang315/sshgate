@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lang315/ssh-mcp/internal/config"
+	"github.com/lang315/sshgate/internal/config"
 )
 
 type Session struct {
@@ -50,7 +50,7 @@ func NewApp(port int, path string) (*App, error) {
 	}
 	if a.file == nil || a.file.KDF == nil {
 		a.bootstrap = token()
-		fmt.Fprintf(os.Stderr, "\n[ssh-mcp] First-run setup token: %s\n(enter this in the browser to set your master password)\n\n", a.bootstrap)
+		fmt.Fprintf(os.Stderr, "\n[sshgate] First-run setup token: %s\n(enter this in the browser to set your master password)\n\n", a.bootstrap)
 	}
 	return a, nil
 }
@@ -139,7 +139,7 @@ func (a *App) newSession(w http.ResponseWriter, mk []byte) {
 	s := &Session{Token: token(), CSRF: token(), MasterKey: mk, Created: time.Now(), LastSeen: time.Now()}
 	a.sess = s
 	http.SetCookie(w, &http.Cookie{
-		Name: "ssh_mcp_sess", Value: s.Token, Path: "/",
+		Name: "sshgate_sess", Value: s.Token, Path: "/",
 		HttpOnly: true, SameSite: http.SameSiteStrictMode,
 	})
 	w.Header().Set("Content-Type", "application/json")
@@ -156,7 +156,7 @@ func (a *App) handleLock(w http.ResponseWriter, r *http.Request) {
 func (a *App) requireSession(r *http.Request) (*Session, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	c, err := r.Cookie("ssh_mcp_sess")
+	c, err := r.Cookie("sshgate_sess")
 	if err != nil || a.sess == nil {
 		return nil, fmt.Errorf("no session")
 	}

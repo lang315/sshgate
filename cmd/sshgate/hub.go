@@ -10,13 +10,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lang315/ssh-mcp/internal/broker"
-	"github.com/lang315/ssh-mcp/internal/config"
-	"github.com/lang315/ssh-mcp/internal/hub"
+	"github.com/lang315/sshgate/internal/broker"
+	"github.com/lang315/sshgate/internal/config"
+	"github.com/lang315/sshgate/internal/hub"
 	"golang.org/x/term"
 )
 
-// runHub implements `ssh-mcp hub`: it opens the audit log next to the
+// runHub implements `sshgate hub`: it opens the audit log next to the
 // config store, listens on the MCP door for the bridge, and serves either
 // the UI door on stdio (for a desktop app later) or, with --cli, a terminal
 // approver that stands in for it.
@@ -59,7 +59,7 @@ func runHub(args []string) error {
 	}
 	defer ln.Close()
 	go hub.ServeMCPDoor(ctx, ln, h)
-	fmt.Fprintf(os.Stderr, "ssh-mcp hub: MCP door at %s\n", ln.Addr())
+	fmt.Fprintf(os.Stderr, "sshgate hub: MCP door at %s\n", ln.Addr())
 
 	if cli {
 		fd := int(os.Stdin.Fd())

@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lang315/ssh-mcp/internal/rpc"
-	"github.com/lang315/ssh-mcp/internal/sshx"
+	"github.com/lang315/sshgate/internal/rpc"
+	"github.com/lang315/sshgate/internal/sshx"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -55,7 +55,7 @@ func hubCallErr(err error) *mcp.CallToolResult {
 	if errors.As(err, &rpcErr) {
 		return textErr(rpcErr.Message)
 	}
-	fmt.Fprintln(os.Stderr, "ssh-mcp bridge: hub transport error:", err)
+	fmt.Fprintln(os.Stderr, "sshgate bridge: hub transport error:", err)
 	return textErr(hubCrashedMsg)
 }
 
@@ -64,12 +64,12 @@ func hubCallErr(err error) *mcp.CallToolResult {
 // secrets; the hub is the single policy point. Each tool call dials fresh,
 // so the bridge itself is stateless.
 func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "SSH MCP Server", Version: "3.0.0"}, nil)
+	s := mcp.NewServer(&mcp.Implementation{Name: "sshgate", Version: "3.0.0"}, nil)
 
 	withHub := func(ctx context.Context, fn func(c *rpc.Client) (*mcp.CallToolResult, error)) (*mcp.CallToolResult, error) {
 		conn, err := dial(ctx)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "ssh-mcp bridge: dial hub:", err)
+			fmt.Fprintln(os.Stderr, "sshgate bridge: dial hub:", err)
 			return textErr(hubDownMsg), nil
 		}
 		defer conn.Close()
@@ -139,13 +139,13 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 		}
 	}
 
-	mcp.AddTool(s, &mcp.Tool{Name: "exec", Description: "Run a shell command on a saved SSH server through the ssh-mcp desktop app. " +
+	mcp.AddTool(s, &mcp.Tool{Name: "exec", Description: "Run a shell command on a saved SSH server through the sshgate desktop app. " +
 		"Each call waits until a human approves or denies it in the app; after 5 minutes without a decision it fails as expired, so combine related steps into one command. " +
 		"Each call runs in a fresh non-interactive shell: the working directory, environment variables and activated virtualenvs do not carry over, and ~/.bashrc is usually not read, so write `cd /app && ./run.sh` as one command. " +
 		"(On a server configured with a su password, commands run as root inside one persistent root shell instead.) " +
 		"The result is `exit code:` followed by `stdout:` and `stderr:` sections; a non-zero exit code is a normal result, not a tool error. Each stream is capped at 64 KiB (the middle is cut) and saved secrets are masked. " +
 		"The call fails if the app is closed, no vault exists yet, the vault is locked, the server is not visible to AI or has no pinned host key, the human denies it, or 5 requests are already waiting."}, execTool("exec"))
-	mcp.AddTool(s, &mcp.Tool{Name: "sudo-exec", Description: "Run a shell command with sudo on a saved SSH server through the ssh-mcp desktop app. " +
+	mcp.AddTool(s, &mcp.Tool{Name: "sudo-exec", Description: "Run a shell command with sudo on a saved SSH server through the sshgate desktop app. " +
 		"The command runs as `sudo -S` with the server's saved sudo password, or as `sudo -n` when none is saved (which fails if sudo asks for a password). " +
 		"Approval, fresh-shell, output and failure rules are the same as exec."}, execTool("sudoExec"))
 	mcp.AddTool(s, &mcp.Tool{Name: "list-servers", Description: "List the saved SSH servers the user has made visible to AI, one per line as `- name`. " +

@@ -50,14 +50,14 @@ export async function recoverRenderer(
   reason: string,
   policy: CrashPolicy,
 ): Promise<void> {
-  console.error('ssh-mcp: renderer gone:', reason)
+  console.error('sshgate: renderer gone:', reason)
   const decision = policy.record()
   const locked = await hub.call('lock', {}, 5000).then(() => true, (e) => {
     if (hubGone(e)) return true
-    console.error('ssh-mcp: lock after renderer crash failed:', (e as Error).message)
+    console.error('sshgate: lock after renderer crash failed:', (e as Error).message)
     return false
   })
-  await hub.call('term.closeAll', {}, 5000).catch((e) => console.error('ssh-mcp: term.closeAll after renderer crash failed:', (e as Error).message))
+  await hub.call('term.closeAll', {}, 5000).catch((e) => console.error('sshgate: term.closeAll after renderer crash failed:', (e as Error).message))
   if (win.isDestroyed()) return
   const text = !locked ? LOCK_FAILED_TEXT : decision === 'error' ? CRASH_LOOP_TEXT : undefined
   if (text) await win.loadURL('data:text/plain;charset=utf-8,' + encodeURIComponent(text)).catch(() => {})

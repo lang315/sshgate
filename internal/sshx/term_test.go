@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lang315/ssh-mcp/internal/sshx/sshtest"
+	"github.com/lang315/sshgate/internal/sshx/sshtest"
 )
 
 func termManager(t *testing.T) *Manager {

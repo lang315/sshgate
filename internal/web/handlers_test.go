@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lang315/ssh-mcp/internal/config"
+	"github.com/lang315/sshgate/internal/config"
 )
 
 func initApp(t *testing.T) (*App, string) {
@@ -25,7 +25,7 @@ func initApp(t *testing.T) (*App, string) {
 }
 
 func cookieFor(a *App) http.Cookie {
-	return http.Cookie{Name: "ssh_mcp_sess", Value: a.sess.Token}
+	return http.Cookie{Name: "sshgate_sess", Value: a.sess.Token}
 }
 
 func TestCreateAndListServer(t *testing.T) {

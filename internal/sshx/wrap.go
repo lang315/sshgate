@@ -1,6 +1,6 @@
 package sshx
 
-import "github.com/lang315/ssh-mcp/internal/config"
+import "github.com/lang315/sshgate/internal/config"
 
 func WrapSudoNoPassword(cmd string) string {
 	return "sudo -n sh -c '" + config.EscapeShellSingleQuote(cmd) + "'"

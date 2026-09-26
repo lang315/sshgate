@@ -1,8 +1,8 @@
 {
-  "name": "ssh-mcp-desktop",
+  "name": "sshgate-desktop",
   "private": true,
   "version": "0.1.0",
-  "description": "Desktop app for ssh-mcp: terminals and AI command approval",
+  "description": "Desktop app for sshgate: terminals and AI command approval",
   "main": "dist/main/main.js",
   "scripts": {
     "build:renderer": "vite build",

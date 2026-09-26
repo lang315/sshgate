@@ -2,7 +2,7 @@ import type { ITheme } from '@xterm/xterm'
 
 export type ThemePref = 'dark' | 'light' | 'auto'
 export type Theme = 'dark' | 'light'
-export const THEME_KEY = 'ssh-mcp.theme'
+export const THEME_KEY = 'sshgate.theme'
 export const MONO_FONT = 'ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace'
 
 export function resolveTheme(pref: ThemePref, prefersDark: boolean): Theme {

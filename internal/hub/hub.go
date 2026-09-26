@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lang315/ssh-mcp/internal/broker"
-	"github.com/lang315/ssh-mcp/internal/config"
-	"github.com/lang315/ssh-mcp/internal/mcpserver"
-	"github.com/lang315/ssh-mcp/internal/sshx"
+	"github.com/lang315/sshgate/internal/broker"
+	"github.com/lang315/sshgate/internal/config"
+	"github.com/lang315/sshgate/internal/mcpserver"
+	"github.com/lang315/sshgate/internal/sshx"
 )
 
 // AI-facing error text; must match the spec's "Errors returned to the AI" table.
