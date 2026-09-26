@@ -42,6 +42,8 @@ Copied from the spec. Every task's requirements include this section.
 8. **Docker test image.** The OpenSSH SFTP test keeps the existing `:latest` image and skips (does not fail) when the server answers `ErrNoSFTP`, since no tag can be verified offline here.
 9. **Renderer tests stay pure.** vitest runs `environment: 'node'` on `test/**/*.test.ts`; every rule worth testing lives in `desktop/src/renderer/files.ts` or `desktop/src/main/files.ts` as plain functions or classes.
 10. **Main's files logic is a class** `FilesRelay` (`desktop/src/main/files.ts`) holding grants and download-job conflict counts; `relayCall` stays stateless and `registerIpc` routes `files.plan`/`files.run` to the relay.
+11. **One file for main's file logic.** The spec names `main/grants.ts`; the plan keeps `Grants` and `FilesRelay` together in `main/files.ts`, since the relay is the grants' only user. Task 12 corrects the file name in the spec's Desktop section.
+12. **No "planted part file" test.** The spec's Testing list has "a planted `.name.*.sshgate-part` link is not followed". Part names carry 64 random bits and are created with `O_EXCL`, so no test can plant one; the `O_EXCL` refusal is tested in Task 1 (`TestSFTPRootedHomeAndFiles`) and writing through a swapped symlink in Task 6 (`TestDownloadNeverWritesThroughASymlink`).
 
 ## File map
 
@@ -3614,6 +3616,7 @@ func registerJobMethods(s *rpc.Server, h *Hub) (closeAll func()) {
 			d.mu.Lock()
 			delete(d.jobs, p.ID)
 			d.mu.Unlock()
+			close(j.done) // a door closing meanwhile must not wait for it
 			return nil, err
 		}
 		j.c = c
@@ -5071,7 +5074,7 @@ Expected: PASS. Then the whole suite: `npm run e2e`.
 - `README.md`: a "Files" paragraph under the app features: browse, upload/download folders, drop from Finder, rename, delete; everything as the login user; audited.
 - `PRODUCT.md`: move SFTP out of "Not built".
 - `docs/superpowers/ROADMAP.md`: row 3a → "Implemented 2026-09-26; exit gate pending (author on a real host)"; Updated line.
-- Spec status line: "Approved 2026-09-26; implemented (plan `plans/2026-09-26-slice3a-sftp.md`)."
+- Spec status line: "Approved 2026-09-26; implemented (plan `plans/2026-09-26-slice3a-sftp.md`)." In its Desktop section, `main/grants.ts` becomes `main/files.ts` (`Grants`, `FilesRelay`), and the Testing bullet about a planted part file becomes "part files are random and created with `O_EXCL` (tested), and a destination swapped to a symlink is not written through".
 - `docs/superpowers/checklists/slice3a-manual.md`:
 
 ```markdown
@@ -5104,4 +5107,4 @@ git commit -m "test(e2e): files tab end to end; docs for slice 3a"
 ## Self-review notes (for the executor)
 
 - Spec coverage: every Security rule has a task and a test (tokens: 9; strict params: 7–8; grants/lock: 9; native download conflicts: 9, 12; drops: 9; `os.Root`: 5–6; names: 3, 5, 6; part files and no-replace: 6; symlinks: 5–6; real paths: 3, 4, 5, 7; permissions: 3, 6; sanitising: 9–11; bounds: 4–5; UI door only: 7). Jobs/cancel/lock/server change/cancelAll/expiry/progress: 8. Audit: 7–8. Idle: `files.*` requests call `h.touch()`, notifications do not (7–8). Live test: 8. e2e and docs: 12.
-- Deviation recorded in Plan decisions: mtime set by path on the remote part file (2); grants clear on the `locked` notification (3); listing memory bounded by time, not entries (7); Docker test skips without SFTP (8). The spec's e2e item "a transfer running through a lock" is covered by the Go test `TestJobCancelWhileRunningAndWhileLocked` instead (sshtestd has no gate flag); the manual checklist item 4 covers it in the app.
+- Deviation recorded in Plan decisions: mtime set by path on the remote part file (2); grants clear on the `locked` notification (3); listing memory bounded by time, not entries (7); Docker test skips without SFTP (8); `main/files.ts` instead of `main/grants.ts` (11); no planted-part-file test (12). The spec's e2e item "a transfer running through a lock" is covered by the Go test `TestJobCancelWhileRunningAndWhileLocked` instead (sshtestd has no gate flag); the manual checklist item 4 covers it in the app.
