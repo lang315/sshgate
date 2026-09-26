@@ -118,3 +118,38 @@ func TestKnownHostKey(t *testing.T) {
 		}
 	}
 }
+
+// OpenSSH skips a line it cannot parse; so must the import.
+func TestKnownHostKeySkipsBadLines(t *testing.T) {
+	edPub, _, err := ed25519.GenerateKey(nil)
+	ed := pub(t, edPub, err)
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	rs := pub(t, &rsaKey.PublicKey, err)
+	caPub, _, err := ed25519.GenerateKey(nil)
+	ca := pub(t, caPub, err)
+	edLine := string(ssh.MarshalAuthorizedKey(ed))
+	dir := t.TempDir()
+	bad, good := filepath.Join(dir, "bad"), filepath.Join(dir, "good")
+	for p, body := range map[string]string{
+		bad: "garbage\n|1|notbase64|x " + edLine + "[multi " + edLine + "multi ssh-rsa " + edLine[len("ssh-ed25519 "):] +
+			"@cert-authority multi " + string(ssh.MarshalAuthorizedKey(ca)),
+		good: knownhosts.Line([]string{"multi"}, rs) + "\n" + knownhosts.Line([]string{"multi"}, ed), // no trailing newline
+	} {
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if algo, fp, ok := KnownHostKey([]string{bad, good}, "multi", 22); !ok || algo != ssh.KeyAlgoED25519 || fp != Fingerprint(ed) {
+		t.Fatalf("got %q %q %v, want %q %q", algo, fp, ok, ssh.KeyAlgoED25519, Fingerprint(ed))
+	}
+	if algo, fp, ok := KnownHostKey([]string{good, bad}, "multi", 22); !ok || fp != Fingerprint(ed) {
+		t.Fatalf("reversed: got %q %q %v", algo, fp, ok)
+	}
+	mixed := filepath.Join(dir, "mixed")
+	if err := os.WriteFile(mixed, []byte("garbage\n"+knownhosts.Line([]string{"multi"}, ed)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := KnownHostsHint(mixed, "multi", 22, ed); got != "match" {
+		t.Fatalf("hint: got %q, want match", got)
+	}
+}
