@@ -5,9 +5,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/pkg/sftp"
 )
 
 func noParts(t *testing.T, dir string) {
@@ -174,6 +178,9 @@ func TestCancelLeavesNoPartFile(t *testing.T) {
 // report the bare cause, never the destination's absolute local path (the
 // renderer only ever sees Result.Errors, and it never names a local path).
 func TestRunErrorsNeverNameALocalPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a read-only folder does not block writes into it on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("root writes everywhere")
 	}
@@ -222,4 +229,244 @@ func TestDeleteNeverFollowsLinks(t *testing.T) {
 			t.Fatalf("%s still there", gone)
 		}
 	}
+}
+
+func TestUploadOverwriteReplacesViaPosixRename(t *testing.T) {
+	c, _, root := remote(t)
+	write(t, filepath.Join(root, "home", "d", "same"), "old", 0o644)
+	src := t.TempDir()
+	write(t, filepath.Join(src, "same"), "new", 0o644)
+	p, err := PlanUpload(context.Background(), c, []string{filepath.Join(src, "same")}, "/home/d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := p.Run(context.Background(), c, true, nil) // overwrite
+	p.Close()
+	if r.Copied != 1 || r.Errors.Count != 0 {
+		t.Fatalf("%+v", r)
+	}
+	if read(t, filepath.Join(root, "home", "d", "same")) != "new" {
+		t.Fatal("content not replaced")
+	}
+	noParts(t, filepath.Join(root, "home"))
+}
+
+func TestUploadNeverWritesThroughARemoteSymlink(t *testing.T) {
+	c, _, root := remote(t)
+	write(t, filepath.Join(root, "home", "victim"), "safe", 0o644)
+	write(t, filepath.Join(root, "home", "d", "f"), "old", 0o644) // conflict at plan time
+	src := t.TempDir()
+	write(t, filepath.Join(src, "d", "f"), "evil", 0o644)
+	p, err := PlanUpload(context.Background(), c, []string{filepath.Join(src, "d")}, "/home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(filepath.Join(root, "home", "d", "f"))
+	os.Symlink("../victim", filepath.Join(root, "home", "d", "f")) // swapped after the plan
+	r := p.Run(context.Background(), c, true, nil)
+	p.Close()
+	if r.Copied != 0 || r.Errors.Count != 1 {
+		t.Fatalf("%+v", r)
+	}
+	if read(t, filepath.Join(root, "home", "victim")) != "safe" {
+		t.Fatal("wrote through the symlink")
+	}
+	noParts(t, filepath.Join(root, "home"))
+}
+
+func TestUploadLateArrivalNotReplaced(t *testing.T) {
+	c, _, root := remote(t)
+	src := t.TempDir()
+	write(t, filepath.Join(src, "late"), "new content", 0o644)
+	p, err := PlanUpload(context.Background(), c, []string{filepath.Join(src, "late")}, "/home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(root, "home", "late"), "arrived after the plan", 0o644)
+	r := p.Run(context.Background(), c, false, nil) // skip
+	p.Close()
+	if r.Errors.Count != 1 || !strings.Contains(r.Errors.List[0], "appeared") {
+		t.Fatalf("%+v", r)
+	}
+	if read(t, filepath.Join(root, "home", "late")) != "arrived after the plan" {
+		t.Fatal("the late arrival was replaced")
+	}
+	noParts(t, filepath.Join(root, "home"))
+}
+
+// TestUploadNoPosixRenameOverwriteIsPerFileError sets sftpExtensions (a
+// package global) to drop posix-rename@openssh.com from the server's
+// advertised extensions, so it must not run in parallel with anything else
+// that dials this package's test servers.
+func TestUploadNoPosixRenameOverwriteIsPerFileError(t *testing.T) {
+	if err := sftp.SetSFTPExtensions("hardlink@openssh.com", "statvfs@openssh.com"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		sftp.SetSFTPExtensions("hardlink@openssh.com", "posix-rename@openssh.com", "statvfs@openssh.com")
+	})
+	c, _, root := remote(t)
+	write(t, filepath.Join(root, "home", "same"), "old", 0o644)
+	src := t.TempDir()
+	write(t, filepath.Join(src, "same"), "new", 0o644)
+	write(t, filepath.Join(src, "clean"), "new2", 0o644)
+	p, err := PlanUpload(context.Background(), c, []string{filepath.Join(src, "same"), filepath.Join(src, "clean")}, "/home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var touched []string
+	r := p.Run(context.Background(), c, true, func(file string, _, _ int64) { touched = append(touched, file) })
+	p.Close()
+	if r.Copied != 1 || r.Errors.Count != 1 || !strings.Contains(r.Errors.List[0], "posix-rename") {
+		t.Fatalf("%+v", r)
+	}
+	for _, f := range touched {
+		if f == "same" {
+			t.Fatal("the conflicting file was sent even though it could never be replaced")
+		}
+	}
+	if read(t, filepath.Join(root, "home", "same")) != "old" {
+		t.Fatal("the conflicting file was replaced")
+	}
+	if read(t, filepath.Join(root, "home", "clean")) != "new2" {
+		t.Fatal("the non-conflicting file did not copy")
+	}
+	noParts(t, filepath.Join(root, "home"))
+}
+
+func TestUploadKeepsMtimeAndDropsSetuid(t *testing.T) {
+	c, _, root := remote(t)
+	src := t.TempDir()
+	write(t, filepath.Join(src, "a"), "aa", 0o777|fs.ModeSetuid)
+	mt := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+	os.Chtimes(filepath.Join(src, "a"), mt, mt)
+	p, err := PlanUpload(context.Background(), c, []string{filepath.Join(src, "a")}, "/home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := p.Run(context.Background(), c, false, nil)
+	p.Close()
+	if r.Copied != 1 || r.Errors.Count != 0 {
+		t.Fatalf("%+v", r)
+	}
+	a := filepath.Join(root, "home", "a")
+	fi, err := os.Stat(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o777 || fi.Mode()&fs.ModeSetuid != 0 || !fi.ModTime().Equal(mt) {
+		t.Fatalf("mode %v mtime %v", fi.Mode(), fi.ModTime())
+	}
+	noParts(t, filepath.Join(root, "home"))
+}
+
+func TestUploadSourceSwappedForSymlinkIsRefused(t *testing.T) {
+	c, _, root := remote(t)
+	src := t.TempDir()
+	write(t, filepath.Join(src, "victim"), "secret", 0o600)
+	write(t, filepath.Join(src, "f"), "original", 0o644)
+	p, err := PlanUpload(context.Background(), c, []string{filepath.Join(src, "f")}, "/home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(filepath.Join(src, "f"))
+	os.Symlink("victim", filepath.Join(src, "f")) // swapped after the plan
+	r := p.Run(context.Background(), c, false, nil)
+	p.Close()
+	if r.Copied != 0 || r.Errors.Count != 1 {
+		t.Fatalf("%+v", r)
+	}
+	if _, err := os.Stat(filepath.Join(root, "home", "f")); err == nil {
+		t.Fatal("the swapped-in file's content was uploaded")
+	}
+	noParts(t, filepath.Join(root, "home"))
+}
+
+func TestFailedMkdirSkipsItsContents(t *testing.T) {
+	c, _, root := remote(t)
+	write(t, filepath.Join(root, "home", "d", "a"), "aa", 0o644)
+	write(t, filepath.Join(root, "home", "d", "sub", "b"), "bb", 0o644)
+	dest := t.TempDir()
+	p, err := PlanDownload(context.Background(), c, []string{"/home/d"}, dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dest, "d"), "blocking file", 0o644) // a file where the folder "d" would go
+	r := p.Run(context.Background(), c, false, nil)
+	p.Close()
+	if r.Copied != 0 || r.Errors.Count != 4 {
+		t.Fatalf("%+v", r)
+	}
+	// List[0] is the mkdir failure itself; every entry after it must be the
+	// dedicated "parent missing" error, not a raw filesystem error (proving
+	// the descendants were never attempted, not that they each failed on
+	// their own for unrelated reasons such as ENOTDIR).
+	for _, e := range r.Errors.List[1:] {
+		if !strings.Contains(e, "could not be created") {
+			t.Fatalf("expected a parent-missing error, got %q in %+v", e, r.Errors)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dest, "d", "a")); err == nil {
+		t.Fatal("a file was written under a folder whose mkdir failed")
+	}
+	if read(t, filepath.Join(dest, "d")) != "blocking file" {
+		t.Fatal("the blocking file was overwritten")
+	}
+	noParts(t, dest)
+}
+
+// TestUploadPartFileIsNeverWorldReadable catches the window between the
+// server creating the part file at its own default mode and pkg/sftp's
+// concurrent writer sending its first byte: the part file must already be
+// chmod 0600 before that, not just after the last byte lands.
+func TestUploadPartFileIsNeverWorldReadable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits")
+	}
+	c, s, root := remote(t)
+	src := t.TempDir()
+	write(t, filepath.Join(src, "big"), strings.Repeat("z", 1<<16), 0o644)
+	p, err := PlanUpload(context.Background(), c, []string{filepath.Join(src, "big")}, "/home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(gate) }) }
+	t.Cleanup(release) // unblocks the run if an assertion below fails first
+	s.GateSFTP(gate)   // gates the server's ReadAt/WriteAt, not our own Chmod call
+	done := make(chan Result, 1)
+	go func() { done <- p.Run(context.Background(), c, false, nil) }()
+
+	var partPath string
+	deadline := time.Now().Add(2 * time.Second)
+	for partPath == "" {
+		if time.Now().After(deadline) {
+			t.Fatal("part file never appeared")
+		}
+		matches, _ := filepath.Glob(filepath.Join(root, "home", ".big.*.sshgate-part"))
+		if len(matches) == 1 {
+			partPath = matches[0]
+		} else {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	// The first WriteAt is blocked on the gate, so the part file exists but
+	// holds no content yet: any mode here came from creation, not from the
+	// final post-write Chmod.
+	fi, err := os.Stat(partPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	perm := fi.Mode().Perm()
+	release()
+	r := <-done
+	p.Close()
+	if perm != 0o600 {
+		t.Fatalf("part file mode %v before any content was written", perm)
+	}
+	if r.Copied != 1 || r.Errors.Count != 0 {
+		t.Fatalf("%+v", r)
+	}
+	noParts(t, filepath.Join(root, "home"))
 }

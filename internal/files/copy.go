@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/pkg/sftp"
 )
@@ -22,13 +23,32 @@ type Result struct {
 }
 
 // Progress reports bytes done of the plan's total, with the current file.
+// For an upload, pkg/sftp's concurrent writer calls it from a goroutine
+// other than the one that called Run; a caller must be goroutine-safe.
 type Progress func(file string, done, total int64)
 
 var (
-	errSymlinkDest = errors.New("destination is a symlink; not written through")
-	errAppeared    = errors.New("destination appeared after the plan; not replaced")
-	errNoReplace   = errors.New("the server cannot replace files (no posix-rename)")
+	errSymlinkDest   = errors.New("destination is a symlink; not written through")
+	errAppeared      = errors.New("destination appeared after the plan; not replaced")
+	errNoReplace     = errors.New("the server cannot replace files (no posix-rename)")
+	errParentMissing = errors.New("the containing folder could not be created")
 )
+
+func hasPosixRename(c *sftp.Client) bool {
+	_, ok := c.HasExtension("posix-rename@openssh.com")
+	return ok
+}
+
+// under reports whether rel names something inside one of dirs, folders
+// whose creation failed this run, so nothing under them is written.
+func under(rel string, dirs []string) bool {
+	for _, d := range dirs {
+		if rel == d || strings.HasPrefix(rel, d+"/") {
+			return true
+		}
+	}
+	return false
+}
 
 // Run carries out the plan once. overwrite applies to files that existed at
 // plan time; nothing else is ever replaced.
@@ -48,7 +68,11 @@ func (p *Plan) Run(ctx context.Context, c *sftp.Client, overwrite bool, progress
 
 func (p *Plan) runCopy(ctx context.Context, c *sftp.Client, overwrite bool, progress Progress, r *Result) {
 	var done int64
-	var made []item // folders this run created; their final mode is set last
+	var made []item         // folders this run created; their final mode is set last
+	var failedDirs []string // folders whose mkdir failed; nothing under them is written
+	// A no-replace server would fail every conflicting upload at commit time
+	// anyway; check once so those files are never sent just to fail.
+	noReplace := p.Op == OpUpload && overwrite && !hasPosixRename(c)
 	defer func() {
 		for i := len(made) - 1; i >= 0; i-- {
 			p.setDirMode(c, made[i])
@@ -57,6 +81,10 @@ func (p *Plan) runCopy(ctx context.Context, c *sftp.Client, overwrite bool, prog
 	for _, it := range p.items {
 		if ctx.Err() != nil {
 			return
+		}
+		if under(it.rel, failedDirs) {
+			r.Errors.Add(it.rel, errParentMissing)
+			continue
 		}
 		if it.dir {
 			if it.exists {
@@ -68,14 +96,21 @@ func (p *Plan) runCopy(ctx context.Context, c *sftp.Client, overwrite bool, prog
 					return
 				}
 				r.Errors.Add(it.rel, err)
+				failedDirs = append(failedDirs, it.rel)
 				continue
 			}
 			made = append(made, it)
 			continue
 		}
-		if it.exists && !overwrite {
-			r.Skipped++
-			continue
+		if it.exists {
+			if !overwrite {
+				r.Skipped++
+				continue
+			}
+			if noReplace {
+				r.Errors.Add(it.rel, errNoReplace)
+				continue
+			}
 		}
 		base := done
 		prog := func(n int64) { progress(it.rel, base+n, p.Bytes) }
@@ -216,16 +251,32 @@ func commitLocal(root *os.Root, part, final string, replace bool) error {
 func (p *Plan) upload(ctx context.Context, c *sftp.Client, it item, replace bool, prog func(int64)) (int64, error) {
 	final := path.Join(p.dest, it.rel)
 	part := path.Join(path.Dir(final), partName(path.Base(final)))
+	// it.root.Open follows an in-root symlink; a source swapped for one after
+	// the plan must not be read as if it were still the original file.
+	lfi, err := it.root.Lstat(it.src)
+	if err != nil {
+		return 0, bare(err)
+	}
+	if !lfi.Mode().IsRegular() {
+		return 0, errNotRegular
+	}
 	src, err := it.root.Open(it.src)
 	if err != nil {
 		return 0, bare(err)
 	}
 	defer src.Close()
-	if st, err := src.Stat(); err != nil || !st.Mode().IsRegular() {
+	if st, err := src.Stat(); err != nil || !st.Mode().IsRegular() || !os.SameFile(lfi, st) {
 		return 0, errNotRegular
 	}
 	dst, err := c.OpenFile(part, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
 	if err != nil {
+		return 0, err
+	}
+	// pkg/sftp v1.13.11 has no create-with-attributes open, so the empty part
+	// file exists at the server's default mode for one round trip.
+	if err := dst.Chmod(0o600); err != nil {
+		dst.Close()
+		c.Remove(part)
 		return 0, err
 	}
 	r := &ctxReader{ctx: ctx, r: src, prog: prog}
