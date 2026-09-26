@@ -1,6 +1,7 @@
 import { ipcMain, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
-import { NOTIFY_METHODS, REQUEST_METHODS, type HubState } from '../shared/protocol'
+import { FILES_RELAYED, NOTIFY_METHODS, REQUEST_METHODS, type HubState } from '../shared/protocol'
 import type { HubProcess } from './hubProcess'
+import type { FilesRelay } from './files'
 
 export interface HubLike {
   call(method: string, params?: unknown, timeoutMs?: number): Promise<unknown>
@@ -9,6 +10,7 @@ export interface HubLike {
 
 const requests = new Set<string>(REQUEST_METHODS)
 const notifies = new Set<string>(NOTIFY_METHODS)
+const relayed = new Set<string>(FILES_RELAYED)
 
 export function relayCall(hub: HubLike, method: unknown, params: unknown): Promise<unknown> {
   if (typeof method !== 'string' || !requests.has(method)) {
@@ -37,15 +39,24 @@ export function guard(isTrusted: IsTrusted, e: IpcMainEvent | IpcMainInvokeEvent
   return isTrusted(e) ? fn() : Promise.reject(new Error('untrusted sender'))
 }
 
-export function registerIpc(hub: HubProcess, getWindow: () => BrowserWindow | undefined, isTrusted: IsTrusted): void {
+export function registerIpc(
+  hub: HubProcess,
+  getWindow: () => BrowserWindow | undefined,
+  isTrusted: IsTrusted,
+  files: Pick<FilesRelay, 'call' | 'onNotification' | 'onState' | 'pickUpload' | 'pickDownloadDir' | 'grantDropped'>,
+): void {
   ipcMain.handle('hub:call', (e, method: unknown, params: unknown) =>
-    guard(isTrusted, e, () => relayCall(hub, method, params)))
+    guard(isTrusted, e, () => (typeof method === 'string' && relayed.has(method) ? files.call(method, params) : relayCall(hub, method, params))))
   ipcMain.on('hub:notify', (e, method: unknown, params: unknown) => {
     if (isTrusted(e)) relayNotify(hub, method, params)
   })
   ipcMain.handle('hub:get-state', (e) => guard(isTrusted, e, () => Promise.resolve(hub.state)))
+  ipcMain.handle('files:pickUpload', (e, p: unknown) => guard(isTrusted, e, () => files.pickUpload(p)))
+  ipcMain.handle('files:pickDownloadDir', (e, p: unknown) => guard(isTrusted, e, () => files.pickDownloadDir(p)))
+  ipcMain.handle('files:grantDropped', (e, p: unknown) => guard(isTrusted, e, async () => files.grantDropped(p)))
   hub.on('notification', (method: string, params: unknown) => {
+    files.onNotification(method, params)
     getWindow()?.webContents.send('hub:event', { method, params })
   })
-  hub.on('state', (s: HubState) => getWindow()?.webContents.send('hub:state', s))
+  hub.on('state', (s: HubState) => { files.onState(s); getWindow()?.webContents.send('hub:state', s) })
 }
