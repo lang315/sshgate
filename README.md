@@ -1,275 +1,206 @@
 # sshgate
 
-**sshgate** lets an AI agent (Claude Code or any MCP client) run shell commands on your SSH servers only after you approve each one. It is a single Go binary (an MCP server, a bridge, and a hub that holds an encrypted vault of saved servers) plus a desktop app for terminals and approvals.
+**sshgate** lets an AI agent (Claude Code or any MCP client) run shell commands on your SSH servers, but only after you approve each command in a desktop app. It is one Go binary plus an Electron app:
 
-sshgate started as a Go rewrite of [tufantunc/ssh-mcp](https://github.com/tufantunc/ssh-mcp) (MIT) and has since become a separate project; it is not affiliated with or endorsed by that project.
+- the **bridge** (`sshgate`), which your MCP client starts;
+- the **hub** (`sshgate hub`), which holds an encrypted vault of saved servers, the SSH connections, and the approval queue;
+- the **desktop app** (`desktop/`), which runs the hub and gives you SSH terminal tabs next to the AI's pending requests.
 
-### Moving from the `ssh-mcp` name
+There are no auto-approval rules. The AI only sees servers you mark visible, and only connects to a server whose host key you have pinned.
 
-Earlier builds of this code used the name `ssh-mcp`. To keep your saved servers and vault, move the config directory once and register the MCP server under the new name:
+sshgate started as a Go rewrite of [tufantunc/ssh-mcp](https://github.com/tufantunc/ssh-mcp) (MIT) and is now a separate project, not affiliated with or endorsed by it.
+
+## Contents
+
+- [How it works](#how-it-works)
+- [Quick start](#quick-start)
+- [The desktop app](#the-desktop-app)
+- [Safety model](#safety-model)
+- [Tools the AI gets](#tools-the-ai-gets)
+- [Approving without the app: `hub --cli`](#approving-without-the-app-hub---cli)
+- [Standalone mode: `--host`](#standalone-mode---host)
+- [Web config UI: `sshgate web`](#web-config-ui-sshgate-web)
+- [Files and environment variables](#files-and-environment-variables)
+- [Moving from the `ssh-mcp` name](#moving-from-the-ssh-mcp-name)
+- [Development](#development)
+- [License](#license)
+
+## How it works
+
+```
+Claude Code ──stdio──▶ sshgate (bridge) ──per-user socket──▶ sshgate hub ──SSH──▶ your servers
+                                                                  ▲
+                                          desktop app ──stdio─────┘  (unlock, approve, terminals)
+```
+
+1. The AI calls `exec` through the bridge. The bridge holds no secrets and makes no decisions; it forwards the call to the hub over a socket only your user can open.
+2. The hub checks that the server exists, is visible to AI, has a pinned host key, and that the vault is unlocked. Then it queues the request.
+3. The app shows the request: server, `user@host:port`, the exact command, and the AI's description (marked unverified). You **Deny**, **Allow**, or **Send to tab**.
+4. On Allow, the hub runs the command over its cached SSH connection, masks every saved secret in the output, caps each stream at 64 KiB, writes an audit record, and returns the result to the AI.
+
+## Quick start
+
+**Prerequisites:** Go (the version in `go.mod`), Node.js 22.12 or newer (Electron 44 requires it), and an MCP client such as Claude Code.
+
+1. Build the binary and start the app:
+
+        go build -o sshgate ./cmd/sshgate
+        cd desktop && npm ci && npm start
+
+   Put a copy of `sshgate` on your `PATH` too (for example `cp sshgate ~/go/bin/`), so your MCP client can start the bridge.
+
+2. **Create your vault.** The first launch asks for a master password (at least 8 characters). It cannot be recovered; lose it and the vault cannot be opened.
+
+3. **Add a host.** On the **Hosts** tab click **New host**: Address, optional Label (defaults to the address), port, User, and Password. `+ Key or agent` switches to key or agent authentication.
+
+4. **Connect once and trust the key.** Click the host card. The app shows the server's `SHA256:` fingerprint, its key type, and whether `~/.ssh/known_hosts` lists the same key. Check it, then click **Trust and connect** (mouse only; **Cancel** is the default). The key is now pinned.
+
+5. **Let the AI see it.** Edit the host, open **AI access**, and turn on **Visible to AI**.
+
+6. **Register the bridge** with Claude Code, with no flags:
+
+        claude mcp add --transport stdio sshgate -- sshgate
+
+7. Ask Claude to run something on that host, then approve it in the app.
+
+Keep the app open while the AI works. When the app is closed, every tool call fails with "Open the app to approve commands".
+
+## The desktop app
+
+- **Hosts** is the first tab: a searchable grid of host cards. An **AI** chip marks servers visible to AI, and **New key** marks servers without a pinned host key. The footer shows the vault file's path; copying that file is your backup.
+- **Terminal tabs** open from a host card. They keep their SSH sessions when the vault locks, and offer **Reconnect** if the hub restarts.
+- **AI requests** is a column on the right. It opens itself when a request arrives and closes only when you close it; closing it never denies or drops a request, and the **AI** button in the tab bar turns amber while requests wait.
+  - **Deny** is the default: Enter in the reason field denies, and the reason goes back to the AI.
+  - **Allow** and **Send to tab** need a mouse click and stay disabled for 500 ms after anything in the list changes or scrolls, so nothing is clickable the instant it moves under your cursor.
+  - **Send to tab** pastes the command into your own terminal for that server instead of running it.
+  - Sudo requests have a red edge. Non-ASCII characters in a command are highlighted with their code points (`U+0456`), so a look-alike `gіthub.com` stands out.
+  - From a terminal, `Ctrl+Shift+A` (`Cmd+Shift+A` on macOS) jumps to the oldest request's reason field; `Esc` returns to the terminal.
+- **Host editor.** It never shows a saved password: leave a field empty to keep it, or click **Clear** to remove it. Changing the address or port forgets the pinned key and every password you don't re-enter, closes that server's tabs, and denies its waiting requests.
+- **Host key changed.** A server that presents a different key is refused, and the app shows both fingerprints. If the change was expected, click **Forget host key** in the editor and connect again.
+- **Themes.** Dark, light, or **Auto** (follows the OS), from the ☾ / ☀ / Auto control.
+- **Locking.** After 15 minutes with no activity and nothing pending, the vault locks itself; **Lock** does it by hand. While locked, the AI's calls fail and terminals keep running.
+- **Notifications.** When the window is not focused, a new request shows an OS notification and a count on the tray icon.
+
+Closing the window quits the app and stops the hub. There is no Reload; if the renderer crashes, the app locks the vault and reloads at the unlock screen.
+
+## Safety model
+
+- A human decides every AI command. There is no allow-list, no "always allow", and no auto-approval of any kind.
+- The AI sees only servers marked **Visible to AI**, and only while the vault is unlocked.
+- Every connection from the hub verifies a pinned host key. The hub never learns a key on its own; you pin it by clicking **Trust** after seeing the fingerprint.
+- An approval is bound to the `user@host:port` and key you saw. If the server is edited while a request waits, the request fails with "server changed".
+- The vault uses Argon2id for the master key, AES-GCM with per-field authenticated data for each secret, and an HMAC over the whole file. A tampered or corrupt vault file is refused, never overwritten.
+- The master password is never read from a file or environment variable, only typed into the app (or `hub --cli`).
+- Saved secrets are masked in all command output. The audit log (`audit.jsonl`, next to the vault) records every request and decision, never command output.
+- The socket between bridge and hub is per-user and checked both ways (UID on Unix, SID on Windows). The AI's side can list servers and submit commands; it cannot unlock, approve, or read secrets.
+
+## Tools the AI gets
+
+| Tool | Arguments | Notes |
+|---|---|---|
+| `list-servers` | none | Servers visible to AI, one per line; `[locked: unlock the app]` while the vault is locked. No approval needed. |
+| `exec` | `server` (required, a name from `list-servers`), `command`, `description` (optional, at most 500 bytes), `timeoutSec` (1–600, default 60) | Waits for your decision for up to 5 minutes, then fails as expired. |
+| `sudo-exec` | same as `exec` | Runs `sudo -S` with the saved sudo password, or `sudo -n` if none is saved. |
+
+- Each command runs in a fresh non-interactive shell, so `cd` and environment variables do not carry over between calls; combine steps into one command. The exception is a server with a saved **su** password: its commands run inside one persistent root shell.
+- The result is `exit code: N`, then `stdout:` and `stderr:` sections. A non-zero exit code is a normal result, not a tool error.
+- The `description` is shown to you and written to the audit log. It is never executed.
+
+**Client timeouts.** Claude Code does not give up before the 5-minute approval window: its hard per-call limit (`MCP_TOOL_TIMEOUT`) defaults to about 28 hours, and its idle limit for stdio servers is 30 minutes. Other clients may use shorter timeouts; raise them above 5 minutes if calls fail while a request is still waiting.
+
+## Approving without the app: `hub --cli`
+
+On a machine without a display, run the hub in a terminal and approve from there:
+
+    sshgate hub --cli
+    # a [id]=allow  d [id] [reason]=deny  D [reason]=deny all
+    # s [id]=send to tab (prints the command for you to paste)
+    # u=unlock  p=list pending  q=quit   (the id is needed only when 2+ requests wait)
+
+`hub --cli` cannot create a vault. Headless, the only way to create one is `sshgate web`'s first-run setup, which starts with an empty server list.
+
+`sshgate hub` also accepts `--store=<path>` (a vault other than the default) and `--idleLock=<duration>` (a Go duration of at least `1s`, replacing the 15-minute default). It refuses `--insecureIgnoreHostKey`.
+
+## Standalone mode: `--host`
+
+For a single throwaway server with no vault, no hub, and **no approval step**, pass the connection on the command line:
+
+    claude mcp add --transport stdio sshgate -- sshgate --host=192.168.1.100 --user=admin --password=secret
+
+In this mode the AI's commands run immediately. Use it only where that is acceptable.
+
+| Flag | Meaning |
+|---|---|
+| `--host`, `--user` | Required. |
+| `--port` | Default 22. |
+| `--password` or `--key` | Password, or path to a private key. |
+| `--sudoPassword` | Password for `sudo-exec`. |
+| `--suPassword` | Run `exec` inside a persistent `su` root shell. |
+| `--disableSudo` | Remove the `sudo-exec` tool. |
+| `--timeout` | Per-command timeout in milliseconds (default 60000). |
+| `--maxChars` | Maximum command length (default 1000; `none` or `0` for no limit). |
+| `--insecureIgnoreHostKey` | Skip host-key checks. Otherwise the first key seen is trusted for the rest of the session. |
+
+In this mode, `exec` appends the `description` to the command as a shell comment, and `list-servers` shows the one connection.
+
+The same flags work in any MCP client's JSON config:
+
+```json
+{
+  "mcpServers": {
+    "sshgate": {
+      "command": "sshgate",
+      "args": ["--host=1.2.3.4", "--user=root", "--key=/path/to/key"]
+    }
+  }
+}
+```
+
+## Web config UI: `sshgate web`
+
+    sshgate web        # http://127.0.0.1:8422
+
+A local browser page for adding, editing, importing, and exporting saved servers in the same vault. The desktop app now covers all of this, and the web UI is planned for removal. It is still the only way to create a vault on a headless machine.
+
+- The web UI unlocks the vault separately from the app.
+- Its **Test connection** button pins a server's host key without asking you first. Use it only on a network you trust for that first connection, or paste the fingerprint yourself into **Host key fingerprint**. Paste only the `SHA256:…` token, for example:
+
+      ssh-keyscan -p PORT -t ed25519 HOST 2>/dev/null | ssh-keygen -lf - | awk '{print $2}'
+
+## Files and environment variables
+
+| Path | What |
+|---|---|
+| `~/.config/sshgate/servers.json` | The vault (mode 0600). Copy it to back up. |
+| `~/.config/sshgate/audit.jsonl` | Audit log of requests, decisions, and host edits. |
+| `$SSHGATE_RUNTIME_DIR/sshgate/hub.sock`, else `/run/user/<uid>/sshgate/hub.sock` (Linux), else `/tmp/sshgate-<uid>/hub.sock` | Bridge-to-hub socket. On Windows, the named pipe `\\.\pipe\sshgate-hub-<SID>`. |
+
+| Variable | Read by | Effect |
+|---|---|---|
+| `SSHGATE_RUNTIME_DIR` | hub and bridge | Where the socket lives. Set the same value for both, including in the MCP client's environment. `TMPDIR` and `XDG_RUNTIME_DIR` are ignored on purpose. |
+| `SSHGATE_BIN` | desktop app | The `sshgate` binary to run as the hub. Default: `sshgate` one directory above `desktop/`, then `PATH`. |
+| `SSHGATE_STORE` | desktop app | Passed to the hub as `--store=`. |
+| `SSHGATE_IDLE_LOCK` | desktop app | Passed to the hub as `--idleLock=`, for testing. |
+
+## Moving from the `ssh-mcp` name
+
+Earlier builds of this code were named `ssh-mcp`. To keep your vault and saved servers, move the config directory once and re-register the bridge:
 
     mv ~/.config/ssh-mcp ~/.config/sshgate
     claude mcp remove ssh-mcp; claude mcp add --transport stdio sshgate -- sshgate
 
-Environment variables are now `SSHGATE_*` (`SSHGATE_BIN`, `SSHGATE_STORE`, `SSHGATE_IDLE_LOCK`, `SSHGATE_RUNTIME_DIR`).
+The vault format is unchanged. Environment variables are now `SSHGATE_*` instead of `SSH_MCP_*`.
 
-## Contents
+## Development
 
-- [Quick Start](#quick-start)
-- [Features](#features)
-- [Install](#install)
-- [MCP Usage](#mcp-usage-single-host-unchanged-flags)
-- [Multi-Server + Web Config](#multi-server--web-config)
-- [Desktop App](#desktop-app)
-- [Client Setup](#client-setup)
-- [Disclaimer](#disclaimer)
-- [Support](#support)
+    go vet ./...
+    go test -short ./...          # unit tests
+    go test -race ./...           # plus SSH integration tests (Docker, via testcontainers); what CI runs
+    cd desktop && npm run typecheck && npm test   # desktop unit tests
+    cd desktop && npm run e2e                     # Playwright end-to-end tests (needs a display)
 
-## Quick Start
+Without Docker, the integration tests skip themselves instead of failing. `go run ./internal/sshx/sshtest/sshtestd -write-store=<path> -password=<pw>` starts a fake SSH server with a ready vault for trying the app. Design specs, plans, and the roadmap are in `docs/superpowers/`; `CLAUDE.md` describes the architecture. See [CONTRIBUTING.md](./CONTRIBUTING.md) and the [Code of Conduct](./CODE_OF_CONDUCT.md).
 
-- [Install](#install) sshgate
-- [Configure](#client-setup) your MCP Client (e.g. Claude Desktop, Cursor, etc)
-- Execute remote shell commands on your Linux or Windows server via natural language
+## License
 
-## Features
-
-- MCP-compliant server exposing SSH capabilities
-- Execute shell commands on remote Linux and Windows systems
-- Secure authentication via password or SSH key
-- Single Go binary, no runtime dependencies
-- Multi-server support with a local web config UI, secrets encrypted at rest
-- **Configurable timeout protection** with automatic process abortion
-- **Graceful timeout handling** - attempts to kill hanging processes before closing connections
-
-### Tools
-
-The parameters and flags below are for `--host` mode. Through a saved connection via the hub — the default when `--host` is omitted — `exec`/`sudo-exec` take a `timeoutSec` instead (1–600s, default 60), `server` has no default (pass the exact name), `description` is shown to the approver and audited but never executed, and `list-servers` only lists servers marked "Visible to AI". See [Using saved servers from an AI client](#using-saved-servers-from-an-ai-client).
-
-Both `exec` and `sudo-exec` return their result as `exit code: N`, followed by a `stdout:` section and a `stderr:` section (each section omitted if empty).
-
-- `exec`: Execute a shell command on the remote server
-  - **Parameters:**
-    - `server` (optional): Name of a saved connection (see [Multi-Server + Web Config](#multi-server--web-config)); empty uses the default server
-    - `command` (required): Shell command to execute on the remote SSH server
-    - `description` (optional): Optional description of what this command will do (appended as a comment)
-  - **Timeout Configuration:**
-
-- `sudo-exec`: Execute a shell command with sudo elevation
-  - **Parameters:**
-    - `server` (optional): Name of a saved connection; empty uses the default server
-    - `command` (required): Shell command to execute as root using sudo
-    - `description` (optional): Optional description of what this command will do (appended as a comment)
-  - **Notes:**
-    - Requires `--sudoPassword` to be set for password-protected sudo
-    - Can be disabled by passing the `--disableSudo` flag at startup if sudo access is not needed or not available
-    - For persistent root access, consider using `--suPassword` instead which establishes a root shell
-    - Tool will not be available at all if server is started with `--disableSudo`
-  - **Timeout Configuration:**
-    - Timeout is configured via command line argument `--timeout` (in milliseconds)
-    - Default timeout: 60000ms (1 minute)
-    - When a command times out, the server automatically attempts to abort the running process before closing the connection
-  - **Max Command Length Configuration:**
-    - Max command characters are configured via `--maxChars`
-    - Default: `1000`
-    - No-limit mode: set `--maxChars=none` or any `<= 0` value (e.g. `--maxChars=0`)
-
-- `list-servers`: List connection names (no secrets). In `--host` mode that is the single command-line connection; through the hub it is every saved server marked "Visible to AI", with lock status.
-
-## Install
-
-    go install github.com/lang315/sshgate/cmd/sshgate@latest
-
-This installs the `sshgate` binary to `$(go env GOPATH)/bin` (make sure that directory is on your `PATH`).
-
-## MCP usage (single host, unchanged flags)
-
-    sshgate --host=1.2.3.4 --user=root --password=secret
-
-**Required Parameters:**
-- `host`: Hostname or IP of the Linux or Windows server
-- `user`: SSH username
-
-**Optional Parameters:**
-- `port`: SSH port (default: 22)
-- `password`: SSH password (or use `key` for key-based auth)
-- `key`: Path to private SSH key
-- `sudoPassword`: Password for sudo elevation (when executing commands with sudo)
-- `suPassword`: Password for su elevation (when you need a persistent root shell)
-- `timeout`: Command execution timeout in milliseconds (default: 60000ms = 1 minute)
-- `maxChars`: Maximum allowed characters for the `command` input (default: 1000). Use `none` or `0` to disable the limit.
-- `disableSudo`: Flag to disable the `sudo-exec` tool completely. Useful when sudo access is not needed or not available.
-- `insecureIgnoreHostKey`: Flag to skip SSH host key verification. Not recommended outside of trusted/throwaway environments. `--host` mode only: `sshgate hub` refuses to start with it.
-
-## Multi-server + web config
-
-    sshgate web        # opens config UI on http://127.0.0.1:8422
-    # then reference a saved connection by name via the `server` tool argument
-
-The web UI lets you add, edit, import, and export SSH connections without passing `--host`/`--password` on every launch. Saved connections (and their secrets) are stored at `~/.config/sshgate/servers.json`, **encrypted at rest**.
-
-Saved connections are only reachable through a separate `sshgate hub` process, which gates every AI-issued command behind your approval; `--host` mode never touches this store at all.
-
-### Using saved servers from an AI client
-
-Start the hub and keep it running:
-
-    sshgate hub --cli          # terminal approver; see Desktop app below for the GUI
-    # Commands: a [id]=allow  d [id] [reason]=deny  D [reason]=deny all
-    #           s [id]=send to tab (prints the command for you to paste)
-    #           u=unlock  p=list pending  q=quit
-    # (the id is only needed when 2+ requests are pending)
-
-Then register the bridge with your MCP client, with no flags:
-
-    claude mcp add --transport stdio sshgate -- sshgate
-
-With the hub closed, every tool call fails with "Open the app to approve commands". There is no headless mode for the vault.
-
-A tool call waits for your decision for up to 5 minutes, then fails as expired. Claude Code does not time out first: its hard per-call limit (`MCP_TOOL_TIMEOUT`) defaults to about 28 hours, and its idle limit for stdio servers is 30 minutes. Other MCP clients may use shorter timeouts; raise them above 5 minutes if calls fail while an approval is still pending.
-
-The hub and the bridge meet on a per-user socket: `$SSHGATE_RUNTIME_DIR/sshgate/hub.sock` if that variable is set, else `/run/user/<uid>/sshgate/hub.sock` when that directory exists (Linux), else `/tmp/sshgate-<uid>/hub.sock`. `TMPDIR` and `XDG_RUNTIME_DIR` are ignored, since MCP clients often do not pass them to the bridge. If you set `SSHGATE_RUNTIME_DIR`, set the same value for the hub and in the MCP client's environment for the bridge. On Windows it is a per-user named pipe.
-
-The AI only sees servers with "Visible to AI" checked (off by default; set it in the desktop app's host editor or in `sshgate web`), and only once a host key is pinned for them — the hub refuses an AI-visible server that has no pin rather than learning one on the fly. To pin one, connect to it once from the desktop app: it shows the server's `SHA256:` fingerprint, its key type, and whether `~/.ssh/known_hosts` already lists that key, and pins it only when you click **Trust**. `sshgate web` can still pin one without asking: leave "Host key fingerprint" blank, save, and click **Test connection**; only do that on a network you trust for that first connection.
-
-Alternatively, paste the fingerprint yourself into the "Host key fingerprint" field. **Paste only the `SHA256:...` token** — nothing else. The pin is compared by exact string equality against `ssh.FingerprintSHA256(key)`, so it must be exactly `SHA256:<base64>`: no leading key-size number, no trailing hostname or `(ED25519)` key-type suffix, no extra whitespace. `ssh-keygen -lf -` prints a whole line like `256 SHA256:xxxx host (ED25519)`; pasting that whole line causes a permanent host key mismatch. Print just the token, for the key type the server actually presents (OpenSSH clients prefer ED25519; if unsure, connect once with a plain `ssh` client and read the fingerprint it prints):
-
-    ssh-keyscan -p PORT -t ed25519 HOST 2>/dev/null | ssh-keygen -lf - | awk '{print $2}'
-
-Through the hub, `exec`/`sudo-exec` take a `timeoutSec` (1–600, default 60) instead of `--timeout`, `server` has no default (pass the exact name from `list-servers`), and `list-servers` lists only AI-visible servers, marking a locked one `[locked: unlock the app]`. While the vault is locked, every server in it is locked, including key/agent-only ones. A store with no master password (for example one left by an older version) is not a vault to the hub: `list-servers` is empty and every command fails with "No vault yet; open the app and create one" until you create one. **Create vault** in the desktop app is the migration: it keeps the existing servers (with "Visible to AI" off and host keys unpinned). `hub --cli` cannot create a vault; headless, the only route is `sshgate web`'s first-run setup, which starts with an empty server list.
-
-## Desktop app
-
-An Electron app in `desktop/` is the primary way to approve AI commands day to day; `sshgate hub --cli` (above) still works as a terminal-only approver for headless use.
-
-**Prerequisites:** Go (the version pinned in `go.mod`) and Node.js 22.12 or newer, which Electron 44 requires.
-
-Build the hub binary at the repo root, then start the app from `desktop/`:
-
-    go build -o sshgate ./cmd/sshgate
-    cd desktop && npm ci && npm start
-
-`npm start` builds the renderer and main process, then launches Electron. The app spawns `sshgate hub` as a child process and talks to it over stdio, the same way `hub --cli` does. The window shows an unlock screen first, or **Create vault** when the store has no master password yet (servers already in a password-less store are kept, with "Visible to AI" turned off). Once unlocked, you get:
-
-- a host list with **New host**, **Edit**, and **Delete**, an "AI" badge on servers marked "Visible to AI", a "new" badge on any server whose host key isn't pinned yet, and the vault file's path at the bottom (copying that file is the backup). The host editor never shows a saved password: an empty field keeps it, **Clear** removes it. Changing host or port forgets the pinned key and every password you don't re-enter. Saving a change to the connection closes that server's open tabs and denies any AI request waiting for it. Servers added in `sshgate web` while the app is open appear after Lock → Unlock;
-- a host-key prompt on first connect with the server's fingerprint; **Cancel** is the default and **Trust** needs a mouse click. A server whose key changed is refused with both fingerprints shown; if the change is expected, click **Forget host key** in the host editor and connect again;
-- terminal tabs, opened from the host list;
-- a non-modal approval panel on the side for AI-submitted commands, where Deny is the default action and Allow requires a real mouse click;
-- an OS notification and a tray badge with the pending count when a request arrives while the window isn't focused.
-
-With nothing pending or running and no UI activity for 15 minutes, the vault locks itself and the app returns to the unlock screen; open terminal tabs keep their SSH connections. Closing the window quits the app and stops the hub — the vault locks and the AI gets "Open the app to approve commands" until the app is reopened; it is not a tray-resident background app. There is no Reload menu item or shortcut (a reload would orphan the terminals' hub sessions); if the window's renderer crashes, the app locks the vault and reloads the window at the unlock screen.
-
-The AI client side is unchanged: register the bridge exactly as in [Using saved servers from an AI client](#using-saved-servers-from-an-ai-client):
-
-    claude mcp add --transport stdio sshgate -- sshgate
-
-Development knobs, read by `desktop/src/main/main.ts`:
-
-- `SSHGATE_BIN`: path to the `sshgate` binary the app spawns as the hub. Without it, the app looks for a binary named `sshgate` (`sshgate.exe` on Windows) one directory above `desktop/`, then falls back to `PATH`.
-- `SSHGATE_STORE`: passed to the spawned hub as `--store=<path>`, to point the app at a vault other than the default `~/.config/sshgate/servers.json`.
-- `SSHGATE_IDLE_LOCK`: passed to the spawned hub as `--idleLock=<duration>` (a Go duration, at least `1s`, e.g. `3s`) to shorten the 15-minute idle auto-lock for testing. `sshgate hub --idleLock=...` accepts the same flag directly and refuses to start on an invalid value.
-
-## Client Setup
-
-You can configure your IDE or LLM like Cursor, Windsurf, Claude Desktop to use this MCP Server.
-
-```commandline
-{
-    "mcpServers": {
-        "sshgate": {
-            "command": "sshgate",
-            "args": [
-                "--host=1.2.3.4",
-                "--port=22",
-                "--user=root",
-                "--password=pass",
-                "--key=path/to/key",
-                "--timeout=30000",
-                "--maxChars=none"
-            ]
-        }
-    }
-}
-```
-
-### Claude Code
-
-You can add this MCP server to Claude Code using the `claude mcp add` command. This is the recommended method for Claude Code.
-
-**Basic Installation:**
-
-```bash
-claude mcp add --transport stdio sshgate -- sshgate --host=YOUR_HOST --user=YOUR_USER --password=YOUR_PASSWORD
-```
-
-**Installation Examples:**
-
-**With Password Authentication:**
-```bash
-claude mcp add --transport stdio sshgate -- sshgate --host=192.168.1.100 --port=22 --user=admin --password=your_password
-```
-
-**With SSH Key Authentication:**
-```bash
-claude mcp add --transport stdio sshgate -- sshgate --host=example.com --user=root --key=/path/to/private/key
-```
-
-**With Custom Timeout and No Character Limit:**
-```bash
-claude mcp add --transport stdio sshgate -- sshgate --host=192.168.1.100 --user=admin --password=your_password --timeout=120000 --maxChars=none
-```
-
-**With Sudo and Su Support:**
-```bash
-claude mcp add --transport stdio sshgate -- sshgate --host=192.168.1.100 --user=admin --password=your_password --sudoPassword=sudo_pass --suPassword=root_pass
-```
-
-**With Saved Servers (through the hub):**
-```bash
-claude mcp add --transport stdio sshgate -- sshgate
-```
-(run `sshgate hub --cli` or the [desktop app](#desktop-app) separately to approve commands, and enable "Visible to AI" on the servers you want reachable — see [Using saved servers from an AI client](#using-saved-servers-from-an-ai-client))
-
-**Installation Scopes:**
-
-You can specify the scope when adding the server:
-
-- **Local scope** (default): For personal use in the current project
-  ```bash
-  claude mcp add --transport stdio sshgate --scope local -- sshgate --host=YOUR_HOST --user=YOUR_USER --password=YOUR_PASSWORD
-  ```
-
-- **Project scope**: Share with your team via `.mcp.json` file
-  ```bash
-  claude mcp add --transport stdio sshgate --scope project -- sshgate --host=YOUR_HOST --user=YOUR_USER --password=YOUR_PASSWORD
-  ```
-
-- **User scope**: Available across all your projects
-  ```bash
-  claude mcp add --transport stdio sshgate --scope user -- sshgate --host=YOUR_HOST --user=YOUR_USER --password=YOUR_PASSWORD
-  ```
-
-
-**Verify Installation:**
-
-After adding the server, restart Claude Code and ask Claude to execute a command:
-```
-"Can you run 'ls -la' on the remote server?"
-```
-
-For more information about MCP in Claude Code, see the [official documentation](https://docs.claude.com/en/docs/claude-code/mcp).
-
-## Disclaimer
-
-sshgate is provided under the [MIT License](./LICENSE). Use at your own risk. This project is not affiliated with or endorsed by any SSH or MCP provider.
-
-## Contributing
-
-We welcome contributions! Please see our [Contributing Guidelines](./CONTRIBUTING.md) for more information.
-
-## Code of Conduct
-
-This project follows a [Code of Conduct](./CODE_OF_CONDUCT.md) to ensure a welcoming environment for everyone.
-
-## Support
-
-If you find sshgate helpful, consider starring the repository or contributing! Pull requests and feedback are welcome. 
+MIT, see [LICENSE](./LICENSE). Use at your own risk. sshgate is not affiliated with or endorsed by any SSH or MCP provider, or by the original ssh-mcp project.
