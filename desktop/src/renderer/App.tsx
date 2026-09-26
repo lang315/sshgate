@@ -198,7 +198,7 @@ export function App() {
       {ready && <HostKeyDialog prompts={hostKeys} />}
       {ready && mismatch && (
         <HostKeyMismatchDialog info={mismatch} onClose={() => setMismatch(undefined)}
-          onEdit={async () => { const name = mismatch.server; setMismatch(undefined); await reloadServers(); setEditing({ name, focusForget: true }) }} />
+          onEdit={async () => { const name = mismatch.server; setMismatch(undefined); setImporting(false); await reloadServers(); setEditing({ name, focusForget: true }) }} />
       )}
     </div>
   )
