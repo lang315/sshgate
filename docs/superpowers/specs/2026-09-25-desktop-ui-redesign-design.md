@@ -78,14 +78,11 @@ Unchanged behaviour: tabs stay mounted (hidden, `inert`) through lock and hub re
 
 ### Host editor (`HostEditor.tsx`)
 
-Right slide-in panel, 600 px (full width below 700 px window width), over a dimmed backdrop; `role="dialog"` `aria-label="Host editor"`. Scrolling body, fixed header and footer, so Save never moves when a warning appears.
-- Header: `Edit <name>` or `New host`, `×` with `aria-label="Close host editor"` (not `Close`: the footer owns that name).
-- **Connection:** Name | User; Host (with `· changed` marker, `aria-hidden`, linked by `aria-describedby`) | Port (same marker); Auth as a segmented `password / key / agent` radio group | Key path (cell reserved for all auth modes; field shown only for key, so switching auth never shifts the layout).
-- **Secrets:** note `Never shown. Leave empty to keep what is saved.`; 2×2 grid Password, su password, sudo password, Key passphrase (shown per auth as today); placeholder `saved` when stored, `will be cleared` when the endpoint changed or Clear was pressed; `Clear` link beside the label.
-- **AI:** `Visible to AI` switch in a neutral panel with `AI clients can see this server and ask to run commands. Each command still waits for your approval.` plus `Needs a pinned host key.` when unpinned.
-- **Host key:** `<algo> SHA256:<fingerprint>` in full, mono, selectable (never the base64 key, never truncated); `Forget host key` (danger outline) with the note `Takes effect immediately.`; unpinned: `Not pinned. You will be asked to confirm it on the next connect.`
-- Warnings, grouped in one `role="status"` box above the footer: the host/port-change warning and `Saving will close N open tabs.` (existing text).
-- Footer: `Close` (secondary), `Save` (primary: `--text` fill with `--bg` label, as in the design). Esc closes unless saving. Error line above the footer.
+Rev 3 (2026-09-26, after comparing with Termius's New Host): only what a plain host needs is open. A 420 px right-hand sheet inside the work area, with no backdrop, so the host list and the AI column stay usable beside it; `role="dialog"` `aria-label="Host editor"`; Esc closes unless saving.
+- **Address** first and focused (`IP or hostname`, with the `· changed` marker when editing); **Label** optional, defaulting to the address (`toInput`); an IPv6 address cannot be a name, so the form asks for a label then (`labelHint`); `SSH on [port] port` inline.
+- **Credentials:** User and Password. `+ Key or agent` reveals the `password / key / agent` choice; Key path and Key passphrase only for key. A key or agent host opens with the choice shown. `Saved secrets are never shown. Leave a field empty to keep it.` only when the host has saved secrets; placeholders `saved` / `will be cleared` and `Clear` as before.
+- **Folded:** `Privilege escalation (su / sudo)` (shows `· saved` when either is stored) and `AI access · On/Off` (the Visible to AI switch, its explanation, and `Needs a pinned host key.` when unpinned). Both are native `<details>`.
+- **Host key** (editing only): `<algo> SHA256:<fingerprint>` in full, `Forget host key` with `Takes effect immediately.`, or the unpinned note. Warnings in one `role="status"` box. Footer `Close`, `Save`.
 
 ### Host-key dialogs (`HostKeyDialog.tsx`)
 

@@ -33,8 +33,8 @@ test('create a vault, add a host, trust its key, edit the port, forget the key',
 
   // 2. Add a host pointing at sshtestd.
   await hosts.getByRole('button', { name: 'New host' }).click()
-  await editor.getByLabel('Name', { exact: true }).fill('box')
-  await editor.getByLabel('Host', { exact: true }).fill('127.0.0.1')
+  await editor.getByLabel('Label', { exact: true }).fill('box')
+  await editor.getByLabel('Address', { exact: true }).fill('127.0.0.1')
   await editor.getByLabel('Port', { exact: true }).fill(String(l.port))
   await editor.getByLabel('User', { exact: true }).fill('test')
   await editor.getByLabel('Password', { exact: true }).fill('testpass')

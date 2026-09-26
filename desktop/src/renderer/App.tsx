@@ -166,6 +166,14 @@ export function App() {
             <Terminals ref={terms} theme={theme} hostKeys={hostKeys} onMismatch={setMismatch} onTrusted={reloadServers}
               home={hostList} actions={actions} banner={<StoreErrorBanner message={status?.storeError} />} servers={servers}
               onFocusApprovals={focusApprovals} />
+            {/* Inside the work area: the host list and the AI column stay usable beside it. */}
+            {ready && editing && (
+              <HostEditor key={editing.name ?? ''} server={servers.find((s) => s.name === editing.name)}
+                openTabs={editing.name ? terms.current?.openCount(editing.name) ?? 0 : 0} focusForget={editing.focusForget}
+                onSave={async (input, original) => { await hub.saveServer(input, original); await reloadServers(); setEditing(undefined) }}
+                onForget={async (name) => { await hub.forgetHostKey(name); await reloadServers() }}
+                onClose={() => setEditing(undefined)} />
+            )}
           </main>
           {ready && aiOpen && (
             <ApprovalPanel items={items} seedError={seedError}
@@ -179,13 +187,6 @@ export function App() {
               onEscape={() => terms.current?.focusActive()} />
           )}
         </div>
-      )}
-      {ready && editing && (
-        <HostEditor key={editing.name ?? ''} server={servers.find((s) => s.name === editing.name)}
-          openTabs={editing.name ? terms.current?.openCount(editing.name) ?? 0 : 0} focusForget={editing.focusForget}
-          onSave={async (input, original) => { await hub.saveServer(input, original); await reloadServers(); setEditing(undefined) }}
-          onForget={async (name) => { await hub.forgetHostKey(name); await reloadServers() }}
-          onClose={() => setEditing(undefined)} />
       )}
       {ready && <HostKeyDialog prompts={hostKeys} />}
       {ready && mismatch && (

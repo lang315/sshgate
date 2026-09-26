@@ -136,17 +136,27 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 .approval .actions .deny kbd { margin-left: 6px; }
 
 /* == editor == */
-.sheet-backdrop { position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, 0.45); display: flex; justify-content: flex-end; }
-.sheet { width: 600px; max-width: 100%; height: 100%; display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--line); box-shadow: var(--shadow); animation: slidein 160ms ease-out; }
+.work { position: relative; }
+/* No backdrop: the layer lets clicks through, so the host list stays usable (as in Termius). */
+.sheet-layer { position: absolute; inset: 0; z-index: 10; display: flex; justify-content: flex-end; pointer-events: none; }
+.sheet { pointer-events: auto; width: 420px; max-width: 100%; height: 100%; display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--line); box-shadow: var(--shadow); animation: slidein 160ms ease-out; }
 @keyframes slidein { from { transform: translateX(24px); opacity: 0; } }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 24px; border-bottom: 1px solid var(--divider); }
 .sheet-head h3 { font-size: 18px; }
 .sheet-body { flex: 1; min-height: 0; overflow: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 20px; }
 .sheet-body section { display: flex; flex-direction: column; gap: 10px; }
+input.address { height: 40px; font-size: 14px; }
+.inline-port { display: flex; align-items: center; gap: 8px; color: var(--label); }
+.inline-port input { width: 80px; }
+.link.add { align-self: flex-start; }
+.fold { border: 1px solid var(--divider); border-radius: 8px; background: var(--bg); }
+.fold summary { cursor: pointer; padding: 10px 12px; font-weight: 500; list-style: none; display: flex; align-items: center; gap: 8px; }
+.fold summary::-webkit-details-marker { display: none; }
+.fold summary::before { content: "▸"; color: var(--muted); }
+.fold[open] summary::before { content: "▾"; }
+.fold-body { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 10px; }
 .sheet-foot { display: flex; align-items: center; gap: 8px; padding: 14px 24px; border-top: 1px solid var(--divider); }
 .sheet-foot .spacer { flex: 1; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 12px; }
-.grid2 .wide { grid-column: span 1; }
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .field label, .fieldlabel { font-size: 12px; color: var(--label); }
 .labelrow { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
@@ -154,9 +164,7 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 input.is-changed { border-color: var(--wait); }
 .seg.full { display: flex; }
 .seg.full button { flex: 1; height: 28px; font-size: 13px; }
-.aipanel { background: var(--bg); border: 1px solid var(--divider); border-radius: 8px; padding: 12px 14px; }
-.switch { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.switch > span { display: flex; flex-direction: column; gap: 2px; }
+.switch { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .switch-title { font-weight: 600; }
 .switch input { appearance: none; width: 36px; height: 20px; flex: none; border-radius: 10px; background: var(--line); position: relative; margin: 2px 0 0; }
 .switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); transition: transform 120ms ease-out; }

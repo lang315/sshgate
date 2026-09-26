@@ -28,7 +28,7 @@ export function draftFrom(s?: ServerInfo): HostDraft {
 // a cleared one is sent as '', a typed one as its value.
 export function toInput(d: HostDraft): ServerInput {
   const input: ServerInput = {
-    name: d.name.trim(), host: d.host.trim(), port: Number(d.port), user: d.user.trim(), auth: d.auth,
+    name: d.name.trim() || d.host.trim(), host: d.host.trim(), port: Number(d.port), user: d.user.trim(), auth: d.auth,
     keyPath: d.auth === 'key' ? d.keyPath.trim() : '', aiVisible: d.aiVisible,
   }
   for (const { field } of SECRET_FIELDS) {
@@ -41,6 +41,12 @@ export function toInput(d: HostDraft): ServerInput {
 
 // A saved secret the hub will drop (Clear, or a host/port change without a new
 // value) reads "will be cleared", so "saved" never promises what a save removes.
+// The label is optional and defaults to the address; the hub's name rule
+// (A-Z a-z 0-9 . _ -) rejects an IPv6 address, so that one needs a label.
+export function labelHint(d: HostDraft): string | undefined {
+  return !d.name.trim() && d.host.includes(':') ? 'An IPv6 address cannot be a name: add a label.' : undefined
+}
+
 export function secretPlaceholder(saved: boolean, e: SecretEdit, endpointChanged = false): string {
   if (e.cleared) return 'will be cleared'
   if (!saved) return ''

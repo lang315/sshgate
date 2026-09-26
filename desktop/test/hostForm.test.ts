@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { closesTabs, draftFrom, endpointChanged, filterHosts, passwordChecks, secretPlaceholder, toInput } from '../src/renderer/hostForm'
+import { closesTabs, draftFrom, endpointChanged, labelHint, filterHosts, passwordChecks, secretPlaceholder, toInput } from '../src/renderer/hostForm'
 import { EditorWarnings, HostEditor } from '../src/renderer/HostEditor'
 import type { ServerInfo } from '../src/shared/protocol'
 
@@ -36,13 +36,37 @@ describe('host editor secrets', () => {
     expect(secretPlaceholder(false, { value: '', cleared: false }, true)).toBe('')
     expect(secretPlaceholder(true, { value: 'new', cleared: false }, true)).toBe('saved')
   })
-  it('renders the sheet with the full fingerprint, a unique Close, and a labelled auth group', () => {
+  it('renders an existing host with the full fingerprint, a unique Close, and the saved-secrets note', () => {
     const html = renderToStaticMarkup(createElement(HostEditor, { server: box, openTabs: 0, onSave: noop, onForget: noop, onClose: () => {} }))
     expect(html).toContain('ssh-ed25519 SHA256:x')
     expect(html).toContain('aria-label="Close host editor"')
     expect(html.match(/>Close</g)).toHaveLength(1)
-    expect(html).toContain('role="radiogroup" aria-label="Auth"')
-    expect(html).toContain('Never shown. Leave empty to keep what is saved.')
+    expect(html).toContain('Saved secrets are never shown. Leave a field empty to keep it.')
+  })
+  it('opens a new host at Address, with only user and password, AI off, and extras folded', () => {
+    const html = renderToStaticMarkup(createElement(HostEditor, { openTabs: 0, onSave: noop, onForget: noop, onClose: () => {} }))
+    expect(html.indexOf('>Address<')).toBeGreaterThan(-1)
+    expect(html.indexOf('>Address<')).toBeLessThan(html.indexOf('>Label<'))
+    expect(html).toContain('+ Key or agent')
+    expect(html).not.toContain('role="radiogroup"')
+    expect(html).not.toContain('Saved secrets are never shown')
+    expect(html).toContain('AI access · Off')
+    expect(html).not.toMatch(/role="switch"[^>]*checked/)
+    expect(html).toMatch(/<details[^>]*class="fold"[^>]*>\s*<summary[^>]*>Privilege escalation/)
+  })
+})
+
+describe('host label', () => {
+  it('defaults the name to the address', () => {
+    const d = { ...draftFrom(), host: ' 10.0.4.21 ', user: 'u' }
+    expect(toInput(d).name).toBe('10.0.4.21')
+    expect(toInput({ ...d, name: ' web ' }).name).toBe('web')
+  })
+  it('asks for a label only when the address cannot be a name', () => {
+    const d = draftFrom()
+    expect(labelHint({ ...d, host: 'db.example.com' })).toBeUndefined()
+    expect(labelHint({ ...d, host: '2001:db8::1' })).toBe('An IPv6 address cannot be a name: add a label.')
+    expect(labelHint({ ...d, host: '2001:db8::1', name: 'v6box' })).toBeUndefined()
   })
 })
 
