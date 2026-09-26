@@ -162,10 +162,10 @@ func TestJobEndedByServerChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	gate <- struct{}{}
-	go func() { time.Sleep(50 * time.Millisecond); close(gate) }()
 	if err := fx.h.DeleteServer("fs"); err != nil {
 		t.Fatal(err)
 	}
+	close(gate) // the job is ended by now; this lets Run see the cancel
 	d := waitNote(t, fx.notes, "files.done", "e1")
 	if d["cancelled"] != true || d["reason"] != "server changed" {
 		t.Fatalf("done %v", d)
@@ -193,6 +193,31 @@ func TestJobCancelAllAndPlanExpiry(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(fx.root, "home", "f")); string(b) != "f" {
 		t.Fatal("a cancelled delete deleted")
+	}
+}
+
+// TestJobExpiryNeverCancelsAStartedRun: a files.run landing right after plan
+// expiry has decided to end the job must be refused, not started and then
+// cancelled by that expiry.
+func TestJobExpiryNeverCancelsAStartedRun(t *testing.T) {
+	fx := filesHub(t)
+	oldTTL, oldGrace := planTTL, cancelGrace
+	planTTL, cancelGrace = 50*time.Millisecond, 30*time.Millisecond
+	ran := make(chan error, 1)
+	afterExpiryDecided = func() {
+		ran <- fx.c.Call(context.Background(), "files.run", map[string]any{"id": "ex1", "conflict": "skip"}, nil)
+	}
+	t.Cleanup(func() { planTTL, cancelGrace, afterExpiryDecided = oldTTL, oldGrace, nil })
+	gate := make(chan struct{}) // a run that starts blocks here, never finishing on its own
+	fx.srv.GateSFTP(gate)
+	t.Cleanup(func() { close(gate) })
+	os.WriteFile(filepath.Join(fx.root, "home", "big"), []byte(strings.Repeat("z", 1<<20)), 0o644)
+	plan(t, fx, map[string]any{"id": "ex1", "server": "fs", "op": "download", "sources": []string{"/home/big"}, "dest": t.TempDir()})
+	if err := <-ran; err == nil {
+		t.Fatal("files.run started a job that plan expiry had already decided to end")
+	}
+	if d := waitNote(t, fx.notes, "files.done", "ex1"); d["reason"] != "plan expired" {
+		t.Fatalf("done %v", d)
 	}
 }
 
@@ -275,7 +300,6 @@ func TestJobEndedByServerSave(t *testing.T) {
 		t.Fatal(err)
 	}
 	gate <- struct{}{}
-	go func() { time.Sleep(50 * time.Millisecond); close(gate) }()
 
 	f, err := config.Load(fx.store)
 	if err != nil {
@@ -289,6 +313,7 @@ func TestJobEndedByServerSave(t *testing.T) {
 	if err := fx.h.SaveServer("fs", in); err != nil {
 		t.Fatal(err)
 	}
+	close(gate) // the job is ended by now; this lets Run see the cancel
 	d := waitNote(t, fx.notes, "files.done", "sv1")
 	if d["cancelled"] != true || d["reason"] != "server changed" {
 		t.Fatalf("done %v", d)

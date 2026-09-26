@@ -24,6 +24,9 @@ var (
 	// cancelGrace: then a stuck job's SFTP channel is closed. Kept below the
 	// door's 5s close wait so a stuck job's end audit is still written inside it.
 	cancelGrace = 2 * time.Second
+	// afterExpiryDecided runs once plan expiry has decided to end a job, outside
+	// j.mu: a test drives a files.run landing right there.
+	afterExpiryDecided func()
 )
 
 // jobSet is every job in the hub, so a server change can end its jobs.
@@ -96,8 +99,18 @@ func (d *fileDoor) get(id string) *fileJob {
 // be nil while planning (files.plan assigns it, under j.mu, only once
 // mgr.NewSFTP returns), so the grace closure reads it under j.mu and
 // tolerates nil.
-func (j *fileJob) end(reason string) {
+func (j *fileJob) end(reason string) { j.endIf(reason, "") }
+
+// endIf is end, but only while the job's state is onlyIn ("" for any). The
+// state check and setting reason share one j.mu section, so a files.run
+// cannot slip in between: it either ran first (and endIf does nothing) or
+// sees reason set and refuses. It reports whether it ended the job.
+func (j *fileJob) endIf(reason, onlyIn string) bool {
 	j.mu.Lock()
+	if onlyIn != "" && j.state != onlyIn {
+		j.mu.Unlock()
+		return false
+	}
 	if j.reason == "" {
 		j.reason = reason
 	}
@@ -122,6 +135,7 @@ func (j *fileJob) end(reason string) {
 			}
 		})
 	}
+	return true
 }
 
 func (j *fileJob) planWalk(sources []string, dest string) {
@@ -164,11 +178,9 @@ func (j *fileJob) planWalk(sources []string, dest string) {
 // planned: run's expire.Stop() can race a timer already firing, and that
 // firing callback must not cancel a transfer that has since started.
 func (j *fileJob) expireIfPlanned() {
-	j.mu.Lock()
-	stillPlanned := j.state == "planned"
-	j.mu.Unlock()
-	if stillPlanned {
-		j.end("plan expired")
+	hook := afterExpiryDecided // read before endIf starts finish, so a test's reset cannot race it
+	if j.endIf("plan expired", "planned") && hook != nil {
+		hook()
 	}
 }
 
