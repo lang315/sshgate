@@ -78,3 +78,10 @@ export function filterHosts(servers: ServerInfo[], query: string): ServerInfo[] 
   if (!q) return servers
   return servers.filter((s) => [s.name, s.host, s.user].some((f) => f.toLowerCase().includes(q)))
 }
+
+// Arrow keys move through a radiogroup and wrap, as in a native one.
+export function arrowStep<T>(items: readonly T[], current: T, key: string): T | undefined {
+  const d = key === 'ArrowRight' || key === 'ArrowDown' ? 1 : key === 'ArrowLeft' || key === 'ArrowUp' ? -1 : 0
+  if (!d) return undefined
+  return items[(items.indexOf(current) + d + items.length) % items.length]
+}

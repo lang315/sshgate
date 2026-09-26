@@ -78,3 +78,40 @@ test('an arriving request never takes focus; the shortcut and Esc move between t
   await win.keyboard.press('Enter')
   await denied
 })
+
+test('the shortcut opens a collapsed AI column and focuses Reason', async () => {
+  const win = await l.app.firstWindow()
+  const mod = process.platform === 'darwin' ? 'Meta' : 'Control'
+  // The box tab from the previous test is still the active one.
+  const result = doorCall(l.socket, 'exec', { requestId: 'k3', client: 'e2e', server: 'box', command: 'echo k3', description: '' })
+  const reason = win.locator('.approvals').getByPlaceholder('Reason (optional)')
+  await expect(reason).toBeVisible()
+  await win.getByRole('button', { name: 'Close AI requests' }).click()
+  await expect(win.locator('.approvals')).toHaveCount(0)
+  await win.locator('.xterm:visible').click()
+
+  await win.keyboard.press(`${mod}+Shift+A`)
+  await expect(reason).toBeFocused()
+  const denied = expect(result).rejects.toThrow('Denied by user')
+  await win.keyboard.press('Enter')
+  await denied
+})
+
+test('arrow keys move the Auth choice in the host editor', async () => {
+  const win = await l.app.firstWindow()
+  await win.locator('.tabbar .hometab').click()
+  await win.locator('nav.hosts').getByRole('button', { name: 'New host' }).click()
+  const editor = win.getByRole('dialog', { name: 'Host editor' })
+  await editor.getByRole('button', { name: '+ Key or agent' }).click()
+  const radio = (name: string) => editor.getByRole('radio', { name })
+  await radio('password').focus()
+  await win.keyboard.press('ArrowRight')
+  await expect(radio('key')).toBeFocused()
+  await expect(radio('key')).toHaveAttribute('aria-checked', 'true')
+  await win.keyboard.press('ArrowLeft')
+  await win.keyboard.press('ArrowLeft')
+  await expect(radio('agent')).toBeFocused()
+  await expect(radio('agent')).toHaveAttribute('aria-checked', 'true')
+  await win.keyboard.press('Escape')
+  await expect(editor).toHaveCount(0)
+})

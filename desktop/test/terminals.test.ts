@@ -113,17 +113,21 @@ describe('clipboardKey', () => {
 })
 
 describe('approvalsKey', () => {
-  const k = (o: Partial<{ type: string; key: string; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean }>) =>
-    ({ type: 'keydown', key: 'A', ctrlKey: false, shiftKey: true, altKey: false, metaKey: false, ...o })
+  const k = (o: Partial<{ type: string; keyCode: number; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean }>) =>
+    ({ type: 'keydown', keyCode: 65, ctrlKey: false, shiftKey: true, altKey: false, metaKey: false, ...o })
   it('is Ctrl+Shift+A off macOS and Cmd+Shift+A on macOS', () => {
     expect(approvalsKey(k({ ctrlKey: true }), 'Linux x86_64')).toBe(true)
-    expect(approvalsKey(k({ ctrlKey: true, key: 'a' }), 'Win32')).toBe(true)
+    expect(approvalsKey(k({ ctrlKey: true }), 'Win32')).toBe(true)
     expect(approvalsKey(k({ metaKey: true }), 'MacIntel')).toBe(true)
+  })
+  it('works on a non-Latin layout, where key is not "a"', () => {
+    const cyrillic = { ...k({ ctrlKey: true }), key: 'Ф' }
+    expect(approvalsKey(cyrillic, 'Linux x86_64')).toBe(true)
   })
   it('ignores other keys, missing Shift, extra modifiers, and the other platform binding', () => {
     expect(approvalsKey(k({ ctrlKey: true, shiftKey: false }), 'Linux x86_64')).toBe(false)
     expect(approvalsKey(k({ ctrlKey: true, altKey: true }), 'Linux x86_64')).toBe(false)
-    expect(approvalsKey(k({ ctrlKey: true, key: 'C' }), 'Linux x86_64')).toBe(false)
+    expect(approvalsKey(k({ ctrlKey: true, keyCode: 67 }), 'Linux x86_64')).toBe(false)
     expect(approvalsKey(k({ ctrlKey: true }), 'MacIntel')).toBe(false)
     expect(approvalsKey(k({ metaKey: true }), 'Linux x86_64')).toBe(false)
   })

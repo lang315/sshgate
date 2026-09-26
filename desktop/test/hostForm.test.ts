@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { closesTabs, draftFrom, endpointChanged, labelHint, filterHosts, passwordChecks, secretPlaceholder, toInput } from '../src/renderer/hostForm'
+import { arrowStep, closesTabs, draftFrom, endpointChanged, labelHint, filterHosts, passwordChecks, secretPlaceholder, toInput } from '../src/renderer/hostForm'
 import { EditorWarnings, HostEditor } from '../src/renderer/HostEditor'
 import type { ServerInfo } from '../src/shared/protocol'
 
@@ -30,6 +30,17 @@ describe('host editor secrets', () => {
     expect(html.match(/>Clear</g)).toHaveLength(1)
     expect(html).toContain('SHA256:x')
     expect(html).toContain('Forget host key')
+  })
+  it('moves the Auth choice with arrow keys, wrapping, and keeps one radio in the tab order', () => {
+    const auths = ['password', 'key', 'agent'] as const
+    expect(arrowStep(auths, 'password', 'ArrowRight')).toBe('key')
+    expect(arrowStep(auths, 'agent', 'ArrowDown')).toBe('password')
+    expect(arrowStep(auths, 'password', 'ArrowLeft')).toBe('agent')
+    expect(arrowStep(auths, 'key', 'ArrowUp')).toBe('password')
+    expect(arrowStep(auths, 'key', 'Enter')).toBeUndefined()
+    const html = renderToStaticMarkup(createElement(HostEditor, { server: { ...box, auth: 'key' }, openTabs: 0, onSave: noop, onForget: noop, onClose: () => {} }))
+    expect(html.match(/role="radio"[^>]*tabindex="0"/g)).toHaveLength(1)
+    expect(html).toMatch(/aria-checked="true" data-auth="key" tabindex="0"/)
   })
   it('says a saved secret will be cleared while the endpoint is changed', () => {
     expect(secretPlaceholder(true, { value: '', cleared: false }, true)).toBe('will be cleared')

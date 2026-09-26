@@ -1,6 +1,6 @@
 import { useId, useState, type FormEvent, type KeyboardEvent } from 'react'
 import type { SecretField, ServerInfo, ServerInput } from '../shared/protocol'
-import { closesTabs, draftFrom, endpointChanged, labelHint, SECRET_FIELDS, secretPlaceholder, toInput, type HostDraft } from './hostForm'
+import { arrowStep, closesTabs, draftFrom, endpointChanged, labelHint, SECRET_FIELDS, secretPlaceholder, toInput, type HostDraft } from './hostForm'
 import { CloseIcon, WarningIcon } from './icons'
 
 export function EditorWarnings({ server, draft, openTabs }: { server?: ServerInfo; draft: HostDraft; openTabs: number }) {
@@ -41,6 +41,12 @@ export function HostEditor({ server, openTabs, focusForget, onSave, onForget, on
   }
   const save = (e: FormEvent) => { e.preventDefault(); run(() => onSave(toInput(draft), server?.name)) }
   const escape = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) { e.preventDefault(); onClose() } }
+  const authKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const next = arrowStep(AUTHS, draft.auth as (typeof AUTHS)[number], e.key)
+    if (!next) return
+    e.preventDefault(); set({ auth: next })
+    e.currentTarget.querySelector<HTMLElement>(`[data-auth="${next}"]`)?.focus()
+  }
   const moved = endpointChanged(server, draft)
   const hostChanged = !!server && draft.host.trim() !== server.host
   const portChanged = !!server && Number(draft.port) !== server.port
@@ -103,9 +109,10 @@ export function HostEditor({ server, openTabs, focusForget, onSave, onForget, on
             {showAuth ? (
               <>
                 <div className="field"><span className="fieldlabel">Auth</span>
-                  <div className="seg full" role="radiogroup" aria-label="Auth">
+                  <div className="seg full" role="radiogroup" aria-label="Auth" onKeyDown={authKey}>
                     {AUTHS.map((a) => (
-                      <button key={a} type="button" role="radio" aria-checked={draft.auth === a} onClick={() => set({ auth: a })}>{a}</button>
+                      <button key={a} type="button" role="radio" aria-checked={draft.auth === a} data-auth={a}
+                        tabIndex={draft.auth === a ? 0 : -1} onClick={() => set({ auth: a })}>{a}</button>
                     ))}
                   </div></div>
                 {draft.auth === 'key' && (
