@@ -3,6 +3,7 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as readline from 'node:readline'
+import { waitOpen } from './launch'
 import { doorCall } from './doorClient'
 
 const repo = path.resolve(__dirname, '..', '..')
@@ -49,7 +50,7 @@ test('unlock, open a terminal, approve an AI command', async () => {
   }
   await unlock()
   await win.locator('nav.hosts').getByRole('button', { name: 'box', exact: true }).click()
-  await expect(win.locator('.xterm')).toBeVisible()
+  await waitOpen(win)
   await win.locator('.xterm').click()
   await win.keyboard.type('echo smoke-ok')
   await expect(win.locator('.xterm-rows')).toContainText('echo smoke-ok')

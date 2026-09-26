@@ -1,4 +1,4 @@
-import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
+import { _electron as electron, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -49,5 +49,11 @@ export async function unlock(win: Page): Promise<void> {
 export async function openBox(win: Page): Promise<void> {
   await win.locator('.tabbar .hometab').click()
   await win.locator('nav.hosts').getByRole('button', { name: 'box', exact: true }).click()
+  await waitOpen(win)
   await win.locator('.xterm').click()
+}
+
+// Keys typed before term.open replies are dropped, so wait for the active tab to open.
+export async function waitOpen(win: Page): Promise<void> {
+  await expect(win.locator('.tabbar .tab.active')).toHaveAttribute('data-state', 'open')
 }

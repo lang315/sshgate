@@ -70,7 +70,7 @@ export const Terminals = forwardRef<TerminalsHandle, {
           <HomeIcon />Hosts
         </button>
         {tabs.tabs.map((t) => (
-          <div key={t.id} className={'tab' + (t.id === tabs.active ? ' active' : '') + (t.state === 'exited' ? ' exited' : '')} title={target(t.server)}>
+          <div key={t.id} className={'tab' + (t.id === tabs.active ? ' active' : '') + (t.state === 'exited' ? ' exited' : '')} data-state={t.state} title={target(t.server)}>
             <button type="button" className="tabname" onClick={() => { tabs.activate(t.id); changed() }}>
               <span className="dot" aria-hidden="true" />{t.server}{t.state === 'exited' ? ' · exited' : ''}
             </button>

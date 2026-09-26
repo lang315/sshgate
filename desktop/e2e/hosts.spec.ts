@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { launch, type Launched } from './launch'
+import { launch, waitOpen, type Launched } from './launch'
 
 // Spec 2a §Testing: vault, host CRUD, and the host-key prompt, in order.
 test.skip(process.platform === 'win32', 'launch uses /tmp and a Unix socket')
@@ -44,6 +44,7 @@ test('create a vault, add a host, trust its key, edit the port, forget the key',
   // 3. Connect: the prompt shows the fingerprint; Trust gives a shell.
   await openBox()
   await trust()
+  await waitOpen(win)
   await win.locator('.xterm').click()
   await win.keyboard.type('echo hosts-ok')
   await expect(win.locator('.xterm-rows')).toContainText('echo hosts-ok')
