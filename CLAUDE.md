@@ -15,6 +15,7 @@ go test ./...                            # also runs internal/sshx integration t
 go test -race ./...                      # same, with the race detector; what CI runs
 go test ./internal/sshx -run TestExecEcho -v   # single test
 SSHGATE_LIVE_SSH=1 go test ./internal/hub -run TestLiveImportConnect -v   # opt-in: import your real ~/.ssh/config into a throwaway vault and open a terminal on each host ("1" = all, or a comma-separated alias list); skipped otherwise
+SSHGATE_LIVE_VAULT=1 go test ./internal/hub -run TestLiveVaultConnect -v -count=1   # opt-in: open a terminal on each server of a copy of your real vault (SSHGATE_STORE, else ~/.config/sshgate/servers.json); asks the master password on /dev/tty, never writes the real vault
 go vet ./...
 go run ./cmd/sshgate hub --cli           # terminal approver; the bridge (no --host) needs a hub running to do anything
 docker compose up                        # local openssh-server (test/secret on :2222) + sshgate against it
