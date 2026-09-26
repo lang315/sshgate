@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`sshgate`: a single Go binary, three modes. `sshgate --host=...` is a standalone MCP stdio server exposing `exec`, `sudo-exec`, and `list-servers` over one CLI-configured connection; it never touches the on-disk vault. Without `--host`, `sshgate` is a stateless bridge that forwards those same three tools over stdio to `sshgate hub`, a separate process that owns the vault, the SSH connections, and an approval `broker` that blocks every AI-issued command on a human decision; an Electron app in `desktop/` is the primary UI-door client; `sshgate hub --cli` is a terminal stand-in for the same role, for headless use. `sshgate web` serves a localhost config UI for managing saved connections, shared by all modes. The project was ported from TypeScript; the TS code is gone (`eb25b3e`).
+`sshgate`: a single Go binary, three modes. `sshgate --host=...` is a standalone MCP stdio server exposing `exec`, `sudo-exec`, and `list-servers` over one CLI-configured connection; it never touches the on-disk vault. Without `--host`, `sshgate` is a stateless bridge that forwards those same three tools over stdio to `sshgate hub`, a separate process that owns the vault, the SSH connections, and an approval `broker` that blocks every AI-issued command on a human decision; an Electron app in `desktop/` is the primary UI-door client; `sshgate hub --cli` is a terminal stand-in for the same role, for headless use. `sshgate web` serves a localhost config UI for managing saved connections, shared by all modes. The project was ported from TypeScript; the TS code is gone (`9ae82a4`).
 
 ## Commands
 

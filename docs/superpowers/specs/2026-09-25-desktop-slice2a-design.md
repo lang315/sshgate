@@ -30,7 +30,7 @@ The ROADMAP gate for slice 2 ("slice 1 used daily for two weeks") is still unmet
 |---|---|---|
 | Host CRUD | New UI-door methods on the hub | The hub already owns the unlocked key; a second writer (web) means a second unlock |
 | `ssh-mcp web` | Kept during 2a, deleted after the exit gate | Deleting later costs nothing; undeleting does. It is also still the only headless host editor |
-| Every vault write | Requires an unlocked hub when the store has a KDF | A keyless save would drop the MAC (fixed in `223faa8`; now refused) |
+| Every vault write | Requires an unlocked hub when the store has a KDF | A keyless save would drop the MAC (fixed in `d258439`; now refused) |
 | Write path | One exported `config.Update` with a file lock and a process mutex | `withFlock` is unexported and a no-op on Windows; `RecordHostKey` and a save can race |
 | Secrets | Write-only on the wire; cleared when host or port changes unless re-supplied | The AAD binds secrets to the endpoint. Carrying them to a new host hands them to whoever answers there |
 | Host key on first connect | App shows the fingerprint; Trust pins exactly that key | The AI is already refused on unpinned hosts; now the human sees what they trust |
@@ -54,7 +54,7 @@ The ROADMAP gate for slice 2 ("slice 1 used daily for two weeks") is still unmet
   2. if the file has a KDF, check `masterKey` and verify the MAC;
   3. run `fn`;
   4. `Save`.
-- A KDF store without a key is refused (the `Save` rule from `223faa8`).
+- A KDF store without a key is refused (the `Save` rule from `d258439`).
 - `RecordHostKey` becomes a thin wrapper over it.
 - The web UI's `saveLocked` also switches to it, so both writers serialize.
 

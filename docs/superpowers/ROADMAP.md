@@ -33,7 +33,7 @@ plan note.
 |---|---|---|---|---|---|---|
 | 0 | Go conversion + web config UI | Done | `specs/2026-07-31-go-conversion-web-ui-design.md` | — | — | Merged on `feat/go-conversion`; CI runs `go test` |
 | 1 | Desktop app: hub, broker, MCP door, Electron shell, terminal tabs, approval panel | 1a and 1b done; manual checklist pending | `specs/2026-09-24-desktop-app-design.md` | 0 | Spec approved | Success criteria 1–6 in the spec; author uses it daily |
-| 2a | Host management in the app (create vault, host CRUD, Forget), host-key fingerprint prompt, no silent TOFU on any hub path, safe vault writes (`config.Update`) | Implemented 2026-09-25 (`50c1eab..ef89053`, CI green); exit gate pending (author's week of app-only host management) | `specs/2026-09-25-desktop-slice2a-design.md` | 1 | Author override (unlocking twice for app + web blocks daily use) | Author manages hosts only in the app for a week; then delete `ssh-mcp web` |
+| 2a | Host management in the app (create vault, host CRUD, Forget), host-key fingerprint prompt, no silent TOFU on any hub path, safe vault writes (`config.Update`) | Implemented 2026-09-25 (`09c885d..3bb76a1`, CI green); exit gate pending (author's week of app-only host management) | `specs/2026-09-25-desktop-slice2a-design.md` | 1 | Author override (unlocking twice for app + web blocks daily use) | Author manages hosts only in the app for a week; then delete `ssh-mcp web` |
 | 2b | ProxyJump (one hop first) and `~/.ssh/config` + `known_hosts` import | Not specced | — | 2a | The author has a real host behind a bastion, or a real config to import | Bastion host connects and runs an approved AI command |
 | 2c | Split panes, local shell, Windows agent (OpenSSH pipe, Pageant) | Not specced | — | 2a | Daily use shows the need (panes, local shell); a Windows machine to test on (agent) | Author does not open another terminal for SSH work |
 | 3 | SFTP and port forwarding (local, remote, dynamic) | Not specced | — | 2a | Slice 2a done | File browser and tunnels usable from a saved host |
@@ -64,7 +64,7 @@ plan note.
 - Slice 1 → 2: `go-winio` v0.6.2 gets first-instance semantics from `NtCreateNamedPipeFile` with `FILE_CREATE` (`pipe.go:378-381`) rather than the flag. Windows runtime behaviour (DACL, SID checks) is still untested on a real Windows machine.
 - Slice 1 → 4: which remote-host secrets actually appeared in command
   output during daily use; drives the redaction pattern list.
-- Slice 1b → 2 (answered): CI now also runs on pushes to `feat/go-conversion`. Its first runs found two real bugs, both fixed: su elevation could block forever on a silent shell (`278454b`), and keepalive never reported a connection that died before its first tick (`db94eb6`). They also found a hung-poll flake in the smoke test (`10d1d5e`). Both jobs, Docker integration tests included, pass as of run 36083544252; throughput on the runner was 38 MB/s.
+- Slice 1b → 2 (answered): CI now also runs on pushes to `feat/go-conversion`. Its first runs found two real bugs, both fixed: su elevation could block forever on a silent shell (`a902b91`), and keepalive never reported a connection that died before its first tick (`96fbc9d`). They also found a hung-poll flake in the smoke test (`ba3fe0a`). Both jobs, Docker integration tests included, pass as of run 36083544252; throughput on the runner was 38 MB/s.
 - Slice 2 review → 2b (2026-09-25, four-agent review of the bundled draft):
   - A tunnelled dial has no handshake timeout. `ClientConfig.Timeout` covers only the TCP dial, and `ensure` holds `m.mu`. Bound `DialContext` + `NewClientConn` and give the whole chain one budget.
   - `redactorFor` must walk the bastion's secrets.
@@ -83,10 +83,10 @@ plan note.
   - `go-pageant` has had no release since 2021.
 - Slice 2 review → later: keyboard-interactive/2FA auth, agent forwarding, and host list search came up as daily-use gaps. Add them only if daily use hits them.
 - Slice 2a → follow-ups (security minors from the 2a reviews) — done:
-  - A KDF-less store (stripped `kdf`, or never a vault) is "no vault" to the hub: `listServers` is empty, AI exec fails with "No vault yet; open the app and create one" (audited, never dialled), and `term.open` fails with "create a vault first". No out-of-file state was needed (`68cac3c`).
-  - The hub remembers the last reload error; `status` returns it as `storeError` (fixed text), the app shows a red banner, and `servers.*` writes return a failed post-write reload (`7493f09`).
+  - A KDF-less store (stripped `kdf`, or never a vault) is "no vault" to the hub: `listServers` is empty, AI exec fails with "No vault yet; open the app and create one" (audited, never dialled), and `term.open` fails with "create a vault first". No out-of-file state was needed (`2766757`).
+  - The hub remembers the last reload error; `status` returns it as `storeError` (fixed text), the app shows a red banner, and `servers.*` writes return a failed post-write reload (`cbe817c`).
   - A vault file deleted while the hub runs is a `storeError` too (same fixed text); the hub keeps serving the last good copy, writes fail closed, and restoring the file clears it. A missing file with no vault ever loaded stays "no vault". `vault.create` is refused meanwhile ("a vault already exists"), so the in-memory vault cannot be replaced.
   - A trusted `term.open` whose post-pin reload fails still opens (the pin is written, the key verified) and sets `storeError`; pinned by a test.
-  - The web UI's PUT treats a `hostKey` equal to the one it last served as unchanged and keeps the on-disk pin (`251eae9`).
+  - The web UI's PUT treats a `hostKey` equal to the one it last served as unchanged and keeps the on-disk pin (`4d22369`).
   - The web UI sends the list's revision (`ETag`) as `If-Match` on PUT and DELETE; a stale one is 412 and the page reloads the list. `GET /api/servers` re-reads the store so the revision follows the hub's writes.
-  - `vault.create` is asserted to derive the key once and never run Unlock's derivation (`newKDF`/`deriveKey` seams, `e28d64a`).
+  - `vault.create` is asserted to derive the key once and never run Unlock's derivation (`newKDF`/`deriveKey` seams, `cf58c7f`).
