@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { arrowStep, closesTabs, draftFrom, endpointChanged, labelHint, filterHosts, passwordChecks, secretPlaceholder, toInput } from '../src/renderer/hostForm'
+import { arrowStep, closesTabs, closeWarning, draftFrom, endpointChanged, labelHint, filterHosts, passwordChecks, secretPlaceholder, toInput } from '../src/renderer/hostForm'
 import { EditorWarnings, HostEditor } from '../src/renderer/HostEditor'
 import type { ServerInfo } from '../src/shared/protocol'
 
@@ -126,5 +126,13 @@ describe('passwordChecks', () => {
     expect(passwordChecks('password1', 'password2')).toEqual({ length: true, match: false })
     expect(passwordChecks('password1', '')).toEqual({ length: true, match: false })
     expect(passwordChecks('password1', 'password1')).toEqual({ length: true, match: true })
+  })
+})
+
+describe('closeWarning', () => {
+  it('counts tabs and transfers', () => {
+    expect(closeWarning(2, 0)).toBe('Saving will close 2 open tabs.')
+    expect(closeWarning(1, 1)).toBe('Saving will close 1 open tab and cancel 1 transfer.')
+    expect(closeWarning(0, 3)).toBe('Saving will cancel 3 transfers.')
   })
 })

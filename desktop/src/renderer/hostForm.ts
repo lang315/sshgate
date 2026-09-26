@@ -85,3 +85,10 @@ export function arrowStep<T>(items: readonly T[], current: T, key: string): T | 
   if (!d) return undefined
   return items[(items.indexOf(current) + d + items.length) % items.length]
 }
+
+export function closeWarning(openTabs: number, transfers: number): string {
+  const tabs = `close ${openTabs} open ${openTabs === 1 ? 'tab' : 'tabs'}`
+  const jobs = `cancel ${transfers} ${transfers === 1 ? 'transfer' : 'transfers'}`
+  if (openTabs && transfers) return `Saving will ${tabs} and ${jobs}.`
+  return `Saving will ${openTabs ? tabs : jobs}.`
+}
