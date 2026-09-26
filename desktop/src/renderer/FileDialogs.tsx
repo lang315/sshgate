@@ -38,7 +38,7 @@ export function DeleteDialog({ names, planned, needsTyping, onDelete, onCancel }
         <p>{`${planned.files} files, ${planned.dirs} folders, ${planned.links} links · ${formatSize(planned.bytes)}. There is no undo.`}</p>
         {needsTyping && (
           <label className="field">{`Type ${DELETE_WORD} to confirm`}
-            <input value={typed} onChange={(e) => setTyped(e.target.value)} aria-label={`Type ${DELETE_WORD} to confirm`} />
+            <input value={typed} onChange={(e) => setTyped(e.target.value)} aria-label={`Type ${DELETE_WORD} to confirm`} autoFocus />
           </label>
         )}
         <div className="dialog-actions">

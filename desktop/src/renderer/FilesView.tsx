@@ -21,9 +21,10 @@ interface Job {
   planned?: FilesPlanned; progress?: FilesProgress; done?: FilesDone; error?: string
 }
 
+// Only the name dialogs (which the user types into) live here. The
+// Conflict/Delete dialog is derived from the jobs map below, so one job's
+// dialog can never close or replace another's (Important 1).
 type Dialog =
-  | { kind: 'conflict'; id: string; planned: FilesPlanned }
-  | { kind: 'delete'; id: string; planned: FilesPlanned; names: string[]; hasFolder: boolean }
   | { kind: 'mkdir' }
   | { kind: 'rename'; from: string }
 
@@ -45,6 +46,7 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
   const [dropping, setDropping] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const shown = useRef('') // the folder listed now
+  const loadGen = useRef(0) // bumped per load(); a resolving stale call is ignored
   const jobs = useRef(new Map<string, Job>()).current
   const offs = useRef(new Map<string, () => void>()).current
   const [, bump] = useReducer((n: number) => n + 1, 0)
@@ -62,7 +64,11 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
     return () => ro.disconnect()
   }, [])
 
-  const load = useCallback(async (p: string): Promise<boolean> => {
+  // Resolves true/false for a real success/failure of this still-current call,
+  // or undefined when a later load() has superseded it (its result is simply
+  // dropped, never read as this call's failure).
+  const load = useCallback(async (p: string): Promise<boolean | undefined> => {
+    const gen = ++loadGen.current // a later load() in flight makes this one's result stale
     setLoading(true); setError(undefined); setPathInput(p)
     try {
       let r = await hub.filesList(server, p)
@@ -72,21 +78,23 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
         onTrusted()
       }
       if (r.status === 'hostKeyMismatch') { onMismatch(r); throw new Error('host key mismatch') }
+      if (gen !== loadGen.current) return undefined // superseded: the user has moved on
       setListing(r); setPathInput(r.path); shown.current = r.path
       setSel({ names: new Set() }); setScrollTop(0); listRef.current?.scrollTo(0, 0)
       lastFolder.set(localStore(), server, r.path)
       return true
     } catch (e) {
+      if (gen !== loadGen.current) return undefined
       setListing(undefined); setError((e as Error).message)
       return false
-    } finally { setLoading(false) }
+    } finally { if (gen === loadGen.current) setLoading(false) }
   }, [server, tab.id, hostKeys, onMismatch, onTrusted])
 
   // Lists once when the tab opens (the last folder, else home), then only on
   // the author's own actions: never on a timer (see CLAUDE.md, idle lock).
   useEffect(() => {
     const last = lastFolder.get(localStore(), server)
-    void load(last ?? '').then((ok) => { if (!ok && last) void load('') })
+    void load(last ?? '').then((ok) => { if (ok === false && last) void load('') })
     return () => {
       hostKeys.drop(tab.id)
       for (const [id, j] of jobs) if (j.state !== 'done') hub.filesCancel(id) // closing the tab cancels its jobs
@@ -101,15 +109,16 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
     if (!j || j.state === 'done') return
     offs.get(id)?.(); offs.delete(id)
     patch(id, { state: 'done', done, error })
-    setDialog((d) => (d && 'id' in d && d.id === id ? undefined : d))
     if (done && j.op !== 'download' && j.folder === shown.current) void load(shown.current)
   }
 
+  // Only moves this one job; the name dialog (if any) is untouched, and
+  // leaving 'confirm' lets the next confirm job's dialog take over (Important 1).
   const runJob = async (id: string, conflict: 'skip' | 'overwrite' | 'ask') => {
     patch(id, { state: 'running' })
-    setDialog(undefined)
     try { await hub.filesRun(id, conflict) } catch (e) { hub.filesCancel(id); finishJob(id, undefined, (e as Error).message) }
   }
+  const cancelConfirm = (id: string) => { hub.filesCancel(id); finishJob(id, undefined, 'Cancelled') }
 
   const onJobEvent = (id: string, e: TermEvent) => {
     const j = jobs.get(id)
@@ -117,13 +126,11 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
     if (e.method === 'files.planned') {
       const planned = e.params
       patch(id, { planned })
-      if (j.op === 'delete') {
-        patch(id, { state: 'confirm' })
-        setDialog({ kind: 'delete', id, planned, names: j.names ?? [], hasFolder: !!j.hasFolder })
-      } else if (j.op === 'upload' && planned.conflicts.count > 0) {
-        patch(id, { state: 'confirm' })
-        setDialog({ kind: 'conflict', id, planned })
-      } else void runJob(id, j.op === 'download' ? 'ask' : 'skip') // main asks about download conflicts
+      // The dialog itself is derived from the jobs map (confirmJob, below):
+      // setting state to 'confirm' is enough to make it appear, in its turn.
+      if (j.op === 'delete') patch(id, { state: 'confirm' })
+      else if (j.op === 'upload' && planned.conflicts.count > 0) patch(id, { state: 'confirm' })
+      else void runJob(id, j.op === 'download' ? 'ask' : 'skip') // main asks about download conflicts
     } else if (e.method === 'files.progress') patch(id, { progress: e.params })
     else if (e.method === 'files.done') finishJob(id, e.params)
     else if (e.method === 'hub.stopped') finishJob(id, undefined, 'hub restarted')
@@ -189,6 +196,11 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
   const mac = navigator.platform.startsWith('Mac')
   const [start, end] = windowRange(scrollTop, viewport, ROW, rows.length)
   const jobList = [...jobs.values()]
+  // The oldest job waiting on the user (Map iteration is insertion order): its
+  // dialog shows; a job further back waits, undisturbed, until its turn. Deferred
+  // while a name dialog is open, so a landing plan never covers what the user is
+  // typing into (New folder/Rename) — it just waits its turn too.
+  const confirmJob = dialog ? undefined : jobList.find((j): j is Job & { planned: FilesPlanned } => j.state === 'confirm' && !!j.planned)
 
   return (
     <div className="filesview" style={{ display: visible ? 'flex' : 'none' }}>
@@ -260,7 +272,7 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
               )}
               {j.state === 'done' && <span>{displayText(doneSummary(j.done, j.error))}</span>}
               {j.state !== 'done'
-                ? <button type="button" className="btn" onClick={() => hub.filesCancel(j.id)}>Cancel</button>
+                ? <button type="button" className="btn" onClick={() => (j.state === 'confirm' ? cancelConfirm(j.id) : hub.filesCancel(j.id))}>Cancel</button>
                 : <button type="button" className="icon" aria-label="Dismiss" onClick={() => { jobs.delete(j.id); bump() }}><CloseIcon /></button>}
               {j.done && j.done.errors.length > 0 && (
                 <ul className="transfer-errors mono">
@@ -272,15 +284,15 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
           ))}
         </ul>
       )}
-      {dialog?.kind === 'conflict' && (
-        <ConflictDialog planned={dialog.planned} onChoice={(c) => {
-          if (c === 'cancel') { hub.filesCancel(dialog.id); setDialog(undefined) } else void runJob(dialog.id, c)
-        }} />
+      {confirmJob && confirmJob.op === 'delete' && (
+        <DeleteDialog key={confirmJob.id} names={confirmJob.names ?? []} planned={confirmJob.planned}
+          needsTyping={deleteNeedsTyping(!!confirmJob.hasFolder, (confirmJob.names ?? []).length, confirmJob.planned)}
+          onDelete={() => void runJob(confirmJob.id, 'skip')} onCancel={() => cancelConfirm(confirmJob.id)} />
       )}
-      {dialog?.kind === 'delete' && (
-        <DeleteDialog names={dialog.names} planned={dialog.planned}
-          needsTyping={deleteNeedsTyping(dialog.hasFolder, dialog.names.length, dialog.planned)}
-          onDelete={() => void runJob(dialog.id, 'skip')} onCancel={() => { hub.filesCancel(dialog.id); setDialog(undefined) }} />
+      {confirmJob && confirmJob.op !== 'delete' && (
+        <ConflictDialog key={confirmJob.id} planned={confirmJob.planned} onChoice={(c) => {
+          if (c === 'cancel') cancelConfirm(confirmJob.id); else void runJob(confirmJob.id, c)
+        }} />
       )}
       {(dialog?.kind === 'mkdir' || dialog?.kind === 'rename') && (
         <NameDialog title={dialog.kind === 'mkdir' ? 'New folder' : 'Rename'} initial={dialog.kind === 'rename' ? dialog.from : ''}
