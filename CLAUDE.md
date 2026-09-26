@@ -14,6 +14,7 @@ go test -short ./...                     # unit tests only; skips SSH integratio
 go test ./...                            # also runs internal/sshx integration tests (needs Docker, via testcontainers)
 go test -race ./...                      # same, with the race detector; what CI runs
 go test ./internal/sshx -run TestExecEcho -v   # single test
+SSHGATE_LIVE_SSH=1 go test ./internal/hub -run TestLiveImportConnect -v   # opt-in: import your real ~/.ssh/config into a throwaway vault and open a terminal on each host ("1" = all, or a comma-separated alias list); skipped otherwise
 go vet ./...
 go run ./cmd/sshgate hub --cli           # terminal approver; the bridge (no --host) needs a hub running to do anything
 docker compose up                        # local openssh-server (test/secret on :2222) + sshgate against it
