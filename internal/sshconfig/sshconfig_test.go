@@ -4,11 +4,16 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/pem"
+	"errors"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -65,9 +70,28 @@ func TestAliases(t *testing.T) {
 	}
 }
 
+// fakeHome points homeDir at a temp dir. HOME cannot: homeDir reads the
+// account database, as ssh does.
+func fakeHome(t *testing.T) string {
+	home, old := t.TempDir(), homeDir
+	homeDir = func() string { return home }
+	t.Cleanup(func() { homeDir = old })
+	return home
+}
+
+func TestHomeIsFromAccountDatabase(t *testing.T) {
+	u, err := user.Current()
+	if err != nil || u.HomeDir == "" {
+		t.Skip("no account database entry:", err)
+	}
+	t.Setenv("HOME", t.TempDir())
+	if got, want := expandHome("~/x"), filepath.Join(u.HomeDir, "x"); got != want {
+		t.Fatalf("got %s, want %s", got, want)
+	}
+}
+
 func TestAliasesRelativeIncludeIsUnderDotSSH(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := fakeHome(t)
 	write(t, filepath.Join(home, ".ssh", "extra"), "Host rel\n")
 	cfg := filepath.Join(t.TempDir(), "config")
 	write(t, cfg, "Include extra\n")
@@ -164,12 +188,31 @@ func TestResolveAndCheck(t *testing.T) {
 
 func TestResolveTimesOut(t *testing.T) {
 	bin := sshBin(t)
-	cfg := filepath.Join(t.TempDir(), "config")
+	dir := t.TempDir()
+	cfg, pidFile := filepath.Join(dir, "config"), filepath.Join(dir, "pid")
 	// The Match exec child outlives ssh and holds its stderr open.
-	write(t, cfg, "Match exec \"sleep 30\"\n  User x\nHost web\n")
+	write(t, cfg, "Match exec \"echo $$ > "+pidFile+"; exec sleep 30\"\n  User x\nHost web\n")
 	start := time.Now()
 	if _, err := Resolve(context.Background(), bin, cfg, "web"); err == nil || time.Since(start) > 7*time.Second {
 		t.Fatalf("got %v after %v, want an error within ~6 s", err, time.Since(start))
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	b, err := os.ReadFile(pidFile)
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || pid <= 0 {
+		t.Fatalf("pid file: %q %v", b, err)
+	}
+	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		p, _ := os.FindProcess(pid)
+		if errors.Is(p.Signal(syscall.Signal(0)), os.ErrProcessDone) {
+			return
+		}
+		if time.Now().After(deadline) {
+			_ = p.Kill()
+			t.Fatalf("the Match exec child %d outlived Resolve", pid)
+		}
 	}
 }
 
@@ -188,5 +231,47 @@ func TestCheckSkipsNonPrivateKeyFiles(t *testing.T) {
 	r.IdentityFiles = []string{pubOnly, k}
 	if c := Check(r, none); c.Auth != "key" || c.KeyPath != k {
 		t.Fatalf("pub then key: %+v", c)
+	}
+}
+
+func TestCheckExpandsIdentityFileTokens(t *testing.T) {
+	home := fakeHome(t)
+	dir := t.TempDir()
+	u, err := user.Current()
+	if err != nil {
+		t.Skip("no local user:", err)
+	}
+	writeKey(t, filepath.Join(dir, "10.0.0.5_key"), "")
+	writeKey(t, filepath.Join(home, ".ssh", "deploy@web_2200"), "")
+	writeKey(t, filepath.Join(home, ".ssh", "10.0.0.5_"+u.Username+"_%"), "")
+	writeKey(t, filepath.Join(dir, "%Z"), "") // a literal file named like an unknown token is never used
+	none := func(string) bool { return false }
+	for _, tc := range []struct {
+		files []string
+		want  string
+	}{
+		{[]string{dir + "/%h_key"}, dir + "/10.0.0.5_key"},
+		{[]string{"~/.ssh/%r@%n_%p"}, "~/.ssh/deploy@web_2200"},
+		{[]string{"%d/.ssh/%h_%u_%%"}, home + "/.ssh/10.0.0.5_" + u.Username + "_%"},
+		{[]string{dir + "/%Z", dir + "/%h_key"}, dir + "/10.0.0.5_key"},
+		{[]string{dir + "/%h_key%"}, ""},
+	} {
+		r := Resolved{Alias: "web", HostName: "10.0.0.5", Port: 2200, User: "deploy", IdentityFiles: tc.files}
+		if c := Check(r, none); c.KeyPath != tc.want || (c.Auth == "key") != (tc.want != "") {
+			t.Errorf("%v: got %s %q, want %q", tc.files, c.Auth, c.KeyPath, tc.want)
+		}
+	}
+}
+
+func TestResolveKnownHostsPathWithSpace(t *testing.T) {
+	bin := sshBin(t)
+	dir := t.TempDir()
+	kh := filepath.Join(dir, "with space", "kh")
+	write(t, kh, "")
+	cfg := filepath.Join(dir, "config")
+	write(t, cfg, "Host web\n  UserKnownHostsFile \""+kh+"\"\n")
+	r, err := Resolve(context.Background(), bin, cfg, "web")
+	if err != nil || !slices.Equal(r.KnownHostsFiles, []string{kh}) {
+		t.Fatalf("got %q %v, want [%s]", r.KnownHostsFiles, err, kh)
 	}
 }

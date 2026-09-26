@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -60,8 +61,7 @@ func collect(path string, depth int, seen map[string]bool, out *[]string) error 
 			for _, a := range args {
 				p := expandHome(a)
 				if !filepath.IsAbs(p) {
-					home, _ := os.UserHomeDir()
-					p = filepath.Join(home, ".ssh", p)
+					p = filepath.Join(homeDir(), ".ssh", p)
 				}
 				matches, err := filepath.Glob(p)
 				if err != nil {
@@ -115,11 +115,22 @@ func fields(line string) (string, []string) {
 	return kw, args
 }
 
+// homeDir is the account database's home, as ssh reads it, not $HOME. A
+// test seam.
+var homeDir = func() string {
+	if u, err := user.Current(); err == nil && u.HomeDir != "" {
+		return u.HomeDir
+	}
+	h, _ := os.UserHomeDir()
+	return h
+}
+
+// HomeDir is the home directory ssh uses.
+func HomeDir() string { return homeDir() }
+
 func expandHome(p string) string {
-	if strings.HasPrefix(p, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, p[2:])
-		}
+	if home := homeDir(); strings.HasPrefix(p, "~/") && home != "" {
+		return filepath.Join(home, p[2:])
 	}
 	return p
 }
@@ -141,6 +152,7 @@ func Resolve(ctx context.Context, sshBin, configPath, alias string) (Resolved, e
 		args = append(args, "-F", configPath)
 	}
 	cmd := exec.CommandContext(ctx, sshBin, append(args, "--", alias)...)
+	killGroup(cmd)
 	cmd.WaitDelay = time.Second // a Match exec child can hold the pipes open after ssh is killed
 	out, err := cmd.Output()
 	var ee *exec.ExitError
@@ -169,6 +181,12 @@ func Resolve(ctx context.Context, sshBin, configPath, alias string) (Resolved, e
 		case "hostkeyalias":
 			r.HostKeyAlias = v
 		case "userknownhostsfile":
+			// ssh -G prints a path with spaces unquoted; one that exists is
+			// kept whole. A list mixing it with other paths still splits.
+			if regular(expandHome(v)) {
+				r.KnownHostsFiles = []string{expandHome(v)}
+				break
+			}
 			for _, f := range strings.Fields(v) {
 				r.KnownHostsFiles = append(r.KnownHostsFiles, expandHome(f))
 			}
@@ -211,6 +229,10 @@ type Candidate struct {
 func Check(r Resolved, exists func(string) bool) Candidate {
 	c := Candidate{Alias: r.Alias, Host: r.HostName, Port: r.Port, User: r.User, Auth: "agent", Status: "ready"}
 	for _, f := range r.IdentityFiles {
+		f, known := expandTokens(f, r)
+		if !known {
+			continue
+		}
 		if ok, locked := privateKey(expandHome(f)); ok {
 			c.Auth, c.KeyPath, c.NeedsPassphrase = "key", f, locked
 			break
@@ -230,9 +252,50 @@ func Check(r Resolved, exists func(string) bool) Candidate {
 	return c
 }
 
+// expandTokens expands the %-tokens ssh -G leaves in an IdentityFile. known
+// is false for any other token, since ssh would read a different file.
+func expandTokens(p string, r Resolved) (out string, known bool) {
+	var b strings.Builder
+	for i := 0; i < len(p); i++ {
+		if p[i] != '%' {
+			b.WriteByte(p[i])
+			continue
+		}
+		if i++; i == len(p) {
+			return "", false
+		}
+		switch p[i] {
+		case '%':
+			b.WriteByte('%')
+		case 'h':
+			b.WriteString(r.HostName)
+		case 'p':
+			b.WriteString(strconv.Itoa(r.Port))
+		case 'r':
+			b.WriteString(r.User)
+		case 'n':
+			b.WriteString(r.Alias)
+		case 'd':
+			b.WriteString(homeDir())
+		case 'u':
+			u, err := user.Current()
+			if err != nil {
+				return "", false
+			}
+			b.WriteString(u.Username)
+		default:
+			return "", false
+		}
+	}
+	return b.String(), true
+}
+
 // privateKey says whether path holds a private key, and whether that key
 // needs a passphrase.
 func privateKey(path string) (ok, locked bool) {
+	if !regular(path) { // a FIFO would block the read
+		return false, false
+	}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return false, false
@@ -241,4 +304,9 @@ func privateKey(path string) (ok, locked bool) {
 	var pm *ssh.PassphraseMissingError
 	locked = errors.As(err, &pm)
 	return err == nil || locked, locked
+}
+
+func regular(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.Mode().IsRegular()
 }

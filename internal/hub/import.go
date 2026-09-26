@@ -32,8 +32,7 @@ func (h *Hub) sshConfigPath() string {
 	if h.o.SSHConfigPath != "" {
 		return h.o.SSHConfigPath
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".ssh", "config")
+	return filepath.Join(sshconfig.HomeDir(), ".ssh", "config")
 }
 
 func (h *Hub) serverExists(name string) bool {
