@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { FilesRelay, Grants, GRANT_TTL_MS, MAX_DROP } from '../src/main/files'
+import { HubReplyError } from '../src/main/hubProcess'
 import { displayText } from '../src/shared/display'
 
 const fakeHub = () => ({ call: vi.fn(async (_m: string, _p?: unknown) => ({})), notify: vi.fn() })
@@ -49,6 +50,13 @@ describe('FilesRelay', () => {
     expect(d.showOpenDialog.mock.calls[0][1]).toMatchObject({ title: 'Upload to box:/home/u', message: 'Upload to box:/home/u', properties: ['openDirectory', 'multiSelections'] })
     expect(picks).toEqual([{ token: expect.stringMatching(/^g-[0-9a-f]{32}$/), name: 'proj' }])
     expect(picks[0].token).not.toContain('/Users')
+  })
+
+  it('names the server in the download dialog', async () => {
+    const d = fakeDialog(['/Users/me/dl'])
+    const r = new FilesRelay(fakeHub(), d, () => win)
+    await r.pickDownloadDir({ server: 'box' })
+    expect(d.showOpenDialog.mock.calls[0][1]).toMatchObject({ title: 'Download from box to…', message: 'Download from box to…', properties: ['openDirectory', 'createDirectory'] })
   })
 
   it('rebuilds files.plan from its allowlist and swaps tokens', async () => {
@@ -126,7 +134,7 @@ describe('FilesRelay', () => {
     // never reaching the hub, and never silently reusing the old job's bookkeeping.
     const dirDuringRace = await r.pickDownloadDir({ server: 'box' })
     await expect(r.call('files.plan', { id: 'x', server: 'box', op: 'download', sources: ['/y'], dest: dirDuringRace!.token }))
-      .rejects.toThrow('not granted')
+      .rejects.toThrow('already in use')
     expect(h.call).not.toHaveBeenCalledWith('files.plan', expect.objectContaining({ op: 'download' }))
 
     // Only once the old job's files.done arrives does 'x' become available again.
@@ -142,12 +150,56 @@ describe('FilesRelay', () => {
     expect(h.call).toHaveBeenLastCalledWith('files.run', { id: 'x', conflict: 'overwrite' })
   })
 
-  it('drops a job entry the hub rejected, so the same id can be replanned', async () => {
-    const h = { call: vi.fn(async (): Promise<unknown> => { throw new Error('hub refused') }), notify: vi.fn() }
+  it('drops a job entry the hub rejected (HubReplyError), so the same id can be replanned', async () => {
+    const h = { call: vi.fn(async (): Promise<unknown> => { throw new HubReplyError('hub refused') }), notify: vi.fn() }
     const r = new FilesRelay(h, fakeDialog(), () => win)
     await expect(r.call('files.plan', { id: 'p1', server: 'box', op: 'delete', sources: ['/tmp/a'] })).rejects.toThrow('hub refused')
     h.call.mockImplementationOnce(async () => ({ ok: true }))
     await expect(r.call('files.plan', { id: 'p1', server: 'box', op: 'delete', sources: ['/tmp/a'] })).resolves.toEqual({ ok: true })
+  })
+
+  it('keeps a job entry when the hub call for files.plan merely rejects (e.g. a timeout), not just when it never resolves', async () => {
+    const h = { call: vi.fn(async (): Promise<unknown> => { throw new Error('hub did not answer in 60 s') }), notify: vi.fn() }
+    const d = fakeDialog(['/Users/me/dl'], 0)
+    const r = new FilesRelay(h, d, () => win)
+    const dir = await r.pickDownloadDir({ server: 'box' })
+    await expect(r.call('files.plan', { id: 't1', server: 'box', op: 'download', sources: ['/x'], dest: dir!.token }))
+      .rejects.toThrow('hub did not answer')
+    // the entry is still live: a replan of the same id is refused...
+    const dir2 = await r.pickDownloadDir({ server: 'box' })
+    await expect(r.call('files.plan', { id: 't1', server: 'box', op: 'download', sources: ['/x'], dest: dir2!.token }))
+      .rejects.toThrow('already in use')
+    // ...and a run for it still goes through the download path (no files.planned arrived yet, so
+    // conflicts read as 0 and it's forwarded as a skip) rather than being refused as "not granted".
+    h.call.mockResolvedValueOnce({})
+    await r.call('files.run', { id: 't1', conflict: 'ask' })
+    expect(h.call).toHaveBeenLastCalledWith('files.run', { id: 't1', conflict: 'skip' })
+  })
+
+  it('ignores a stale dialog resolution once the same id has been replanned while it was open', async () => {
+    const h = fakeHub()
+    let resolveDialog!: (v: { response: number; checkboxChecked: boolean }) => void
+    const dialog = {
+      showOpenDialog: vi.fn(async (_w: unknown, _o: unknown) => ({ canceled: false, filePaths: ['/Users/me/dl'] })),
+      showMessageBox: vi.fn(() => new Promise<{ response: number; checkboxChecked: boolean }>((resolve) => { resolveDialog = resolve })),
+    }
+    const r = new FilesRelay(h, dialog, () => win)
+    const dir = await r.pickDownloadDir({ server: 'box' })
+    await r.call('files.plan', { id: 'x', server: 'box', op: 'download', sources: ['/y'], dest: dir!.token })
+    r.onNotification('files.planned', { id: 'x', conflicts: { count: 1, sample: ['y/a'] } })
+    const running = r.call('files.run', { id: 'x', conflict: 'ask' }) // opens the dialog; does not resolve yet
+
+    // While the dialog is open, the renderer cancels 'x', gets files.done, and replans the same id
+    // into a different download.
+    r.onNotification('files.done', { id: 'x' })
+    const dir2 = await r.pickDownloadDir({ server: 'box' })
+    await r.call('files.plan', { id: 'x', server: 'box', op: 'download', sources: ['/z'], dest: dir2!.token })
+    r.onNotification('files.planned', { id: 'x', conflicts: { count: 0, sample: [] } })
+
+    // The stale dialog now resolves with "Overwrite all" — it must not touch the new job.
+    resolveDialog({ response: 2, checkboxChecked: false })
+    expect(await running).toEqual({ cancelled: true })
+    expect(h.call).not.toHaveBeenCalledWith('files.run', { id: 'x', conflict: 'overwrite' })
   })
 
   it('drops grants on lock, when the hub stops, and on reset', async () => {

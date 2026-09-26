@@ -3,6 +3,7 @@ import * as path from 'node:path'
 import type { BrowserWindow, MessageBoxOptions, MessageBoxReturnValue, OpenDialogOptions, OpenDialogReturnValue } from 'electron'
 import type { HubState } from '../shared/protocol'
 import { displayText } from '../shared/display'
+import { HubReplyError } from './hubProcess'
 
 export type GrantKind = 'read' | 'writeDir'
 interface Grant { path: string; kind: GrantKind; server: string; expires: number }
@@ -48,10 +49,10 @@ interface Job { op: 'upload' | 'download' | 'delete'; folder?: string; conflicts
 
 export class FilesRelay {
   readonly grants: Grants
-  // Every relayed files.plan, keyed by its id, until files.done (or a rejected plan) removes it.
-  // A live id can't be replanned: that would let a reused id skip the download overwrite dialog
-  // (the old job's later files.done would delete the new job's entry) or leave an orphaned entry
-  // forever when the hub refuses a plan.
+  // Every relayed files.plan, keyed by its id, until files.done removes it (or the hub itself
+  // refuses the plan — see the HubReplyError check in call()). A live id can't be replanned:
+  // that would let a reused id skip the download overwrite dialog (the old job's later files.done
+  // would delete the new job's entry).
   private jobs = new Map<string, Job>()
 
   constructor(private hub: HubLike, private dialog: DialogLike, private getWindow: () => BrowserWindow | undefined, now?: () => number) {
@@ -95,7 +96,7 @@ export class FilesRelay {
   private plan(params: unknown): { id: string; req: Record<string, unknown> } {
     const { id, server, op, sources, dest } = (params ?? {}) as Record<string, unknown>
     if (!str(id) || !str(server) || !strs(sources)) throw bad()
-    if (this.jobs.has(id)) throw new Error('file job id not granted')
+    if (this.jobs.has(id)) throw new Error('file job id already in use')
     if (op === 'upload' && str(dest)) {
       const paths = sources.map((t) => this.grants.take(t, 'read', server))
       this.jobs.set(id, { op: 'upload', conflicts: 0, sample: [] })
@@ -119,7 +120,11 @@ export class FilesRelay {
       try {
         return await this.hub.call('files.plan', req)
       } catch (e) {
-        this.jobs.delete(id)
+        // A HubReplyError means the hub itself refused the plan: nothing was started, so the id
+        // is free again. Anything else (a timeout, a dead process) leaves the entry: we don't know
+        // whether the hub started the job, and it may still send files.planned/files.done for it
+        // (onState clears everything if the hub actually stopped).
+        if (e instanceof HubReplyError) this.jobs.delete(id)
         throw e
       }
     }
@@ -140,6 +145,10 @@ export class FilesRelay {
       message: `${n} ${n === 1 ? 'file already exists' : 'files already exist'} in ${job.folder}`,
       detail: job.sample.map(displayText).join('\n'),
     })
+    // The dialog was for THIS job entry. While it was open, the renderer could have cancelled
+    // this id, gotten files.done, and replanned the same id into a different job (a different
+    // folder, even a different op) — the click must not apply to that new job.
+    if (this.jobs.get(id) !== job) return { cancelled: true }
     if (r.response === 1) return this.hub.call('files.run', { id, conflict: 'skip' })
     if (r.response === 2) return this.hub.call('files.run', { id, conflict: 'overwrite' })
     this.hub.notify('files.cancel', { id })
@@ -160,6 +169,8 @@ export class FilesRelay {
     if (s.kind !== 'running') { this.grants.clear(); this.jobs.clear() }
   }
 
-  // The renderer was reloaded: its tokens and job bookkeeping die with it.
-  reset(): void { this.grants.clear(); this.jobs.clear() }
+  // The renderer was reloaded: its tokens die with it. Jobs stay: recoverRenderer's
+  // files.cancelAll drains them via their files.done notifications, and if that call failed,
+  // keeping the entries keeps main (not a fresh, unaware renderer) in charge of them.
+  reset(): void { this.grants.clear() }
 }

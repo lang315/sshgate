@@ -15,6 +15,11 @@ export interface HubProcessOptions {
 
 interface Pending { resolve: (v: unknown) => void; reject: (e: Error) => void; timer?: NodeJS.Timeout }
 
+// A call the hub answered, but refused: distinct from a timeout or a dead process, so callers that
+// need to tell "the hub said no" from "we don't know what the hub did" (e.g. FilesRelay's job
+// bookkeeping) can react differently.
+export class HubReplyError extends Error {}
+
 const STDERR_TAIL_LINES = 50
 const DEFAULT_CALL_TIMEOUT_MS = 60_000
 
@@ -83,7 +88,7 @@ export class HubProcess extends EventEmitter {
       if (!p) return
       this.pending.delete(m.id)
       if (p.timer) clearTimeout(p.timer)
-      if (m.error) p.reject(new Error(m.error.message))
+      if (m.error) p.reject(new HubReplyError(m.error.message))
       else p.resolve(m.result)
     } else if (typeof m.method === 'string') {
       this.emit('notification', m.method, m.params)
