@@ -34,6 +34,7 @@ type Server struct {
 	sftpRoot           string        // "" refuses the sftp subsystem
 	sftpGate           chan struct{} // nil: ungated; else each SFTP ReadAt/WriteAt takes one value
 	sftpHostile        []string      // names listed in /hostile (see sftp.go)
+	sftpStall          bool          // accept the subsystem request but never serve it
 }
 
 // Listen starts a server without the testing package. stop closes it.
@@ -143,6 +144,10 @@ func (s *Server) GateSFTP(gate chan struct{}) { s.mu.Lock(); s.sftpGate = gate; 
 // HostileSFTP sets the names /hostile lists.
 func (s *Server) HostileSFTP(names ...string) { s.mu.Lock(); s.sftpHostile = names; s.mu.Unlock() }
 
+// StallSFTP makes the sftp subsystem request succeed but never serve the
+// channel, so the client's setup handshake hangs. For testing setup timeouts.
+func (s *Server) StallSFTP() { s.mu.Lock(); s.sftpStall = true; s.mu.Unlock() }
+
 func (s *Server) serveConn(nc net.Conn, cfg *ssh.ServerConfig) {
 	conn, chans, reqs, err := ssh.NewServerConn(nc, cfg)
 	if err != nil {
@@ -200,12 +205,16 @@ func (s *Server) session(ch ssh.Channel, reqs <-chan *ssh.Request) {
 			ssh.Unmarshal(req.Payload, &p)
 			s.mu.Lock()
 			root := s.sftpRoot
+			stall := s.sftpStall
 			s.mu.Unlock()
 			if p.Name != "sftp" || root == "" {
 				req.Reply(false, nil)
 				continue
 			}
 			req.Reply(true, nil)
+			if stall {
+				continue // accepted, but never read from or written to
+			}
 			go s.serveSFTP(ch, root)
 		default:
 			req.Reply(false, nil)

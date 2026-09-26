@@ -2,6 +2,7 @@ package sshx
 
 import (
 	"errors"
+	"time"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -9,6 +10,9 @@ import (
 
 // ErrNoSFTP: the server refused the sftp subsystem.
 var ErrNoSFTP = errors.New("server has no SFTP subsystem")
+
+// sftpSetupTimeout bounds newSFTP's handshake; a var so tests can shorten it.
+var sftpSetupTimeout = 30 * time.Second
 
 // sftpConn is the shared SFTP client and the SSH client it runs on.
 type sftpConn struct {
@@ -33,14 +37,28 @@ func newSFTP(client *ssh.Client) (*sftp.Client, error) {
 		s.Close()
 		return nil, err
 	}
+	// A server that accepts the subsystem (or the channel) and then goes
+	// silent would otherwise block RequestSubsystem/NewClientPipe until the
+	// whole SSH connection closes. Bound the handshake and fail closed.
+	watchdog := time.AfterFunc(sftpSetupTimeout, func() { s.Close() })
 	if err := s.RequestSubsystem("sftp"); err != nil {
 		s.Close()
+		if !watchdog.Stop() {
+			return nil, errors.New("SFTP setup timed out")
+		}
 		if err.Error() == "ssh: subsystem request failed" {
 			return nil, ErrNoSFTP
 		}
 		return nil, err
 	}
 	c, err := sftp.NewClientPipe(r, w)
+	if !watchdog.Stop() {
+		s.Close()
+		if err == nil {
+			c.Close()
+		}
+		return nil, errors.New("SFTP setup timed out")
+	}
 	if err != nil {
 		s.Close()
 		return nil, err

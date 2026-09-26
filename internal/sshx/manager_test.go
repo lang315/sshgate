@@ -269,8 +269,12 @@ func TestSFTPAgainstOpenSSH(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		f.Write([]byte(p))
-		f.Close()
+		if _, err := f.Write([]byte(p)); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := c.Rename(a, b); err == nil {
 		t.Fatal("plain SFTP rename replaced an existing file on OpenSSH")
