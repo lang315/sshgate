@@ -1,0 +1,113 @@
+package sshx
+
+import (
+	"errors"
+
+	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
+)
+
+// ErrNoSFTP: the server refused the sftp subsystem.
+var ErrNoSFTP = errors.New("server has no SFTP subsystem")
+
+// sftpConn is the shared SFTP client and the SSH client it runs on.
+type sftpConn struct {
+	on *ssh.Client
+	c  *sftp.Client
+}
+
+// newSFTP opens the sftp subsystem on its own channel. Unlike
+// sftp.NewClient, it closes the session when the subsystem is refused.
+func newSFTP(client *ssh.Client) (*sftp.Client, error) {
+	s, err := client.NewSession()
+	if err != nil {
+		return nil, err
+	}
+	w, err := s.StdinPipe()
+	if err != nil {
+		s.Close()
+		return nil, err
+	}
+	r, err := s.StdoutPipe()
+	if err != nil {
+		s.Close()
+		return nil, err
+	}
+	if err := s.RequestSubsystem("sftp"); err != nil {
+		s.Close()
+		if err.Error() == "ssh: subsystem request failed" {
+			return nil, ErrNoSFTP
+		}
+		return nil, err
+	}
+	c, err := sftp.NewClientPipe(r, w)
+	if err != nil {
+		s.Close()
+		return nil, err
+	}
+	go func() { c.Wait(); s.Close() }()
+	return c, nil
+}
+
+// SFTP returns the shared client for listings and single operations. It
+// belongs to the current *ssh.Client: a redial replaces it, and it is
+// dropped when its own channel dies. Closes happen outside m.mu.
+func (m *Manager) SFTP() (*sftp.Client, error) {
+	m.mu.Lock()
+	if err := m.ensure(); err != nil {
+		m.mu.Unlock()
+		return nil, err
+	}
+	var stale *sftp.Client
+	if m.sftp != nil && m.sftp.on != m.client {
+		stale, m.sftp = m.sftp.c, nil
+	}
+	if s := m.sftp; s != nil {
+		m.mu.Unlock()
+		return s.c, nil
+	}
+	client := m.client
+	m.mu.Unlock()
+	if stale != nil {
+		go stale.Close()
+	}
+	c, err := newSFTP(client)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	switch {
+	case m.client != client:
+		m.mu.Unlock()
+		go c.Close()
+		return nil, errors.New("connection closed while opening SFTP")
+	case m.sftp != nil: // another caller won the race
+		keep := m.sftp.c
+		m.mu.Unlock()
+		go c.Close()
+		return keep, nil
+	}
+	m.sftp = &sftpConn{on: client, c: c}
+	m.mu.Unlock()
+	go func() {
+		c.Wait()
+		m.mu.Lock()
+		if m.sftp != nil && m.sftp.c == c {
+			m.sftp = nil
+		}
+		m.mu.Unlock()
+	}()
+	return c, nil
+}
+
+// NewSFTP opens a client on its own channel for one job; the caller closes it.
+func (m *Manager) NewSFTP() (*sftp.Client, error) {
+	m.mu.Lock()
+	err := m.ensure()
+	client := m.client
+	m.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return newSFTP(client)
+}
