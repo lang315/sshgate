@@ -67,7 +67,7 @@ Out, recorded in ROADMAP:
 | a vault server already has this name | Already in vault |
 | otherwise | Ready |
 
-Auth: the first `identityfile` that holds a private key (after `~` expansion; it parses, or needs a passphrase; a `.pub` for an agent-held key does not count) → `auth: "key"` with that path, kept in `~/…` form (the hub already expands it when dialling). `ssh -G` lists the default key files when none is configured, in OpenSSH's own order, so no separate default list is needed. No such file → `auth: "agent"`. If the chosen key is encrypted (`ssh.ParseRawPrivateKey` returns `*ssh.PassphraseMissingError`), the candidate carries `needsPassphrase: true`.
+Auth: the first `identityfile` that holds a private key (after `~` expansion; it parses, or needs a passphrase; a `.pub` for an agent-held key does not count) → `auth: "key"` with that path, kept in `~/…` form (the hub already expands it when dialling). `ssh -G` lists the default key files when none is configured, in OpenSSH's own order, so no separate default list is needed. No such file → `auth: "agent"`. If the chosen key is encrypted (`ssh.ParseRawPrivateKey` returns `*ssh.PassphraseMissingError`) and the ssh-agent at `SSH_AUTH_SOCK` holds its public key (from the file, or from `<path>.pub` for legacy PEM), the candidate uses `auth: "agent"`, as ssh signs with the agent's copy; otherwise it carries `needsPassphrase: true`.
 
 ### `internal/sshx`: `KnownHostKey(files []string, host string, port int) (algo, fingerprint string, ok bool)`
 
@@ -120,7 +120,7 @@ Go unit tests run the real `ssh -G` with `-F <temp file>`; the CI runners for Ub
   - `ProxyJump` and `ProxyCommand` are skipped;
   - an invalid name is skipped;
   - an existing name is "Already in vault";
-  - an encrypted key sets `needsPassphrase`.
+  - an encrypted key sets `needsPassphrase`, unless the agent holds it (then `agent`).
 - `KnownHostKey` against a fixture file:
   - `[host]:2222`;
   - several key types for one host picks ed25519;

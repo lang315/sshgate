@@ -4,19 +4,23 @@
 package sshconfig
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 
 	"github.com/lang315/sshgate/internal/config"
 )
@@ -233,8 +237,10 @@ func Check(r Resolved, exists func(string) bool) Candidate {
 		if !known {
 			continue
 		}
-		if ok, locked := privateKey(expandHome(f)); ok {
-			c.Auth, c.KeyPath, c.NeedsPassphrase = "key", f, locked
+		if ok, locked, pub := privateKey(expandHome(f)); ok {
+			if !locked || !inAgent(pub) { // ssh signs with the agent's copy of a held key
+				c.Auth, c.KeyPath, c.NeedsPassphrase = "key", f, locked
+			}
 			break
 		}
 	}
@@ -292,18 +298,48 @@ func expandTokens(p string, r Resolved) (out string, known bool) {
 
 // privateKey says whether path holds a private key, and whether that key
 // needs a passphrase.
-func privateKey(path string) (ok, locked bool) {
+// privateKey reports whether path holds a private key, whether it is
+// encrypted, and, for an encrypted one, its public key: from the file
+// (OpenSSH format) or from path.pub (legacy PEM).
+func privateKey(path string) (ok, locked bool, pub ssh.PublicKey) {
 	if !regular(path) { // a FIFO would block the read
-		return false, false
+		return false, false, nil
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return false, false
+		return false, false, nil
 	}
 	_, err = ssh.ParseRawPrivateKey(b)
 	var pm *ssh.PassphraseMissingError
-	locked = errors.As(err, &pm)
-	return err == nil || locked, locked
+	if !errors.As(err, &pm) {
+		return err == nil, false, nil
+	}
+	pub = pm.PublicKey
+	if pub == nil && regular(path+".pub") {
+		if pb, err := os.ReadFile(path + ".pub"); err == nil {
+			pub, _, _, _, _ = ssh.ParseAuthorizedKey(pb)
+		}
+	}
+	return true, true, pub
+}
+
+// inAgent reports whether the ssh-agent at SSH_AUTH_SOCK holds pub.
+func inAgent(pub ssh.PublicKey) bool {
+	sock := os.Getenv("SSH_AUTH_SOCK")
+	if pub == nil || sock == "" {
+		return false
+	}
+	conn, err := net.DialTimeout("unix", sock, 2*time.Second)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(2 * time.Second))
+	keys, err := agent.NewClient(conn).List()
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(keys, func(k *agent.Key) bool { return bytes.Equal(k.Blob, pub.Marshal()) })
 }
 
 func regular(path string) bool {

@@ -3,8 +3,12 @@ package sshconfig
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"os/user"
@@ -18,6 +22,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 )
 
 func write(t *testing.T, path, body string) {
@@ -127,8 +132,84 @@ func TestAliasesMissingFile(t *testing.T) {
 	}
 }
 
+// serveAgent runs an ssh-agent holding keys on a fresh socket and points
+// SSH_AUTH_SOCK at it.
+func serveAgent(t *testing.T, keys ...any) {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "sa") // t.TempDir can exceed the socket path limit on macOS
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "agent")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	kr := agent.NewKeyring()
+	for _, k := range keys {
+		if err := kr.Add(agent.AddedKey{PrivateKey: k}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() { agent.ServeAgent(kr, c); c.Close() }()
+		}
+	}()
+	t.Setenv("SSH_AUTH_SOCK", sock)
+}
+
+// An encrypted key the agent already holds is used through the agent, as
+// ssh does: no passphrase needed. The public key comes from the file itself
+// (OpenSSH format) or from its .pub (legacy PEM).
+func TestCheckUsesAgentForEncryptedKeyItHolds(t *testing.T) {
+	dir := t.TempDir()
+	_, held, _ := ed25519.GenerateKey(nil)
+	_, other, _ := ed25519.GenerateKey(nil)
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	openssh, pemRSA, notHeld := filepath.Join(dir, "openssh"), filepath.Join(dir, "pem_rsa"), filepath.Join(dir, "not_held")
+	for p, k := range map[string]any{openssh: held, notHeld: other} {
+		blk, err := ssh.MarshalPrivateKeyWithPassphrase(k, "", []byte("pp"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(t, p, string(pem.EncodeToMemory(blk)))
+	}
+	//lint:ignore SA1019 legacy encrypted PEM is what older ssh-keygen wrote
+	blk, err := x509.EncryptPEMBlock(rand.Reader, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(rsaKey), []byte("pp"), x509.PEMCipherAES128)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, pemRSA, string(pem.EncodeToMemory(blk)))
+	rsaPub, _ := ssh.NewPublicKey(&rsaKey.PublicKey)
+	write(t, pemRSA+".pub", string(ssh.MarshalAuthorizedKey(rsaPub)))
+	serveAgent(t, held, rsaKey)
+
+	none := func(string) bool { return false }
+	for _, f := range []string{openssh, pemRSA} {
+		r := Resolved{Alias: "h", HostName: "10.0.0.1", Port: 22, User: "u", IdentityFiles: []string{f}}
+		if c := Check(r, none); c.Auth != "agent" || c.KeyPath != "" || c.NeedsPassphrase {
+			t.Errorf("%s held by agent: %+v", filepath.Base(f), c)
+		}
+	}
+	r := Resolved{Alias: "h", HostName: "10.0.0.1", Port: 22, User: "u", IdentityFiles: []string{notHeld}}
+	if c := Check(r, none); c.Auth != "key" || c.KeyPath != notHeld || !c.NeedsPassphrase {
+		t.Errorf("not held: %+v", c)
+	}
+}
+
 func TestResolveAndCheck(t *testing.T) {
 	bin := sshBin(t)
+	t.Setenv("SSH_AUTH_SOCK", "") // the locked key below must not meet a real agent
 	dir := t.TempDir()
 	k1, k2, enc, missing := filepath.Join(dir, "k1"), filepath.Join(dir, "k2"), filepath.Join(dir, "enc"), filepath.Join(dir, "missing")
 	writeKey(t, k1, "")
