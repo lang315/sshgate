@@ -30,7 +30,12 @@ export function ImportRows({ candidates, checked, onToggle }: {
   )
 }
 
-// Ready rows start checked. The hub gets alias names only.
+// The first scan checks every ready row; a rescan keeps the user's choice.
+export function nextChecked(candidates: ImportCandidate[], prev?: ReadonlySet<string>): Set<string> {
+  return new Set(candidates.filter((c) => c.status === 'ready' && (!prev || prev.has(c.alias))).map((c) => c.alias))
+}
+
+// The hub gets alias names only.
 export function ImportSheet({ scan, apply, onImported, onClose }: {
   scan: () => Promise<ImportScan>; apply: (aliases: string[]) => Promise<ImportResult>
   onImported: () => Promise<void>; onClose: () => void
@@ -39,12 +44,12 @@ export function ImportSheet({ scan, apply, onImported, onClose }: {
   const [checked, setChecked] = useState<Set<string>>(() => new Set())
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(true)
-  const load = async () => {
+  const load = async (rescan = false) => {
     setBusy(true)
     try {
       const s = await scan()
       setList(s)
-      setChecked(new Set(s.candidates.filter((c) => c.status === 'ready').map((c) => c.alias)))
+      setChecked((prev) => nextChecked(s.candidates, rescan ? prev : undefined))
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
   useEffect(() => { load() }, [])
@@ -60,7 +65,7 @@ export function ImportSheet({ scan, apply, onImported, onClose }: {
       await onImported()
       if (r.skipped.length === 0) { onClose(); return }
       setError('Not imported: ' + r.skipped.map((s) => `${s.alias} (${s.reason})`).join('; '))
-      await load()
+      await load(true)
     } catch (err) { setError((err as Error).message) } finally { setBusy(false) }
   }
   const escape = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) { e.preventDefault(); onClose() } }

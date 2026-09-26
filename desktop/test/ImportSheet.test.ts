@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { ImportRows, ImportSheet } from '../src/renderer/ImportSheet'
+import { ImportRows, ImportSheet, nextChecked } from '../src/renderer/ImportSheet'
 import type { ImportCandidate, ImportScan } from '../src/shared/protocol'
 
 const ready: ImportCandidate = {
@@ -47,5 +47,15 @@ describe('ImportSheet', () => {
     expect(html).toContain('aria-label="Import from SSH config"')
     expect(html).toContain('StrictHostKeyChecking accept-new')
     expect(html).toMatch(/<button type="submit"[^>]*disabled=""/)
+  })
+})
+
+describe('nextChecked', () => {
+  const list = [ready, { ...ready, alias: 'db' }, { ...ready, alias: 'jump', status: 'skipped' as const }]
+  it('checks every ready row on the first scan', () => {
+    expect([...nextChecked(list)]).toEqual(['web', 'db'])
+  })
+  it('keeps a rescan to what was checked and is still ready', () => {
+    expect([...nextChecked(list, new Set(['db', 'jump', 'gone']))]).toEqual(['db'])
   })
 })
