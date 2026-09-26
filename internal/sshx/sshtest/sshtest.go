@@ -28,6 +28,7 @@ type Server struct {
 	done               chan struct{}
 	mu                 sync.Mutex
 	cfg                *ssh.ServerConfig
+	hostKey            ssh.PublicKey
 }
 
 // Listen starts a server without the testing package. stop closes it.
@@ -89,6 +90,7 @@ func (s *Server) rotate() error {
 	s.mu.Lock()
 	s.cfg = cfg
 	s.HostKeyFingerprint = ssh.FingerprintSHA256(signer.PublicKey())
+	s.hostKey = signer.PublicKey()
 	s.mu.Unlock()
 	return nil
 }
@@ -107,6 +109,14 @@ func (s *Server) Fingerprint() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.HostKeyFingerprint
+}
+
+// PublicKey returns the current host key. Safe to call concurrently with
+// RotateHostKey.
+func (s *Server) PublicKey() ssh.PublicKey {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.hostKey
 }
 
 func (s *Server) serveConn(nc net.Conn, cfg *ssh.ServerConfig) {

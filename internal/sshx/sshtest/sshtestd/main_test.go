@@ -5,10 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/lang315/sshgate/internal/config"
+	"github.com/lang315/sshgate/internal/sshx"
 )
 
 func TestSSHTestdWritesReadyStore(t *testing.T) {
@@ -17,7 +19,8 @@ func TestSSHTestdWritesReadyStore(t *testing.T) {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
 	store := filepath.Join(t.TempDir(), "servers.json")
-	cmd := exec.Command(bin, "-write-store="+store, "-password=pw")
+	kh := filepath.Join(t.TempDir(), "known_hosts")
+	cmd := exec.Command(bin, "-write-store="+store, "-password=pw", "-write-known-hosts="+kh)
 	stdin, _ := cmd.StdinPipe()
 	stdout, _ := cmd.StdoutPipe()
 	if err := cmd.Start(); err != nil {
@@ -35,6 +38,10 @@ func TestSSHTestdWritesReadyStore(t *testing.T) {
 	s, ok := f.FindServer("box")
 	if !ok || !s.AIVisible || s.HostKey == "" || s.EncPassword == "" || f.KDF == nil {
 		t.Fatalf("store not ready: %+v", f)
+	}
+	port, _ := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "PORT=")))
+	if algo, fp, ok := sshx.KnownHostKey([]string{kh}, "127.0.0.1", port); !ok || fp != s.HostKey || algo != "ssh-ed25519" {
+		t.Fatalf("known_hosts: %q %q %v, want %q", algo, fp, ok, s.HostKey)
 	}
 	mk, err := f.KDF.DeriveKey("pw")
 	if err != nil || !f.KDF.Verify(mk) || f.VerifyMAC(mk) != nil {
