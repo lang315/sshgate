@@ -1,7 +1,7 @@
 # sshgate: Import Hosts from `~/.ssh/config` — Design (Slice 2b, part 1)
 
 Date: 2026-09-26
-Status: Draft, awaiting review.
+Status: Approved 2026-09-26; implemented (plan `plans/2026-09-26-slice2b-ssh-config-import.md`).
 Depends on: `2026-09-24-desktop-app-design.md` (slice 1) and `2026-09-25-desktop-slice2a-design.md` (slice 2a). Everything there still holds unless this document changes it by name.
 
 ## Goal

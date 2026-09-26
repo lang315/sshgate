@@ -52,6 +52,8 @@ Claude Code ──stdio──▶ sshgate (bridge) ──per-user socket──▶
 
 3. **Add a host.** On the **Hosts** tab click **New host**: Address, optional Label (defaults to the address), port, User, and Password. `+ Key or agent` switches to key or agent authentication.
 
+   Already use `ssh`? Click **Import from SSH config** instead. It lists the hosts in `~/.ssh/config` and pins each host key from `~/.ssh/known_hosts`, so the first connect asks nothing. Hosts behind `ProxyJump` or `ProxyCommand` are skipped. Passwords are not in `ssh_config`: add them in the editor afterwards.
+
 4. **Connect once and trust the key.** Click the host card. The app shows the server's `SHA256:` fingerprint, its key type, and whether `~/.ssh/known_hosts` lists the same key. Check it, then click **Trust and connect** (mouse only; **Cancel** is the default). The key is now pinned.
 
 5. **Let the AI see it.** Edit the host, open **AI access**, and turn on **Visible to AI**.
