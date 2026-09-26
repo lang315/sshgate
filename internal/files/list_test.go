@@ -78,6 +78,25 @@ func TestListPermissionDenied(t *testing.T) {
 	}
 }
 
+// TestListRespectsCancelledContext exercises the ctx check inside List. With
+// an already-cancelled context, c.ReadDirContext's own select on ctx.Done()
+// wins the race against the (not yet arrived) server response, so this test
+// in practice exercises that path, not the per-entry ctx.Err() check added to
+// the symlink loop; the loop check is defensive for a context that expires
+// mid-listing (a slow ReadLink round trip), which is impractical to force
+// deterministically here. See the fix report for detail.
+func TestListRespectsCancelledContext(t *testing.T) {
+	c, _, root := remote(t)
+	write(t, filepath.Join(root, "home", "a.txt"), "abc", 0o640)
+	os.Symlink("a.txt", filepath.Join(root, "home", "ln1"))
+	os.Symlink("a.txt", filepath.Join(root, "home", "ln2"))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := List(ctx, c, "/home"); err == nil {
+		t.Fatal("cancelled context listed")
+	}
+}
+
 func TestMkdirAndRename(t *testing.T) {
 	c, _, root := remote(t)
 	if err := Mkdir(c, "rel"); err == nil {
@@ -105,5 +124,19 @@ func TestMkdirAndRename(t *testing.T) {
 	}
 	if read(t, filepath.Join(root, "home", "c")) != "a" {
 		t.Fatal("rename lost content")
+	}
+}
+
+func TestRenameRefusesRootAndHomeAsTarget(t *testing.T) {
+	c, _, root := remote(t)
+	write(t, filepath.Join(root, "home", "a"), "a", 0o644)
+	if err := Rename(c, "/", "/elsewhere"); err == nil {
+		t.Fatal("renamed /")
+	}
+	if err := Rename(c, "/home/a", "/"); err == nil {
+		t.Fatal("renamed onto /")
+	}
+	if err := Rename(c, "/home/a", "/home"); err == nil {
+		t.Fatal("renamed onto the home directory")
 	}
 }

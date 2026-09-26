@@ -101,3 +101,82 @@ None. `list.go`, `list_test.go`, and `helpers_test.go` are exactly the code give
 
 - `Rename`'s pre-check (`Lstat` then `Rename`) is inherently check-then-act (TOCTOU); it isn't atomic against a concurrent create of `to` between the two calls. This is fine per the brief: the server's own plain-rename semantics (verified in Task 1, `TestSFTPAgainstOpenSSH`) also refuse to replace an existing name, so the `Lstat` is a fast, clearer-error pre-check, not the sole enforcement.
 - `TestListTruncates` writes `MaxList+1` (10,001) local files, so it costs ~1.2s of the ~1.3s test run. Not a correctness concern, just the slowest test in the package.
+
+## Fix Report (review round 1)
+
+Task review found two Important issues. Both fixed.
+
+### Issue 1: `List`'s symlink loop ignored ctx
+
+**Problem:** the per-symlink `c.ReadLink` loop in `List` (`internal/files/list.go`) did not check `ctx` between entries, so a folder with many symlinks kept issuing `ReadLink` round trips after the caller's deadline/cancellation.
+
+**Change:** added `if err := ctx.Err(); err != nil { return Listing{}, err }` at the top of the loop body, before the name check. Extended the existing `ponytail:` comment on `List` with one line: a single hung `ReadLink` on the shared client cannot itself be cancelled (`pkg/sftp` has no `ReadLinkContext`, and closing the shared client would kill other listings in flight); the connection's keepalive is the backstop for that case.
+
+**Test added:** `TestListRespectsCancelledContext` (`internal/files/list_test.go`) — lists `/home` (containing a file and two symlinks) with an already-cancelled context and asserts `List` returns a non-nil error.
+
+**Which path the test exercises:** I checked `pkg/sftp` v1.13.11's `clientConn.sendPacket` (`conn.go:155`): it dispatches the wire request unconditionally, then does `select { case <-ctx.Done(): return ctx.Err(); case s := <-ch: ... }`. With an already-cancelled context passed in before `List` is even called, `ctx.Done()` is closed at the moment `opendir`'s `sendPacket` evaluates that select, while the server's response channel is not yet ready (real round trip). So `c.ReadDirContext` itself returns `ctx.Err()` before the loop is ever reached — this test exercises `ReadDirContext`'s own ctx handling, not the new per-entry check in the symlink loop. The new loop check is defensive for a context that expires *during* a listing (e.g. a slow `ReadLink` mid-loop after the deadline fires) — forcing that specific interleaving deterministically in a test would need an artificially slow/hostile `ReadLink` in `sshtest`, which the brief's fixtures don't offer, so per the review's own allowance I kept to the simplest test and documented the gap here rather than adding test-only server hooks.
+
+### Issue 2: `Rename`'s comment overstated the server backstop
+
+**Problem:** the comment said "OpenSSH's sftp-server itself refuses to run onto an existing name (verified by `TestSFTPAgainstOpenSSH`)" without noting that test is Docker-only and skipped under `-short` — implying a guarantee that isn't verified in every test run.
+
+**Change:** reworded the comment to state plainly that the `Lstat` check on `to` is the enforced guard, and that the remaining check-then-rename window is covered on OpenSSH servers specifically (plain `SSH_FXP_RENAME` there also refuses to replace), verified by `TestSFTPAgainstOpenSSH` in CI (not in every local run).
+
+**Tests added:** `TestRenameRefusesRootAndHomeAsTarget` (`internal/files/list_test.go`) covers three cases the existing `TestMkdirAndRename` didn't: `from == "/"`, `to == "/"`, and `to == home` (existing test only covered `from == home`).
+
+### Covering tests run
+
+```
+$ go test -race ./internal/files/ -run 'TestList|TestMkdir' -v
+=== RUN   TestListHomeKindsAndLinks
+--- PASS: TestListHomeKindsAndLinks (0.02s)
+=== RUN   TestListRejectsRelativeAndCountsBadNames
+--- PASS: TestListRejectsRelativeAndCountsBadNames (0.01s)
+=== RUN   TestListTruncates
+--- PASS: TestListTruncates (1.26s)
+=== RUN   TestListPermissionDenied
+--- PASS: TestListPermissionDenied (0.01s)
+=== RUN   TestListRespectsCancelledContext
+--- PASS: TestListRespectsCancelledContext (0.01s)
+=== RUN   TestMkdirAndRename
+--- PASS: TestMkdirAndRename (0.01s)
+PASS
+ok  	github.com/lang315/sshgate/internal/files	2.793s
+
+$ go test -race ./internal/files/ -v   # full package, includes TestRenameRefusesRootAndHomeAsTarget
+=== RUN   TestListHomeKindsAndLinks
+--- PASS: TestListHomeKindsAndLinks (0.02s)
+=== RUN   TestListRejectsRelativeAndCountsBadNames
+--- PASS: TestListRejectsRelativeAndCountsBadNames (0.01s)
+=== RUN   TestListTruncates
+--- PASS: TestListTruncates (1.20s)
+=== RUN   TestListPermissionDenied
+--- PASS: TestListPermissionDenied (0.01s)
+=== RUN   TestListRespectsCancelledContext
+--- PASS: TestListRespectsCancelledContext (0.01s)
+=== RUN   TestMkdirAndRename
+--- PASS: TestMkdirAndRename (0.01s)
+=== RUN   TestRenameRefusesRootAndHomeAsTarget
+--- PASS: TestRenameRefusesRootAndHomeAsTarget (0.01s)
+=== RUN   TestRemoteNameRules
+--- PASS: TestRemoteNameRules (0.00s)
+=== RUN   TestLocalNameRules
+--- PASS: TestLocalNameRules (0.00s)
+=== RUN   TestPathRules
+--- PASS: TestPathRules (0.00s)
+=== RUN   TestModes
+--- PASS: TestModes (0.00s)
+=== RUN   TestErrorsKeepFirstTwenty
+--- PASS: TestErrorsKeepFirstTwenty (0.00s)
+=== RUN   TestFatal
+--- PASS: TestFatal (0.00s)
+=== RUN   TestPartName
+--- PASS: TestPartName (0.00s)
+PASS
+ok  	github.com/lang315/sshgate/internal/files	2.488s
+
+$ go vet ./... ; echo "vet=$?"
+vet=0
+$ GOOS=windows go vet ./... ; echo "win_vet=$?"
+win_vet=0
+```

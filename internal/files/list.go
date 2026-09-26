@@ -46,7 +46,10 @@ func Home(c *sftp.Client) (string, error) { return c.RealPath(".") }
 // List reads one folder ("" is home).
 // ponytail: pkg/sftp v1.13.11 has no streaming readdir, so ReadDirContext
 // buffers the whole folder; the caller bounds it with ctx. Upgrade path: a
-// raw SSH_FXP_READDIR loop that stops at MaxList.
+// raw SSH_FXP_READDIR loop that stops at MaxList. A single hung ReadLink on
+// the shared client cannot itself be cancelled (pkg/sftp has no
+// ReadLinkContext, and closing the shared client would kill other listings
+// in flight); the connection's keepalive is the backstop for that case.
 func List(ctx context.Context, c *sftp.Client, p string) (Listing, error) {
 	if p == "" {
 		h, err := Home(c)
@@ -63,6 +66,9 @@ func List(ctx context.Context, c *sftp.Client, p string) (Listing, error) {
 	}
 	l := Listing{Path: p, Entries: []Entry{}}
 	for _, fi := range fis {
+		if err := ctx.Err(); err != nil {
+			return Listing{}, err
+		}
 		if checkRemoteName(fi.Name()) != nil {
 			l.Bad++
 			continue
@@ -90,9 +96,10 @@ func Mkdir(c *sftp.Client, p string) error {
 
 var errExists = errors.New("already exists; not replaced")
 
-// Rename never replaces: it checks the target, then uses the plain SFTP
-// rename, which OpenSSH's sftp-server itself refuses to run onto an existing
-// name (verified by TestSFTPAgainstOpenSSH).
+// Rename never replaces: the Lstat check on to is the enforced guard. The
+// remaining check-then-rename window is covered on OpenSSH servers, because
+// plain SSH_FXP_RENAME there also refuses to replace an existing name
+// (verified by TestSFTPAgainstOpenSSH in CI).
 func Rename(c *sftp.Client, from, to string) error {
 	home, err := Home(c)
 	if err != nil {
