@@ -1,6 +1,8 @@
 package sshx
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/ed25519"
 	"errors"
 	"net"
@@ -34,13 +36,26 @@ func KnownHostsHint(file, host string, port int, key ssh.PublicKey) string {
 
 // KnownHostKey picks the key the known_hosts files record for host:port,
 // for pinning at import: ed25519, then ecdsa, then rsa. A revoked key is
-// never returned. Unreadable files are skipped.
+// never returned, nor is an @cert-authority key. Unreadable files are skipped.
 func KnownHostKey(files []string, host string, port int) (algo, fingerprint string, ok bool) {
+	type pos struct {
+		file string
+		line int
+	}
 	var have []string
+	caLines := map[pos]bool{}
 	for _, f := range files {
-		if fh, err := os.Open(f); err == nil {
-			fh.Close()
-			have = append(have, f)
+		b, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		have = append(have, f)
+		// Numbered as knownhosts numbers them, so KnownKey.Line matches.
+		sc := bufio.NewScanner(bytes.NewReader(b))
+		for n := 1; sc.Scan(); n++ {
+			if w := strings.Fields(sc.Text()); len(w) > 0 && w[0] == "@cert-authority" {
+				caLines[pos{f, n}] = true
+			}
 		}
 	}
 	if len(have) == 0 {
@@ -62,7 +77,7 @@ func KnownHostKey(files []string, host string, port int) (algo, fingerprint stri
 	var pick ssh.PublicKey
 	for _, k := range ke.Want {
 		r := keyRank(k.Key.Type())
-		if r < 0 || pick != nil && r >= keyRank(pick.Type()) {
+		if r < 0 || caLines[pos{k.Filename, k.Line}] || pick != nil && r >= keyRank(pick.Type()) {
 			continue
 		}
 		if cb(addr, remote, k.Key) == nil { // not revoked

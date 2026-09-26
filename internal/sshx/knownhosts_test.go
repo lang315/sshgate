@@ -65,6 +65,8 @@ func TestKnownHostKey(t *testing.T) {
 	ec := pub(t, &ecKey.PublicKey, err)
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	rs := pub(t, &rsaKey.PublicKey, err)
+	caPub, _, err := ed25519.GenerateKey(nil)
+	ca := pub(t, caPub, err)
 
 	line := func(addr string, k ssh.PublicKey) string {
 		return knownhosts.Line([]string{knownhosts.Normalize(addr)}, k) + "\n"
@@ -75,7 +77,9 @@ func TestKnownHostKey(t *testing.T) {
 		line("h:2222", ed) +
 		line("gone:22", ed2) + line("gone:22", rs) +
 		line("dead:22", ed2) +
-		"@revoked * " + string(ssh.MarshalAuthorizedKey(ed2))
+		"@revoked * " + string(ssh.MarshalAuthorizedKey(ed2)) +
+		"@cert-authority *.corp " + string(ssh.MarshalAuthorizedKey(ca)) +
+		line("web.corp:22", rs)
 	if err := os.WriteFile(kh, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -92,6 +96,8 @@ func TestKnownHostKey(t *testing.T) {
 		{"gone", 22, ssh.KeyAlgoRSA, Fingerprint(rs)}, // the revoked ed25519 key is passed over
 		{"dead", 22, "", ""},
 		{"absent", 22, "", ""},
+		{"web.corp", 22, ssh.KeyAlgoRSA, Fingerprint(rs)}, // the CA key is never a host key
+		{"only.corp", 22, "", ""},
 	} {
 		algo, fp, ok := KnownHostKey([]string{missing, kh}, tc.host, tc.port)
 		if algo != tc.algo || fp != tc.fp || ok != (tc.fp != "") {
