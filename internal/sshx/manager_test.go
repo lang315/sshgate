@@ -5,12 +5,15 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+	"golang.org/x/crypto/ssh"
 )
 
 func startSSH(t *testing.T) (host string, port int, cleanup func()) {
@@ -29,7 +32,27 @@ func startSSH(t *testing.T) (host string, port int, cleanup func()) {
 	}
 	h, _ := c.Host(ctx)
 	p, _ := c.MappedPort(ctx, "2222")
+	waitSSH(t, h, int(p.Num()))
 	return h, int(p.Num()), func() { c.Terminate(ctx) }
+}
+
+// waitSSH blocks until a password login succeeds. ForListeningPort alone is
+// not enough: Docker's port proxy accepts connections before sshd (and the
+// test user) are ready, so early handshakes are reset.
+func waitSSH(t *testing.T, host string, port int) {
+	t.Helper()
+	cfg := &ssh.ClientConfig{User: "test", Auth: []ssh.AuthMethod{ssh.Password("testpass")},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), Timeout: 5 * time.Second}
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	var err error
+	for deadline := time.Now().Add(60 * time.Second); time.Now().Before(deadline); time.Sleep(500 * time.Millisecond) {
+		var c *ssh.Client
+		if c, err = ssh.Dial("tcp", addr, cfg); err == nil {
+			c.Close()
+			return
+		}
+	}
+	t.Fatalf("sshd in the test container never accepted a login: %v", err)
 }
 
 // startSSHWithRoot starts the same SSH-accessible container as startSSH, then
@@ -58,6 +81,7 @@ func startSSHWithRoot(t *testing.T) (host string, port int, cleanup func()) {
 	}
 	h, _ := c.Host(ctx)
 	p, _ := c.MappedPort(ctx, "2222")
+	waitSSH(t, h, int(p.Num()))
 	return h, int(p.Num()), func() { c.Terminate(ctx) }
 }
 
