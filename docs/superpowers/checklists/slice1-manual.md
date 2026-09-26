@@ -22,6 +22,11 @@ Build first: `go build -o sshgate ./cmd/sshgate` at the repo root, then
   exactly `xin chào`, with the correct diacritics, on all four
   IME/OS combinations tried.
 
+  **Automated part:** `desktop/e2e/ime.spec.ts` drives a composition through
+  Chromium's IME input (`Input.imeSetComposition`, then `Input.insertText`)
+  and checks the shell receives `chào` once, committed, as user input.
+  **Still manual:** the real input methods above.
+
 - [ ] **2. Throughput**
 
   **Automated part:** `desktop/e2e/throughput.spec.ts` floods a tab with
