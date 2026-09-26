@@ -84,6 +84,7 @@ plan note.
   - "Send to tab" must never target a local shell.
   - A local shell while locked widens what a compromised renderer can do; justify it or refuse it.
   - `go-pageant` has had no release since 2021.
+- Slice 3a review → later (2026-09-26, four-agent review of the SFTP spec): open the Files tab at a terminal's current directory (needs OSC 7 from the shell); download by double-click, drag-out to Finder, copy path; sudo/root file access. Add them only if daily use hits them.
 - Slice 2 review → later: keyboard-interactive/2FA auth, agent forwarding, and host list search came up as daily-use gaps. Add them only if daily use hits them.
 - Slice 2a → follow-ups (security minors from the 2a reviews) — done:
   - A KDF-less store (stripped `kdf`, or never a vault) is "no vault" to the hub: `listServers` is empty, AI exec fails with "No vault yet; open the app and create one" (audited, never dialled), and `term.open` fails with "create a vault first". No out-of-file state was needed (`35c330b`).
