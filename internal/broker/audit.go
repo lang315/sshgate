@@ -28,7 +28,7 @@ type AuditRecord struct {
 type ConfigRecord struct {
 	Time           time.Time `json:"time"`
 	Kind           string    `json:"kind"`   // always "config"; exec records have none
-	Action         string    `json:"action"` // trust, forgetHostKey, delete, vaultCreate, save
+	Action         string    `json:"action"` // trust, forgetHostKey, delete, vaultCreate, save, import
 	Server         string    `json:"server,omitempty"`
 	Host           string    `json:"host,omitempty"`
 	Port           int       `json:"port,omitempty"`

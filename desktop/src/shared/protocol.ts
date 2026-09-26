@@ -41,6 +41,16 @@ export interface HostKeyMismatch {
 
 export type TermOpenResult = { status: 'open' } | HostKeyUnknown | HostKeyMismatch
 
+// Import from ~/.ssh/config. The renderer sends only alias names back; the
+// hub recomputes host, user, key path and pin itself.
+export interface ImportCandidate {
+  alias: string; host: string; port: number; user: string; auth: string; keyPath?: string
+  needsPassphrase?: boolean; hostKey?: string; hostKeyAlgo?: string
+  status: 'ready' | 'exists' | 'skipped'; reason?: string
+}
+export interface ImportScan { candidates: ImportCandidate[]; note?: string }
+export interface ImportResult { imported: string[]; skipped: { alias: string; reason: string }[] }
+
 export type HubEvent =
   | { method: 'pending'; params: { request: ApprovalRequest } }
   | { method: 'decided'; params: { request: ApprovalRequest; decision: { outcome: Outcome; reason: string } } }
@@ -51,8 +61,9 @@ export type HubEvent =
 
 export const REQUEST_METHODS = ['hello', 'status', 'unlock', 'lock', 'servers', 'pending',
   'decide', 'denyAll', 'term.open', 'term.close',
-  'vault.create', 'servers.save', 'servers.delete', 'servers.forgetHostKey'] as const
+  'vault.create', 'servers.save', 'servers.delete', 'servers.forgetHostKey',
+  'import.scan', 'import.apply'] as const
 export type RequestMethod = (typeof REQUEST_METHODS)[number]
 export const NOTIFY_METHODS = ['term.write', 'term.ack', 'term.resize'] as const
 export type NotifyMethod = (typeof NOTIFY_METHODS)[number]
-export const PROTOCOL_VERSION = 2
+export const PROTOCOL_VERSION = 3

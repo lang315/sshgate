@@ -69,6 +69,7 @@ type Options struct {
 	Dialer         func(sshx.DialConfig) Executor // test seam; nil = real Registry
 	IdleLock       time.Duration                  // 0 means 15 minutes; < 0 disables auto-lock
 	KnownHostsPath string                         // "" means ~/.ssh/known_hosts; only a hint in the Trust prompt
+	SSHConfigPath  string                         // "" means ~/.ssh/config, read by ssh -G without -F; hub --sshConfig
 }
 
 type ServerInfo struct {

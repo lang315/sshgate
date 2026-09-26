@@ -43,7 +43,13 @@ func runHub(args []string) error {
 	}
 	defer audit.Close()
 
-	h, err := hub.New(hub.Options{StorePath: store, Audit: audit, IdleLock: idle})
+	// Dev/test knob, like --store: ssh finds ~ from the account database, not $HOME.
+	var sshConfig string
+	if p := m["sshConfig"]; p != nil {
+		sshConfig = *p
+	}
+
+	h, err := hub.New(hub.Options{StorePath: store, Audit: audit, IdleLock: idle, SSHConfigPath: sshConfig})
 	if err != nil {
 		return err
 	}
