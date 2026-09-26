@@ -9,8 +9,10 @@ if (mode === 'crash') {
 if (mode === 'crashBig') {
   const chunk = 'x'.repeat(1024)
   for (let i = 0; i < 200; i++) process.stderr.write(chunk + '\n')
-  process.stderr.write('LAST-LINE\n')
-  process.exit(3)
+  // Exit only once stderr has drained: past the pipe buffer, Node queues writes
+  // and process.exit() would drop them (Linux CI lost LAST-LINE this way).
+  process.stderr.write('LAST-LINE\n', () => process.exit(3))
+  await new Promise(() => {}) // never act as a hub meanwhile
 }
 const rl = readline.createInterface({ input: process.stdin })
 const send = (m) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m }) + '\n')
