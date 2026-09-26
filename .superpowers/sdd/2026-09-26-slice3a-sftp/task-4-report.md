@@ -180,3 +180,71 @@ vet=0
 $ GOOS=windows go vet ./... ; echo "win_vet=$?"
 win_vet=0
 ```
+
+## Fix Report (review round 2)
+
+One open finding from round 1: `TestListRespectsCancelledContext` still passed with the loop's `ctx.Err()` check removed, because `ReadDirContext` fails first on an already-cancelled context — nothing actually covered the per-entry check added in round 1.
+
+**Root cause:** `pkg/sftp` v1.13.11's `clientConn.sendPacket` (`conn.go:163`) only watches `ctx.Done()`; it never calls `ctx.Err()` itself. An already-cancelled `context.WithCancel` has both `Done()` closed and `Err()` non-nil, so it always trips `ReadDirContext`'s own check first — no test built on a plain cancelled context can ever reach the loop.
+
+**Fix:** added a test-only context type that decouples the two signals:
+
+```go
+// errCtx passes pkg/sftp's Done()-based checks (its embedded Done() never
+// closes) but reports cancellation to code that polls Err(), so a test can
+// reach List's per-entry ctx check after ReadDirContext has already
+// succeeded.
+type errCtx struct{ context.Context }
+
+func (errCtx) Err() error { return context.Canceled }
+```
+
+`errCtx{context.Background()}` has a `Done()` that never closes (so `ReadDirContext`'s select never takes the cancellation branch and the real listing succeeds), but its `Err()` always returns `context.Canceled`. `List`'s per-entry loop check polls `ctx.Err()` directly, so it is the only thing that can catch this.
+
+**Test added:** `TestListPerEntryCtxCheck` (`internal/files/list_test.go`) — lists `/home` (containing one symlink, so the loop runs at least once) with `errCtx{context.Background()}` and asserts `errors.Is(err, context.Canceled)`.
+
+**Confirmed the test catches a missing check:** temporarily removed the `if err := ctx.Err(); err != nil { return Listing{}, err }` line from `List`'s loop and re-ran just that test:
+
+```
+$ go test ./internal/files -run 'TestListPerEntryCtxCheck' -v
+=== RUN   TestListPerEntryCtxCheck
+    list_test.go:114: err <nil>, want context.Canceled
+--- FAIL: TestListPerEntryCtxCheck (0.01s)
+FAIL
+FAIL	github.com/lang315/sshgate/internal/files	0.407s
+FAIL
+```
+
+Then restored the check (file diffed back to identical with the committed version — confirmed via `git diff --stat` showing no changes) and re-ran to confirm it passes again (see below).
+
+**Renamed the existing test** from `TestListRespectsCancelledContext` to `TestListReadDirContextCancelled` and updated its comment to say plainly that it covers `ReadDirContext`'s own cancellation path (via a plain already-cancelled `context.WithCancel`), not the per-entry loop check — per the review's guidance to keep it but retitle it.
+
+### Covering tests run
+
+```
+$ go test -race ./internal/files/ -run 'TestList' -v
+=== RUN   TestListHomeKindsAndLinks
+--- PASS: TestListHomeKindsAndLinks (0.02s)
+=== RUN   TestListRejectsRelativeAndCountsBadNames
+--- PASS: TestListRejectsRelativeAndCountsBadNames (0.01s)
+=== RUN   TestListTruncates
+--- PASS: TestListTruncates (1.23s)
+=== RUN   TestListPermissionDenied
+--- PASS: TestListPermissionDenied (0.01s)
+=== RUN   TestListReadDirContextCancelled
+--- PASS: TestListReadDirContextCancelled (0.01s)
+=== RUN   TestListPerEntryCtxCheck
+--- PASS: TestListPerEntryCtxCheck (0.01s)
+PASS
+ok  	github.com/lang315/sshgate/internal/files	2.659s
+
+$ go vet ./... ; echo "vet=$?"
+vet=0
+
+$ go test -race ./internal/files/ ; echo "full_race=$?"   # full package, not just -run TestList
+ok  	github.com/lang315/sshgate/internal/files	2.527s
+full_race=0
+
+$ GOOS=windows go vet ./... ; echo "win_vet=$?"
+win_vet=0
+```

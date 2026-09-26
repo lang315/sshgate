@@ -78,14 +78,11 @@ func TestListPermissionDenied(t *testing.T) {
 	}
 }
 
-// TestListRespectsCancelledContext exercises the ctx check inside List. With
-// an already-cancelled context, c.ReadDirContext's own select on ctx.Done()
-// wins the race against the (not yet arrived) server response, so this test
-// in practice exercises that path, not the per-entry ctx.Err() check added to
-// the symlink loop; the loop check is defensive for a context that expires
-// mid-listing (a slow ReadLink round trip), which is impractical to force
-// deterministically here. See the fix report for detail.
-func TestListRespectsCancelledContext(t *testing.T) {
+// TestListReadDirContextCancelled exercises ReadDirContext's own cancellation
+// check (pkg/sftp's clientConn.sendPacket selects on ctx.Done()). With an
+// already-cancelled context, that select wins the race against the (not yet
+// arrived) server response, so List fails before the loop is ever reached.
+func TestListReadDirContextCancelled(t *testing.T) {
 	c, _, root := remote(t)
 	write(t, filepath.Join(root, "home", "a.txt"), "abc", 0o640)
 	os.Symlink("a.txt", filepath.Join(root, "home", "ln1"))
@@ -94,6 +91,27 @@ func TestListRespectsCancelledContext(t *testing.T) {
 	cancel()
 	if _, err := List(ctx, c, "/home"); err == nil {
 		t.Fatal("cancelled context listed")
+	}
+}
+
+// errCtx passes pkg/sftp's Done()-based checks (its embedded Done() never
+// closes) but reports cancellation to code that polls Err(), so a test can
+// reach List's per-entry ctx check after ReadDirContext has already
+// succeeded.
+type errCtx struct{ context.Context }
+
+func (errCtx) Err() error { return context.Canceled }
+
+// TestListPerEntryCtxCheck exercises the ctx.Err() check inside List's
+// symlink loop specifically: ReadDirContext succeeds (errCtx's Done() never
+// closes), so the loop is reached with at least one entry, and the loop must
+// stop and report context.Canceled instead of continuing to call ReadLink.
+func TestListPerEntryCtxCheck(t *testing.T) {
+	c, _, root := remote(t)
+	os.Symlink("a.txt", filepath.Join(root, "home", "ln"))
+	_, err := List(errCtx{context.Background()}, c, "/home")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err %v, want context.Canceled", err)
 	}
 }
 
