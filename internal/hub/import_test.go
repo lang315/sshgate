@@ -238,3 +238,88 @@ func TestImportWithoutSSHClient(t *testing.T) {
 		t.Fatalf("want no-ssh error, got %v", err)
 	}
 }
+
+func appendConfig(t *testing.T, fx importFixture, body string) {
+	t.Helper()
+	f, err := os.OpenFile(fx.h.o.SSHConfigPath, os.O_APPEND|os.O_WRONLY, 0)
+	if err == nil {
+		_, err = f.WriteString(body)
+		f.Close()
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// ssh -G fails for broken alone (an unknown %-token); the rest still list.
+func TestImportSkipsAliasWhoseSSHGFails(t *testing.T) {
+	fx := importHub(t)
+	appendConfig(t, fx, "Host broken\n  HostName %Z\n")
+	ctx := context.Background()
+	var scan scanResult
+	if err := fx.c.Call(ctx, "import.scan", nil, &scan); err != nil {
+		t.Fatal(err)
+	}
+	if len(scan.Candidates) != 3 || scan.Candidates[0].Status != "ready" || scan.Candidates[1].Reason != "needs ProxyJump" ||
+		scan.Candidates[2] != (sshconfig.Candidate{Alias: "broken", Status: "skipped", Reason: "ssh -G failed"}) {
+		t.Fatalf("scan %+v", scan)
+	}
+	var res applyResult
+	if err := fx.c.Call(ctx, "import.apply", map[string]any{"aliases": []string{"broken", "web"}}, &res); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(res.Imported, []string{"web"}) || len(res.Skipped) != 1 ||
+		res.Skipped[0].Alias != "broken" || res.Skipped[0].Reason != "ssh -G failed" {
+		t.Fatalf("apply %+v", res)
+	}
+}
+
+// web is added by hand after its check and before the write: the import
+// keeps the hand-made server and reports web as already there.
+func TestImportApplySkipsServerAddedDuringScan(t *testing.T) {
+	fx := importHub(t)
+	dir := t.TempDir()
+	started, proceed := filepath.Join(dir, "started"), filepath.Join(dir, "go")
+	// Only gate's ssh -G waits, and web is resolved and checked before it.
+	appendConfig(t, fx, fmt.Sprintf("Match host gate exec \"touch %s; while [ ! -e %s ]; do sleep 0.05; done\"\n  User x\nHost gate\n", started, proceed))
+	type result struct {
+		res applyResult
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		var r result
+		r.err = fx.c.Call(context.Background(), "import.apply", map[string]any{"aliases": []string{"web", "gate"}}, &r.res)
+		done <- r
+	}()
+	for deadline := time.Now().Add(4 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("ssh -G never ran the Match exec")
+		}
+	}
+	hand := config.ServerInput{Name: "web", Host: "10.9.9.9", Port: 22, User: "me", Auth: "agent"}
+	if err := fx.h.SaveServer("", hand); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(proceed, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := <-done
+	if r.err != nil || !slices.Equal(r.res.Imported, []string{"gate"}) || len(r.res.Skipped) != 1 ||
+		r.res.Skipped[0].Alias != "web" || r.res.Skipped[0].Reason != "Already in vault" {
+		t.Fatalf("apply %v %+v", r.err, r.res)
+	}
+	f, _ := config.Load(fx.store)
+	if s, ok := f.FindServer("web"); !ok || s.Host != "10.9.9.9" || s.HostKey != "" {
+		t.Fatalf("web %+v, want the hand-made server", s)
+	}
+	_, recs := readAudit(t, fx.store)
+	for _, rec := range recs {
+		if rec["action"] == "import" && rec["server"] == "web" {
+			t.Fatalf("web audited as imported: %v", rec)
+		}
+	}
+}
