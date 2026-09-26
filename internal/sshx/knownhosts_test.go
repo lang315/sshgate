@@ -101,4 +101,14 @@ func TestKnownHostKey(t *testing.T) {
 	if _, _, ok := KnownHostKey([]string{missing}, "multi", 22); ok {
 		t.Fatal("no readable file must give no key")
 	}
+
+	unreadable := filepath.Join(t.TempDir(), "unreadable")
+	if err := os.WriteFile(unreadable, []byte("ignored"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	if os.Geteuid() != 0 { // root can read a 0000 file
+		if algo, fp, ok := KnownHostKey([]string{unreadable, kh}, "multi", 22); !ok || algo != ssh.KeyAlgoED25519 || fp != Fingerprint(ed) {
+			t.Errorf("unreadable file: got %q %q %v, want %q %q true", algo, fp, ok, ssh.KeyAlgoED25519, Fingerprint(ed))
+		}
+	}
 }

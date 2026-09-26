@@ -38,7 +38,8 @@ func KnownHostsHint(file, host string, port int, key ssh.PublicKey) string {
 func KnownHostKey(files []string, host string, port int) (algo, fingerprint string, ok bool) {
 	var have []string
 	for _, f := range files {
-		if _, err := os.Stat(f); err == nil {
+		if fh, err := os.Open(f); err == nil {
+			fh.Close()
 			have = append(have, f)
 		}
 	}
