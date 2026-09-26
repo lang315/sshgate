@@ -57,29 +57,21 @@ func fileErr(err error) error {
 	return err
 }
 
-// sftpFor resolves server as term.open does (unlocked vault, known server)
-// and returns its manager, with keepalive on.
-func (h *Hub) sftpFor(server string) (*sshx.Manager, sshx.DialConfig, error) {
+// pinnedClient is for methods that need a pin already (everything but
+// files.list). It checks the pin before touching the registry: a refused
+// call on an unpinned server must not close a manager a trusted term.open or
+// files.list retry is still using.
+func (h *Hub) pinnedClient(server string) (*sshx.Manager, sshx.DialConfig, error) {
 	_ = h.Reload()
 	dc, err := h.resolveForTerm(server)
-	if err != nil {
-		return nil, dc, err
-	}
-	mgr := h.Registry().Get(server, dc)
-	mgr.StartKeepalive(30*time.Second, nil)
-	return mgr, dc, nil
-}
-
-// pinnedClient is sftpFor plus the shared client, for methods that need a
-// pin already (everything but files.list).
-func (h *Hub) pinnedClient(server string) (*sshx.Manager, sshx.DialConfig, error) {
-	mgr, dc, err := h.sftpFor(server)
 	if err != nil {
 		return nil, dc, err
 	}
 	if dc.HostKey == "" {
 		return nil, dc, errors.New("trust the host key first: open the Files tab")
 	}
+	mgr := h.Registry().Get(server, dc)
+	mgr.StartKeepalive(30*time.Second, nil)
 	return mgr, dc, nil
 }
 
@@ -207,5 +199,5 @@ func registerFileMethods(s *rpc.Server, h *Hub) (closeAll func()) {
 		}
 		return empty, nil
 	})
-	return func() {}
+	return registerJobMethods(s, h)
 }

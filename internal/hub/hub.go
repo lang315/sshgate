@@ -98,6 +98,7 @@ type Hub struct {
 	reg     *sshx.Registry
 	broker  *broker.Broker
 	audit   *broker.Audit
+	files   *jobSet // every file job; see filejobs.go
 
 	storeErr     error // the last reload's error; guarded by h.mu
 	lockSink     func(reason string)
@@ -110,7 +111,7 @@ type Hub struct {
 
 // New loads the store if present; a missing store is not an error.
 func New(o Options) (*Hub, error) {
-	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit, lastActivity: time.Now(), done: make(chan struct{})}
+	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit, files: newJobSet(), lastActivity: time.Now(), done: make(chan struct{})}
 	h.deps = &mcpserver.Deps{Path: o.StorePath}
 	f, err := config.Load(o.StorePath)
 	if err != nil && !os.IsNotExist(err) {

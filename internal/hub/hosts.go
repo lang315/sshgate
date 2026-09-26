@@ -166,6 +166,7 @@ func (h *Hub) SaveServer(original string, in config.ServerInput) error {
 		name = in.Name
 	}
 	if dialChanged(before, after) {
+		h.files.endServer(name, "server changed")
 		h.reg.Close(name)
 	}
 	h.denyPending(name)
@@ -192,6 +193,7 @@ func (h *Hub) DeleteServer(name string) error {
 		return err
 	}
 	reloadErr := h.Reload()
+	h.files.endServer(name, "server changed")
 	h.reg.Close(name)
 	h.denyPending(name)
 	h.auditConfig(broker.ConfigRecord{Action: "delete", Server: name})
@@ -221,6 +223,7 @@ func (h *Hub) ForgetHostKey(name string) error {
 		return err
 	}
 	reloadErr := h.Reload()
+	h.files.endServer(name, "server changed")
 	h.reg.Close(name)
 	h.auditConfig(broker.ConfigRecord{Action: "forgetHostKey", Server: name, OldFingerprint: old})
 	return reloadErr // the write itself succeeded

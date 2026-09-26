@@ -182,6 +182,21 @@ func TestFilesListTrustsAnUnpinnedHost(t *testing.T) {
 	}
 }
 
+// TestFilesUnpinnedServerRefusesMkdirAndPlan: pinnedClient must check the pin
+// before touching the registry, so a refused call on an unpinned server
+// never closes a manager a trusted term.open or files.list retry is using.
+func TestFilesUnpinnedServerRefusesMkdirAndPlan(t *testing.T) {
+	fx := filesHub(t)
+	ctx := context.Background()
+	const want = "trust the host key first"
+	if err := fx.c.Call(ctx, "files.mkdir", map[string]any{"server": "new", "path": "/home/d"}, nil); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("mkdir on unpinned server: %v", err)
+	}
+	if err := fx.c.Call(ctx, "files.plan", map[string]any{"id": "u1", "server": "new", "op": "delete", "sources": []string{"/home"}}, nil); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("plan on unpinned server: %v", err)
+	}
+}
+
 func TestFilesPermissionDenied(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads everything")
