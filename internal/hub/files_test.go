@@ -197,6 +197,68 @@ func TestFilesUnpinnedServerRefusesMkdirAndPlan(t *testing.T) {
 	}
 }
 
+// TestFilesRefusalNeverClosesATrustedConnection: pinnedClient must
+// check the host-key pin before touching the registry. With the old order
+// (Registry().Get before the pin check), a refused call for an unpinned
+// server would still call Get with an unpinned DialConfig; against a manager
+// already keyed by a real pin (a trusted, currently-open connection), the
+// config hashes mismatch and Get closes the trusted manager before creating
+// a fresh, unpinned one -- which the pin check then refuses anyway, so the
+// working connection was destroyed for nothing.
+//
+// Reproducing the exact production race (a concurrent trust dial that has
+// not yet reached recordTrust) is not deterministic, so this test reaches
+// the same hub-observable state a different, deterministic way: it opens a
+// real trusted terminal on "new" (which pins and persists it, same as the
+// app's Trust dialog), then strips only the store's pin directly via
+// config.Update -- bypassing ForgetHostKey, which itself intentionally
+// closes the connection -- so resolveForTerm reports "new" unpinned again
+// while the registry's manager and the open terminal are still alive
+// underneath.
+func TestFilesRefusalNeverClosesATrustedConnection(t *testing.T) {
+	fx := filesHub(t)
+	ctx := context.Background()
+
+	var open map[string]any
+	if err := fx.c.Call(ctx, "term.open", map[string]any{
+		"id": "t1", "server": "new", "rows": 24, "cols": 80,
+		"trustHostKey": map[string]string{"fingerprint": fx.srv.Fingerprint(), "keyType": "ssh-ed25519"},
+	}, &open); err != nil || open["status"] != "open" {
+		t.Fatalf("term.open: %v %v", open, err)
+	}
+	t.Cleanup(func() { fx.c.Call(context.Background(), "term.close", map[string]string{"id": "t1"}, nil) })
+
+	dc, err := fx.h.Resolve("new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dc.HostKey == "" {
+		t.Fatal("trust did not pin the server")
+	}
+	before := fx.h.Registry().Get("new", dc)
+
+	if err := config.Update(fx.store, testMK, func(f *config.File) error {
+		for i := range f.Servers {
+			if f.Servers[i].Name == "new" {
+				f.Servers[i].HostKey, f.Servers[i].HostKeyAlgo = "", ""
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err = fx.c.Call(ctx, "files.mkdir", map[string]any{"server": "new", "path": "/home/d2"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "trust the host key first") {
+		t.Fatalf("mkdir on the now-unpinned server: %v", err)
+	}
+
+	after := fx.h.Registry().Get("new", dc)
+	if before != after {
+		t.Fatal("the refused files.mkdir replaced the trusted connection's manager")
+	}
+}
+
 func TestFilesPermissionDenied(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads everything")

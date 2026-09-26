@@ -21,7 +21,9 @@ import (
 var (
 	planTTL       = 10 * time.Minute       // a planned job not run by then is dropped
 	progressEvery = 250 * time.Millisecond // files.progress per job at most this often
-	cancelGrace   = 5 * time.Second        // then a stuck job's SFTP channel is closed
+	// cancelGrace: then a stuck job's SFTP channel is closed. Kept below the
+	// door's 5s close wait so a stuck job's end audit is still written inside it.
+	cancelGrace = 2 * time.Second
 )
 
 // jobSet is every job in the hub, so a server change can end its jobs.
@@ -88,8 +90,12 @@ func (d *fileDoor) get(id string) *fileJob {
 }
 
 // end stops the job for reason. It never blocks on the network: a planned
-// job finishes on another goroutine; a running one is cancelled and, if its
-// server does not answer within cancelGrace, its channel is closed.
+// job finishes on another goroutine; a planning or running one is cancelled
+// (ctx alone does not stop pkg/sftp's calls) and, if it has not finished
+// within cancelGrace, its SFTP channel is closed to force it. j.c may still
+// be nil while planning (files.plan assigns it, under j.mu, only once
+// mgr.NewSFTP returns), so the grace closure reads it under j.mu and
+// tolerates nil.
 func (j *fileJob) end(reason string) {
 	j.mu.Lock()
 	if j.reason == "" {
@@ -101,12 +107,18 @@ func (j *fileJob) end(reason string) {
 	switch st {
 	case "planned":
 		go j.finish(files.Result{Cancelled: true}, nil)
-	case "running":
+	case "planning", "running":
 		time.AfterFunc(cancelGrace, func() {
 			select {
 			case <-j.done:
+				return
 			default:
-				j.c.Close()
+			}
+			j.mu.Lock()
+			c := j.c
+			j.mu.Unlock()
+			if c != nil {
+				c.Close()
 			}
 		})
 	}
@@ -135,13 +147,29 @@ func (j *fileJob) planWalk(sources []string, dest string) {
 		return
 	}
 	j.plan, j.state = p, "planned"
-	j.expire = time.AfterFunc(planTTL, func() { j.end("plan expired") })
-	j.mu.Unlock()
+	j.expire = time.AfterFunc(planTTL, j.expireIfPlanned)
+	// files.planned is sent while still holding j.mu: finish (from end or a
+	// run failure) and run both take j.mu first, so neither files.done nor a
+	// run can happen until this notification has gone out. Notify only takes
+	// the rpc write lock, never j.mu, so this cannot deadlock against them.
 	j.door.s.Notify("files.planned", map[string]any{
 		"id": j.id, "files": p.Files, "dirs": p.Dirs, "links": p.Links, "bytes": p.Bytes,
 		"conflicts":  map[string]any{"count": p.Conflicts, "sample": nonNil(p.Sample)},
 		"errorCount": p.Errors.Count, "errors": nonNil(p.Errors.List),
 	})
+	j.mu.Unlock()
+}
+
+// expireIfPlanned ends the job for "plan expired", but only if it is still
+// planned: run's expire.Stop() can race a timer already firing, and that
+// firing callback must not cancel a transfer that has since started.
+func (j *fileJob) expireIfPlanned() {
+	j.mu.Lock()
+	stillPlanned := j.state == "planned"
+	j.mu.Unlock()
+	if stillPlanned {
+		j.end("plan expired")
+	}
 }
 
 func nonNil(s []string) []string {
@@ -266,17 +294,23 @@ func registerJobMethods(s *rpc.Server, h *Hub) (closeAll func()) {
 			cancel()
 			return nil, fmt.Errorf("job %q already exists", p.ID)
 		}
+		// Added before NewSFTP (which can itself block on a stalled server):
+		// a server change arriving during setup must still end this job, not
+		// just ones that reached "planned" or "running".
+		h.files.add(j)
 		c, err := mgr.NewSFTP()
 		if err != nil {
 			cancel()
 			d.mu.Lock()
 			delete(d.jobs, p.ID)
 			d.mu.Unlock()
+			h.files.remove(j)
 			close(j.done) // a door closing meanwhile must not wait for it
 			return nil, err
 		}
+		j.mu.Lock()
 		j.c = c
-		h.files.add(j)
+		j.mu.Unlock()
 		go j.planWalk(p.Sources, p.Dest)
 		return map[string]any{}, nil
 	})
