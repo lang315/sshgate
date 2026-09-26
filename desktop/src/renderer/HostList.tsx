@@ -3,9 +3,10 @@ import type { ServerInfo } from '../shared/protocol'
 import { filterHosts } from './hostForm'
 import { EditIcon, PlusIcon, TrashIcon } from './icons'
 
-export function HostList({ servers, storePath, onOpen, onNew, onEdit, onDelete }: {
+export function HostList({ servers, storePath, onOpen, onNew, onEdit, onDelete, onImport }: {
   servers: ServerInfo[]; storePath: string
   onOpen: (name: string) => void; onNew: () => void; onEdit: (name: string) => void; onDelete: (name: string) => void
+  onImport: () => void
 }) {
   const [query, setQuery] = useState('')
   const shown = filterHosts(servers, query)
@@ -15,6 +16,7 @@ export function HostList({ servers, storePath, onOpen, onNew, onEdit, onDelete }
         <input type="search" placeholder="Search hosts" aria-label="Search hosts" value={query}
           onChange={(e) => setQuery(e.target.value)} />
         <button type="button" className="btn" onClick={onNew}><PlusIcon />New host</button>
+        <button type="button" className="btn" onClick={onImport}>Import from SSH config</button>
       </div>
       <h2 className="section-label">{`Hosts · ${shown.length}`}</h2>
       {servers.length === 0 ? (

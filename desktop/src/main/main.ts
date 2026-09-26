@@ -20,6 +20,7 @@ function hubCommand(): string {
 function hubArgs(): string[] {
   const args = ['hub']
   if (process.env.SSHGATE_STORE) args.push(`--store=${process.env.SSHGATE_STORE}`)
+  if (process.env.SSHGATE_SSH_CONFIG) args.push(`--sshConfig=${process.env.SSHGATE_SSH_CONFIG}`)
   // Dev/test knob: a Go duration such as 3s (the hub rejects anything under 1s).
   if (process.env.SSHGATE_IDLE_LOCK) args.push(`--idleLock=${process.env.SSHGATE_IDLE_LOCK}`)
   return args
