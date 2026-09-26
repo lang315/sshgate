@@ -46,7 +46,7 @@ describe('FilesRelay', () => {
     const d = fakeDialog(['/Users/me/proj'])
     const r = new FilesRelay(fakeHub(), d, () => win)
     const picks = await r.pickUpload({ server: 'box', folder: '/home/u', mode: 'folder' })
-    expect(d.showOpenDialog.mock.calls[0][1]).toMatchObject({ title: 'Upload to box:/home/u', properties: ['openDirectory', 'multiSelections'] })
+    expect(d.showOpenDialog.mock.calls[0][1]).toMatchObject({ title: 'Upload to box:/home/u', message: 'Upload to box:/home/u', properties: ['openDirectory', 'multiSelections'] })
     expect(picks).toEqual([{ token: expect.stringMatching(/^g-[0-9a-f]{32}$/), name: 'proj' }])
     expect(picks[0].token).not.toContain('/Users')
   })
@@ -101,10 +101,53 @@ describe('FilesRelay', () => {
 
   it('relays upload and delete runs as asked, and only overwrite or skip', async () => {
     const h = fakeHub()
-    const r = new FilesRelay(h, fakeDialog(), () => win)
+    const r = new FilesRelay(h, fakeDialog(['/Users/me/a']), () => win)
+    const [{ token }] = await r.pickUpload({ server: 'box', folder: '/home/u', mode: 'files' })
+    await r.call('files.plan', { id: 'u1', server: 'box', op: 'upload', sources: [token], dest: '/home/u' })
     await r.call('files.run', { id: 'u1', conflict: 'overwrite', extra: 1 })
     expect(h.call).toHaveBeenLastCalledWith('files.run', { id: 'u1', conflict: 'overwrite' })
     await expect(r.call('files.run', { id: 'u1', conflict: 'ask' })).rejects.toThrow()
+  })
+
+  it('refuses files.run for an id that was never planned', async () => {
+    const h = fakeHub()
+    const r = new FilesRelay(h, fakeDialog(), () => win)
+    await expect(r.call('files.run', { id: 'never-planned', conflict: 'overwrite' })).rejects.toThrow('not granted')
+    expect(h.call).not.toHaveBeenCalled()
+  })
+
+  it('refuses a live job id to be replanned, closing the reused-id race', async () => {
+    const h = fakeHub()
+    const d = fakeDialog(['/Users/me/dl'], 2)
+    const r = new FilesRelay(h, d, () => win)
+    // The old job under id 'x' is still live (no files.done yet)...
+    await r.call('files.plan', { id: 'x', server: 'box', op: 'delete', sources: ['/tmp/a'] })
+    // ...so an attacker (or a racing renderer) replanning the same id as a download is refused,
+    // never reaching the hub, and never silently reusing the old job's bookkeeping.
+    const dirDuringRace = await r.pickDownloadDir({ server: 'box' })
+    await expect(r.call('files.plan', { id: 'x', server: 'box', op: 'download', sources: ['/y'], dest: dirDuringRace!.token }))
+      .rejects.toThrow('not granted')
+    expect(h.call).not.toHaveBeenCalledWith('files.plan', expect.objectContaining({ op: 'download' }))
+
+    // Only once the old job's files.done arrives does 'x' become available again.
+    r.onNotification('files.done', { id: 'x' })
+    const dir = await r.pickDownloadDir({ server: 'box' })
+    await r.call('files.plan', { id: 'x', server: 'box', op: 'download', sources: ['/y'], dest: dir!.token })
+    r.onNotification('files.planned', { id: 'x', conflicts: { count: 2, sample: ['y/a'] } })
+    // The new download job still has conflicts: overwrite must go through the native dialog, never silently.
+    await expect(r.call('files.run', { id: 'x', conflict: 'overwrite' })).rejects.toThrow('native dialog')
+    expect(h.call).not.toHaveBeenCalledWith('files.run', { id: 'x', conflict: 'overwrite' })
+    await r.call('files.run', { id: 'x', conflict: 'ask' })
+    expect(d.showMessageBox).toHaveBeenCalledTimes(1)
+    expect(h.call).toHaveBeenLastCalledWith('files.run', { id: 'x', conflict: 'overwrite' })
+  })
+
+  it('drops a job entry the hub rejected, so the same id can be replanned', async () => {
+    const h = { call: vi.fn(async (): Promise<unknown> => { throw new Error('hub refused') }), notify: vi.fn() }
+    const r = new FilesRelay(h, fakeDialog(), () => win)
+    await expect(r.call('files.plan', { id: 'p1', server: 'box', op: 'delete', sources: ['/tmp/a'] })).rejects.toThrow('hub refused')
+    h.call.mockImplementationOnce(async () => ({ ok: true }))
+    await expect(r.call('files.plan', { id: 'p1', server: 'box', op: 'delete', sources: ['/tmp/a'] })).resolves.toEqual({ ok: true })
   })
 
   it('drops grants on lock, when the hub stops, and on reset', async () => {
