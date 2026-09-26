@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import type { ServerInfo } from '../shared/protocol'
 import { filterHosts } from './hostForm'
-import { EditIcon, PlusIcon, TrashIcon } from './icons'
+import { EditIcon, FolderIcon, PlusIcon, TrashIcon } from './icons'
 
-export function HostList({ servers, storePath, onOpen, onNew, onEdit, onDelete, onImport }: {
+export function HostList({ servers, storePath, onOpen, onFiles, onNew, onEdit, onDelete, onImport }: {
   servers: ServerInfo[]; storePath: string
-  onOpen: (name: string) => void; onNew: () => void; onEdit: (name: string) => void; onDelete: (name: string) => void
+  onOpen: (name: string) => void; onFiles: (name: string) => void; onNew: () => void; onEdit: (name: string) => void; onDelete: (name: string) => void
   onImport: () => void
 }) {
   const [query, setQuery] = useState('')
@@ -40,6 +40,7 @@ export function HostList({ servers, storePath, onOpen, onNew, onEdit, onDelete, 
                 </span>
               </button>
               <span className="hostcard-actions">
+                <button type="button" className="icon" aria-label={`Files ${s.name}`} title="Files" onClick={() => onFiles(s.name)}><FolderIcon /></button>
                 <button type="button" className="icon" aria-label={`Edit ${s.name}`} title="Edit" onClick={() => onEdit(s.name)}><EditIcon /></button>
                 <button type="button" className="icon" aria-label={`Delete ${s.name}`} title="Delete" onClick={() => onDelete(s.name)}><TrashIcon /></button>
               </span>

@@ -104,6 +104,31 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 .termarea { flex: 1; min-height: 0; position: relative; background: var(--term-bg); }
 .term { position: absolute; inset: 0; padding: 6px 10px; }
 
+/* == files == */
+.filesview { position: absolute; inset: 0; flex-direction: column; background: var(--surface); }
+.files-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--divider); flex-wrap: wrap; }
+.files-toolbar .spacer { flex: 1; }
+.files-path { flex: 1 1 240px; min-width: 160px; }
+.files-path input { width: 100%; }
+.files-hidden { display: flex; align-items: center; gap: 6px; color: var(--label); }
+.files-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.files-body.dropping { outline: 2px dashed var(--accent); outline-offset: -4px; background: var(--accent-tint); }
+.files-head, .file-row { display: grid; grid-template-columns: minmax(200px, 1fr) 90px 150px 110px; align-items: center; padding: 0 12px; }
+.files-head { border-bottom: 1px solid var(--divider); }
+.files-head .files-col { background: none; border: 0; text-align: left; color: var(--label); padding: 6px 0; cursor: pointer; }
+.fileslist { flex: 1; min-height: 0; overflow: auto; outline: none; }
+.file-row { height: 28px; cursor: default; user-select: none; }
+.file-row:hover { background: var(--raised); }
+.file-row.selected { background: var(--accent-tint); }
+.files-col.name { display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.files-col.size, .files-col.mtime, .files-col.mode { color: var(--muted); }
+.files-note { padding: 8px 12px; }
+.files-sample { max-height: 160px; overflow: auto; }
+.transfers { list-style: none; margin: 0; padding: 8px 12px; border-top: 1px solid var(--divider); display: flex; flex-direction: column; gap: 6px; max-height: 30%; overflow: auto; }
+.transfer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.transfer progress { flex: 0 0 160px; accent-color: var(--accent); }
+.transfer-errors { flex-basis: 100%; margin: 0; padding-left: 16px; color: var(--danger); }
+
 /* == approvals == */
 .approvals { width: 380px; min-height: 0; display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--divider); }
 .approvals-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 4px; }

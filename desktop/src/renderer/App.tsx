@@ -145,6 +145,7 @@ export function App() {
   )
   const hostList = (
     <HostList servers={servers} storePath={status?.storePath ?? ''} onOpen={(name) => terms.current?.open(name)}
+      onFiles={(name) => terms.current?.openFiles(name)}
       onNew={() => { setImporting(false); setEditing({}) }}
       onEdit={async (name) => { setImporting(false); await reloadServers(); setEditing({ name }) }}
       onDelete={deleteHost}
@@ -172,7 +173,8 @@ export function App() {
             {/* Inside the work area: the host list and the AI column stay usable beside it. */}
             {ready && editing && (
               <HostEditor key={editing.name ?? ''} server={servers.find((s) => s.name === editing.name)}
-                openTabs={editing.name ? terms.current?.openCount(editing.name) ?? 0 : 0} focusForget={editing.focusForget}
+                openTabs={editing.name ? terms.current?.openCount(editing.name) ?? 0 : 0}
+                transfers={editing.name ? terms.current?.transferCount(editing.name) ?? 0 : 0} focusForget={editing.focusForget}
                 onSave={async (input, original) => { await hub.saveServer(input, original); await reloadServers(); setEditing(undefined) }}
                 onForget={async (name) => { await hub.forgetHostKey(name); await reloadServers() }}
                 onClose={() => setEditing(undefined)} />

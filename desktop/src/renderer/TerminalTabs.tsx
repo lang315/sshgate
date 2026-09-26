@@ -2,15 +2,18 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type Reac
 import type { HostKeyMismatch, ServerInfo } from '../shared/protocol'
 import { hub } from './transport'
 import type { HostKeyPrompts } from './hostkeys'
-import { CloseIcon, HomeIcon } from './icons'
+import { CloseIcon, FolderIcon, HomeIcon } from './icons'
 import { Dispatcher, TabSet } from './terminals'
 import { TermView, type TermApi, type TermEvent } from './TermView'
+import { FilesView } from './FilesView'
 import type { Theme } from './theme'
 
 export interface TerminalsHandle {
   open(server: string): void
+  openFiles(server: string): void
   sendToTab(server: string, text: string): Promise<void>
   openCount(server: string): number
+  transferCount(server: string): number
   focusActive(): void
 }
 
@@ -21,10 +24,11 @@ export const Terminals = forwardRef<TerminalsHandle, {
   const tabs = useRef(new TabSet()).current
   const apis = useRef(new Map<string, TermApi>()).current
   const events = useRef(new Dispatcher<TermEvent>()).current
+  const transfers = useRef(new Map<string, number>()).current
   useEffect(() => {
     const offEvent = hub.onEvent((e) => {
       const id = (e.params as { id?: unknown } | undefined)?.id
-      if (e.method.startsWith('term.') && typeof id === 'string') events.emit(id, e)
+      if ((e.method.startsWith('term.') || e.method.startsWith('files.')) && typeof id === 'string') events.emit(id, e)
     })
     const offState = hub.onState((s) => { if (s.kind !== 'running') events.emitAll({ method: 'hub.stopped' }) })
     return () => { offEvent(); offState() }
@@ -47,6 +51,7 @@ export const Terminals = forwardRef<TerminalsHandle, {
 
   useImperativeHandle(ref, () => ({
     open(server) { tabs.open(server); changed() },
+    openFiles(server) { tabs.open(server, 'files'); changed() },
     async sendToTab(server, text) {
       let tab = tabs.mostRecentFor(server)
       if (!tab) tab = tabs.open(server)
@@ -55,6 +60,7 @@ export const Terminals = forwardRef<TerminalsHandle, {
       apis.get(tab.id)!.paste(text)
     },
     openCount: (server) => tabs.openCount(server),
+    transferCount: (server) => tabs.tabs.filter((t) => t.server === server && t.kind === 'files').reduce((n, t) => n + (transfers.get(t.id) ?? 0), 0),
     focusActive() { if (tabs.active) apis.get(tabs.active)?.focus() },
   }))
 
@@ -70,14 +76,14 @@ export const Terminals = forwardRef<TerminalsHandle, {
           <HomeIcon />Hosts
         </button>
         {tabs.tabs.map((t) => (
-          <div key={t.id} className={'tab' + (t.id === tabs.active ? ' active' : '') + (t.state === 'exited' ? ' exited' : '')} data-state={t.state} title={target(t.server)}>
+          <div key={t.id} className={'tab' + (t.id === tabs.active ? ' active' : '') + (t.state === 'exited' ? ' exited' : '')} data-state={t.state} data-kind={t.kind} title={target(t.server)}>
             <button type="button" className="tabname" onClick={() => { tabs.activate(t.id); changed() }}>
-              <span className="dot" aria-hidden="true" />{t.server}{t.state === 'exited' ? ' · exited' : ''}
+              {t.kind === 'files' ? <FolderIcon /> : <span className="dot" aria-hidden="true" />}{t.server}{t.state === 'exited' ? ' · exited' : ''}
             </button>
-            {t.state === 'exited' && (
+            {t.kind === 'term' && t.state === 'exited' && (
               <button type="button" className="reconnect" onClick={() => { tabs.close(t.id); tabs.open(t.server); changed() }}>Reconnect</button>
             )}
-            <button type="button" className="icon tabclose" title="Close" aria-label="Close" onClick={() => { tabs.close(t.id); changed() }}><CloseIcon /></button>
+            <button type="button" className="icon tabclose" title="Close" aria-label="Close" onClick={() => { transfers.delete(t.id); tabs.close(t.id); changed() }}><CloseIcon /></button>
           </div>
         ))}
         <div className="tabbar-actions">{actions}</div>
@@ -86,8 +92,13 @@ export const Terminals = forwardRef<TerminalsHandle, {
       <div className="termarea">
         <div className="homeview" style={{ display: home ? 'block' : 'none' }}>{homeContent}</div>
         {tabs.tabs.map((t) => (
-          <TermView key={t.id} tab={t} tabs={tabs} events={events} visible={t.id === tabs.active} onChange={changed} register={register}
-            theme={theme} hostKeys={hostKeys} onMismatch={onMismatch} onTrusted={onTrusted} onFocusApprovals={onFocusApprovals} />
+          t.kind === 'files' ? (
+            <FilesView key={t.id} tab={t} visible={t.id === tabs.active} events={events} hostKeys={hostKeys}
+              onMismatch={onMismatch} onTrusted={onTrusted} onJobs={(n) => transfers.set(t.id, n)} />
+          ) : (
+            <TermView key={t.id} tab={t} tabs={tabs} events={events} visible={t.id === tabs.active} onChange={changed} register={register}
+              theme={theme} hostKeys={hostKeys} onMismatch={onMismatch} onTrusted={onTrusted} onFocusApprovals={onFocusApprovals} />
+          )
         ))}
       </div>
     </div>
