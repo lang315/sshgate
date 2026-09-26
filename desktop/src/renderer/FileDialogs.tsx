@@ -1,12 +1,25 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import type { FilesPlanned } from '../shared/protocol'
 import { displayText } from '../shared/display'
+import { ALLOW_DELAY_MS, blockKeyboardActivation } from './approvals'
 import { DELETE_WORD, formatSize, nameError } from './files'
 import { TrashIcon, WarningIcon } from './icons'
 
-// Cancel is the default (Enter) in both risky dialogs.
+// The risky buttons stay disabled for ALLOW_DELAY_MS after the dialog mounts
+// (each is keyed per job): the next job's dialog can appear right where the
+// last one's button was, so one double-click must not confirm two jobs.
+// Disabled from the first render, as the approvals' Allow is.
+function useArmed(): boolean {
+  const [armed, setArmed] = useState(false)
+  useEffect(() => { const t = setTimeout(() => setArmed(true), ALLOW_DELAY_MS); return () => clearTimeout(t) }, [])
+  return armed
+}
+
+// Cancel is the default (Enter) in both risky dialogs; the risky buttons are
+// mouse-only, like "Trust and connect".
 export function ConflictDialog({ planned, onChoice }: { planned: FilesPlanned; onChoice: (c: 'cancel' | 'skip' | 'overwrite') => void }) {
   const n = planned.conflicts.count
+  const armed = useArmed()
   return (
     <div className="modal" role="dialog" aria-label="Files already exist">
       <form className="dialog" onSubmit={(e) => { e.preventDefault(); onChoice('cancel') }}>
@@ -15,8 +28,10 @@ export function ConflictDialog({ planned, onChoice }: { planned: FilesPlanned; o
         <ul className="files-sample mono">{planned.conflicts.sample.map((s) => <li key={s}>{displayText(s)}</li>)}</ul>
         {n > planned.conflicts.sample.length && <p className="muted">{`and ${n - planned.conflicts.sample.length} more`}</p>}
         <div className="dialog-actions">
-          <button type="button" className="btn danger-outline" onClick={() => onChoice('overwrite')}>Overwrite all</button>
-          <button type="button" className="btn" onClick={() => onChoice('skip')}>Skip existing</button>
+          <button type="button" className="btn danger-outline" tabIndex={-1} onKeyDown={blockKeyboardActivation}
+            disabled={!armed} onClick={() => onChoice('overwrite')}>Overwrite all</button>
+          <button type="button" className="btn" tabIndex={-1} onKeyDown={blockKeyboardActivation}
+            disabled={!armed} onClick={() => onChoice('skip')}>Skip existing</button>
           <button type="submit" className="btn primary" autoFocus>Cancel<kbd aria-hidden="true">↵</kbd></button>
         </div>
       </form>
@@ -28,7 +43,8 @@ export function DeleteDialog({ names, planned, needsTyping, onDelete, onCancel }
   names: string[]; planned: FilesPlanned; needsTyping: boolean; onDelete: () => void; onCancel: () => void
 }) {
   const [typed, setTyped] = useState('')
-  const ok = !needsTyping || typed === DELETE_WORD
+  const armed = useArmed()
+  const ok = armed && (!needsTyping || typed === DELETE_WORD)
   return (
     <div className="modal" role="dialog" aria-label="Delete files">
       <form className="dialog" onSubmit={(e) => { e.preventDefault(); onCancel() }}>
@@ -42,7 +58,8 @@ export function DeleteDialog({ names, planned, needsTyping, onDelete, onCancel }
           </label>
         )}
         <div className="dialog-actions">
-          <button type="button" className="btn danger-outline" disabled={!ok} onClick={onDelete}>Delete</button>
+          <button type="button" className="btn danger-outline" tabIndex={-1} onKeyDown={blockKeyboardActivation}
+            disabled={!ok} onClick={onDelete}>Delete</button>
           <button type="submit" className="btn primary" autoFocus={!needsTyping}>Cancel<kbd aria-hidden="true">↵</kbd></button>
         </div>
       </form>

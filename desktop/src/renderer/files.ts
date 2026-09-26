@@ -1,4 +1,4 @@
-import type { FileEntry, FilesDone } from '../shared/protocol'
+import type { FileEntry, FileOp, FilesDone } from '../shared/protocol'
 
 export function newJobId(): string {
   const b = new Uint8Array(8)
@@ -53,15 +53,34 @@ export function parentPath(p: string): string | undefined {
 
 export function nameError(name: string): string | undefined {
   if (name === '' || name === '.' || name === '..') return 'Enter a name.'
-  if (/[/\u0000]/.test(name)) return 'A name cannot contain / or NUL.'
+  // The hub's listing hides a name with \ as unsafe, so it could never be selected again.
+  if (/[/\\\u0000]/.test(name)) return 'A name cannot contain /, \\, or NUL.'
   return undefined
 }
 
 export const DELETE_WORD = 'delete'
 
 // A selected folder has contents when the plan found more than was selected.
-export const deleteNeedsTyping = (hasFolder: boolean, selectedCount: number, p: { files: number; dirs: number; links: number }) =>
-  hasFolder && p.files + p.dirs + p.links > selectedCount
+// Errors count as found: an unreadable child is not counted as a file or folder,
+// and must not let a non-empty folder skip the typed confirmation.
+export const deleteNeedsTyping = (hasFolder: boolean, selectedCount: number, p: { files: number; dirs: number; links: number; errorCount: number }) =>
+  hasFolder && p.files + p.dirs + p.links + p.errorCount > selectedCount
+
+// The automatic relist after a job ends in folder jobFolder. Skipped while any
+// load is in flight, and unless the folder shown is both the job's and the one the
+// user last asked for (a failed navigation leaves shown behind): it must never
+// supersede the user's own newer navigation.
+export const relistAfterJob = (jobFolder: string, shown: string, requested: string, loading: boolean) =>
+  !loading && jobFolder === shown && requested === shown
+
+// What a job does when files.planned lands. A cancel sent while planning can reach
+// the hub before the job is registered and be lost, so it is sent again, and the
+// job is never run or confirmed. Download conflicts are asked by main ('ask').
+export function plannedAction(op: FileOp, conflicts: number, cancelRequested: boolean): 'cancel' | 'confirm' | 'skip' | 'ask' {
+  if (cancelRequested) return 'cancel'
+  if (op === 'delete' || (op === 'upload' && conflicts > 0)) return 'confirm'
+  return op === 'download' ? 'ask' : 'skip'
+}
 
 export function windowRange(scrollTop: number, viewport: number, rowHeight: number, count: number, overscan = 10): [number, number] {
   const first = Math.floor(scrollTop / rowHeight)

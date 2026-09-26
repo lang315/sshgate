@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { FileEntry } from '../src/shared/protocol'
 import {
   deleteNeedsTyping, doneSummary, formatMode, formatSize, hiddenPref, joinPath, lastFolder, nameError, newJobId,
-  nextSelection, parentPath, sortEntries, visibleEntries, windowRange,
+  nextSelection, parentPath, plannedAction, relistAfterJob, sortEntries, visibleEntries, windowRange,
 } from '../src/renderer/files'
 import { displayText } from '../src/shared/display'
 
@@ -37,7 +37,8 @@ describe('listing helpers', () => {
     expect(parentPath('')).toBeUndefined()
   })
   it('checks new names', () => {
-    for (const bad of ['', '.', '..', 'a/b', 'a\u0000b']) expect(nameError(bad)).toBeTruthy()
+    // A backslash would be created, then hidden by the next listing as a bad name.
+    for (const bad of ['', '.', '..', 'a/b', 'a\u0000b', 'a\\b']) expect(nameError(bad)).toBeTruthy()
     expect(nameError('ok name')).toBeUndefined()
   })
   it('windows the rows it renders', () => {
@@ -61,10 +62,32 @@ describe('selection', () => {
 
 describe('delete confirmation', () => {
   it('asks for the typed word only when a selected folder has contents', () => {
-    expect(deleteNeedsTyping(false, 2, { files: 2, dirs: 0, links: 0 })).toBe(false)
-    expect(deleteNeedsTyping(true, 1, { files: 0, dirs: 1, links: 0 })).toBe(false)
-    expect(deleteNeedsTyping(true, 1, { files: 3, dirs: 1, links: 0 })).toBe(true)
-    expect(deleteNeedsTyping(true, 2, { files: 1, dirs: 1, links: 1 })).toBe(true)
+    expect(deleteNeedsTyping(false, 2, { files: 2, dirs: 0, links: 0, errorCount: 0 })).toBe(false)
+    expect(deleteNeedsTyping(true, 1, { files: 0, dirs: 1, links: 0, errorCount: 0 })).toBe(false)
+    expect(deleteNeedsTyping(true, 1, { files: 3, dirs: 1, links: 0, errorCount: 0 })).toBe(true)
+    expect(deleteNeedsTyping(true, 2, { files: 1, dirs: 1, links: 1, errorCount: 0 })).toBe(true)
+  })
+  it('counts plan errors as contents, so an unreadable child still asks for the word', () => {
+    expect(deleteNeedsTyping(true, 1, { files: 0, dirs: 1, links: 0, errorCount: 1 })).toBe(true)
+    expect(deleteNeedsTyping(false, 1, { files: 0, dirs: 0, links: 0, errorCount: 1 })).toBe(false)
+  })
+})
+
+describe('job flow', () => {
+  it('relists after a job only in the folder shown, with no newer navigation', () => {
+    expect(relistAfterJob('/a', '/a', '/a', false)).toBe(true)
+    expect(relistAfterJob('/b', '/a', '/a', false)).toBe(false) // the job was elsewhere
+    expect(relistAfterJob('/a', '/a', '/b', true)).toBe(false) // the user is loading /b
+    expect(relistAfterJob('/a', '/a', '/a', true)).toBe(false) // a load is already in flight
+    expect(relistAfterJob('/a', '/a', '/b', false)).toBe(false) // /b failed; /a is not what the user asked for
+  })
+  it('decides what a landed plan does; a cancel sent while planning wins', () => {
+    expect(plannedAction('upload', 0, false)).toBe('skip')
+    expect(plannedAction('upload', 2, false)).toBe('confirm')
+    expect(plannedAction('download', 3, false)).toBe('ask') // main asks about download conflicts
+    expect(plannedAction('delete', 0, false)).toBe('confirm')
+    for (const op of ['upload', 'download', 'delete'] as const) expect(plannedAction(op, 0, true)).toBe('cancel')
+    expect(plannedAction('delete', 5, true)).toBe('cancel')
   })
 })
 

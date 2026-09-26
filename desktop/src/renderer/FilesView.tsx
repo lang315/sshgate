@@ -8,7 +8,7 @@ import type { TermEvent } from './TermView'
 import { ConflictDialog, DeleteDialog, NameDialog } from './FileDialogs'
 import {
   deleteNeedsTyping, doneSummary, formatMode, formatSize, formatTime, hiddenPref, joinPath, lastFolder, localStore,
-  newJobId, nextSelection, parentPath, sortEntries, visibleEntries, windowRange, type SortKey,
+  newJobId, nextSelection, parentPath, plannedAction, relistAfterJob, sortEntries, visibleEntries, windowRange, type SortKey,
 } from './files'
 import { CloseIcon, DownloadIcon, FileIcon, FolderIcon, LinkIcon, PlusIcon, RefreshIcon, TrashIcon, UpIcon, UploadIcon, EditIcon } from './icons'
 
@@ -18,6 +18,7 @@ interface Job {
   id: string; op: FileOp; label: string; folder: string
   state: 'planning' | 'confirm' | 'running' | 'done'
   names?: string[]; hasFolder?: boolean
+  cancelRequested?: boolean // Cancel pressed before files.planned: never run it
   planned?: FilesPlanned; progress?: FilesProgress; done?: FilesDone; error?: string
 }
 
@@ -46,6 +47,8 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
   const [dropping, setDropping] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const shown = useRef('') // the folder listed now
+  const requested = useRef('') // the folder the latest load() asked for (resolved once listed)
+  const loadBusy = useRef(false) // the latest load() has not settled
   const loadGen = useRef(0) // bumped per load(); a resolving stale call is ignored
   const jobs = useRef(new Map<string, Job>()).current
   const offs = useRef(new Map<string, () => void>()).current
@@ -69,6 +72,7 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
   // dropped, never read as this call's failure).
   const load = useCallback(async (p: string): Promise<boolean | undefined> => {
     const gen = ++loadGen.current // a later load() in flight makes this one's result stale
+    requested.current = p; loadBusy.current = true
     setLoading(true); setError(undefined); setPathInput(p)
     try {
       let r = await hub.filesList(server, p)
@@ -79,7 +83,7 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
       }
       if (r.status === 'hostKeyMismatch') { onMismatch(r); throw new Error('host key mismatch') }
       if (gen !== loadGen.current) return undefined // superseded: the user has moved on
-      setListing(r); setPathInput(r.path); shown.current = r.path
+      setListing(r); setPathInput(r.path); shown.current = r.path; requested.current = r.path
       setSel({ names: new Set() }); setScrollTop(0); listRef.current?.scrollTo(0, 0)
       lastFolder.set(localStore(), server, r.path)
       return true
@@ -87,7 +91,7 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
       if (gen !== loadGen.current) return undefined
       setListing(undefined); setError((e as Error).message)
       return false
-    } finally { if (gen === loadGen.current) setLoading(false) }
+    } finally { if (gen === loadGen.current) { loadBusy.current = false; setLoading(false) } }
   }, [server, tab.id, hostKeys, onMismatch, onTrusted])
 
   // Lists once when the tab opens (the last folder, else home), then only on
@@ -109,7 +113,7 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
     if (!j || j.state === 'done') return
     offs.get(id)?.(); offs.delete(id)
     patch(id, { state: 'done', done, error })
-    if (done && j.op !== 'download' && j.folder === shown.current) void load(shown.current)
+    if (done && j.op !== 'download' && relistAfterJob(j.folder, shown.current, requested.current, loadBusy.current)) void load(shown.current)
   }
 
   // Only moves this one job; the name dialog (if any) is untouched, and
@@ -119,6 +123,9 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
     try { await hub.filesRun(id, conflict) } catch (e) { hub.filesCancel(id); finishJob(id, undefined, (e as Error).message) }
   }
   const cancelConfirm = (id: string) => { hub.filesCancel(id); finishJob(id, undefined, 'Cancelled') }
+  // Planning or running: the hub answers with files.done. A cancel sent while
+  // planning can be lost, so files.planned sends it again (plannedAction).
+  const cancelJob = (id: string) => { patch(id, { cancelRequested: true }); hub.filesCancel(id) }
 
   const onJobEvent = (id: string, e: TermEvent) => {
     const j = jobs.get(id)
@@ -128,9 +135,10 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
       patch(id, { planned })
       // The dialog itself is derived from the jobs map (confirmJob, below):
       // setting state to 'confirm' is enough to make it appear, in its turn.
-      if (j.op === 'delete') patch(id, { state: 'confirm' })
-      else if (j.op === 'upload' && planned.conflicts.count > 0) patch(id, { state: 'confirm' })
-      else void runJob(id, j.op === 'download' ? 'ask' : 'skip') // main asks about download conflicts
+      const act = plannedAction(j.op, planned.conflicts.count, !!j.cancelRequested)
+      if (act === 'cancel') hub.filesCancel(id) // files.done finishes it
+      else if (act === 'confirm') patch(id, { state: 'confirm' })
+      else void runJob(id, act)
     } else if (e.method === 'files.progress') patch(id, { progress: e.params })
     else if (e.method === 'files.done') finishJob(id, e.params)
     else if (e.method === 'hub.stopped') finishJob(id, undefined, 'hub restarted')
@@ -272,7 +280,7 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
               )}
               {j.state === 'done' && <span>{displayText(doneSummary(j.done, j.error))}</span>}
               {j.state !== 'done'
-                ? <button type="button" className="btn" onClick={() => (j.state === 'confirm' ? cancelConfirm(j.id) : hub.filesCancel(j.id))}>Cancel</button>
+                ? <button type="button" className="btn" onClick={() => (j.state === 'confirm' ? cancelConfirm(j.id) : cancelJob(j.id))}>Cancel</button>
                 : <button type="button" className="icon" aria-label="Dismiss" onClick={() => { jobs.delete(j.id); bump() }}><CloseIcon /></button>}
               {j.done && j.done.errors.length > 0 && (
                 <ul className="transfer-errors mono">
