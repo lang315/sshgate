@@ -108,7 +108,7 @@ func TestUIDoorHelloAndLockedNotification(t *testing.T) {
 	var hello struct {
 		Protocol int `json:"protocol"`
 	}
-	if err := c.Call(context.Background(), "hello", nil, &hello); err != nil || hello.Protocol != 3 {
+	if err := c.Call(context.Background(), "hello", nil, &hello); err != nil || hello.Protocol != ProtocolVersion {
 		t.Fatalf("hello: %v %+v", err, hello)
 	}
 	if err := c.Call(context.Background(), "unlock", map[string]string{"password": "pw"}, nil); err != nil {

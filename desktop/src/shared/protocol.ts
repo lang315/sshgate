@@ -66,4 +66,4 @@ export const REQUEST_METHODS = ['hello', 'status', 'unlock', 'lock', 'servers', 
 export type RequestMethod = (typeof REQUEST_METHODS)[number]
 export const NOTIFY_METHODS = ['term.write', 'term.ack', 'term.resize'] as const
 export type NotifyMethod = (typeof NOTIFY_METHODS)[number]
-export const PROTOCOL_VERSION = 3
+export const PROTOCOL_VERSION = 4

@@ -13,26 +13,6 @@ import (
 	"github.com/lang315/sshgate/internal/rpc"
 )
 
-// waitNote waits for notification method for terminal id, skipping others.
-func waitNote(t *testing.T, notes chan note, method, id string) {
-	t.Helper()
-	deadline := time.After(5 * time.Second)
-	for {
-		select {
-		case n := <-notes:
-			var p struct {
-				ID string `json:"id"`
-			}
-			json.Unmarshal(n.params, &p)
-			if n.method == method && p.ID == id {
-				return
-			}
-		case <-deadline:
-			t.Fatalf("no %s for %s", method, id)
-		}
-	}
-}
-
 // noNote fails if notification method arrives for id within d.
 func noNote(t *testing.T, notes chan note, method, id string, d time.Duration) {
 	t.Helper()

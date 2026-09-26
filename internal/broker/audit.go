@@ -39,6 +39,29 @@ type ConfigRecord struct {
 	Changed        []string  `json:"changed,omitempty"`
 }
 
+// FileRecord is an audit line for a file operation from the app. Transfers
+// and deletes write two, at start and at end; mkdir and rename write one.
+type FileRecord struct {
+	Time       time.Time `json:"time"`
+	Kind       string    `json:"kind"`            // always "file"
+	Phase      string    `json:"phase,omitempty"` // start, end; empty for mkdir and rename
+	Action     string    `json:"action"`          // upload, download, delete, mkdir, rename
+	Server     string    `json:"server"`
+	Host       string    `json:"host,omitempty"`
+	Port       int       `json:"port,omitempty"`
+	Remote     []string  `json:"remote,omitempty"` // first 20
+	Local      []string  `json:"local,omitempty"`  // first 20; transfers only
+	From       string    `json:"from,omitempty"`
+	To         string    `json:"to,omitempty"`
+	Conflict   string    `json:"conflict,omitempty"`
+	Files      int       `json:"files,omitempty"`
+	Bytes      int64     `json:"bytes,omitempty"`
+	Skipped    int       `json:"skipped,omitempty"`
+	ErrorCount int       `json:"errorCount,omitempty"`
+	Cancelled  bool      `json:"cancelled,omitempty"`
+	Reason     string    `json:"reason,omitempty"`
+}
+
 // Audit appends one JSON object per line. Output content is never part of a
 // record; only byte counts are.
 type Audit struct {
@@ -65,6 +88,11 @@ func (a *Audit) Write(r AuditRecord) error { return a.append(r) }
 
 func (a *Audit) WriteConfig(r ConfigRecord) error {
 	r.Kind = "config"
+	return a.append(r)
+}
+
+func (a *Audit) WriteFile(r FileRecord) error {
+	r.Kind = "file"
 	return a.append(r)
 }
 
