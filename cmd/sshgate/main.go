@@ -76,7 +76,8 @@ func main() {
 	var err error
 	switch mode {
 	case "web":
-		err = runWeb(rest) // implemented in Phase D
+		// Kept as a route so an old habit fails loudly instead of starting a bridge.
+		err = fmt.Errorf("sshgate web was removed; manage hosts in the desktop app")
 	case "hub":
 		err = runHub(rest)
 	default:

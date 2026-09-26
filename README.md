@@ -19,7 +19,6 @@ sshgate started as a Go rewrite of [tufantunc/ssh-mcp](https://github.com/tufant
 - [Tools the AI gets](#tools-the-ai-gets)
 - [Approving without the app: `hub --cli`](#approving-without-the-app-hub---cli)
 - [Standalone mode: `--host`](#standalone-mode---host)
-- [Web config UI: `sshgate web`](#web-config-ui-sshgate-web)
 - [Files and environment variables](#files-and-environment-variables)
 - [Moving from the `ssh-mcp` name](#moving-from-the-ssh-mcp-name)
 - [Development](#development)
@@ -117,7 +116,7 @@ On a machine without a display, run the hub in a terminal and approve from there
     # s [id]=send to tab (prints the command for you to paste)
     # u=unlock  p=list pending  q=quit   (the id is needed only when 2+ requests wait)
 
-`hub --cli` cannot create a vault. Headless, the only way to create one is `sshgate web`'s first-run setup, which starts with an empty server list.
+`hub --cli` cannot create a vault or edit hosts. Create and fill the vault in the desktop app on any machine, then copy `servers.json` to the headless one: the file is portable and opens with the same master password (hosts that use a key file need it at the same path).
 
 `sshgate hub` also accepts `--store=<path>` (a vault other than the default) and `--idleLock=<duration>` (a Go duration of at least `1s`, replacing the 15-minute default). It refuses `--insecureIgnoreHostKey`.
 
@@ -155,17 +154,6 @@ The same flags work in any MCP client's JSON config:
   }
 }
 ```
-
-## Web config UI: `sshgate web`
-
-    sshgate web        # http://127.0.0.1:8422
-
-A local browser page for adding, editing, importing, and exporting saved servers in the same vault. The desktop app now covers all of this, and the web UI is planned for removal. It is still the only way to create a vault on a headless machine.
-
-- The web UI unlocks the vault separately from the app.
-- Its **Test connection** button pins a server's host key without asking you first. Use it only on a network you trust for that first connection, or paste the fingerprint yourself into **Host key fingerprint**. Paste only the `SHA256:…` token, for example:
-
-      ssh-keyscan -p PORT -t ed25519 HOST 2>/dev/null | ssh-keygen -lf - | awk '{print $2}'
 
 ## Files and environment variables
 

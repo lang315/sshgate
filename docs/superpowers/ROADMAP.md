@@ -4,14 +4,14 @@ Long-lived plan across every slice. Each slice gets its own spec in
 `specs/` and its own implementation plan in `plans/`, written when that
 slice starts. This file only fixes order, gates, and cross-slice decisions.
 
-Updated: 2026-09-26 (renamed ssh-mcp → sshgate, own repo lang315/sshgate; slice 2a implemented)
+Updated: 2026-09-26 (renamed ssh-mcp → sshgate, own public repo lang315/sshgate; slice 2a closed, `sshgate web` removed)
 
 ## Standing decisions
 
 These hold across all slices. Changing one needs a spec revision, not a
 plan note.
 
-- One Go binary (`ssh-mcp`) is the core: standalone `--host` mode, MCP
+- One Go binary (`sshgate`) is the core: standalone `--host` mode, MCP
   bridge, and `hub`. The UI is a client of the hub, never the other way.
 - Desktop UI is Electron + React + xterm.js. The renderer talks to Go only
   through one transport module.
@@ -33,7 +33,7 @@ plan note.
 |---|---|---|---|---|---|---|
 | 0 | Go conversion + web config UI | Done | `specs/2026-07-31-go-conversion-web-ui-design.md` | — | — | Merged on `feat/go-conversion`; CI runs `go test` |
 | 1 | Desktop app: hub, broker, MCP door, Electron shell, terminal tabs, approval panel | 1a and 1b done; manual checklist pending | `specs/2026-09-24-desktop-app-design.md` | 0 | Spec approved | Success criteria 1–6 in the spec; author uses it daily |
-| 2a | Host management in the app (create vault, host CRUD, Forget), host-key fingerprint prompt, no silent TOFU on any hub path, safe vault writes (`config.Update`) | Implemented 2026-09-25 (`eb68340..37b89ca`, CI green); exit gate pending (author's week of app-only host management) | `specs/2026-09-25-desktop-slice2a-design.md` | 1 | Author override (unlocking twice for app + web blocks daily use) | Author manages hosts only in the app for a week; then delete `ssh-mcp web` |
+| 2a | Host management in the app (create vault, host CRUD, Forget), host-key fingerprint prompt, no silent TOFU on any hub path, safe vault writes (`config.Update`) | Done 2026-09-26: exit gate waived by the author, `sshgate web` removed | `specs/2026-09-25-desktop-slice2a-design.md` | 1 | Author override (unlocking twice for app + web blocks daily use) | Author manages hosts only in the app for a week; then delete `sshgate web` |
 | 2b | ProxyJump (one hop first) and `~/.ssh/config` + `known_hosts` import | Not specced | — | 2a | The author has a real host behind a bastion, or a real config to import | Bastion host connects and runs an approved AI command |
 | 2c | Split panes, local shell, Windows agent (OpenSSH pipe, Pageant) | Not specced | — | 2a | Daily use shows the need (panes, local shell); a Windows machine to test on (agent) | Author does not open another terminal for SSH work |
 | 3 | SFTP and port forwarding (local, remote, dynamic) | Not specced | — | 2a | Slice 2a done | File browser and tunnels usable from a saved host |
@@ -87,6 +87,6 @@ plan note.
   - The hub remembers the last reload error; `status` returns it as `storeError` (fixed text), the app shows a red banner, and `servers.*` writes return a failed post-write reload (`f0d9363`).
   - A vault file deleted while the hub runs is a `storeError` too (same fixed text); the hub keeps serving the last good copy, writes fail closed, and restoring the file clears it. A missing file with no vault ever loaded stays "no vault". `vault.create` is refused meanwhile ("a vault already exists"), so the in-memory vault cannot be replaced.
   - A trusted `term.open` whose post-pin reload fails still opens (the pin is written, the key verified) and sets `storeError`; pinned by a test.
-  - The web UI's PUT treats a `hostKey` equal to the one it last served as unchanged and keeps the on-disk pin (`f65f583`).
-  - The web UI sends the list's revision (`ETag`) as `If-Match` on PUT and DELETE; a stale one is 412 and the page reloads the list. `GET /api/servers` re-reads the store so the revision follows the hub's writes.
+  - The web UI's stale-pin and `If-Match` guards (`f65f583`) went away with the web UI (removed 2026-09-26).
   - `vault.create` is asserted to derive the key once and never run Unlock's derivation (`newKDF`/`deriveKey` seams, `5fb34f3`).
+- Slice 2a → later (2026-09-26, web UI removed): `hub --cli` cannot create a vault or edit hosts, and nothing imports or exports servers any more. Headless machines get a vault by copying `servers.json` from the app's machine. Add a CLI path or import/export only if that copy stops being enough.

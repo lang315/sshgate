@@ -39,7 +39,7 @@ func Fingerprint(key ssh.PublicKey) string {
 }
 
 // HostKeyCallback checks the presented key against pinned. With no pin it
-// learns the key through onLearn (TOFU: --host mode and the web UI only) or,
+// learns the key through onLearn (TOFU: --host mode only) or,
 // when onLearn is nil, refuses with *HostKeyUnknownError (strict).
 func HostKeyCallback(pinned string, insecure bool, onLearn func(fp string)) ssh.HostKeyCallback {
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {

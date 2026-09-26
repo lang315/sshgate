@@ -7,7 +7,7 @@ against a real server, and real Windows named-pipe security. Run all of
 them on macOS, Windows, and Linux before calling slice 1 done, unless a
 step says otherwise.
 
-Build first: `go build -o ssh-mcp ./cmd/ssh-mcp` at the repo root, then
+Build first: `go build -o sshgate ./cmd/sshgate` at the repo root, then
 `cd desktop && npm ci && npm start`.
 
 - [ ] **1. Vietnamese IME in a terminal**
@@ -85,7 +85,7 @@ Build first: `go build -o ssh-mcp ./cmd/ssh-mcp` at the repo root, then
 
 - [ ] **4. Windows: MCP door pipe DACL and SID checks**
 
-  Windows only. The MCP door is a named pipe `\\.\pipe\ssh-mcp-hub-<SID>`
+  Windows only. The MCP door is a named pipe `\\.\pipe\sshgate-hub-<SID>`
   (`internal/hub/listen_windows.go`), created with an owner-only DACL; the
   bridge verifies the pipe's server process SID against its own before
   sending anything (`checkSID`, `internal/hub/peer_windows.go`). There is
@@ -94,8 +94,8 @@ Build first: `go build -o ssh-mcp ./cmd/ssh-mcp` at the repo root, then
   runs on Ubuntu only — so this step is the only check of it.
 
   With the app (and hub) running as your user:
-  - Connect the bridge (`ssh-mcp` with no `--host`, or `claude mcp add
-    --transport stdio ssh-mcp -- ssh-mcp`) as the **same** Windows user.
+  - Connect the bridge (`sshgate` with no `--host`, or `claude mcp add
+    --transport stdio sshgate -- sshgate`) as the **same** Windows user.
     Pass: `exec`/`list-servers` work normally.
   - Connect the bridge as a **different** Windows user (e.g. a second
     local account, or a service account). Pass: the connection is
