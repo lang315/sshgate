@@ -64,11 +64,22 @@ func (p *Plan) Close() {
 }
 
 var (
-	errNotFolder  = errors.New("destination exists and is not a folder")
-	errNotFile    = errors.New("destination exists and is not a file")
-	errCaseClash  = errors.New("another name here differs only in case")
-	errNotRegular = errors.New("not a regular file or folder")
+	errNotFolder     = errors.New("destination exists and is not a folder")
+	errNotFile       = errors.New("destination exists and is not a file")
+	errCaseClash     = errors.New("another name here differs only in case")
+	errNotRegular    = errors.New("not a regular file or folder")
+	errDuplicateName = errors.New("another selected source has this name already")
 )
+
+// bare strips a *fs.PathError down to its underlying error, so a local
+// filesystem error never repeats the (possibly sensitive) local path.
+func bare(err error) error {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return pe.Err
+	}
+	return err
+}
 
 // walker enforces the entry and depth limits and the cancel.
 type walker struct {
@@ -85,7 +96,7 @@ func (w *walker) step(depth int) error {
 	if w.n++; w.n > MaxPlanEntries {
 		return fmt.Errorf("more than %d entries; pick fewer", MaxPlanEntries)
 	}
-	if depth > MaxDepth {
+	if depth >= MaxDepth {
 		return fmt.Errorf("folders nested more than %d levels", MaxDepth)
 	}
 	return nil
@@ -110,7 +121,7 @@ func PlanDownload(ctx context.Context, c *sftp.Client, sources []string, dest st
 	}
 	root, err := os.OpenRoot(dest)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("the download folder is missing or not a folder")
 	}
 	p := &Plan{Op: OpDownload, local: root, Remote: sources, Local: []string{dest}}
 	w := &walker{ctx: ctx, p: p, seen: map[string]map[string]bool{}}
@@ -204,31 +215,44 @@ func PlanUpload(ctx context.Context, c *sftp.Client, sources []string, dest stri
 		return nil, errors.New("the upload folder is missing or not a folder")
 	}
 	p := &Plan{Op: OpUpload, dest: dest, Remote: []string{dest}, Local: sources}
-	w := &walker{ctx: ctx, p: p}
+	w := &walker{ctx: ctx, p: p, seen: map[string]map[string]bool{}}
 	for _, s := range sources {
 		if !filepath.IsAbs(s) {
 			p.Close()
 			return nil, errors.New("local sources must be absolute")
 		}
+		base := filepath.Base(s)
+		if w.seen[""] == nil {
+			w.seen[""] = map[string]bool{}
+		}
+		low := strings.ToLower(base)
+		if w.seen[""][low] { // two sources collapsing onto one remote name
+			p.Errors.Add(base, errDuplicateName)
+			continue
+		}
+		w.seen[""][low] = true
 		resolved := s
 		if lfi, err := os.Lstat(s); err == nil && lfi.Mode()&fs.ModeSymlink != 0 {
-			if r, err := filepath.EvalSymlinks(s); err == nil { // a selected symlink is followed once
-				resolved = r
+			r, err := filepath.EvalSymlinks(s) // a selected symlink is followed once
+			if err != nil {
+				p.Errors.Add(base, bare(err))
+				continue
 			}
+			resolved = r
 		}
 		root, err := os.OpenRoot(filepath.Dir(resolved))
 		if err != nil {
-			p.Errors.Add(s, err)
+			p.Errors.Add(base, bare(err))
 			continue
 		}
 		p.roots = append(p.roots, root)
 		inRoot := filepath.Base(resolved)
 		fi, err := root.Lstat(inRoot)
 		if err != nil {
-			p.Errors.Add(s, err)
+			p.Errors.Add(base, bare(err))
 			continue
 		}
-		if err := w.up(c, root, inRoot, filepath.Base(s), fi, 0); err != nil {
+		if err := w.up(c, root, inRoot, base, fi, 0); err != nil {
 			p.Close()
 			return nil, err
 		}
@@ -242,7 +266,7 @@ func (w *walker) up(c *sftp.Client, root *os.Root, inRoot, rel string, fi fs.Fil
 	}
 	p := w.p
 	if err := checkRemoteName(path.Base(rel)); err != nil {
-		p.Errors.Add(inRoot, err)
+		p.Errors.Add(rel, err)
 		return nil
 	}
 	it := item{rel: rel, src: inRoot, root: root, size: fi.Size(), mode: fi.Mode(), mtime: fi.ModTime()}
@@ -263,19 +287,19 @@ func (w *walker) up(c *sftp.Client, root *os.Root, inRoot, rel string, fi fs.Fil
 		p.Dirs++
 		f, err := root.Open(inRoot)
 		if err != nil {
-			p.Errors.Add(rel, err)
+			p.Errors.Add(rel, bare(err))
 			return nil
 		}
 		des, err := f.ReadDir(-1)
 		f.Close()
 		if err != nil {
-			p.Errors.Add(rel, err)
+			p.Errors.Add(rel, bare(err))
 			return nil
 		}
 		for _, de := range des {
 			cfi, err := de.Info() // Lstat semantics
 			if err != nil {
-				p.Errors.Add(path.Join(rel, de.Name()), err)
+				p.Errors.Add(path.Join(rel, de.Name()), bare(err))
 				continue
 			}
 			if err := w.up(c, root, filepath.Join(inRoot, de.Name()), path.Join(rel, de.Name()), cfi, depth+1); err != nil {
