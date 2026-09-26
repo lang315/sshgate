@@ -3,6 +3,7 @@ package hub
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -57,6 +58,7 @@ func (h *Hub) candidates(ctx context.Context, aliases []string) ([]sshconfig.Can
 	for _, a := range aliases {
 		r, err := sshconfig.Resolve(ctx, bin, h.o.SSHConfigPath, a)
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "hub: ssh -G %q: %v\n", a, err)
 			out = append(out, sshconfig.Candidate{Alias: a, Status: "skipped", Reason: "ssh -G failed"})
 			continue
 		}
@@ -99,7 +101,7 @@ func (h *Hub) ImportApply(ctx context.Context, names []string) (imported []strin
 	if err != nil {
 		return nil, nil, err
 	}
-	defer clear(key)
+	clear(key) // taken again for the write: the vault may lock while ssh -G runs
 	all, err := sshconfig.Aliases(h.sshConfigPath())
 	if err != nil {
 		return nil, nil, err
@@ -128,6 +130,10 @@ func (h *Hub) ImportApply(ctx context.Context, names []string) (imported []strin
 	if len(ready) == 0 {
 		return imported, skipped, nil
 	}
+	if key, err = h.writeKey(); err != nil {
+		return nil, nil, err
+	}
+	defer clear(key)
 	var done []sshconfig.Candidate
 	var late []importSkip
 	err = config.Update(h.o.StorePath, key, func(f *config.File) error {
@@ -141,7 +147,7 @@ func (h *Hub) ImportApply(ctx context.Context, names []string) (imported []strin
 			if _, _, err := config.ApplyServer(f, "", in, key); err != nil {
 				return err
 			}
-			s := &f.Servers[len(f.Servers)-1]
+			s := &f.Servers[slices.IndexFunc(f.Servers, func(s config.Server) bool { return s.Name == c.Alias })]
 			s.HostKey, s.HostKeyAlgo = c.HostKey, c.HostKeyAlgo
 			done = append(done, c)
 		}

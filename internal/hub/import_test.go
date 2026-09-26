@@ -3,12 +3,15 @@ package hub
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/pem"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -32,13 +35,17 @@ func importHub(t *testing.T) importFixture {
 		t.Skip("no OpenSSH client on PATH")
 	}
 	dir := t.TempDir()
-	key := filepath.Join(dir, "id_web") // only has to exist; import never reads a key to dial
-	pubKey, _, _ := ed25519.GenerateKey(nil)
+	key := filepath.Join(dir, "id_web") // import parses it but never dials with it
+	pubKey, priv, _ := ed25519.GenerateKey(nil)
 	hk, _ := ssh.NewPublicKey(pubKey)
+	blk, err := ssh.MarshalPrivateKey(priv, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	kh := filepath.Join(dir, "known_hosts")
 	cfg := filepath.Join(dir, "config")
 	for p, body := range map[string]string{
-		key: "not a key",
+		key: string(pem.EncodeToMemory(blk)),
 		kh:  knownhosts.Line([]string{knownhosts.Normalize("10.0.0.5:2200")}, hk) + "\n",
 		cfg: strings.Join([]string{
 			"Host web", "  HostName 10.0.0.5", "  Port 2200", "  User deploy", "  IdentityFile " + key,
@@ -135,6 +142,45 @@ func TestImportScanAndApply(t *testing.T) {
 	}
 	if err := fx.c.Call(ctx, "import.scan", nil, &scan); err != nil || scan.Candidates[0].Status != "exists" {
 		t.Fatalf("rescan %v %+v", err, scan)
+	}
+}
+
+func TestImportApplyStopsWhenLockedMidway(t *testing.T) {
+	fx := importHub(t)
+	dir := t.TempDir()
+	started, proceed := filepath.Join(dir, "started"), filepath.Join(dir, "go")
+	cfg := fx.h.o.SSHConfigPath
+	b, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// ssh -G runs this while resolving web, so the test can lock mid-apply.
+	gate := fmt.Sprintf("Match exec \"touch %s; while [ ! -e %s ]; do sleep 0.05; done\"\n", started, proceed)
+	if err := os.WriteFile(cfg, append([]byte(gate), b...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := config.Load(fx.store)
+	errc := make(chan error, 1)
+	go func() {
+		errc <- fx.c.Call(context.Background(), "import.apply", map[string]any{"aliases": []string{"web"}}, nil)
+	}()
+	for deadline := time.Now().Add(4 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("ssh -G never ran the Match exec")
+		}
+	}
+	fx.h.Lock()
+	if err := os.WriteFile(proceed, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-errc; err == nil || !strings.Contains(err.Error(), ErrLocked.Error()) {
+		t.Fatalf("want %v, got %v", ErrLocked, err)
+	}
+	if after, _ := config.Load(fx.store); after.Revision != before.Revision {
+		t.Fatal("an apply locked midway wrote the vault")
 	}
 }
 

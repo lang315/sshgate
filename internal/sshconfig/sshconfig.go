@@ -40,6 +40,9 @@ func collect(path string, depth int, seen map[string]bool, out *[]string) error 
 		return fmt.Errorf("%s: Include nested too deep", path)
 	}
 	b, err := os.ReadFile(path)
+	if depth > 0 && errors.Is(err, fs.ErrNotExist) {
+		return nil // ssh skips an included file that is gone, e.g. a dangling symlink
+	}
 	if err != nil {
 		return err
 	}
@@ -137,7 +140,13 @@ func Resolve(ctx context.Context, sshBin, configPath, alias string) (Resolved, e
 	if configPath != "" {
 		args = append(args, "-F", configPath)
 	}
-	out, err := exec.CommandContext(ctx, sshBin, append(args, "--", alias)...).Output()
+	cmd := exec.CommandContext(ctx, sshBin, append(args, "--", alias)...)
+	cmd.WaitDelay = time.Second // a Match exec child can hold the pipes open after ssh is killed
+	out, err := cmd.Output()
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+		return Resolved{}, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(ee.Stderr)))
+	}
 	if err != nil {
 		return Resolved{}, err
 	}
@@ -196,13 +205,14 @@ type Candidate struct {
 }
 
 // Check turns a resolved alias into a candidate. The first IdentityFile that
-// exists gives key auth; ssh -G lists its own defaults when none is set, so
-// no default list is needed here. No existing file means agent auth.
+// holds a private key gives key auth; ssh -G lists its own defaults when none
+// is set, so no default list is needed here. None (a .pub for an agent-held
+// key does not count) means agent auth.
 func Check(r Resolved, exists func(string) bool) Candidate {
 	c := Candidate{Alias: r.Alias, Host: r.HostName, Port: r.Port, User: r.User, Auth: "agent", Status: "ready"}
 	for _, f := range r.IdentityFiles {
-		if _, err := os.Stat(expandHome(f)); err == nil {
-			c.Auth, c.KeyPath, c.NeedsPassphrase = "key", f, encrypted(expandHome(f))
+		if ok, locked := privateKey(expandHome(f)); ok {
+			c.Auth, c.KeyPath, c.NeedsPassphrase = "key", f, locked
 			break
 		}
 	}
@@ -220,12 +230,15 @@ func Check(r Resolved, exists func(string) bool) Candidate {
 	return c
 }
 
-func encrypted(path string) bool {
+// privateKey says whether path holds a private key, and whether that key
+// needs a passphrase.
+func privateKey(path string) (ok, locked bool) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return false
+		return false, false
 	}
 	_, err = ssh.ParseRawPrivateKey(b)
 	var pm *ssh.PassphraseMissingError
-	return errors.As(err, &pm)
+	locked = errors.As(err, &pm)
+	return err == nil || locked, locked
 }

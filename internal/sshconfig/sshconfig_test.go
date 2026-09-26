@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -83,6 +84,19 @@ func TestAliasesIncludeCycle(t *testing.T) {
 	}
 }
 
+func TestAliasesSkipsDanglingInclude(t *testing.T) {
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "conf.d", "real.conf"), "Host real\n")
+	if err := os.Symlink(filepath.Join(dir, "gone"), filepath.Join(dir, "conf.d", "dangling.conf")); err != nil {
+		t.Skip("no symlinks:", err)
+	}
+	cfg := filepath.Join(dir, "config")
+	write(t, cfg, "Host top\nInclude "+filepath.Join(dir, "conf.d", "*.conf")+"\nHost after\n")
+	if got, err := Aliases(cfg); err != nil || !slices.Equal(got, []string{"top", "real", "after"}) {
+		t.Fatalf("got %v %v", got, err)
+	}
+}
+
 func TestAliasesMissingFile(t *testing.T) {
 	if got, err := Aliases(filepath.Join(t.TempDir(), "none")); err != nil || len(got) != 0 {
 		t.Fatalf("got %v %v", got, err)
@@ -142,7 +156,37 @@ func TestResolveAndCheck(t *testing.T) {
 	if n, p := resolve("aliased").KnownHostsName(); n != "pinned-name" || p != 22 {
 		t.Fatalf("aliased: %s %d", n, p)
 	}
-	if _, err := Resolve(ctx, bin, filepath.Join(dir, "nope"), "web"); err == nil {
-		t.Fatal("a missing -F file must fail")
+	// The error carries ssh's own message, for the hub's stderr.
+	if _, err := Resolve(ctx, bin, filepath.Join(dir, "nope"), "web"); err == nil || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("a missing -F file must fail with ssh's message, got %v", err)
+	}
+}
+
+func TestResolveTimesOut(t *testing.T) {
+	bin := sshBin(t)
+	cfg := filepath.Join(t.TempDir(), "config")
+	// The Match exec child outlives ssh and holds its stderr open.
+	write(t, cfg, "Match exec \"sleep 30\"\n  User x\nHost web\n")
+	start := time.Now()
+	if _, err := Resolve(context.Background(), bin, cfg, "web"); err == nil || time.Since(start) > 7*time.Second {
+		t.Fatalf("got %v after %v, want an error within ~6 s", err, time.Since(start))
+	}
+}
+
+func TestCheckSkipsNonPrivateKeyFiles(t *testing.T) {
+	dir := t.TempDir()
+	k, pubOnly := filepath.Join(dir, "k"), filepath.Join(dir, "agent.pub")
+	writeKey(t, k, "")
+	pk, _, _ := ed25519.GenerateKey(nil)
+	sk, _ := ssh.NewPublicKey(pk)
+	write(t, pubOnly, string(ssh.MarshalAuthorizedKey(sk))) // an agent-held key's .pub, as 1Password or Secretive set up
+	none := func(string) bool { return false }
+	r := Resolved{Alias: "h", HostName: "10.0.0.1", Port: 22, User: "u", IdentityFiles: []string{pubOnly}}
+	if c := Check(r, none); c.Auth != "agent" || c.KeyPath != "" {
+		t.Fatalf("pub only: %+v", c)
+	}
+	r.IdentityFiles = []string{pubOnly, k}
+	if c := Check(r, none); c.Auth != "key" || c.KeyPath != k {
+		t.Fatalf("pub then key: %+v", c)
 	}
 }
