@@ -4,7 +4,7 @@ Long-lived plan across every slice. Each slice gets its own spec in
 `specs/` and its own implementation plan in `plans/`, written when that
 slice starts. This file only fixes order, gates, and cross-slice decisions.
 
-Updated: 2026-09-26 (renamed ssh-mcp → sshgate, own public repo lang315/sshgate; slice 2a closed, `sshgate web` removed; 2b split, 2b-1 import implemented)
+Updated: 2026-09-26 (renamed ssh-mcp → sshgate, own public repo lang315/sshgate; slice 2a closed, `sshgate web` removed; 2b split, 2b-1 import done)
 
 ## Standing decisions
 
@@ -34,7 +34,7 @@ plan note.
 | 0 | Go conversion + web config UI | Done | `specs/2026-07-31-go-conversion-web-ui-design.md` | — | — | Merged on `feat/go-conversion`; CI runs `go test` |
 | 1 | Desktop app: hub, broker, MCP door, Electron shell, terminal tabs, approval panel | 1a and 1b done; manual checklist pending | `specs/2026-09-24-desktop-app-design.md` | 0 | Spec approved | Success criteria 1–6 in the spec; author uses it daily |
 | 2a | Host management in the app (create vault, host CRUD, Forget), host-key fingerprint prompt, no silent TOFU on any hub path, safe vault writes (`config.Update`) | Done 2026-09-26: exit gate waived by the author, `sshgate web` removed | `specs/2026-09-25-desktop-slice2a-design.md` | 1 | Author override (unlocking twice for app + web blocks daily use) | Author manages hosts only in the app for a week; then delete `sshgate web` |
-| 2b-1 | `~/.ssh/config` import with `known_hosts` pins | Implemented 2026-09-26; exit gate pending (author imports their real config) | `specs/2026-09-26-slice2b-ssh-config-import-design.md` | 2a | A real config to import | The author's hosts import pinned and open with no Trust prompt |
+| 2b-1 | `~/.ssh/config` import with `known_hosts` pins | Done 2026-09-26: the author's 3 real hosts imported pinned and opened with no Trust prompt (`TestLiveVaultConnect`); two needed an auth edit after import (an encrypted key held by ssh-agent, fixed in `2515af9`; one host that only takes a password) | `specs/2026-09-26-slice2b-ssh-config-import-design.md` | 2a | A real config to import | The author's hosts import pinned and open with no Trust prompt |
 | 2b-2 | ProxyJump (one hop first) | Not specced | — | 2b-1 | The author has a real host behind a bastion | Bastion host connects and runs an approved AI command |
 | 2c | Split panes, local shell, Windows agent (OpenSSH pipe, Pageant) | Not needed now (2026-09-26) | — | 2a | Daily use shows the need (panes, local shell); a Windows machine to test on (agent) | Author does not open another terminal for SSH work |
 | 3 | SFTP and port forwarding (local, remote, dynamic) | Not specced | — | 2a | Slice 2a done | File browser and tunnels usable from a saved host |
