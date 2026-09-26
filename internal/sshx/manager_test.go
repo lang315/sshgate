@@ -254,6 +254,11 @@ func TestSFTPAgainstOpenSSH(t *testing.T) {
 	defer m.Close()
 	c, err := m.SFTP()
 	if errors.Is(err, ErrNoSFTP) {
+		// CI must prove the no-replace plain rename below, which files.Rename's
+		// check-then-rename relies on; the image tag cannot be pinned offline.
+		if os.Getenv("CI") != "" {
+			t.Fatal("image offers no sftp subsystem; CI must run this test")
+		}
 		t.Skip("image offers no sftp subsystem")
 	}
 	if err != nil {
