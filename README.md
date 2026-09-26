@@ -70,6 +70,7 @@ Keep the app open while the AI works. When the app is closed, every tool call fa
 
 - **Hosts** is the first tab: a searchable grid of host cards. An **AI** chip marks servers visible to AI, and **New key** marks servers without a pinned host key. The footer shows the vault file's path; copying that file is your backup.
 - **Terminal tabs** open from a host card. They keep their SSH sessions when the vault locks, and offer **Reconnect** if the hub restarts.
+- **Files** opens an SFTP browser tab from a host card: list, upload and download files or whole folders (or drop them from Finder), make folders, rename, and recursive delete. Everything runs as the host's login user, and every change and transfer is audited.
 - **AI requests** is a column on the right. It opens itself when a request arrives and closes only when you close it; closing it never denies or drops a request, and the **AI** button in the tab bar turns amber while requests wait.
   - **Deny** is the default: Enter in the reason field denies, and the reason goes back to the AI.
   - **Allow** and **Send to tab** need a mouse click and stay disabled for 500 ms after anything in the list changes or scrolls, so nothing is clickable the instant it moves under your cursor.

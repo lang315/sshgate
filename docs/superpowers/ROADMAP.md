@@ -4,7 +4,7 @@ Long-lived plan across every slice. Each slice gets its own spec in
 `specs/` and its own implementation plan in `plans/`, written when that
 slice starts. This file only fixes order, gates, and cross-slice decisions.
 
-Updated: 2026-09-26 (renamed ssh-mcp → sshgate, own public repo lang315/sshgate; slice 2a closed, `sshgate web` removed; 2b split, 2b-1 import done)
+Updated: 2026-09-26 (renamed ssh-mcp → sshgate, own public repo lang315/sshgate; slice 2a closed, `sshgate web` removed; 2b split, 2b-1 import done; 3a implemented)
 
 ## Standing decisions
 
@@ -37,7 +37,7 @@ plan note.
 | 2b-1 | `~/.ssh/config` import with `known_hosts` pins | Done 2026-09-26: the author's 3 real hosts imported pinned and opened with no Trust prompt (`TestLiveVaultConnect`); two needed an auth edit after import (an encrypted key held by ssh-agent, fixed in `2515af9`; one host that only takes a password) | `specs/2026-09-26-slice2b-ssh-config-import-design.md` | 2a | A real config to import | The author's hosts import pinned and open with no Trust prompt |
 | 2b-2 | ProxyJump (one hop first) | Not specced | — | 2b-1 | The author has a real host behind a bastion | Bastion host connects and runs an approved AI command |
 | 2c | Split panes, local shell, Windows agent (OpenSSH pipe, Pageant) | Not needed now (2026-09-26) | — | 2a | Daily use shows the need (panes, local shell); a Windows machine to test on (agent) | Author does not open another terminal for SSH work |
-| 3a | SFTP file browser (list, upload/download incl. folders, mkdir, rename, recursive delete, Finder drop) | Specced 2026-09-26 | `specs/2026-09-26-slice3a-sftp-design.md` | 2a | Slice 2a done | The author browses, uploads a folder, downloads it back, and deletes it on a real host |
+| 3a | SFTP file browser (list, upload/download incl. folders, mkdir, rename, recursive delete, Finder drop) | Implemented 2026-09-26; exit gate pending (author on a real host) | `specs/2026-09-26-slice3a-sftp-design.md` | 2a | Slice 2a done | The author browses, uploads a folder, downloads it back, and deletes it on a real host |
 | 3b | Port forwarding (local, remote, dynamic) | Not specced | — | 3a | Slice 3a done | Tunnels usable from a saved host |
 | 4 | Egress and audit: pattern redaction of command output (private keys, `password=`, bearer tokens), audit rotation, audit viewer in the app | Not specced | — | 1 | A real incident, or a host with secrets the AI must query | Redaction tests pass on a corpus of real outputs |
 | 5 | Distribution: code signing, notarization, auto-update, installers, CI release builds | Not needed now (2026-09-26) | — | 2a | A second user asks for a build | Signed builds for all three OSes from CI |
