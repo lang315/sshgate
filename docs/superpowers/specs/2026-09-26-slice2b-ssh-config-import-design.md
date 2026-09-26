@@ -1,7 +1,7 @@
 # sshgate: Import Hosts from `~/.ssh/config` — Design (Slice 2b, part 1)
 
 Date: 2026-09-26
-Status: Draft, awaiting review.
+Status: Approved 2026-09-26; implemented (plan `plans/2026-09-26-slice2b-ssh-config-import.md`).
 Depends on: `2026-09-24-desktop-app-design.md` (slice 1) and `2026-09-25-desktop-slice2a-design.md` (slice 2a). Everything there still holds unless this document changes it by name.
 
 ## Goal
@@ -67,7 +67,7 @@ Out, recorded in ROADMAP:
 | a vault server already has this name | Already in vault |
 | otherwise | Ready |
 
-Auth: the first `identityfile` that exists on disk (after `~` expansion) → `auth: "key"` with that path, kept in `~/…` form (the hub already expands it when dialling). `ssh -G` lists the default key files when none is configured, in OpenSSH's own order, so no separate default list is needed. No existing file → `auth: "agent"`. If the chosen key is encrypted (`ssh.ParseRawPrivateKey` returns `*ssh.PassphraseMissingError`), the candidate carries `needsPassphrase: true`.
+Auth: the first `identityfile` that holds a private key (after `~` expansion; it parses, or needs a passphrase; a `.pub` for an agent-held key does not count) → `auth: "key"` with that path, kept in `~/…` form (the hub already expands it when dialling). `ssh -G` lists the default key files when none is configured, in OpenSSH's own order, so no separate default list is needed. No such file → `auth: "agent"`. If the chosen key is encrypted (`ssh.ParseRawPrivateKey` returns `*ssh.PassphraseMissingError`), the candidate carries `needsPassphrase: true`.
 
 ### `internal/sshx`: `KnownHostKey(files []string, host string, port int) (algo, fingerprint string, ok bool)`
 
@@ -116,7 +116,7 @@ Go unit tests run the real `ssh -G` with `-F <temp file>`; the CI runners for Ub
 - `Resolve` + `Candidate`:
   - `Host *` supplies the user;
   - an alias without `HostName` resolves to itself;
-  - the first existing `IdentityFile` wins, and `agent` is used when none exists;
+  - the first `IdentityFile` holding a private key wins, and `agent` is used when none does;
   - `ProxyJump` and `ProxyCommand` are skipped;
   - an invalid name is skipped;
   - an existing name is "Already in vault";

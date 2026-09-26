@@ -1,4 +1,4 @@
-import type { ApprovalRequest, HubEvent, HubState, ServerInfo, ServerInput, Status, TermOpenResult } from '../shared/protocol'
+import type { ApprovalRequest, HubEvent, HubState, ImportResult, ImportScan, ServerInfo, ServerInput, Status, TermOpenResult } from '../shared/protocol'
 
 interface Bridge {
   call(method: string, params?: unknown): Promise<unknown>
@@ -52,6 +52,8 @@ export const hub = {
   saveServer: async (server: ServerInput, original?: string) => { await call('servers.save', { original, server }) },
   deleteServer: async (name: string) => { await call('servers.delete', { name }) },
   forgetHostKey: async (name: string) => { await call('servers.forgetHostKey', { name }) },
+  importScan: () => call<ImportScan>('import.scan'),
+  importApply: (aliases: string[]) => call<ImportResult>('import.apply', { aliases }),
   // A host-key outcome is a result, not an error; trustHostKey retries pinned to exactly that key.
   termOpen: (id: string, server: string, rows: number, cols: number, trustHostKey?: { fingerprint: string; keyType: string }) =>
     call<TermOpenResult>('term.open', trustHostKey ? { id, server, rows, cols, trustHostKey } : { id, server, rows, cols }),

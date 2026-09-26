@@ -6,6 +6,7 @@ import { Unlock } from './Unlock'
 import { CreateVault } from './CreateVault'
 import { HostList } from './HostList'
 import { HostEditor } from './HostEditor'
+import { ImportSheet } from './ImportSheet'
 import { HostKeyDialog, HostKeyMismatchDialog } from './HostKeyDialog'
 import { HostKeyPrompts } from './hostkeys'
 import { Terminals, type TerminalsHandle } from './TerminalTabs'
@@ -25,6 +26,7 @@ export function App() {
   const terms = useRef<TerminalsHandle>(null)
   const [everReady, setEverReady] = useState(false)
   const [editing, setEditing] = useState<{ name?: string; focusForget?: boolean }>()
+  const [importing, setImporting] = useState(false)
   const hostKeys = useRef(new HostKeyPrompts()).current
   const [mismatch, setMismatch] = useState<HostKeyMismatch>()
   const [themePref, setThemePref] = useState<ThemePref>(() => loadPref())
@@ -143,9 +145,10 @@ export function App() {
   )
   const hostList = (
     <HostList servers={servers} storePath={status?.storePath ?? ''} onOpen={(name) => terms.current?.open(name)}
-      onNew={() => setEditing({})}
-      onEdit={async (name) => { await reloadServers(); setEditing({ name }) }}
-      onDelete={deleteHost} />
+      onNew={() => { setImporting(false); setEditing({}) }}
+      onEdit={async (name) => { setImporting(false); await reloadServers(); setEditing({ name }) }}
+      onDelete={deleteHost}
+      onImport={() => { setEditing(undefined); setImporting(true) }} />
   )
 
   // Once shown, the shell (tabs, terminals) stays mounted, hidden and inert, through
@@ -174,6 +177,10 @@ export function App() {
                 onForget={async (name) => { await hub.forgetHostKey(name); await reloadServers() }}
                 onClose={() => setEditing(undefined)} />
             )}
+            {ready && importing && (
+              <ImportSheet scan={hub.importScan} apply={hub.importApply} onImported={reloadServers}
+                onClose={() => setImporting(false)} />
+            )}
           </main>
           {ready && aiOpen && (
             <ApprovalPanel items={items} seedError={seedError}
@@ -191,7 +198,7 @@ export function App() {
       {ready && <HostKeyDialog prompts={hostKeys} />}
       {ready && mismatch && (
         <HostKeyMismatchDialog info={mismatch} onClose={() => setMismatch(undefined)}
-          onEdit={async () => { const name = mismatch.server; setMismatch(undefined); await reloadServers(); setEditing({ name, focusForget: true }) }} />
+          onEdit={async () => { const name = mismatch.server; setMismatch(undefined); setImporting(false); await reloadServers(); setEditing({ name, focusForget: true }) }} />
       )}
     </div>
   )

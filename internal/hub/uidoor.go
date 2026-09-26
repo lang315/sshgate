@@ -157,6 +157,22 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		}
 		return empty, h.ForgetHostKey(p.Name)
 	})
+	req("import.scan", func(ctx context.Context, _ json.RawMessage) (any, error) {
+		return h.ImportScan(ctx)
+	})
+	req("import.apply", func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			Aliases []string `json:"aliases"`
+		}
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return nil, &rpc.Error{Code: -32602, Message: "invalid params"}
+		}
+		imported, skipped, err := h.ImportApply(ctx, p.Aliases)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"imported": imported, "skipped": skipped}, nil
+	})
 	req("servers", func(context.Context, json.RawMessage) (any, error) {
 		_ = h.Reload()
 		return h.serversForUI(), nil

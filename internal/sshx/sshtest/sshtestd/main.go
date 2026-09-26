@@ -3,15 +3,20 @@
 // FLOOD-DONE), and answers exec with the command text.
 // With -write-store it writes a vault containing one AI-visible server
 // "box" that points at itself, ready to unlock with -password.
+// With -write-known-hosts it writes its host key as a known_hosts line.
 package main
 
 import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
+
+	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/lang315/sshgate/internal/config"
 	"github.com/lang315/sshgate/internal/sshx/sshtest"
@@ -20,6 +25,7 @@ import (
 func main() {
 	store := flag.String("write-store", "", "write a ready vault to this path")
 	pw := flag.String("password", "pw", "master password for -write-store")
+	kh := flag.String("write-known-hosts", "", "write this server's host key as a known_hosts line to this path")
 	flag.Parse()
 
 	srv, stop, err := sshtest.Listen()
@@ -35,6 +41,13 @@ func main() {
 	}()
 	if *store != "" {
 		if err := writeStore(*store, *pw, srv); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+	if *kh != "" {
+		line := knownhosts.Line([]string{knownhosts.Normalize(net.JoinHostPort(srv.Host, strconv.Itoa(srv.Port)))}, srv.PublicKey())
+		if err := os.WriteFile(*kh, []byte(line+"\n"), 0o600); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

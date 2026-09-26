@@ -12,8 +12,12 @@ export interface Launched { app: ElectronApplication; tmp: string; socket: strin
 // launches the app against <tmp>/store/servers.json. By default sshtestd
 // writes a ready vault there (password "pw", server "box"), as smoke.spec.ts
 // does; emptyStore leaves no store, so the app opens at Create vault. port is
-// sshtestd's. extraEnv is added to the app's environment.
-export async function launch(extraEnv: Record<string, string> = {}, opts: { emptyStore?: boolean } = {}): Promise<Launched> {
+// sshtestd's. extraEnv is added to the app's environment. sshConfig, given
+// sshtestd's port, returns an SSH config written to <tmp>/ssh_config for the
+// hub (SSHGATE_SSH_CONFIG); sshtestd then writes its host key to
+// <tmp>/known_hosts.
+export async function launch(extraEnv: Record<string, string> = {},
+  opts: { emptyStore?: boolean; sshConfig?: (port: number, tmp: string) => string } = {}): Promise<Launched> {
   const tmp = fs.mkdtempSync('/tmp/sme')
   // Binaries go in bin/: the hub's socket directory is <tmp>/sshgate.
   const bin = path.join(tmp, 'bin')
@@ -21,14 +25,21 @@ export async function launch(extraEnv: Record<string, string> = {}, opts: { empt
   execFileSync('go', ['build', '-o', path.join(bin, 'sshtestd'), './internal/sshx/sshtest/sshtestd'], { cwd: repo, stdio: 'inherit' })
   const store = path.join(tmp, 'store', 'servers.json')
   const args = opts.emptyStore ? [] : [`-write-store=${store}`, '-password=pw']
+  if (opts.sshConfig) args.push(`-write-known-hosts=${path.join(tmp, 'known_hosts')}`)
   const sshd: ChildProcess = spawn(path.join(bin, 'sshtestd'), args, { stdio: ['pipe', 'pipe', 'inherit'] })
   // sshtestd's first line is PORT=<port>.
   const port = await new Promise<number>((resolve) =>
     readline.createInterface({ input: sshd.stdout! }).once('line', (l) => resolve(Number(l.replace('PORT=', '')))))
+  const env = { ...extraEnv }
+  if (opts.sshConfig) {
+    const cfg = path.join(tmp, 'ssh_config')
+    fs.writeFileSync(cfg, opts.sshConfig(port, tmp), { mode: 0o600 })
+    env.SSHGATE_SSH_CONFIG = cfg
+  }
   const app = await electron.launch({
     args: ['.'],
     cwd: path.resolve(__dirname, '..'),
-    env: { ...process.env, SSHGATE_BIN: path.join(bin, 'sshgate'), SSHGATE_STORE: store, SSHGATE_RUNTIME_DIR: tmp, ...extraEnv },
+    env: { ...process.env, SSHGATE_BIN: path.join(bin, 'sshgate'), SSHGATE_STORE: store, SSHGATE_RUNTIME_DIR: tmp, ...env },
   })
   return {
     app, tmp, socket: path.join(tmp, 'sshgate', 'hub.sock'), port,

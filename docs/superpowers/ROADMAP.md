@@ -4,7 +4,7 @@ Long-lived plan across every slice. Each slice gets its own spec in
 `specs/` and its own implementation plan in `plans/`, written when that
 slice starts. This file only fixes order, gates, and cross-slice decisions.
 
-Updated: 2026-09-26 (renamed ssh-mcp → sshgate, own public repo lang315/sshgate; slice 2a closed, `sshgate web` removed)
+Updated: 2026-09-26 (renamed ssh-mcp → sshgate, own public repo lang315/sshgate; slice 2a closed, `sshgate web` removed; 2b split, 2b-1 import implemented)
 
 ## Standing decisions
 
@@ -34,11 +34,12 @@ plan note.
 | 0 | Go conversion + web config UI | Done | `specs/2026-07-31-go-conversion-web-ui-design.md` | — | — | Merged on `feat/go-conversion`; CI runs `go test` |
 | 1 | Desktop app: hub, broker, MCP door, Electron shell, terminal tabs, approval panel | 1a and 1b done; manual checklist pending | `specs/2026-09-24-desktop-app-design.md` | 0 | Spec approved | Success criteria 1–6 in the spec; author uses it daily |
 | 2a | Host management in the app (create vault, host CRUD, Forget), host-key fingerprint prompt, no silent TOFU on any hub path, safe vault writes (`config.Update`) | Done 2026-09-26: exit gate waived by the author, `sshgate web` removed | `specs/2026-09-25-desktop-slice2a-design.md` | 1 | Author override (unlocking twice for app + web blocks daily use) | Author manages hosts only in the app for a week; then delete `sshgate web` |
-| 2b | ProxyJump (one hop first) and `~/.ssh/config` + `known_hosts` import | Not specced | — | 2a | The author has a real host behind a bastion, or a real config to import | Bastion host connects and runs an approved AI command |
-| 2c | Split panes, local shell, Windows agent (OpenSSH pipe, Pageant) | Not specced | — | 2a | Daily use shows the need (panes, local shell); a Windows machine to test on (agent) | Author does not open another terminal for SSH work |
+| 2b-1 | `~/.ssh/config` import with `known_hosts` pins | Implemented 2026-09-26; exit gate pending (author imports their real config) | `specs/2026-09-26-slice2b-ssh-config-import-design.md` | 2a | A real config to import | The author's hosts import pinned and open with no Trust prompt |
+| 2b-2 | ProxyJump (one hop first) | Not specced | — | 2b-1 | The author has a real host behind a bastion | Bastion host connects and runs an approved AI command |
+| 2c | Split panes, local shell, Windows agent (OpenSSH pipe, Pageant) | Not needed now (2026-09-26) | — | 2a | Daily use shows the need (panes, local shell); a Windows machine to test on (agent) | Author does not open another terminal for SSH work |
 | 3 | SFTP and port forwarding (local, remote, dynamic) | Not specced | — | 2a | Slice 2a done | File browser and tunnels usable from a saved host |
 | 4 | Egress and audit: pattern redaction of command output (private keys, `password=`, bearer tokens), audit rotation, audit viewer in the app | Not specced | — | 1 | A real incident, or a host with secrets the AI must query | Redaction tests pass on a corpus of real outputs |
-| 5 | Distribution: code signing, notarization, auto-update, installers, CI release builds | Not specced | — | 2a | A second user asks for a build | Signed builds for all three OSes from CI |
+| 5 | Distribution: code signing, notarization, auto-update, installers, CI release builds | Not needed now (2026-09-26) | — | 2a | A second user asks for a build | Signed builds for all three OSes from CI |
 | — | Sync between machines, mobile, plugin API, Tabby plugin | Unscheduled | — | — | Explicit decision | — |
 
 ## Rules for this file
@@ -65,7 +66,8 @@ plan note.
 - Slice 1 → 4: which remote-host secrets actually appeared in command
   output during daily use; drives the redaction pattern list.
 - Slice 1b → 2 (answered): CI now also runs on pushes to `feat/go-conversion`. Its first runs found two real bugs, both fixed: su elevation could block forever on a silent shell (`0fb3fac`), and keepalive never reported a connection that died before its first tick (`d0e2494`). They also found a hung-poll flake in the smoke test (`34fcb48`). Both jobs, Docker integration tests included, pass as of run 36083544252; throughput on the runner was 38 MB/s.
-- Slice 2 review → 2b (2026-09-25, four-agent review of the bundled draft):
+- Slice 2 review → 2b-2 (2026-09-25, four-agent review of the bundled draft):
+  - Answered by 2b-1: `Host *`, `Include`, alias as hostname, keep-or-refuse `ProxyJump`, name validation and dedupe, `known_hosts` fingerprints. The jump-chain findings below stay for 2b-2.
   - A tunnelled dial has no handshake timeout. `ClientConfig.Timeout` covers only the TCP dial, and `ensure` holds `m.mu`. Bound `DialContext` + `NewClientConn` and give the whole chain one budget.
   - `redactorFor` must walk the bastion's secrets.
   - Changing `jump` must clear the pin.
