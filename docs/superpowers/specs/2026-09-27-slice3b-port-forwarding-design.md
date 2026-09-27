@@ -1,7 +1,7 @@
 # sshgate: Port Forwarding — Design (Slice 3, part b)
 
 Date: 2026-09-27
-Status: Approved in chat 2026-09-27; spec awaiting the author's review.
+Status: Approved 2026-09-27; implemented (plan `plans/2026-09-27-slice3b-port-forwarding.md`).
 Depends on: `2026-09-24-desktop-app-design.md` (slice 1), `2026-09-25-desktop-slice2a-design.md` (slice 2a), `2026-09-26-slice3a-sftp-design.md` (slice 3a). Everything there still holds unless this document changes it by name.
 
 ## Goal

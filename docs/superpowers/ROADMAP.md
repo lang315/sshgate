@@ -94,3 +94,4 @@ plan note.
   - The web UI's stale-pin and `If-Match` guards (`f65f583`) went away with the web UI (removed 2026-09-26).
   - `vault.create` is asserted to derive the key once and never run Unlock's derivation (`newKDF`/`deriveKey` seams, `5fb34f3`).
 - Slice 2a → later (2026-09-26, web UI removed): `hub --cli` cannot create a vault or edit hosts, and nothing imports or exports servers any more. Headless machines get a vault by copying `servers.json` from the app's machine. Add a CLI path or import/export only if that copy stops being enough.
+- Slice 3b → later (2026-09-27): auto-start tunnels on unlock or app start, LAN sharing (binding beyond loopback), reconnect after the connection drops, and a remote dynamic forward. Add them only if daily use hits them.
