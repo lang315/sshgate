@@ -25,8 +25,8 @@ export function parseTunnelForm(f: TunnelForm, id: string): { ok: true; tunnel: 
   }
   if (f.kind === 'dynamic') return { ok: true, tunnel: { id, kind: 'dynamic', listenPort, targetHost: '', targetPort: 0, label } }
   const targetHost = f.targetHost.trim()
-  if (!targetHost || /\s/.test(targetHost) || new TextEncoder().encode(targetHost).length > 253) {
-    return { ok: false, error: 'Target host is required, with no spaces' }
+  if (!targetHost || /[\s\p{Cc}\p{Cf}]/u.test(targetHost) || new TextEncoder().encode(targetHost).length > 253) {
+    return { ok: false, error: 'Target host is required, with no spaces or control characters' }
   }
   const targetPort = port(f.targetPort)
   if (!targetPort) return { ok: false, error: 'Target port must be 1-65535' }

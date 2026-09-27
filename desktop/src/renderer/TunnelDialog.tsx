@@ -24,7 +24,7 @@ export function TunnelDialog({ server, tunnel, onSave, onClose }: {
     ['dynamic', 'Dynamic', 'A SOCKS5 proxy here; connections leave from the server'],
   ]
   return (
-    <div className="modal" role="dialog" aria-label={title}>
+    <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
       <form className="dialog" onSubmit={submit} onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}>
         <div className="dialog-title"><h3>{title}</h3></div>
         <p className="muted">{`On ${displayText(server)}. Listens on 127.0.0.1 only.`}</p>

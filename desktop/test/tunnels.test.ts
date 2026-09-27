@@ -24,8 +24,10 @@ describe('parseTunnelForm', () => {
   it.each([
     [{ listenPort: '0' }, 'Listen port must be 1-65535'],
     [{ listenPort: '5x' }, 'Listen port must be 1-65535'],
-    [{ targetHost: '' }, 'Target host is required, with no spaces'],
-    [{ targetHost: 'a b' }, 'Target host is required, with no spaces'],
+    [{ targetHost: '' }, 'Target host is required, with no spaces or control characters'],
+    [{ targetHost: 'a b' }, 'Target host is required, with no spaces or control characters'],
+    [{ targetHost: 'db\u0007' }, 'Target host is required, with no spaces or control characters'],
+    [{ targetHost: 'd\u200bb' }, 'Target host is required, with no spaces or control characters'],
     [{ targetPort: '70000' }, 'Target port must be 1-65535'],
     [{ label: 'x'.repeat(65) }, 'Label is at most 64 bytes, with no control characters'],
   ])('refuses %o', (patch, error) => {
