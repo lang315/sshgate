@@ -177,6 +177,25 @@ func TestTunnelStartRefusals(t *testing.T) {
 	if i < 0 || rows[i].Status != "error" {
 		t.Fatalf("%+v", rows)
 	}
+	// A failed start is audited too: kind "tunnel", phase "end", with the
+	// detail (not the masked message) as the reason.
+	_, recs := readAudit(t, fx.store)
+	found := false
+	for _, r := range recs {
+		if r["kind"] == "tunnel" && r["id"] == id2 {
+			if r["phase"] != "end" {
+				t.Fatalf("failed-start audit phase: %+v", r)
+			}
+			reason, _ := r["reason"].(string)
+			if reason == "" || reason == "port "+strconv.Itoa(bp)+" is already in use" {
+				t.Fatalf("failed-start audit reason should be the detail, not the masked message: %+v", r)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no tunnel audit record for failed start of %s", id2)
+	}
 	fx.srv.RefuseForward()
 	id3 := saveTunnel(t, fx, "fs", map[string]any{"id": "", "kind": "remote", "listenPort": tunnelFreePort(t), "targetHost": "127.0.0.1", "targetPort": 1})
 	err = fx.c.Call(ctx, "tunnels.start", map[string]any{"server": "fs", "id": id3}, nil)
@@ -224,6 +243,34 @@ func TestTunnelEndedByServerChangeAndConnectionLoss(t *testing.T) {
 	// The tunnels are still saved on the server.
 	if rows := listTunnels(t, fx); len(rows) != 2 {
 		t.Fatalf("tunnels lost on save: %+v", rows)
+	}
+}
+
+// TestTunnelStartingEndedByServerDeleteDuringDial: a servers.delete landing
+// while StartTunnel's dial is still in flight (status "starting") must end
+// the tunnel and close whatever it goes on to bind, rather than leaving an
+// untracked listener nothing can stop (round 1 review finding).
+func TestTunnelStartingEndedByServerDeleteDuringDial(t *testing.T) {
+	fx := tunnelsHub(t)
+	ctx := context.Background()
+	lp := tunnelFreePort(t)
+	id := saveTunnel(t, fx, "fs", map[string]any{"id": "", "kind": "dynamic", "listenPort": lp})
+
+	done := make(chan error, 1)
+	afterTunnelDialed = func() {
+		done <- fx.c.Call(context.Background(), "servers.delete", map[string]any{"name": "fs"}, nil)
+	}
+	t.Cleanup(func() { afterTunnelDialed = nil })
+
+	err := fx.c.Call(ctx, "tunnels.start", map[string]any{"server": "fs", "id": id}, nil)
+	if err == nil || err.Error() != "server changed" {
+		t.Fatalf("start racing a server delete: %v", err)
+	}
+	if delErr := <-done; delErr != nil {
+		t.Fatal(delErr)
+	}
+	if _, err := net.Dial("tcp", "127.0.0.1:"+strconv.Itoa(lp)); err == nil {
+		t.Fatal("still listening after a server delete raced the dial")
 	}
 }
 

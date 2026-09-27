@@ -108,13 +108,17 @@ func (ts *tunnelSet) connsChanged(key string) {
 	})
 }
 
-// end stops lt if it is still the live entry for its key. reason "" means
-// stopped by the author (entry removed); anything else leaves an error entry.
+// end stops lt if it is still the live entry for its key, whether it is
+// running or still starting (a dial in flight has no fwd yet, so there is
+// nothing to Close there, but the entry must still be ended rather than
+// left to finish invisibly against a deleted or edited server). reason ""
+// means stopped by the author (entry removed); anything else leaves an
+// error entry, so a StartTunnel still in flight can see why it was cut off.
 func (h *Hub) endTunnel(lt *liveTunnel, reason string) {
 	ts := h.tunnels
 	key := tunnelKey(lt.server, lt.def.ID)
 	ts.mu.Lock()
-	if ts.live[key] != lt || lt.status != "running" {
+	if ts.live[key] != lt || (lt.status != "running" && lt.status != "starting") {
 		ts.mu.Unlock()
 		return
 	}
@@ -122,6 +126,7 @@ func (h *Hub) endTunnel(lt *liveTunnel, reason string) {
 		lt.notify.Stop()
 		lt.notify = nil
 	}
+	fwd := lt.fwd // nil while still starting
 	if reason == "" {
 		delete(ts.live, key)
 		lt.status = "stopped"
@@ -130,13 +135,17 @@ func (h *Hub) endTunnel(lt *liveTunnel, reason string) {
 	}
 	st := lt.state()
 	ts.mu.Unlock()
-	lt.fwd.Close()
+	conns := 0
+	if fwd != nil {
+		fwd.Close()
+		conns = fwd.Total()
+	}
 	auditReason := reason
 	if auditReason == "" {
 		auditReason = "stopped"
 	}
 	h.auditTunnel(broker.TunnelRecord{Phase: "end", Server: lt.server, Target: lt.target, ID: lt.def.ID,
-		TunnelKind: lt.def.Kind, Listen: listenAddr(lt.def), To: toAddr(lt.def), Conns: lt.fwd.Total(), Reason: auditReason})
+		TunnelKind: lt.def.Kind, Listen: listenAddr(lt.def), To: toAddr(lt.def), Conns: conns, Reason: auditReason})
 	ts.emit(st)
 }
 
@@ -250,9 +259,13 @@ func (h *Hub) tunnelRunning(server, id string) bool {
 	return lt != nil && (lt.status == "running" || lt.status == "starting")
 }
 
-// SaveTunnel adds (empty ID) or replaces one of server's tunnels.
-// ponytail: the running check and the write are not atomic with a
-// concurrent tunnels.start of the same id; one author, one window.
+// SaveTunnel adds (empty ID) or replaces one of server's tunnels. It refuses
+// to edit one that is running or starting, but that check is not atomic
+// with the write below: a tunnels.start can still land in between and claim
+// the id. So the cleanup here only ever clears a stale "error" entry (the
+// last start attempt's failure); it never removes a running or starting
+// entry, which would drop the hub's only handle on its Forward and orphan
+// the listener.
 func (h *Hub) SaveTunnel(server string, t config.Tunnel) (config.Tunnel, error) {
 	key, err := h.writeKey()
 	if err != nil {
@@ -293,7 +306,9 @@ func (h *Hub) SaveTunnel(server string, t config.Tunnel) (config.Tunnel, error) 
 	}
 	reloadErr := h.Reload()
 	h.tunnels.mu.Lock()
-	delete(h.tunnels.live, tunnelKey(server, t.ID)) // an old error entry
+	if cur := h.tunnels.live[tunnelKey(server, t.ID)]; cur != nil && cur.status == "error" {
+		delete(h.tunnels.live, tunnelKey(server, t.ID)) // an old error entry
+	}
 	h.tunnels.mu.Unlock()
 	h.auditConfig(broker.ConfigRecord{Action: "tunnelSave", Server: server,
 		Changed: []string{fmt.Sprintf("%s %s %s → %s", t.ID, t.Kind, listenAddr(t), toAddr(t))}})
@@ -329,15 +344,30 @@ func (h *Hub) DeleteTunnel(server, id string) error {
 		return err
 	}
 	reloadErr := h.Reload()
+	// A tunnels.start may have raced in between our endTunnel above and the
+	// write and claimed a fresh live entry for this id; end that one too
+	// (endTunnel closes its Forward) rather than dropping it unclosed below.
 	h.tunnels.mu.Lock()
-	delete(h.tunnels.live, tunnelKey(server, id))
+	lt = h.tunnels.live[tunnelKey(server, id)]
+	h.tunnels.mu.Unlock()
+	if lt != nil {
+		h.endTunnel(lt, "")
+	}
+	h.tunnels.mu.Lock()
+	delete(h.tunnels.live, tunnelKey(server, id)) // any leftover error entry
 	h.tunnels.mu.Unlock()
 	h.auditConfig(broker.ConfigRecord{Action: "tunnelDelete", Server: server, Changed: []string{id}})
 	return reloadErr
 }
 
-// StartTunnel checks, in order: vault, unlocked, server, tunnel, pin. It
-// answers once the forward listens.
+// afterTunnelDialed runs, if set, right after a tunnel's dial succeeds and
+// before its listener is created — a test seam for driving a concurrent
+// servers.delete/servers.save/tunnels.delete while the tunnel is still
+// "starting" (see filejobs.go's afterExpiryDecided for the same pattern).
+var afterTunnelDialed func()
+
+// StartTunnel checks, in order: vault, unlocked, server, tunnel, not
+// already running, pin. It answers once the forward listens.
 func (h *Hub) StartTunnel(server, id string) error {
 	_ = h.Reload()
 	dc, err := h.resolveForTerm(server)
@@ -347,9 +377,6 @@ func (h *Hub) StartTunnel(server, id string) error {
 	def, ok := h.savedTunnel(server, id)
 	if !ok {
 		return errors.New("tunnel not found")
-	}
-	if dc.HostKey == "" {
-		return errors.New("open a terminal to this host once to trust its host key")
 	}
 	key := tunnelKey(server, id)
 	lt := &liveTunnel{server: server, def: def, target: fmt.Sprintf("%s@%s:%d", dc.User, dc.Host, dc.Port), status: "starting"}
@@ -372,8 +399,17 @@ func (h *Hub) StartTunnel(server, id string) error {
 		}
 		st := lt.state()
 		h.tunnels.mu.Unlock()
+		reason := msg
+		if detail != nil {
+			reason = detail.Error()
+		}
+		h.auditTunnel(broker.TunnelRecord{Phase: "end", Server: server, Target: lt.target, ID: id,
+			TunnelKind: def.Kind, Listen: listenAddr(def), To: toAddr(def), Reason: reason})
 		h.tunnels.emit(st)
 		return errors.New(msg)
+	}
+	if dc.HostKey == "" {
+		return fail("open a terminal to this host once to trust its host key", nil)
 	}
 	mgr := h.Registry().Get(server, dc)
 	mgr.StartKeepalive(30*time.Second, nil)
@@ -386,6 +422,9 @@ func (h *Hub) StartTunnel(server, id string) error {
 		return fail("host key changed", err)
 	case err != nil:
 		return fail("connection failed", err)
+	}
+	if afterTunnelDialed != nil {
+		afterTunnelDialed()
 	}
 	onConns := func() { h.tunnels.connsChanged(key) }
 	var fwd *tunnel.Forward
@@ -413,6 +452,15 @@ func (h *Hub) StartTunnel(server, id string) error {
 		h.tunnels.mu.Unlock()
 		fwd.Close()
 		return errors.New("tunnel not found")
+	}
+	if lt.status != "starting" { // ended (server changed) while the dial ran
+		reason := lt.err
+		h.tunnels.mu.Unlock()
+		fwd.Close()
+		if reason == "" {
+			reason = "tunnel not found"
+		}
+		return errors.New(reason)
 	}
 	lt.fwd, lt.status = fwd, "running"
 	st := lt.state()
