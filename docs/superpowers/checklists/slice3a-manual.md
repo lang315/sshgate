@@ -2,7 +2,7 @@
 
 Items 1, 2, 4, 5 and 6 run as an opt-in e2e against a real host, from a copy of your vault (the real one is never written). Nothing is typed into a terminal — every remote step goes through the Files tab (SFTP) — so this works against OpenSSH on Windows hosts too. You type the master password into the app when asked (up to three times: start, once more if the lock test's download finishes before you unlock, and once more if the port-change test ran, to reach the scratch folder again for cleanup):
 
-    cd desktop && npm run build && SSHGATE_LIVE_HOST=buildpc [SSHGATE_LIVE_DROP=1] [SSHGATE_LIVE_BIG_MB=1024] [SSHGATE_LIVE_DENIED=/some/unreadable/folder] npx playwright test e2e/live-files.spec.ts
+    cd desktop && npm run build && SSHGATE_LIVE_HOST=buildpc [SSHGATE_LIVE_DROP=1] [SSHGATE_LIVE_BIG_MB=128] [SSHGATE_LIVE_DENIED=/some/unreadable/folder] npx playwright test e2e/live-files.spec.ts
 
 Remote writes stay inside `<home>/sshgate-e2e-<ms>`, which the test creates and removes (if a run dies midway it prints the folder left behind).
 

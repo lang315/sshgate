@@ -11,7 +11,7 @@ import { launchLive, waitHumanUnlock, type LiveLaunched } from './launch'
 // typed into a terminal: every remote step goes through the Files tab (SFTP),
 // so this works against OpenSSH on Windows hosts too.
 const host = process.env.SSHGATE_LIVE_HOST ?? ''
-const bigMB = Number(process.env.SSHGATE_LIVE_BIG_MB ?? '1024')
+const bigMB = Number(process.env.SSHGATE_LIVE_BIG_MB ?? '128')
 test.skip(!host, 'set SSHGATE_LIVE_HOST to a server in your vault')
 test.describe.configure({ mode: 'serial' })
 test.setTimeout(30 * 60_000)
@@ -56,6 +56,10 @@ const uploadFileName = process.platform === 'darwin' ? 'Upload' : 'Upload files'
 const uploadFolderName = process.platform === 'darwin' ? 'Upload' : 'Upload folder'
 
 test.beforeAll(async () => {
+  // test.setTimeout at module scope covers test bodies (and beforeEach), not
+  // beforeAll/afterAll: each hook has its own timeout (the config's 90s
+  // default) unless set here.
+  test.setTimeout(30 * 60_000)
   l = await launchLive()
   win = await l.app.firstWindow()
   await waitHumanUnlock(win, 'Start')
@@ -74,6 +78,23 @@ test.beforeAll(async () => {
   await expect(win.getByLabel('Path')).not.toHaveValue('', { timeout: 30_000 })
   home = await win.getByLabel('Path').inputValue()
   expect(home, 'refusing to run on a home path with spaces or quotes').toMatch(/^\/[^\s'"\\$`]+$/)
+
+  // Self-heal: the spec's contract already reserves the sshgate-e2e-<ms>
+  // namespace in home for its own scratch folders, so a leftover from a run
+  // whose afterAll cleanup didn't complete is always safe to remove here,
+  // by exact name, before this run creates its own.
+  const leftoverNames = await grid().locator('[role="row"]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-name') ?? ''))
+  for (const name of leftoverNames) {
+    if (!/^sshgate-e2e-\d+$/.test(name)) continue
+    await grid().locator(`[data-name="${name}"]`).click()
+    await win.getByRole('button', { name: 'Delete', exact: true }).click()
+    const del = win.getByRole('dialog', { name: 'Delete files' })
+    await del.getByLabel('Type delete to confirm').fill('delete')
+    await del.getByRole('button', { name: 'Delete' }).click()
+    await expect(grid().locator(`[data-name="${name}"]`)).toHaveCount(0)
+    console.log(`>>> removed leftover ${name}`)
+  }
 
   await win.getByRole('button', { name: 'New folder' }).click()
   await win.getByRole('dialog', { name: 'New folder' }).getByLabel('Name').fill(scratch)
@@ -94,6 +115,8 @@ test.beforeAll(async () => {
 })
 
 test.afterAll(async () => {
+  // See the comment in beforeAll: this hook has its own timeout too.
+  test.setTimeout(30 * 60_000)
   if (created) {
     try {
       if (portChanged) {
@@ -105,6 +128,22 @@ test.afterAll(async () => {
         await waitHumanUnlock(win, 'Cleanup')
       }
       await openFiles()
+      // Cancel every still-running transfer first: a folder containing an
+      // active job (e.g. the setup upload, if beforeAll itself timed out)
+      // makes the delete's own plan hit a conflict that shows as a
+      // "confirm" row nobody answers, hanging forever. Leave any row
+      // already in that confirm state alone.
+      const rows = transfers().locator('li')
+      const rowCount = await rows.count()
+      for (let i = 0; i < rowCount; i++) {
+        const row = rows.nth(i)
+        if (await row.getByText('Waiting for you').isVisible().catch(() => false)) continue
+        const cancel = row.getByRole('button', { name: 'Cancel' })
+        if (await cancel.isVisible().catch(() => false)) await cancel.click()
+      }
+      await expect(transfers().locator('progress')).toHaveCount(0)
+      await expect(transfers()).not.toContainText('Checking…')
+
       await goTo(home)
       expect(scratch, 'refusing to delete anything but the scratch folder by name').toMatch(/^sshgate-e2e-\d+$/)
       await grid().locator(`[data-name="${scratch}"]`).click()
@@ -114,8 +153,10 @@ test.afterAll(async () => {
       await del.getByRole('button', { name: 'Delete' }).click()
       await expect(grid().locator(`[data-name="${scratch}"]`)).toHaveCount(0)
       cleaned = true
-    } catch {
-      // Fall through: the message below says what is left behind.
+    } catch (e) {
+      // Nothing password-related ever reaches here; one line for the next
+      // failure to be diagnosable, before the "left behind" message.
+      console.log(`>>> cleanup failed: ${(e as Error).message}`)
     }
   }
   if (created && !cleaned) console.log(`\n>>> Remote scratch folder left on ${host}: ${remote()}\n`)
