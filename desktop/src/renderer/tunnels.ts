@@ -20,10 +20,14 @@ export function parseTunnelForm(f: TunnelForm, id: string): { ok: true; tunnel: 
   const listenPort = port(f.listenPort)
   if (!listenPort) return { ok: false, error: 'Listen port must be 1-65535' }
   const label = f.label.trim()
-  if (label.length > 64) return { ok: false, error: 'Label is at most 64 characters' }
+  if (new TextEncoder().encode(label).length > 64 || /[\p{Cc}\p{Cf}]/u.test(label)) {
+    return { ok: false, error: 'Label is at most 64 bytes, with no control characters' }
+  }
   if (f.kind === 'dynamic') return { ok: true, tunnel: { id, kind: 'dynamic', listenPort, targetHost: '', targetPort: 0, label } }
   const targetHost = f.targetHost.trim()
-  if (!targetHost || /\s/.test(targetHost) || targetHost.length > 253) return { ok: false, error: 'Target host is required, with no spaces' }
+  if (!targetHost || /\s/.test(targetHost) || new TextEncoder().encode(targetHost).length > 253) {
+    return { ok: false, error: 'Target host is required, with no spaces' }
+  }
   const targetPort = port(f.targetPort)
   if (!targetPort) return { ok: false, error: 'Target port must be 1-65535' }
   return { ok: true, tunnel: { id, kind: f.kind, listenPort, targetHost, targetPort, label } }

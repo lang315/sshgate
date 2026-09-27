@@ -27,9 +27,29 @@ describe('parseTunnelForm', () => {
     [{ targetHost: '' }, 'Target host is required, with no spaces'],
     [{ targetHost: 'a b' }, 'Target host is required, with no spaces'],
     [{ targetPort: '70000' }, 'Target port must be 1-65535'],
-    [{ label: 'x'.repeat(65) }, 'Label is at most 64 characters'],
+    [{ label: 'x'.repeat(65) }, 'Label is at most 64 bytes, with no control characters'],
   ])('refuses %o', (patch, error) => {
     expect(parseTunnelForm({ ...base, ...patch }, '')).toEqual({ ok: false, error })
+  })
+  it('rejects labels with control characters', () => {
+    expect(parseTunnelForm({ ...base, label: '\x07test' }, '')).toEqual(
+      { ok: false, error: 'Label is at most 64 bytes, with no control characters' })
+  })
+  it('rejects labels with format runes', () => {
+    expect(parseTunnelForm({ ...base, label: 'test​end' }, '')).toEqual(
+      { ok: false, error: 'Label is at most 64 bytes, with no control characters' })
+  })
+  it('accepts 22 UTF-8 é characters (44 bytes)', () => {
+    const label = 'é'.repeat(22)
+    expect(new TextEncoder().encode(label).length).toBe(44)
+    expect(parseTunnelForm({ ...base, label }, '')).toEqual(
+      { ok: true, tunnel: { id: '', kind: 'local', listenPort: 5433, targetHost: 'db', targetPort: 5432, label } })
+  })
+  it('rejects 33 UTF-8 é characters (66 bytes)', () => {
+    const label = 'é'.repeat(33)
+    expect(new TextEncoder().encode(label).length).toBe(66)
+    expect(parseTunnelForm({ ...base, label }, '')).toEqual(
+      { ok: false, error: 'Label is at most 64 bytes, with no control characters' })
   })
   it('round-trips formFor', () => {
     expect(formFor({ id: 'i', kind: 'remote', listenPort: 1, targetHost: 'h', targetPort: 2, label: 'l' }))
