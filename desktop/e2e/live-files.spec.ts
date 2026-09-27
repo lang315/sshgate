@@ -56,7 +56,7 @@ async function openFiles(): Promise<void> {
   if (await existing.count() > 0) {
     await existing.first().locator('.tabname').click()
   } else {
-    await win.getByRole('button', { name: `Files ${host}` }).click()
+    await win.getByRole('button', { name: `Files ${host}`, exact: true }).click()
   }
   await expect(grid()).toBeVisible()
 }
@@ -210,7 +210,7 @@ test('server changed', async () => {
   cleaned = true
 
   await win.locator('.tabbar .hometab').click()
-  await win.getByRole('button', { name: `Edit ${host}` }).click()
+  await win.getByRole('button', { name: `Edit ${host}`, exact: true }).click()
   const port = win.getByLabel('Port')
   await port.fill(String(Number(await port.inputValue()) + 1))
   await expect(win.getByText(/cancel 1 transfer/)).toBeVisible()
