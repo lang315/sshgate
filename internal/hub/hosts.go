@@ -168,6 +168,7 @@ func (h *Hub) SaveServer(original string, in config.ServerInput) error {
 		name = in.Name
 	}
 	if dialChanged(before, after) {
+		h.endServerTunnels(name, "server changed")
 		h.files.endServer(name, "server changed")
 		h.reg.Close(name)
 	}
@@ -195,6 +196,7 @@ func (h *Hub) DeleteServer(name string) error {
 		return err
 	}
 	reloadErr := h.Reload()
+	h.endServerTunnels(name, "server changed")
 	h.files.endServer(name, "server changed")
 	h.reg.Close(name)
 	h.denyPending(name)
@@ -225,6 +227,7 @@ func (h *Hub) ForgetHostKey(name string) error {
 		return err
 	}
 	reloadErr := h.Reload()
+	h.endServerTunnels(name, "server changed")
 	h.files.endServer(name, "server changed")
 	h.reg.Close(name)
 	h.auditConfig(broker.ConfigRecord{Action: "forgetHostKey", Server: name, OldFingerprint: old})
