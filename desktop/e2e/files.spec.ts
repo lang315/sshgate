@@ -84,3 +84,42 @@ test('browse, upload, download, rename, and delete over SFTP', async () => {
   await expect(grid.locator('[data-name="proj2"]')).toHaveCount(0)
   expect(fs.existsSync(path.join(l.sftp, 'home', 'proj2'))).toBe(false)
 })
+
+// The New folder/Rename dialog has no focus trap, so a Shift+Tab (or, as
+// here, any navigation) out to the Path box while it's open must not let the
+// eventual submit act on wherever that navigation landed: the folder is
+// captured when the dialog opens, not read again at submit time.
+test('New folder creates in the folder it was opened in, not one navigated to meanwhile', async () => {
+  const win = await l.app.firstWindow()
+  await win.locator('.tabbar .hometab').click()
+  await win.locator('.tabbar .tab[data-kind="files"] .tabname').first().click()
+  const grid = win.getByRole('grid', { name: 'Files on box' })
+  await win.getByLabel('Path').fill('/home')
+  await win.getByLabel('Path').press('Enter')
+  await expect(win.getByLabel('Path')).toHaveValue('/home')
+
+  fs.mkdirSync(path.join(l.sftp, 'home', 'elsewhere'), { recursive: true })
+
+  await win.getByRole('button', { name: 'New folder' }).click()
+  const dialog = win.getByRole('dialog', { name: 'New folder' })
+  await dialog.getByLabel('Name').fill('trap')
+
+  // Navigate away without closing the dialog (no click needed: fill()
+  // doesn't require the Path box to be unobscured by the dialog's overlay).
+  // Wait for the navigation to actually settle (aria-busy false), so the
+  // captured-folder fix is checked against shown.current having genuinely
+  // moved on, not against a navigation still silently in flight.
+  await win.getByLabel('Path').fill('/home/elsewhere')
+  await win.getByLabel('Path').press('Enter')
+  await expect(win.getByLabel('Path')).toHaveValue('/home/elsewhere')
+  await expect(grid).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 })
+
+  await dialog.getByRole('button', { name: 'Create' }).click()
+  await expect.poll(() => fs.existsSync(path.join(l.sftp, 'home', 'trap'))).toBe(true)
+  expect(fs.existsSync(path.join(l.sftp, 'home', 'elsewhere', 'trap'))).toBe(false)
+  // The auto-relist after creating stays put too: acting elsewhere doesn't
+  // pull the view back to the folder the dialog opened in, or show 'trap'
+  // (created in /home) in the /home/elsewhere listing shown now.
+  await expect(win.getByLabel('Path')).toHaveValue('/home/elsewhere')
+  await expect(grid.locator('[data-name="trap"]')).toHaveCount(0)
+})

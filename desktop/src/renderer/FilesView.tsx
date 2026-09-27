@@ -25,9 +25,14 @@ interface Job {
 // Only the name dialogs (which the user types into) live here. The
 // Conflict/Delete dialog is derived from the jobs map below, so one job's
 // dialog can never close or replace another's (Important 1).
+// folder is captured when the dialog opens, not read from shown.current at
+// submit time: the modal has no focus trap, so a Shift+Tab out to the Path
+// input and a navigation elsewhere before submitting must not silently
+// create/rename in whatever folder is shown by then (ConflictDialog and
+// DeleteDialog already capture their folder this way, at job creation).
 type Dialog =
-  | { kind: 'mkdir' }
-  | { kind: 'rename'; from: string }
+  | { kind: 'mkdir'; folder: string }
+  | { kind: 'rename'; from: string; folder: string }
 
 export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTrusted, onJobs }: {
   tab: Tab; visible: boolean; events: Dispatcher<TermEvent>; hostKeys: HostKeyPrompts
@@ -193,15 +198,20 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Enter' && selected.length === 1) { e.preventDefault(); open(selected[0]) }
     else if (e.key === 'Backspace') { e.preventDefault(); up() }
-    else if (e.key === 'F2' && selected.length === 1 && actionsReady(listing, loading)) { e.preventDefault(); setDialog({ kind: 'rename', from: selected[0].name }) }
+    else if (e.key === 'F2' && selected.length === 1 && actionsReady(listing, loading)) { e.preventDefault(); setDialog({ kind: 'rename', from: selected[0].name, folder: shown.current }) }
     else if (e.key === 'Delete' && actionsReady(listing, loading)) { e.preventDefault(); remove() }
   }
   const submitName = async (name: string): Promise<string | undefined> => {
+    if (!dialog) return undefined
+    const folder = dialog.folder
     try {
-      if (dialog?.kind === 'mkdir') await hub.filesMkdir(server, joinPath(shown.current, name))
-      if (dialog?.kind === 'rename') await hub.filesRename(server, joinPath(shown.current, dialog.from), joinPath(shown.current, name))
+      if (dialog.kind === 'mkdir') await hub.filesMkdir(server, joinPath(folder, name))
+      if (dialog.kind === 'rename') await hub.filesRename(server, joinPath(folder, dialog.from), joinPath(folder, name))
       setDialog(undefined)
-      await load(shown.current)
+      // Only relist if the user is still looking at the folder acted on:
+      // navigating away meanwhile must not pull them back or overwrite what
+      // they navigated to.
+      if (folder === shown.current) await load(shown.current)
       return undefined
     } catch (e) { return (e as Error).message }
   }
@@ -226,7 +236,7 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
         <label className="files-hidden"><input type="checkbox" checked={showHidden}
           onChange={(e) => { setShowHidden(e.target.checked); hiddenPref.set(localStore(), e.target.checked) }} />Show hidden files</label>
         <span className="spacer" />
-        <button type="button" className="btn" disabled={!actionsReady(listing, loading)} onClick={() => setDialog({ kind: 'mkdir' })}><PlusIcon />New folder</button>
+        <button type="button" className="btn" disabled={!actionsReady(listing, loading)} onClick={() => setDialog({ kind: 'mkdir', folder: shown.current })}><PlusIcon />New folder</button>
         {mac ? (
           <button type="button" className="btn" disabled={!actionsReady(listing, loading)} onClick={() => void upload('both')}><UploadIcon />Upload</button>
         ) : (<>
@@ -234,7 +244,7 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
           <button type="button" className="btn" disabled={!actionsReady(listing, loading)} onClick={() => void upload('folder')}><UploadIcon />Upload folder</button>
         </>)}
         <button type="button" className="btn" disabled={!actionsReady(listing, loading) || !selected.length} onClick={() => void download()}><DownloadIcon />Download</button>
-        <button type="button" className="btn" disabled={!actionsReady(listing, loading) || selected.length !== 1} onClick={() => setDialog({ kind: 'rename', from: selected[0].name })}><EditIcon />Rename</button>
+        <button type="button" className="btn" disabled={!actionsReady(listing, loading) || selected.length !== 1} onClick={() => setDialog({ kind: 'rename', from: selected[0].name, folder: shown.current })}><EditIcon />Rename</button>
         <button type="button" className="btn danger-outline" disabled={!actionsReady(listing, loading) || !selected.length} onClick={remove}><TrashIcon />Delete</button>
       </div>
       <div className={'files-body' + (dropping ? ' dropping' : '')}
