@@ -55,6 +55,29 @@ async function goTo(dir: string): Promise<void> {
 const uploadFileName = process.platform === 'darwin' ? 'Upload' : 'Upload files'
 const uploadFolderName = process.platform === 'darwin' ? 'Upload' : 'Upload folder'
 
+// deleteByName deletes exactly one home-level entry by name, restricted to
+// this spec's own scratch namespace. Used for the beforeAll self-heal and
+// the afterAll cleanup, neither of which cares whether the typed-word
+// confirmation appears: for a folder with nothing inside beyond what's
+// selected (deleteNeedsTyping in desktop/src/renderer/files.ts), it never
+// renders, so the dialog can go straight from "Waiting for you" to gone.
+// Race the dialog appearing against the row simply vanishing, instead of
+// assuming either one happens first.
+async function deleteByName(name: string): Promise<void> {
+  expect(name, 'refusing to delete anything but this scratch namespace by name').toMatch(/^sshgate-e2e-\d+$/)
+  const row = grid().locator(`[data-name="${name}"]`)
+  await row.click()
+  await win.getByRole('button', { name: 'Delete', exact: true }).click()
+  const del = win.getByRole('dialog', { name: 'Delete files' })
+  await Promise.race([del.waitFor({ state: 'visible' }), row.waitFor({ state: 'detached' })]).catch(() => {})
+  if (await del.isVisible().catch(() => false)) {
+    const typed = del.getByLabel('Type delete to confirm')
+    if (await typed.isVisible().catch(() => false)) await typed.fill('delete')
+    await del.getByRole('button', { name: 'Delete' }).click()
+  }
+  await expect(row).toHaveCount(0)
+}
+
 test.beforeAll(async () => {
   // test.setTimeout at module scope covers test bodies (and beforeEach), not
   // beforeAll/afterAll: each hook has its own timeout (the config's 90s
@@ -87,12 +110,7 @@ test.beforeAll(async () => {
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-name') ?? ''))
   for (const name of leftoverNames) {
     if (!/^sshgate-e2e-\d+$/.test(name)) continue
-    await grid().locator(`[data-name="${name}"]`).click()
-    await win.getByRole('button', { name: 'Delete', exact: true }).click()
-    const del = win.getByRole('dialog', { name: 'Delete files' })
-    await del.getByLabel('Type delete to confirm').fill('delete')
-    await del.getByRole('button', { name: 'Delete' }).click()
-    await expect(grid().locator(`[data-name="${name}"]`)).toHaveCount(0)
+    await deleteByName(name)
     console.log(`>>> removed leftover ${name}`)
   }
 
@@ -145,13 +163,7 @@ test.afterAll(async () => {
       await expect(transfers()).not.toContainText('Checking…')
 
       await goTo(home)
-      expect(scratch, 'refusing to delete anything but the scratch folder by name').toMatch(/^sshgate-e2e-\d+$/)
-      await grid().locator(`[data-name="${scratch}"]`).click()
-      await win.getByRole('button', { name: 'Delete', exact: true }).click()
-      const del = win.getByRole('dialog', { name: 'Delete files' })
-      await del.getByLabel('Type delete to confirm').fill('delete')
-      await del.getByRole('button', { name: 'Delete' }).click()
-      await expect(grid().locator(`[data-name="${scratch}"]`)).toHaveCount(0)
+      await deleteByName(scratch)
       cleaned = true
     } catch (e) {
       // Nothing password-related ever reaches here; one line for the next
