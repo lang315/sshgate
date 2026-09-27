@@ -67,8 +67,11 @@ test.beforeAll(async () => {
   await openFiles()
   // The grid renders as soon as the tab mounts, before files.list replies:
   // wait for the listing to settle so the Path input holds the real home,
-  // not the '' load() starts from.
+  // not the '' load() starts from. aria-busy holds "false" on the very
+  // first render too (loading starts false), so also wait for the Path
+  // itself to become non-empty.
   await expect(grid()).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 })
+  await expect(win.getByLabel('Path')).not.toHaveValue('', { timeout: 30_000 })
   home = await win.getByLabel('Path').inputValue()
   expect(home, 'refusing to run on a home path with spaces or quotes').toMatch(/^\/[^\s'"\\$`]+$/)
 
