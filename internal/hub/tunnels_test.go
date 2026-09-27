@@ -122,6 +122,9 @@ func TestTunnelSaveListStartStopDelete(t *testing.T) {
 	// It keeps running across a lock; stop works while locked.
 	fx.h.Lock()
 	echoThrough(t, lp)
+	if err := fx.c.Call(ctx, "tunnels.save", map[string]any{"server": "fs", "tunnel": map[string]any{"id": "", "kind": "dynamic", "listenPort": tunnelFreePort(t)}}, nil); err == nil || !strings.Contains(err.Error(), "locked") {
+		t.Fatalf("tunnels.save while locked: %v", err)
+	}
 	sendNote(t, fx.w, "tunnels.stop", map[string]any{"server": "fs", "id": id})
 	for st := waitNote(t, fx.notes, "tunnels.state", id); st["status"] != "stopped"; st = waitNote(t, fx.notes, "tunnels.state", id) {
 	}
@@ -293,5 +296,88 @@ func TestTunnelStrictParamsAndValidation(t *testing.T) {
 	err := fx.c.Call(ctx, "tunnels.save", map[string]any{"server": "fs", "tunnel": map[string]any{"id": "", "kind": "dynamic", "listenPort": lp}}, nil)
 	if err == nil || err.Error() != "another tunnel already listens on dynamic port "+strconv.Itoa(lp) {
 		t.Fatalf("dup: %v", err)
+	}
+}
+
+// tunnelEnds counts id's "end" tunnel audit records.
+func tunnelEnds(t *testing.T, store, id string) int {
+	t.Helper()
+	_, recs := readAudit(t, store)
+	n := 0
+	for _, r := range recs {
+		if r["kind"] == "tunnel" && r["id"] == id && r["phase"] == "end" {
+			n++
+		}
+	}
+	return n
+}
+
+// lastTunnelState waits for a "stopped" tunnels.state for id, then returns
+// the last one that arrives within a quiet period after it.
+func lastTunnelState(t *testing.T, fx filesFixture, id string) string {
+	t.Helper()
+	for st := waitNote(t, fx.notes, "tunnels.state", id); st["status"] != "stopped"; st = waitNote(t, fx.notes, "tunnels.state", id) {
+	}
+	last := "stopped"
+	for {
+		select {
+		case n := <-fx.notes:
+			var p map[string]any
+			json.Unmarshal(n.params, &p)
+			if n.method == "tunnels.state" && p["id"] == id {
+				last, _ = p["status"].(string)
+			}
+		case <-time.After(300 * time.Millisecond):
+			return last
+		}
+	}
+}
+
+// TestTunnelStopWhileStarting: a tunnels.stop landing while the start is
+// still in flight ends it once: the start answers without an error, the
+// last tunnels.state is "stopped", one end audit record, the port closed.
+func TestTunnelStopWhileStarting(t *testing.T) {
+	fx := tunnelsHub(t)
+	lp := tunnelFreePort(t)
+	id := saveTunnel(t, fx, "fs", map[string]any{"id": "", "kind": "dynamic", "listenPort": lp})
+	afterTunnelDialed = func() { sendNote(t, fx.w, "tunnels.stop", map[string]any{"server": "fs", "id": id}) }
+	t.Cleanup(func() { afterTunnelDialed = nil })
+	if err := fx.c.Call(context.Background(), "tunnels.start", map[string]any{"server": "fs", "id": id}, nil); err != nil {
+		t.Fatalf("start stopped while starting: %v", err)
+	}
+	if st := lastTunnelState(t, fx, id); st != "stopped" {
+		t.Fatalf("last tunnels.state %q, want stopped", st)
+	}
+	if n := tunnelEnds(t, fx.store, id); n != 1 {
+		t.Fatalf("%d end audit records, want 1", n)
+	}
+	if _, err := net.Dial("tcp", "127.0.0.1:"+strconv.Itoa(lp)); err == nil {
+		t.Fatal("still listening after stop")
+	}
+	if rows := listTunnels(t, fx); len(rows) != 1 || rows[0].Status != "stopped" {
+		t.Fatalf("%+v", rows)
+	}
+}
+
+// TestTunnelDeleteRunning: tunnels.delete of a running tunnel ends it.
+func TestTunnelDeleteRunning(t *testing.T) {
+	fx := tunnelsHub(t)
+	ctx := context.Background()
+	lp := tunnelFreePort(t)
+	id := saveTunnel(t, fx, "fs", map[string]any{"id": "", "kind": "dynamic", "listenPort": lp})
+	if err := fx.c.Call(ctx, "tunnels.start", map[string]any{"server": "fs", "id": id}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.c.Call(ctx, "tunnels.delete", map[string]any{"server": "fs", "id": id}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := net.Dial("tcp", "127.0.0.1:"+strconv.Itoa(lp)); err == nil {
+		t.Fatal("still listening after delete")
+	}
+	if n := tunnelEnds(t, fx.store, id); n != 1 {
+		t.Fatalf("%d end audit records, want 1", n)
+	}
+	if rows := listTunnels(t, fx); len(rows) != 0 {
+		t.Fatalf("%+v", rows)
 	}
 }

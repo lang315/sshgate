@@ -34,7 +34,13 @@ type liveTunnel struct {
 	notify *time.Timer // pending conns-only tunnels.state
 }
 
+// Lock order: evMu, then mu; never take evMu while holding mu. evMu
+// serialises every tunnel state change's audit record and tunnels.state
+// with every other's, so both go out in the order the changes happened. It
+// is held across fwd.Close, audit, and the sink, and nothing under it takes
+// h.mu. mu guards live and every liveTunnel field.
 type tunnelSet struct {
+	evMu    sync.Mutex
 	mu      sync.Mutex
 	live    map[string]*liveTunnel // server + "\x00" + id
 	sink    func(tunnelState)
@@ -77,9 +83,15 @@ func (ts *tunnelSet) setSink(f func(tunnelState)) (release func()) {
 	}
 }
 
-func (ts *tunnelSet) emit(st tunnelState) {
+// emit sends server's tunnel id's current state ("stopped" once it has no
+// entry). The caller holds evMu, so emits are ordered and never stale.
+func (ts *tunnelSet) emit(server, id string) {
 	ts.mu.Lock()
 	sink := ts.sink
+	st := tunnelState{Server: server, ID: id, Status: "stopped"}
+	if lt := ts.live[tunnelKey(server, id)]; lt != nil {
+		st = lt.state()
+	}
 	ts.mu.Unlock()
 	if sink != nil {
 		sink(st)
@@ -95,6 +107,8 @@ func (ts *tunnelSet) connsChanged(key string) {
 		return
 	}
 	lt.notify = time.AfterFunc(time.Second, func() {
+		ts.evMu.Lock()
+		defer ts.evMu.Unlock()
 		ts.mu.Lock()
 		cur := ts.live[key]
 		if cur != lt {
@@ -102,9 +116,8 @@ func (ts *tunnelSet) connsChanged(key string) {
 			return
 		}
 		lt.notify = nil
-		st := lt.state()
 		ts.mu.Unlock()
-		ts.emit(st)
+		ts.emit(lt.server, lt.def.ID)
 	})
 }
 
@@ -117,6 +130,8 @@ func (ts *tunnelSet) connsChanged(key string) {
 func (h *Hub) endTunnel(lt *liveTunnel, reason string) {
 	ts := h.tunnels
 	key := tunnelKey(lt.server, lt.def.ID)
+	ts.evMu.Lock()
+	defer ts.evMu.Unlock()
 	ts.mu.Lock()
 	if ts.live[key] != lt || (lt.status != "running" && lt.status != "starting") {
 		ts.mu.Unlock()
@@ -133,7 +148,6 @@ func (h *Hub) endTunnel(lt *liveTunnel, reason string) {
 	} else {
 		lt.status, lt.err = "error", reason
 	}
-	st := lt.state()
 	ts.mu.Unlock()
 	conns := 0
 	if fwd != nil {
@@ -146,7 +160,17 @@ func (h *Hub) endTunnel(lt *liveTunnel, reason string) {
 	}
 	h.auditTunnel(broker.TunnelRecord{Phase: "end", Server: lt.server, Target: lt.target, ID: lt.def.ID,
 		TunnelKind: lt.def.Kind, Listen: listenAddr(lt.def), To: toAddr(lt.def), Conns: conns, Reason: auditReason})
-	ts.emit(st)
+	ts.emit(lt.server, lt.def.ID)
+}
+
+// startCutOff is StartTunnel's answer once lt was ended while starting:
+// the reason for an error entry, nothing when the author stopped it (the
+// row then shows "stopped", not an error). The caller holds ts.mu.
+func startCutOff(lt *liveTunnel) error {
+	if lt.status == "error" {
+		return errors.New(lt.err)
+	}
+	return nil
 }
 
 // endServer ends every running tunnel of server with reason. Callers run it
@@ -346,16 +370,19 @@ func (h *Hub) DeleteTunnel(server, id string) error {
 	reloadErr := h.Reload()
 	// A tunnels.start may have raced in between our endTunnel above and the
 	// write and claimed a fresh live entry for this id; end that one too
-	// (endTunnel closes its Forward) rather than dropping it unclosed below.
-	h.tunnels.mu.Lock()
-	lt = h.tunnels.live[tunnelKey(server, id)]
-	h.tunnels.mu.Unlock()
-	if lt != nil {
+	// (endTunnel closes its Forward). Only an error entry is dropped here: a
+	// running or starting one dropped unclosed would orphan its listener.
+	for {
+		h.tunnels.mu.Lock()
+		lt = h.tunnels.live[tunnelKey(server, id)]
+		if lt == nil || lt.status == "error" {
+			delete(h.tunnels.live, tunnelKey(server, id))
+			h.tunnels.mu.Unlock()
+			break
+		}
+		h.tunnels.mu.Unlock()
 		h.endTunnel(lt, "")
 	}
-	h.tunnels.mu.Lock()
-	delete(h.tunnels.live, tunnelKey(server, id)) // any leftover error entry
-	h.tunnels.mu.Unlock()
 	h.auditConfig(broker.ConfigRecord{Action: "tunnelDelete", Server: server, Changed: []string{id}})
 	return reloadErr
 }
@@ -387,17 +414,26 @@ func (h *Hub) StartTunnel(server, id string) error {
 	}
 	h.tunnels.live[key] = lt
 	h.tunnels.mu.Unlock()
-	h.tunnels.emit(lt.state())
+	h.tunnels.evMu.Lock()
+	h.tunnels.emit(server, id)
+	h.tunnels.evMu.Unlock()
 
+	// fail records a failed start, unless lt was already ended meanwhile
+	// (stopped, or "server changed"): that end was audited and sent, so
+	// fail keeps its reason and writes nothing.
 	fail := func(msg string, detail error) error {
 		if detail != nil {
 			fmt.Fprintf(os.Stderr, "tunnel %s/%s: %v\n", server, id, detail)
 		}
+		h.tunnels.evMu.Lock()
+		defer h.tunnels.evMu.Unlock()
 		h.tunnels.mu.Lock()
-		if h.tunnels.live[key] == lt {
-			lt.status, lt.err = "error", msg
+		if h.tunnels.live[key] != lt || lt.status != "starting" {
+			err := startCutOff(lt)
+			h.tunnels.mu.Unlock()
+			return err
 		}
-		st := lt.state()
+		lt.status, lt.err = "error", msg
 		h.tunnels.mu.Unlock()
 		reason := msg
 		if detail != nil {
@@ -405,7 +441,7 @@ func (h *Hub) StartTunnel(server, id string) error {
 		}
 		h.auditTunnel(broker.TunnelRecord{Phase: "end", Server: server, Target: lt.target, ID: id,
 			TunnelKind: def.Kind, Listen: listenAddr(def), To: toAddr(def), Reason: reason})
-		h.tunnels.emit(st)
+		h.tunnels.emit(server, id)
 		return errors.New(msg)
 	}
 	if dc.HostKey == "" {
@@ -447,27 +483,23 @@ func (h *Hub) StartTunnel(server, id string) error {
 	case err != nil:
 		return fail(err.Error(), err)
 	}
+	// The start record and "running" go out under evMu, so an end racing
+	// this (stop, delete, server changed) is audited and sent after them.
+	h.tunnels.evMu.Lock()
 	h.tunnels.mu.Lock()
-	if h.tunnels.live[key] != lt { // deleted or replaced meanwhile
+	if h.tunnels.live[key] != lt || lt.status != "starting" { // ended while the dial ran
+		err := startCutOff(lt)
 		h.tunnels.mu.Unlock()
+		h.tunnels.evMu.Unlock()
 		fwd.Close()
-		return errors.New("tunnel not found")
-	}
-	if lt.status != "starting" { // ended (server changed) while the dial ran
-		reason := lt.err
-		h.tunnels.mu.Unlock()
-		fwd.Close()
-		if reason == "" {
-			reason = "tunnel not found"
-		}
-		return errors.New(reason)
+		return err
 	}
 	lt.fwd, lt.status = fwd, "running"
-	st := lt.state()
 	h.tunnels.mu.Unlock()
 	h.auditTunnel(broker.TunnelRecord{Phase: "start", Server: server, Target: lt.target, ID: id,
 		TunnelKind: def.Kind, Listen: listenAddr(def), To: toAddr(def)})
-	h.tunnels.emit(st)
+	h.tunnels.emit(server, id)
+	h.tunnels.evMu.Unlock()
 	go func() { client.Wait(); h.endTunnel(lt, "connection lost") }()
 	go func() {
 		<-fwd.Done()
