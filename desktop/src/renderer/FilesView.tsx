@@ -8,7 +8,7 @@ import type { TermEvent } from './TermView'
 import { ConflictDialog, DeleteDialog, NameDialog } from './FileDialogs'
 import {
   deleteNeedsTyping, doneSummary, formatMode, formatSize, formatTime, hiddenPref, joinPath, lastFolder, localStore,
-  newJobId, nextSelection, parentPath, plannedAction, relistAfterJob, sortEntries, visibleEntries, windowRange, type SortKey,
+  newJobId, nextSelection, parentPath, plannedAction, pruneSelection, relistAfterJob, sortEntries, visibleEntries, windowRange, type SortKey,
 } from './files'
 import { CloseIcon, DownloadIcon, FileIcon, FolderIcon, LinkIcon, PlusIcon, RefreshIcon, TrashIcon, UpIcon, UploadIcon, EditIcon } from './icons'
 
@@ -83,8 +83,13 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
       }
       if (r.status === 'hostKeyMismatch') { onMismatch(r); throw new Error('host key mismatch') }
       if (gen !== loadGen.current) return undefined // superseded: the user has moved on
+      const samePath = shown.current === r.path // a relist, not a navigation
       setListing(r); setPathInput(r.path); shown.current = r.path; requested.current = r.path
-      setSel({ names: new Set() }); setScrollTop(0); listRef.current?.scrollTo(0, 0)
+      if (samePath) {
+        setSel((s) => ({ ...s, names: pruneSelection(s.names, r.entries) }))
+      } else {
+        setSel({ names: new Set() }); setScrollTop(0); listRef.current?.scrollTo(0, 0)
+      }
       lastFolder.set(localStore(), server, r.path)
       return true
     } catch (e) {

@@ -66,6 +66,15 @@ export const DELETE_WORD = 'delete'
 export const deleteNeedsTyping = (hasFolder: boolean, selectedCount: number, p: { files: number; dirs: number; links: number; errorCount: number }) =>
   hasFolder && p.files + p.dirs + p.links + p.errorCount > selectedCount
 
+// A relist of the folder already shown (as opposed to a navigation) must not
+// clear a selection made while that relist was in flight — on a slow link,
+// the relist can land after the user's click. Keep only the selected names
+// the new listing still has.
+export function pruneSelection(names: Set<string>, entries: FileEntry[]): Set<string> {
+  const live = new Set(entries.map((x) => x.name))
+  return new Set([...names].filter((n) => live.has(n)))
+}
+
 // The automatic relist after a job ends in folder jobFolder. Skipped while any
 // load is in flight, and unless the folder shown is both the job's and the one the
 // user last asked for (a failed navigation leaves shown behind): it must never

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { FileEntry } from '../src/shared/protocol'
 import {
   deleteNeedsTyping, doneSummary, formatMode, formatSize, hiddenPref, joinPath, lastFolder, nameError, newJobId,
-  nextSelection, parentPath, plannedAction, relistAfterJob, sortEntries, visibleEntries, windowRange,
+  nextSelection, parentPath, plannedAction, pruneSelection, relistAfterJob, sortEntries, visibleEntries, windowRange,
 } from '../src/renderer/files'
 import { displayText } from '../src/shared/display'
 
@@ -57,6 +57,12 @@ describe('selection', () => {
     expect([...s.names].sort()).toEqual(['b', 'd'])
     s = nextSelection(s.names, order, 'c', { range: true }, 'a')
     expect([...s.names]).toEqual(['a', 'b', 'c'])
+  })
+  it('a relist of the same folder keeps only the still-existing selected names', () => {
+    const entries = [e('a'), e('c')]
+    expect([...pruneSelection(new Set(['a', 'b', 'c']), entries)].sort()).toEqual(['a', 'c'])
+    expect([...pruneSelection(new Set(), entries)]).toEqual([])
+    expect([...pruneSelection(new Set(['b']), entries)]).toEqual([])
   })
 })
 
