@@ -55,24 +55,41 @@ async function goTo(dir: string): Promise<void> {
 const uploadFileName = process.platform === 'darwin' ? 'Upload' : 'Upload files'
 const uploadFolderName = process.platform === 'darwin' ? 'Upload' : 'Upload folder'
 
+const ROW = 28 // desktop/src/renderer/FilesView.tsx's row height
+
 // The grid virtualizes: only rows near the current scroll position are ever
 // in the DOM (windowRange in desktop/src/renderer/files.ts). A real home
 // folder can hold many entries, with the scratch folder sorted below the
-// viewport, so a plain query only sees what happens to be rendered. Both
-// helpers below page through the whole scrollable height in clientHeight
-// steps and leave the grid scrolled back to the top when done.
+// viewport, so a plain query only sees what happens to be rendered.
+//
+// Sets scrollTop and waits two animation frames: one for the browser to
+// actually dispatch the (throttled/coalesced) scroll event and for React's
+// onScroll handler to schedule its re-render, a second for that render to
+// be painted. Firing scrollTop assignments back to back without this settle
+// races ahead of React: a read right after can reflect a stale window, or
+// (worse) capture rows out of true display order.
+async function setScrollTop(el: ReturnType<typeof grid>, top: number): Promise<void> {
+  await el.evaluate((e, t) => new Promise<void>((resolve) => {
+    e.scrollTop = t
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  }), top)
+}
+
+// Pages the grid through its whole scrollable height in clientHeight steps,
+// settling after each one, and leaves it scrolled back to the top when done.
 async function scrollSteps(onStep: (el: ReturnType<typeof grid>) => Promise<void>): Promise<void> {
   const el = grid()
   await onStep(el)
   const { scrollHeight, clientHeight } = await el.evaluate((e) => ({ scrollHeight: e.scrollHeight, clientHeight: e.clientHeight }))
   for (let top = clientHeight; top < scrollHeight + clientHeight; top += clientHeight) {
-    await el.evaluate((e, t) => { e.scrollTop = t }, top)
+    await setScrollTop(el, top)
     await onStep(el)
   }
-  await el.evaluate((e) => { e.scrollTop = 0 })
+  await setScrollTop(el, 0)
 }
 
-// Every data-name this run of the grid ever shows, across the whole listing.
+// Every data-name this run of the grid ever shows, across the whole listing,
+// in display order (scrollSteps only ever scrolls forward from the top).
 async function collectAllNames(): Promise<string[]> {
   const seen = new Set<string>()
   await scrollSteps(async (el) => {
@@ -87,28 +104,24 @@ async function collectAllNames(): Promise<string[]> {
 // itself, which re-renders the virtualized grid and replaces the row's DOM
 // node — over and over, since the same overscan boundary is hit again each
 // time ("element was detached from the DOM, retrying" until timeout).
-// First finds any scroll position where the row attaches at all (a no-op if
-// it already has), then nudges scrollTop so the row sits mid-viewport,
-// re-measuring after each nudge since a scroll can replace the row's node.
-async function scrollToName(name: string): Promise<boolean> {
-  let attached = false
-  await scrollSteps(async (el) => {
-    if (!attached) {
-      attached = await el.locator(`[data-name="${name}"]`)
-        .waitFor({ state: 'attached', timeout: 1000 }).then(() => true).catch(() => false)
-    }
-  })
-  if (!attached) return false
+// Deterministic rather than a scan: collectAllNames() gives the display
+// order, so name's index times ROW is its offset in the full listing;
+// centering that directly (rather than incrementally searching, which on a
+// short list can under- or overshoot) is both simpler and reliable. Throws
+// with a clear message instead of failing silently if it still isn't found.
+async function scrollToName(name: string): Promise<void> {
+  const names = await collectAllNames()
+  const index = names.indexOf(name)
+  if (index < 0) throw new Error(`scrollToName: "${name}" not in the listing (saw ${names.length}: ${names.join(', ')})`)
   const el = grid()
-  for (let i = 0; i < 15; i++) {
-    const row = el.locator(`[data-name="${name}"]`)
-    const [g, r] = await Promise.all([el.boundingBox(), row.boundingBox().catch(() => null)])
-    if (!g || !r) return false
-    if (r.y >= g.y && r.y + r.height <= g.y + g.height) return true
-    const mid = g.y + g.height / 2 - r.height / 2
-    await el.evaluate((e, d) => { e.scrollTop += d }, r.y - mid)
+  const clientHeight = await el.evaluate((e) => e.clientHeight)
+  await setScrollTop(el, Math.max(0, index * ROW - clientHeight / 2))
+  const row = el.locator(`[data-name="${name}"]`)
+  await row.waitFor({ state: 'attached', timeout: 5000 })
+  const [g, r] = await Promise.all([el.boundingBox(), row.boundingBox()])
+  if (!g || !r || r.y < g.y || r.y + r.height > g.y + g.height) {
+    throw new Error(`scrollToName: "${name}" did not land inside the grid's visible box after scrolling to index ${index}`)
   }
-  return false
 }
 
 // deleteByName deletes exactly one home-level entry by name, restricted to
