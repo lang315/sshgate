@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/lang315/sshgate/internal/broker"
@@ -135,11 +136,12 @@ func (h *Hub) denyPending(name string) {
 	}
 }
 
-// dialChanged: every field but AIVisible feeds the dial config or the name
-// the connection is registered under.
+// dialChanged: every field but AIVisible and Tunnels feeds the dial config
+// or the name the connection is registered under.
 func dialChanged(a, b config.Server) bool {
-	a.AIVisible = b.AIVisible
-	return a != b
+	a.AIVisible, a.Tunnels = b.AIVisible, nil
+	b.Tunnels = nil
+	return !reflect.DeepEqual(a, b)
 }
 
 // SaveServer creates (original == "") or updates a server. Its connection is

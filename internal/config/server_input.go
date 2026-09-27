@@ -56,7 +56,8 @@ func (in ServerInput) Validate() error {
 // and returns it before and after. A kept secret is re-encrypted only when
 // its AAD changes (name, user, auth). A new host or port drops the pin and
 // every secret in does not re-supply: the AAD binds secrets to the endpoint,
-// and carrying them over would hand them to whoever answers there.
+// and carrying them over would hand them to whoever answers there. Tunnels are
+// kept as they are; only tunnels.save and tunnels.delete change them.
 func ApplyServer(f *File, original string, in ServerInput, masterKey []byte) (before, after Server, err error) {
 	idx := -1
 	if original != "" {
@@ -78,7 +79,7 @@ func ApplyServer(f *File, original string, in ServerInput, masterKey []byte) (be
 	if in.Auth != "key" {
 		in.KeyPath = ""
 	}
-	after = Server{Name: in.Name, Host: in.Host, Port: in.Port, User: in.User, Auth: in.Auth, KeyPath: in.KeyPath, AIVisible: in.AIVisible}
+	after = Server{Name: in.Name, Host: in.Host, Port: in.Port, User: in.User, Auth: in.Auth, KeyPath: in.KeyPath, AIVisible: in.AIVisible, Tunnels: before.Tunnels}
 	moved := idx >= 0 && (before.Host != in.Host || before.Port != in.Port)
 	if idx >= 0 && !moved {
 		after.HostKey, after.HostKeyAlgo = before.HostKey, before.HostKeyAlgo

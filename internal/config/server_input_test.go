@@ -1,6 +1,7 @@
 package config
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -77,7 +78,7 @@ func TestApplyServerSecretSemantics(t *testing.T) {
 	if _, _, err := ApplyServer(f, "box", base, mk); err != nil {
 		t.Fatal(err)
 	}
-	if f.Servers[0] != kept {
+	if !reflect.DeepEqual(f.Servers[0], kept) {
 		t.Fatalf("nil secrets changed the server:\n%+v\n%+v", kept, f.Servers[0])
 	}
 	// A value sets; "" clears.
@@ -152,7 +153,7 @@ func TestApplyServerAIVisibleOnlyKeepsEverythingElse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after != want || f.Servers[0] != want {
+	if !reflect.DeepEqual(after, want) || !reflect.DeepEqual(f.Servers[0], want) {
 		t.Fatalf("got %+v, want %+v", after, want)
 	}
 }
@@ -183,5 +184,18 @@ func TestApplyServerNamesKeyPathAndKeylessSecrets(t *testing.T) {
 	}
 	if len(f.Servers) != 2 || f.Servers[0].EncPassword != "" {
 		t.Fatalf("a failed apply changed the file: %+v", f.Servers)
+	}
+}
+
+func TestApplyServerKeepsTunnels(t *testing.T) {
+	tun := []Tunnel{{ID: "0123456789abcdef", Kind: "dynamic", ListenPort: 1080}}
+	f := &File{Version: 1, Servers: []Server{{Name: "a", Host: "h", Port: 22, User: "u", Auth: "agent", Tunnels: tun}}}
+	// A host change and a rename: the tunnels still come along.
+	_, after, err := ApplyServer(f, "a", ServerInput{Name: "b", Host: "h2", Port: 22, User: "u", Auth: "agent"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Tunnels) != 1 || after.Tunnels[0] != tun[0] || len(f.Servers[0].Tunnels) != 1 {
+		t.Fatalf("tunnels lost: %+v", after)
 	}
 }
