@@ -55,6 +55,46 @@ async function goTo(dir: string): Promise<void> {
 const uploadFileName = process.platform === 'darwin' ? 'Upload' : 'Upload files'
 const uploadFolderName = process.platform === 'darwin' ? 'Upload' : 'Upload folder'
 
+// The grid virtualizes: only rows near the current scroll position are ever
+// in the DOM (windowRange in desktop/src/renderer/files.ts). A real home
+// folder can hold many entries, with the scratch folder sorted below the
+// viewport, so a plain query only sees what happens to be rendered. Both
+// helpers below page through the whole scrollable height in clientHeight
+// steps and leave the grid scrolled back to the top when done.
+async function scrollSteps(onStep: (el: ReturnType<typeof grid>) => Promise<void>): Promise<void> {
+  const el = grid()
+  await onStep(el)
+  const { scrollHeight, clientHeight } = await el.evaluate((e) => ({ scrollHeight: e.scrollHeight, clientHeight: e.clientHeight }))
+  for (let top = clientHeight; top < scrollHeight + clientHeight; top += clientHeight) {
+    await el.evaluate((e, t) => { e.scrollTop = t }, top)
+    await onStep(el)
+  }
+  await el.evaluate((e) => { e.scrollTop = 0 })
+}
+
+// Every data-name this run of the grid ever shows, across the whole listing.
+async function collectAllNames(): Promise<string[]> {
+  const seen = new Set<string>()
+  await scrollSteps(async (el) => {
+    for (const n of await el.locator('[role="row"]').evaluateAll((els) => els.map((x) => x.getAttribute('data-name') ?? ''))) seen.add(n)
+  })
+  return [...seen]
+}
+
+// Scrolls until name's row is attached (a no-op if it already is), or gives
+// up after covering the whole listing once. Each step waits on the row
+// itself rather than a fixed delay, so a step that isn't the right one yet
+// moves on as soon as it can, not after a guessed settle time.
+async function scrollToName(name: string): Promise<boolean> {
+  let found = false
+  await scrollSteps(async (el) => {
+    if (!found && (await el.locator(`[data-name="${name}"]`).waitFor({ state: 'attached', timeout: 1000 }).then(() => true).catch(() => false))) {
+      found = true
+    }
+  })
+  return found
+}
+
 // deleteByName deletes exactly one home-level entry by name, restricted to
 // this spec's own scratch namespace. Used for the beforeAll self-heal and
 // the afterAll cleanup, neither of which cares whether the typed-word
@@ -65,6 +105,7 @@ const uploadFolderName = process.platform === 'darwin' ? 'Upload' : 'Upload fold
 // assuming either one happens first.
 async function deleteByName(name: string): Promise<void> {
   expect(name, 'refusing to delete anything but this scratch namespace by name').toMatch(/^sshgate-e2e-\d+$/)
+  await scrollToName(name)
   const row = grid().locator(`[data-name="${name}"]`)
   await row.click()
   await win.getByRole('button', { name: 'Delete', exact: true }).click()
@@ -106,8 +147,7 @@ test.beforeAll(async () => {
   // namespace in home for its own scratch folders, so a leftover from a run
   // whose afterAll cleanup didn't complete is always safe to remove here,
   // by exact name, before this run creates its own.
-  const leftoverNames = await grid().locator('[role="row"]')
-    .evaluateAll((els) => els.map((e) => e.getAttribute('data-name') ?? ''))
+  const leftoverNames = await collectAllNames()
   for (const name of leftoverNames) {
     if (!/^sshgate-e2e-\d+$/.test(name)) continue
     await deleteByName(name)
