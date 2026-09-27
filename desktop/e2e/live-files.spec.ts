@@ -189,3 +189,32 @@ test('finder drop', async () => {
   await expect(grid().locator('[data-name="drop-me"]')).toBeVisible({ timeout: 3 * 60_000 })
   await expect(transfers()).toContainText('Uploaded 1')
 })
+
+// Item 5: saving the port while a transfer runs warns first, then ends it
+// with "server changed". Only the vault copy changes.
+test('server changed', async () => {
+  await openFiles()
+  await goTo(remote())
+  const dl = path.join(l.tmp, 'big-dl2')
+  fs.mkdirSync(dl)
+  await grid().locator('[data-name="big"]').click()
+  await stubOpen([dl])
+  await win.getByRole('button', { name: 'Download' }).click()
+  const row = transfers().locator('li', { hasText: 'Download big' }).last()
+  await expect(row.locator('progress')).toBeVisible()
+
+  // Cleanup now: after the port change the host is unreachable from the copy.
+  expect(remote()).toMatch(/^\/.+\/sshgate-e2e-\d+$/)
+  await openTerminal()
+  await shell(`chmod 700 '${remote()}/locked'; rm -rf -- '${remote()}' && echo "SG""GONE"`, 'SGGONE')
+  cleaned = true
+
+  await win.locator('.tabbar .hometab').click()
+  await win.getByRole('button', { name: `Edit ${host}` }).click()
+  const port = win.getByLabel('Port')
+  await port.fill(String(Number(await port.inputValue()) + 1))
+  await expect(win.getByText(/cancel 1 transfer/)).toBeVisible()
+  await win.getByRole('button', { name: 'Save' }).click()
+  await openFiles()
+  await expect(row).toContainText('Cancelled: server changed')
+})

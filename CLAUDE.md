@@ -21,6 +21,7 @@ go run ./cmd/sshgate hub --cli           # terminal approver; the bridge (no --h
 docker compose up                        # local openssh-server (test/secret on :2222) + sshgate against it
 cd desktop && npm ci && npm run typecheck && npm test   # desktop app: typecheck + vitest unit tests
 (cd desktop && npm run e2e)              # Playwright e2e (smoke, idle, throughput, import, files); builds sshgate + sshtestd itself; needs a display (xvfb-run -a on Linux)
+(cd desktop && npm run build && SSHGATE_LIVE_HOST=<server> npx playwright test e2e/live-files.spec.ts)   # opt-in: slice 3a checklist against a real host from a copy of your vault; you type the master password into the app; remote writes only in ~/sshgate-e2e-<ms>
 go run ./internal/sshx/sshtest/sshtestd -write-store=<path> -password=<pw> [-write-known-hosts=<path>] [-sftp-root=<dir>]   # dev/test SSH server: accepts any password, prints PORT=<port>, writes a ready vault; `-write-known-hosts` writes its host key as a known_hosts line; `-sftp-root=<dir>` serves SFTP rooted in `<dir>`, home `<dir>/home`; a shell line `flood <N>` writes N bytes then FLOOD-DONE
 ```
 
