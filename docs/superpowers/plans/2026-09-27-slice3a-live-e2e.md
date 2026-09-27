@@ -408,3 +408,51 @@ Not a code task: the controller runs it with the human at the app window.
 - `openFiles()` assumes the host card's Files button focuses the existing Files tab rather than opening a second one; if it opens a second, switch tabs through `.tabbar` instead, so the transfer rows asserted later are the ones started.
 - The server-changed save may close the Files tab too (it counts open tabs for the host); if so, assert the transfer's end on what the app shows (or on the hub's `files.done` via the audit file in `l.tmp/store/`) and say which in the report.
 - `.xterm-rows:visible` must resolve to one element; if hidden terminal tabs match, scope it to the active tab's panel.
+
+---
+
+### Task 5: no shell — run on any OS (amendment after the first live run)
+
+The first live run on buildpc failed in setup: buildpc is Windows, and its terminal is PowerShell 5.1, which rejects `&&` at parse time, so nothing ran there. The author chose to make the spec OS-agnostic rather than switch to a Linux host. After this task the spec types nothing into a terminal; every remote step goes through the Files tab (SFTP), so it works against OpenSSH on Windows too.
+
+**Files:**
+- Modify: `desktop/e2e/live-files.spec.ts`
+- Modify: `docs/superpowers/checklists/slice3a-manual.md`, `CLAUDE.md` (the live e2e line)
+
+**Changes:**
+
+1. **Drop the terminal.** Remove `openTerminal`, `shell` and the `uid` parsing.
+2. **Home.**
+   - Before opening Files the first time, clear any remembered last folder for the host. Look up the `lastFolder` key in `desktop/src/renderer/files.ts` and remove it with `win.evaluate`, so Files opens at the SFTP home.
+   - Then read `home` from the Path input's value.
+   - Keep the fail-closed check, widened for Windows SFTP paths such as `/C:/Users/name`: `/^\/[^\s'"\\$\`]+$/`.
+3. **Scratch folder.**
+   - Create `sshgate-e2e-<ms>` in home with **New folder**, then `goTo(remote())`. Set `created = true` once it shows in the grid.
+   - Keep the `remote()` regex check before every delete of it.
+4. **Big file.**
+   - Make a local file of `bigMB` MiB (`fs.openSync` + `fs.ftruncateSync`; sparse is fine) and upload it into the scratch folder.
+   - Wait for `Uploaded 1`. Give it a generous timeout, since the host may be on a slow link. Raise `test.setTimeout` to 30 min.
+5. **Permission denied** (item 6).
+   - Target: `SSHGATE_LIVE_DENIED`. If unset, use `/root`, unless home looks like a Windows path (`/^\/[A-Za-z]:/`); in that case skip, saying to set `SSHGATE_LIVE_DENIED`.
+   - If the listing succeeds (the remote user is root), skip at runtime with that reason.
+   - After it, `goTo(remote())`.
+6. **Lock during download** (item 4). Decouple from timing:
+   - Download `big`, see the part file grow, and click Lock.
+   - While locked, the part file keeps growing (keep the existing message about `SSHGATE_LIVE_BIG_MB`).
+   - Human unlock #2.
+   - If that download is still running, click its Cancel and expect `Cancelled`. Otherwise start a second download of `big` into a fresh local folder, click Cancel as soon as its progress shows, and expect `Cancelled`.
+   - Either way, assert that no part file and no `big` are left in that folder.
+7. **Finder drop** (item 2): unchanged.
+8. **Server changed** (item 5):
+   - Start a download of `big`, edit the host's port, expect the `cancel 1 transfer` warning, Save, and expect `Cancelled: server changed`.
+   - No cleanup inside this test. Set `portChanged = true`.
+9. **Cleanup in `afterAll`**, whenever `created` is set:
+   - If `portChanged` is set: close the app, `launchLive()` again (a fresh copy of the real vault), and `waitHumanUnlock(win, 'Cleanup')` (human unlock #3). Otherwise reuse the open app.
+   - Open Files and `goTo(home)`. Select exactly `[data-name="<scratch>"]` (check `scratch` against `/^sshgate-e2e-\d+$/`). Delete it with the typed word, and expect the row gone. Then `cleaned = true`.
+   - Any failure in cleanup is caught, and the existing "Remote scratch folder left on <host>: <path>" line is printed.
+   - Close the app last.
+10. **Docs.**
+    - Checklist: the live run asks for the master password up to three times. It works on Windows hosts. Mention `SSHGATE_LIVE_DENIED`, and that item 6 is skipped on Windows unless it is set.
+    - CLAUDE.md line: keep it accurate.
+
+**Verify:** `npm run typecheck` exit 0; the live spec skips without `SSHGATE_LIVE_HOST`; a local proxy run against sshtestd is optional, as before. One commit.
