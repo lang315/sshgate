@@ -75,6 +75,15 @@ export function pruneSelection(names: Set<string>, entries: FileEntry[]): Set<st
   return new Set([...names].filter((n) => live.has(n)))
 }
 
+// shown.current (the folder every action targets) only updates once a
+// load() actually resolves — a relist of the folder already shown updates
+// it too, just back to the same value. On a slow link, an action started
+// while loading is still true would use the folder shown BEFORE this load,
+// not the one the Path box already displays (which updates immediately,
+// optimistically). Every mutating action (New folder, Upload*, Download,
+// Rename, Delete) must wait for this, not just for a listing to exist.
+export const actionsReady = (listing: unknown, loading: boolean) => !!listing && !loading
+
 // The automatic relist after a job ends in folder jobFolder. Skipped while any
 // load is in flight, and unless the folder shown is both the job's and the one the
 // user last asked for (a failed navigation leaves shown behind): it must never

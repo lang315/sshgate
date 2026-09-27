@@ -7,7 +7,7 @@ import type { Dispatcher, Tab } from './terminals'
 import type { TermEvent } from './TermView'
 import { ConflictDialog, DeleteDialog, NameDialog } from './FileDialogs'
 import {
-  deleteNeedsTyping, doneSummary, formatMode, formatSize, formatTime, hiddenPref, joinPath, lastFolder, localStore,
+  actionsReady, deleteNeedsTyping, doneSummary, formatMode, formatSize, formatTime, hiddenPref, joinPath, lastFolder, localStore,
   newJobId, nextSelection, parentPath, plannedAction, pruneSelection, relistAfterJob, sortEntries, visibleEntries, windowRange, type SortKey,
 } from './files'
 import { CloseIcon, DownloadIcon, FileIcon, FolderIcon, LinkIcon, PlusIcon, RefreshIcon, TrashIcon, UpIcon, UploadIcon, EditIcon } from './icons'
@@ -179,7 +179,7 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
   const drop = async (e: DragEvent) => {
     e.preventDefault(); setDropping(false)
     const fl = Array.from(e.dataTransfer.files)
-    if (!fl.length || !listing) return
+    if (!fl.length || !actionsReady(listing, loading)) return
     try {
       const picks = await hub.grantDropped(fl, server)
       if (picks.length) await startJob('upload', picks.map((p) => p.token), shown.current, label(picks.map((p) => p.name)))
@@ -193,8 +193,8 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Enter' && selected.length === 1) { e.preventDefault(); open(selected[0]) }
     else if (e.key === 'Backspace') { e.preventDefault(); up() }
-    else if (e.key === 'F2' && selected.length === 1) { e.preventDefault(); setDialog({ kind: 'rename', from: selected[0].name }) }
-    else if (e.key === 'Delete') { e.preventDefault(); remove() }
+    else if (e.key === 'F2' && selected.length === 1 && actionsReady(listing, loading)) { e.preventDefault(); setDialog({ kind: 'rename', from: selected[0].name }) }
+    else if (e.key === 'Delete' && actionsReady(listing, loading)) { e.preventDefault(); remove() }
   }
   const submitName = async (name: string): Promise<string | undefined> => {
     try {
@@ -226,16 +226,16 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
         <label className="files-hidden"><input type="checkbox" checked={showHidden}
           onChange={(e) => { setShowHidden(e.target.checked); hiddenPref.set(localStore(), e.target.checked) }} />Show hidden files</label>
         <span className="spacer" />
-        <button type="button" className="btn" disabled={!listing} onClick={() => setDialog({ kind: 'mkdir' })}><PlusIcon />New folder</button>
+        <button type="button" className="btn" disabled={!actionsReady(listing, loading)} onClick={() => setDialog({ kind: 'mkdir' })}><PlusIcon />New folder</button>
         {mac ? (
-          <button type="button" className="btn" disabled={!listing} onClick={() => void upload('both')}><UploadIcon />Upload</button>
+          <button type="button" className="btn" disabled={!actionsReady(listing, loading)} onClick={() => void upload('both')}><UploadIcon />Upload</button>
         ) : (<>
-          <button type="button" className="btn" disabled={!listing} onClick={() => void upload('files')}><UploadIcon />Upload files</button>
-          <button type="button" className="btn" disabled={!listing} onClick={() => void upload('folder')}><UploadIcon />Upload folder</button>
+          <button type="button" className="btn" disabled={!actionsReady(listing, loading)} onClick={() => void upload('files')}><UploadIcon />Upload files</button>
+          <button type="button" className="btn" disabled={!actionsReady(listing, loading)} onClick={() => void upload('folder')}><UploadIcon />Upload folder</button>
         </>)}
-        <button type="button" className="btn" disabled={!selected.length} onClick={() => void download()}><DownloadIcon />Download</button>
-        <button type="button" className="btn" disabled={selected.length !== 1} onClick={() => setDialog({ kind: 'rename', from: selected[0].name })}><EditIcon />Rename</button>
-        <button type="button" className="btn danger-outline" disabled={!selected.length} onClick={remove}><TrashIcon />Delete</button>
+        <button type="button" className="btn" disabled={!actionsReady(listing, loading) || !selected.length} onClick={() => void download()}><DownloadIcon />Download</button>
+        <button type="button" className="btn" disabled={!actionsReady(listing, loading) || selected.length !== 1} onClick={() => setDialog({ kind: 'rename', from: selected[0].name })}><EditIcon />Rename</button>
+        <button type="button" className="btn danger-outline" disabled={!actionsReady(listing, loading) || !selected.length} onClick={remove}><TrashIcon />Delete</button>
       </div>
       <div className={'files-body' + (dropping ? ' dropping' : '')}
         onDragOver={(e) => { e.preventDefault(); setDropping(true) }} onDragLeave={() => setDropping(false)} onDrop={(e) => void drop(e)}>

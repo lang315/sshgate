@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FileEntry } from '../src/shared/protocol'
 import {
-  deleteNeedsTyping, doneSummary, formatMode, formatSize, hiddenPref, joinPath, lastFolder, nameError, newJobId,
+  actionsReady, deleteNeedsTyping, doneSummary, formatMode, formatSize, hiddenPref, joinPath, lastFolder, nameError, newJobId,
   nextSelection, parentPath, plannedAction, pruneSelection, relistAfterJob, sortEntries, visibleEntries, windowRange,
 } from '../src/renderer/files'
 import { displayText } from '../src/shared/display'
@@ -63,6 +63,18 @@ describe('selection', () => {
     expect([...pruneSelection(new Set(['a', 'b', 'c']), entries)].sort()).toEqual(['a', 'c'])
     expect([...pruneSelection(new Set(), entries)]).toEqual([])
     expect([...pruneSelection(new Set(['b']), entries)]).toEqual([])
+  })
+})
+
+describe('action readiness', () => {
+  it('needs a listing and no load in flight: a relist of the shown folder is not enough', () => {
+    expect(actionsReady(undefined, false)).toBe(false) // nothing loaded yet
+    expect(actionsReady(undefined, true)).toBe(false) // still loading, nothing yet either
+    // A previous listing is still showing while a new load (even a same-path
+    // relist, on a slow link) is in flight: shown.current isn't this one's
+    // folder yet, so acting now would target whatever was shown before it.
+    expect(actionsReady({ path: '/x' }, true)).toBe(false)
+    expect(actionsReady({ path: '/x' }, false)).toBe(true)
   })
 })
 
