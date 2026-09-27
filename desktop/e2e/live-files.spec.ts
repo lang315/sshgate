@@ -2,23 +2,26 @@ import { test, expect, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { launchLive, waitHumanUnlock, waitOpen, type LiveLaunched } from './launch'
+import { launchLive, waitHumanUnlock, type LiveLaunched } from './launch'
 
 // Opt-in: the slice 3a checklist (docs/superpowers/checklists/slice3a-manual.md)
 // against a real host from a copy of the real vault. SSHGATE_LIVE_HOST names
 // the server; a person unlocks the app when asked. Remote writes stay inside
-// ~/sshgate-e2e-<ms>, which the test creates and removes.
+// <home>/sshgate-e2e-<ms>, which the test creates and removes. Nothing is
+// typed into a terminal: every remote step goes through the Files tab (SFTP),
+// so this works against OpenSSH on Windows hosts too.
 const host = process.env.SSHGATE_LIVE_HOST ?? ''
 const bigMB = Number(process.env.SSHGATE_LIVE_BIG_MB ?? '1024')
 test.skip(!host, 'set SSHGATE_LIVE_HOST to a server in your vault')
 test.describe.configure({ mode: 'serial' })
-test.setTimeout(15 * 60_000)
+test.setTimeout(30 * 60_000)
 
 const scratch = `sshgate-e2e-${Date.now()}`
 let l: LiveLaunched
 let win: Page
 let home = ''
-let uid = -1
+let created = false
+let portChanged = false
 let cleaned = false
 
 const stubOpen = (paths: string[]) => l.app.evaluate(({ dialog }, p) => {
@@ -27,24 +30,6 @@ const stubOpen = (paths: string[]) => l.app.evaluate(({ dialog }, p) => {
 const grid = () => win.getByRole('grid', { name: `Files on ${host}` })
 const transfers = () => win.getByRole('list', { name: 'Transfers' })
 const remote = () => `${home}/${scratch}`
-
-async function openTerminal(): Promise<void> {
-  await win.locator('.tabbar .hometab').click()
-  await win.locator('nav.hosts').getByRole('button', { name: host, exact: true }).click()
-  await waitOpen(win)
-  await win.locator('.xterm:visible').click()
-}
-
-// shell types cmd into the visible terminal and waits for marker in its
-// output. Callers split the marker in the command ("SG""OK") so the echoed
-// command line never matches it.
-async function shell(cmd: string, marker: string): Promise<string> {
-  await win.keyboard.type(cmd)
-  await win.keyboard.press('Enter')
-  const rows = win.locator('.xterm-rows:visible')
-  await expect(rows).toContainText(marker, { timeout: 5 * 60_000 })
-  return (await rows.textContent()) ?? ''
-}
 
 // openFiles focuses the host's Files tab. The tab set has no dedup (TabSet.open
 // always pushes a new tab), so the home tab's Files button would open a second
@@ -67,28 +52,66 @@ async function goTo(dir: string): Promise<void> {
   await expect(win.getByLabel('Path')).toHaveValue(dir)
 }
 
+const uploadFileName = process.platform === 'darwin' ? 'Upload' : 'Upload files'
+const uploadFolderName = process.platform === 'darwin' ? 'Upload' : 'Upload folder'
+
 test.beforeAll(async () => {
   l = await launchLive()
   win = await l.app.firstWindow()
   await waitHumanUnlock(win, 'Start')
-  await openTerminal()
-  const out = await shell(
-    `d="$HOME/${scratch}"; mkdir "$d" && mkdir "$d/locked" && chmod 000 "$d/locked" && ` +
-    `dd if=/dev/zero of="$d/big" bs=1048576 count=${bigMB} 2>/dev/null && echo "SG""OK home=$HOME uid=$(id -u)"`,
-    'SGOK home=')
-  // Greedy .+ backtracks to the rightmost " uid=<digits>" (the actual
-  // output, not the earlier echoed command line), so a $HOME containing a
-  // space is captured whole rather than silently truncated at it.
-  const m = /SGOK home=(.+) uid=(\d+)/.exec(out)
-  expect(m, 'setup output').not.toBeNull()
-  home = m![1]
-  uid = Number(m![2])
+
+  // A remembered last folder (desktop/src/renderer/files.ts's lastFolder,
+  // localStorage key "sshgate.files.last.<server>") would open Files there
+  // instead of home; clear it before the tab is ever opened.
+  await win.evaluate((k) => localStorage.removeItem(k), `sshgate.files.last.${host}`)
+  await openFiles()
+  home = await win.getByLabel('Path').inputValue()
   expect(home, 'refusing to run on a home path with spaces or quotes').toMatch(/^\/[^\s'"\\$`]+$/)
-  expect(remote()).toMatch(/^\/.+\/sshgate-e2e-\d+$/)
+
+  await win.getByRole('button', { name: 'New folder' }).click()
+  await win.getByRole('dialog', { name: 'New folder' }).getByLabel('Name').fill(scratch)
+  await win.getByRole('dialog', { name: 'New folder' }).getByRole('button', { name: 'Create' }).click()
+  await expect(grid().locator(`[data-name="${scratch}"]`)).toBeVisible()
+  created = true
+  await goTo(remote())
+
+  // A sparse local file of bigMB MiB, uploaded once for every "big"-download test.
+  const bigPath = path.join(l.tmp, 'big')
+  const fd = fs.openSync(bigPath, 'w')
+  fs.ftruncateSync(fd, bigMB * 1024 * 1024)
+  fs.closeSync(fd)
+  await stubOpen([bigPath])
+  await win.getByRole('button', { name: uploadFileName, exact: true }).click()
+  // A slow link may take a while: this is the one upload nothing else depends on being fast.
+  await expect(transfers()).toContainText('Uploaded 1', { timeout: 20 * 60_000 })
 })
 
 test.afterAll(async () => {
-  if (!cleaned) console.log(`\n>>> Remote scratch folder left on ${host}: ${remote()}\n`)
+  if (created) {
+    try {
+      if (portChanged) {
+        // The port change makes the first app's vault copy unreachable;
+        // a fresh copy of the real vault has the original port back.
+        await l.close()
+        l = await launchLive()
+        win = await l.app.firstWindow()
+        await waitHumanUnlock(win, 'Cleanup')
+      }
+      await openFiles()
+      await goTo(home)
+      expect(scratch, 'refusing to delete anything but the scratch folder by name').toMatch(/^sshgate-e2e-\d+$/)
+      await grid().locator(`[data-name="${scratch}"]`).click()
+      await win.getByRole('button', { name: 'Delete', exact: true }).click()
+      const del = win.getByRole('dialog', { name: 'Delete files' })
+      await del.getByLabel('Type delete to confirm').fill('delete')
+      await del.getByRole('button', { name: 'Delete' }).click()
+      await expect(grid().locator(`[data-name="${scratch}"]`)).toHaveCount(0)
+      cleaned = true
+    } catch {
+      // Fall through: the message below says what is left behind.
+    }
+  }
+  if (created && !cleaned) console.log(`\n>>> Remote scratch folder left on ${host}: ${remote()}\n`)
   await l?.close()
 })
 
@@ -100,14 +123,13 @@ test('exit gate: browse, upload, skip existing, download, rename, delete', async
   fs.mkdirSync(path.join(local, 'sub'), { recursive: true })
   fs.writeFileSync(path.join(local, 'a.txt'), 'alpha')
   fs.writeFileSync(path.join(local, 'sub', 'b.txt'), 'beta')
-  const uploadName = process.platform === 'darwin' ? 'Upload' : 'Upload folder'
   await stubOpen([local])
-  await win.getByRole('button', { name: uploadName, exact: true }).click()
+  await win.getByRole('button', { name: uploadFolderName, exact: true }).click()
   await expect(transfers()).toContainText('Uploaded 2')
   await expect(grid().locator('[data-name="proj"]')).toBeVisible()
 
   await stubOpen([local])
-  await win.getByRole('button', { name: uploadName, exact: true }).click()
+  await win.getByRole('button', { name: uploadFolderName, exact: true }).click()
   const conflict = win.getByRole('dialog', { name: 'Files already exist' })
   await expect(conflict).toContainText('2 files already exist')
   await conflict.getByRole('button', { name: 'Skip existing' }).click()
@@ -138,10 +160,18 @@ test('exit gate: browse, upload, skip existing, download, rename, delete', async
   await expect(grid().locator('[data-name="proj2"]')).toHaveCount(0)
 })
 
+// Item 6. Target: SSHGATE_LIVE_DENIED, else /root — unless home looks like a
+// Windows path, where /root means nothing and there is no universal
+// unreadable folder, so this is skipped without SSHGATE_LIVE_DENIED.
 test('permission denied', async () => {
-  test.skip(uid === 0, 'root can read any folder')
+  const windowsHome = /^\/[A-Za-z]:/.test(home)
+  const denied = process.env.SSHGATE_LIVE_DENIED ?? (windowsHome ? undefined : '/root')
+  test.skip(denied === undefined, 'set SSHGATE_LIVE_DENIED to a folder you cannot read on this Windows host')
   await openFiles()
-  await goTo(`${remote()}/locked`)
+  await goTo(denied!)
+  await expect(grid()).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 })
+  const errored = await win.locator('.files-note.error').isVisible()
+  test.skip(!errored, `the remote user can read ${denied}; set SSHGATE_LIVE_DENIED to a folder it cannot`)
   await expect(win.locator('.files-note.error')).toContainText(/permission denied/i)
   await goTo(remote())
 })
@@ -149,33 +179,44 @@ test('permission denied', async () => {
 // Item 4: a download keeps running through a lock, and Cancel works after.
 // While locked the Files tab is behind the Unlock screen, so a new transfer
 // cannot start until unlock; the hub-side cancel-while-locked is
-// TestJobCancelWhileRunningAndWhileLocked.
+// TestJobCancelWhileRunningAndWhileLocked. Decoupled from timing: if the
+// download already finished during the lock (a fast link), a second one is
+// started and cancelled instead of failing the test.
 test('lock during download', async () => {
   await openFiles()
   await goTo(remote())
-  const dl = path.join(l.tmp, 'big-dl')
+  let dl = path.join(l.tmp, 'big-dl')
   fs.mkdirSync(dl)
-  const part = () => fs.readdirSync(dl).find((n) => n.endsWith('.sshgate-part'))
-  const partSize = () => { const p = part(); return p ? fs.statSync(path.join(dl, p)).size : -1 }
+  const part = (dir: string) => fs.readdirSync(dir).find((n) => n.endsWith('.sshgate-part'))
+  const partSize = (dir: string) => { const p = part(dir); return p ? fs.statSync(path.join(dir, p)).size : -1 }
 
   await grid().locator('[data-name="big"]').click()
   await stubOpen([dl])
   await win.getByRole('button', { name: 'Download' }).click()
-  const row = transfers().locator('li', { hasText: 'Download big' })
+  let row = transfers().locator('li', { hasText: 'Download big' }).last()
   await expect(row.locator('progress')).toBeVisible()
-  await expect.poll(partSize).toBeGreaterThan(0)
+  await expect.poll(() => partSize(dl)).toBeGreaterThan(0)
 
   await win.getByRole('button', { name: 'Lock' }).click()
   await expect(win.getByLabel('Master password')).toBeVisible()
-  const before = partSize()
-  await expect.poll(partSize, { message: `download finished or stalled; raise SSHGATE_LIVE_BIG_MB (${bigMB})`, timeout: 15_000 })
+  const before = partSize(dl)
+  await expect.poll(() => partSize(dl), { message: `download finished or stalled; raise SSHGATE_LIVE_BIG_MB (${bigMB})`, timeout: 15_000 })
     .toBeGreaterThan(before)
 
   await waitHumanUnlock(win, 'Lock test')
-  await expect(row, `download finished during the lock; raise SSHGATE_LIVE_BIG_MB (${bigMB})`).not.toContainText('Downloaded')
+  if (!(await row.locator('progress').isVisible())) {
+    // Finished during the lock: start a fresh one to cancel instead.
+    dl = path.join(l.tmp, 'big-dl2')
+    fs.mkdirSync(dl)
+    await grid().locator('[data-name="big"]').click()
+    await stubOpen([dl])
+    await win.getByRole('button', { name: 'Download' }).click()
+    row = transfers().locator('li', { hasText: 'Download big' }).last()
+    await expect(row.locator('progress')).toBeVisible()
+  }
   await row.getByRole('button', { name: 'Cancel' }).click()
   await expect(row).toContainText('Cancelled')
-  expect(part()).toBeUndefined()
+  expect(part(dl)).toBeUndefined()
   expect(fs.existsSync(path.join(dl, 'big'))).toBe(false)
 })
 
@@ -195,11 +236,13 @@ test('finder drop', async () => {
 })
 
 // Item 5: saving the port while a transfer runs warns first, then ends it
-// with "server changed". Only the vault copy changes.
+// with "server changed". Only the vault copy changes; no cleanup here — the
+// scratch folder is unreachable from this copy until afterAll relaunches
+// against a fresh one.
 test('server changed', async () => {
   await openFiles()
   await goTo(remote())
-  const dl = path.join(l.tmp, 'big-dl2')
+  const dl = path.join(l.tmp, 'big-dl3')
   fs.mkdirSync(dl)
   await grid().locator('[data-name="big"]').click()
   await stubOpen([dl])
@@ -207,18 +250,13 @@ test('server changed', async () => {
   const row = transfers().locator('li', { hasText: 'Download big' }).last()
   await expect(row.locator('progress')).toBeVisible()
 
-  // Cleanup now: after the port change the host is unreachable from the copy.
-  expect(remote()).toMatch(/^\/.+\/sshgate-e2e-\d+$/)
-  await openTerminal()
-  await shell(`chmod 700 '${remote()}/locked'; rm -rf -- '${remote()}' && echo "SG""GONE"`, 'SGGONE')
-  cleaned = true
-
   await win.locator('.tabbar .hometab').click()
   await win.getByRole('button', { name: `Edit ${host}`, exact: true }).click()
   const port = win.getByLabel('Port')
   await port.fill(String(Number(await port.inputValue()) + 1))
   await expect(win.getByText(/cancel 1 transfer/)).toBeVisible()
   await win.getByRole('button', { name: 'Save' }).click()
+  portChanged = true
   await openFiles()
   await expect(row).toContainText('Cancelled: server changed')
 })
