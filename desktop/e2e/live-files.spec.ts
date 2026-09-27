@@ -81,18 +81,34 @@ async function collectAllNames(): Promise<string[]> {
   return [...seen]
 }
 
-// Scrolls until name's row is attached (a no-op if it already is), or gives
-// up after covering the whole listing once. Each step waits on the row
-// itself rather than a fixed delay, so a step that isn't the right one yet
-// moves on as soon as it can, not after a guessed settle time.
+// Scrolls until name's row is not just attached but fully inside the grid's
+// visible box. "Attached" alone includes the virtualization overscan area
+// outside the viewport: a click there makes Playwright scroll it into view
+// itself, which re-renders the virtualized grid and replaces the row's DOM
+// node — over and over, since the same overscan boundary is hit again each
+// time ("element was detached from the DOM, retrying" until timeout).
+// First finds any scroll position where the row attaches at all (a no-op if
+// it already has), then nudges scrollTop so the row sits mid-viewport,
+// re-measuring after each nudge since a scroll can replace the row's node.
 async function scrollToName(name: string): Promise<boolean> {
-  let found = false
+  let attached = false
   await scrollSteps(async (el) => {
-    if (!found && (await el.locator(`[data-name="${name}"]`).waitFor({ state: 'attached', timeout: 1000 }).then(() => true).catch(() => false))) {
-      found = true
+    if (!attached) {
+      attached = await el.locator(`[data-name="${name}"]`)
+        .waitFor({ state: 'attached', timeout: 1000 }).then(() => true).catch(() => false)
     }
   })
-  return found
+  if (!attached) return false
+  const el = grid()
+  for (let i = 0; i < 15; i++) {
+    const row = el.locator(`[data-name="${name}"]`)
+    const [g, r] = await Promise.all([el.boundingBox(), row.boundingBox().catch(() => null)])
+    if (!g || !r) return false
+    if (r.y >= g.y && r.y + r.height <= g.y + g.height) return true
+    const mid = g.y + g.height / 2 - r.height / 2
+    await el.evaluate((e, d) => { e.scrollTop += d }, r.y - mid)
+  }
+  return false
 }
 
 // deleteByName deletes exactly one home-level entry by name, restricted to
