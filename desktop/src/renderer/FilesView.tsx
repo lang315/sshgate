@@ -88,6 +88,9 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
       }
       if (r.status === 'hostKeyMismatch') { onMismatch(r); throw new Error('host key mismatch') }
       if (gen !== loadGen.current) return undefined // superseded: the user has moved on
+      // Refresh and re-entering the folder already shown both land here too
+      // (r.path unchanged): keeping the selection and scroll for those, not
+      // just for an automatic relist after a job, is on purpose.
       const samePath = shown.current === r.path // a relist, not a navigation
       setListing(r); setPathInput(r.path); shown.current = r.path; requested.current = r.path
       if (samePath) {

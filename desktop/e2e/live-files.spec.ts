@@ -223,16 +223,23 @@ test.afterAll(async () => {
       // makes the delete's own plan hit a conflict that shows as a
       // "confirm" row nobody answers, hanging forever. Leave any row
       // already in that confirm state alone.
-      const rows = transfers().locator('li')
-      const rowCount = await rows.count()
-      for (let i = 0; i < rowCount; i++) {
-        const row = rows.nth(i)
-        if (await row.getByText('Waiting for you').isVisible().catch(() => false)) continue
-        const cancel = row.getByRole('button', { name: 'Cancel' })
-        if (await cancel.isVisible().catch(() => false)) await cancel.click()
+      // The Transfers list only renders once a job exists (jobList.length >
+      // 0 in FilesView.tsx) — after the portChanged relaunch, this is a
+      // brand new Files tab with none yet, so there is nothing to cancel or
+      // wait out; skip straight past rather than assert against a list
+      // that was never there.
+      if (await transfers().count() > 0) {
+        const rows = transfers().locator('li')
+        const rowCount = await rows.count()
+        for (let i = 0; i < rowCount; i++) {
+          const row = rows.nth(i)
+          if (await row.getByText('Waiting for you').isVisible().catch(() => false)) continue
+          const cancel = row.getByRole('button', { name: 'Cancel' })
+          if (await cancel.isVisible().catch(() => false)) await cancel.click()
+        }
+        await expect(transfers().locator('progress')).toHaveCount(0)
+        await expect(transfers()).not.toContainText('Checking…')
       }
-      await expect(transfers().locator('progress')).toHaveCount(0)
-      await expect(transfers()).not.toContainText('Checking…')
 
       await goTo(home)
       await deleteByName(scratch)
