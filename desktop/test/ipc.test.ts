@@ -22,6 +22,9 @@ describe('ipc whitelist', () => {
     await expect(relayCall(h, 42, {})).rejects.toThrow('not allowed')
     // main calls term.closeAll itself after a renderer crash; the renderer may not.
     await expect(relayCall(h, 'term.closeAll', {})).rejects.toThrow('not allowed')
+    // files.plan/files.run go through the FilesRelay, never relayCall.
+    await expect(relayCall(h, 'files.plan', {})).rejects.toThrow('not allowed')
+    await expect(relayCall(h, 'files.cancelAll', {})).rejects.toThrow('not allowed')
     expect(h.call).not.toHaveBeenCalled()
   })
   it('relays only whitelisted notifications', () => {
@@ -46,16 +49,60 @@ describe('sender guard', () => {
   })
 })
 
+const fakeFiles = () => ({ call: vi.fn(), onNotification: vi.fn(), onState: vi.fn() } as never)
+
 describe('registerIpc hub:notify', () => {
   it('drops a notification from an untrusted sender and relays a trusted one', () => {
     const h = { ...fakeHub(), on: vi.fn(), state: { kind: 'running' } }
     const trusted = { sender: 'app' }
-    registerIpc(h as never, () => undefined, (e) => e === (trusted as never))
+    registerIpc(h as never, () => undefined, (e) => e === (trusted as never), fakeFiles())
     const on = vi.mocked(ipcMain.on).mock.calls.find(([ch]) => ch === 'hub:notify')![1] as (e: unknown, m: unknown, p: unknown) => void
     on({ sender: 'evil' }, 'term.write', { id: 'a', data: '' })
     expect(h.notify).not.toHaveBeenCalled()
     on(trusted, 'term.write', { id: 'a', data: '' })
     expect(h.notify).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('registerIpc hub:call routes files.* to the relay', () => {
+  it('sends files.plan to the relay, not to hub.call', async () => {
+    const h = { ...fakeHub(), on: vi.fn(), state: { kind: 'running' } }
+    const files = { call: vi.fn(async () => ({ ok: 'relay' })), onNotification: vi.fn(), onState: vi.fn() }
+    const trusted = { sender: 'app' }
+    registerIpc(h as never, () => undefined, (e) => e === (trusted as never), files as never)
+    const handle = vi.mocked(ipcMain.handle).mock.calls.find(([ch]) => ch === 'hub:call')![1] as (e: unknown, m: unknown, p: unknown) => Promise<unknown>
+    await expect(handle(trusted, 'files.plan', { a: 1 })).resolves.toEqual({ ok: 'relay' })
+    expect(files.call).toHaveBeenCalledWith('files.plan', { a: 1 })
+    expect(h.call).not.toHaveBeenCalled()
+  })
+})
+
+describe('registerIpc rejects an untrusted sender for the files handlers', () => {
+  it('files:pickUpload, files:pickDownloadDir, files:grantDropped, and hub:call files.plan never reach the relay', async () => {
+    const h = { ...fakeHub(), on: vi.fn(), state: { kind: 'running' } }
+    const files = {
+      call: vi.fn(async () => ({ ok: 'relay' })),
+      onNotification: vi.fn(),
+      onState: vi.fn(),
+      pickUpload: vi.fn(async () => []),
+      pickDownloadDir: vi.fn(async () => null),
+      grantDropped: vi.fn(() => []),
+    }
+    const trusted = { sender: 'app' }
+    registerIpc(h as never, () => undefined, (e) => e === (trusted as never), files as never)
+    const handler = (channel: string) => vi.mocked(ipcMain.handle).mock.calls.find(([ch]) => ch === channel)![1] as (e: unknown, ...a: unknown[]) => Promise<unknown>
+
+    await expect(handler('hub:call')({ sender: 'evil' }, 'files.plan', {})).rejects.toThrow('untrusted sender')
+    expect(files.call).not.toHaveBeenCalled()
+
+    await expect(handler('files:pickUpload')({ sender: 'evil' }, {})).rejects.toThrow('untrusted sender')
+    expect(files.pickUpload).not.toHaveBeenCalled()
+
+    await expect(handler('files:pickDownloadDir')({ sender: 'evil' }, {})).rejects.toThrow('untrusted sender')
+    expect(files.pickDownloadDir).not.toHaveBeenCalled()
+
+    await expect(handler('files:grantDropped')({ sender: 'evil' }, {})).rejects.toThrow('untrusted sender')
+    expect(files.grantDropped).not.toHaveBeenCalled()
   })
 })
 

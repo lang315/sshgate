@@ -31,16 +31,17 @@ type DialConfig struct {
 	OnLearnHostKey                               func(fp string)
 }
 
-// Manager owns one lazily dialed client. mu guards client, su and kaStop and
-// is only ever held briefly (dialing aside): commands run without it, so a
-// long Exec never blocks OpenSession, keepalive, or Close. suMu serializes
-// use of the single shared su root shell.
+// Manager owns one lazily dialed client. mu guards client, su, sftp and
+// kaStop and is only ever held briefly (dialing aside): commands run without
+// it, so a long Exec never blocks OpenSession, keepalive, or Close. suMu
+// serializes use of the single shared su root shell.
 type Manager struct {
 	cfg    DialConfig // HostKey is only the initial pin; see pin
 	pin    atomic.Pointer[string]
 	mu     sync.Mutex
 	client *ssh.Client
 	su     *suShell
+	sftp   *sftpConn     // shared SFTP client; see sftp.go
 	kaStop chan struct{} // non-nil while a keepalive goroutine runs
 	suMu   sync.Mutex
 }
@@ -235,7 +236,6 @@ func nonce() string {
 
 func (m *Manager) Close() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.kaStop != nil {
 		close(m.kaStop)
 		m.kaStop = nil
@@ -247,6 +247,12 @@ func (m *Manager) Close() {
 	if m.su != nil {
 		m.su.sess.Close()
 		m.su = nil
+	}
+	var s *sftpConn
+	s, m.sftp = m.sftp, nil
+	m.mu.Unlock()
+	if s != nil {
+		s.c.Close() // outside m.mu: a hung close must not block the manager
 	}
 }
 

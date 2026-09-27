@@ -145,4 +145,10 @@ func liveOpen(t *testing.T, c *rpc.Client, server string) {
 	if err := c.Call(ctx, "term.close", map[string]string{"id": server}, nil); err != nil {
 		t.Errorf("term.close: %v", err)
 	}
+	var l map[string]any
+	if err := c.Call(ctx, "files.list", map[string]any{"server": server, "path": ""}, &l); err != nil {
+		t.Errorf("files.list: %v", err)
+	} else if l["status"] != "listed" {
+		t.Errorf("files.list: %v", l)
+	}
 }

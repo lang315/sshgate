@@ -1,0 +1,329 @@
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react'
+import type { FileEntry, FileListing, FileOp, FilesDone, FilesPlanned, FilesProgress, HostKeyMismatch } from '../shared/protocol'
+import { displayText } from '../shared/display'
+import { hub } from './transport'
+import type { HostKeyPrompts } from './hostkeys'
+import type { Dispatcher, Tab } from './terminals'
+import type { TermEvent } from './TermView'
+import { ConflictDialog, DeleteDialog, NameDialog } from './FileDialogs'
+import {
+  actionsReady, deleteNeedsTyping, doneSummary, formatMode, formatSize, formatTime, hiddenPref, joinPath, lastFolder, localStore,
+  newJobId, nextSelection, parentPath, plannedAction, pruneSelection, relistAfterJob, sortEntries, visibleEntries, windowRange, type SortKey,
+} from './files'
+import { CloseIcon, DownloadIcon, FileIcon, FolderIcon, LinkIcon, PlusIcon, RefreshIcon, TrashIcon, UpIcon, UploadIcon, EditIcon } from './icons'
+
+const ROW = 28
+
+interface Job {
+  id: string; op: FileOp; label: string; folder: string
+  state: 'planning' | 'confirm' | 'running' | 'done'
+  names?: string[]; hasFolder?: boolean
+  cancelRequested?: boolean // Cancel pressed before files.planned: never run it
+  planned?: FilesPlanned; progress?: FilesProgress; done?: FilesDone; error?: string
+}
+
+// Only the name dialogs (which the user types into) live here. The
+// Conflict/Delete dialog is derived from the jobs map below, so one job's
+// dialog can never close or replace another's (Important 1).
+// folder is captured when the dialog opens, not read from shown.current at
+// submit time: the modal has no focus trap, so a Shift+Tab out to the Path
+// input and a navigation elsewhere before submitting must not silently
+// create/rename in whatever folder is shown by then (ConflictDialog and
+// DeleteDialog already capture their folder this way, at job creation).
+type Dialog =
+  | { kind: 'mkdir'; folder: string }
+  | { kind: 'rename'; from: string; folder: string }
+
+export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTrusted, onJobs }: {
+  tab: Tab; visible: boolean; events: Dispatcher<TermEvent>; hostKeys: HostKeyPrompts
+  onMismatch: (m: HostKeyMismatch) => void; onTrusted: () => void; onJobs: (running: number) => void
+}) {
+  const server = tab.server
+  const [listing, setListing] = useState<FileListing>()
+  const [error, setError] = useState<string>()
+  const [loading, setLoading] = useState(false)
+  const [pathInput, setPathInput] = useState('')
+  const [showHidden, setShowHidden] = useState(() => hiddenPref.get(localStore()))
+  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: 'name', desc: false })
+  const [sel, setSel] = useState<{ names: Set<string>; anchor?: string }>({ names: new Set() })
+  const [dialog, setDialog] = useState<Dialog>()
+  const [scrollTop, setScrollTop] = useState(0)
+  const [viewport, setViewport] = useState(400)
+  const [dropping, setDropping] = useState(false)
+  const listRef = useRef<HTMLDivElement>(null)
+  const shown = useRef('') // the folder listed now
+  const requested = useRef('') // the folder the latest load() asked for (resolved once listed)
+  const loadBusy = useRef(false) // the latest load() has not settled
+  const loadGen = useRef(0) // bumped per load(); a resolving stale call is ignored
+  const jobs = useRef(new Map<string, Job>()).current
+  const offs = useRef(new Map<string, () => void>()).current
+  const [, bump] = useReducer((n: number) => n + 1, 0)
+
+  const rows = useMemo(() => (listing ? sortEntries(visibleEntries(listing.entries, showHidden), sort.key, sort.desc) : []), [listing, showHidden, sort])
+  const selected = rows.filter((r) => sel.names.has(r.name))
+  const running = [...jobs.values()].filter((j) => j.state !== 'done').length
+  useEffect(() => { onJobs(running) }, [running, onJobs])
+
+  useEffect(() => {
+    const el = listRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setViewport(el.clientHeight))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // Resolves true/false for a real success/failure of this still-current call,
+  // or undefined when a later load() has superseded it (its result is simply
+  // dropped, never read as this call's failure).
+  const load = useCallback(async (p: string): Promise<boolean | undefined> => {
+    const gen = ++loadGen.current // a later load() in flight makes this one's result stale
+    requested.current = p; loadBusy.current = true
+    setLoading(true); setError(undefined); setPathInput(p)
+    try {
+      let r = await hub.filesList(server, p)
+      while (r.status === 'hostKeyUnknown') {
+        if (!(await hostKeys.ask(tab.id, r))) throw new Error('host key not trusted')
+        r = await hub.filesList(server, p, { fingerprint: r.fingerprint, keyType: r.keyType })
+        onTrusted()
+      }
+      if (r.status === 'hostKeyMismatch') { onMismatch(r); throw new Error('host key mismatch') }
+      if (gen !== loadGen.current) return undefined // superseded: the user has moved on
+      // Refresh and re-entering the folder already shown both land here too
+      // (r.path unchanged): keeping the selection and scroll for those, not
+      // just for an automatic relist after a job, is on purpose.
+      const samePath = shown.current === r.path // a relist, not a navigation
+      setListing(r); setPathInput(r.path); shown.current = r.path; requested.current = r.path
+      if (samePath) {
+        setSel((s) => ({ ...s, names: pruneSelection(s.names, r.entries) }))
+      } else {
+        setSel({ names: new Set() }); setScrollTop(0); listRef.current?.scrollTo(0, 0)
+      }
+      lastFolder.set(localStore(), server, r.path)
+      return true
+    } catch (e) {
+      if (gen !== loadGen.current) return undefined
+      setListing(undefined); setError((e as Error).message)
+      return false
+    } finally { if (gen === loadGen.current) { loadBusy.current = false; setLoading(false) } }
+  }, [server, tab.id, hostKeys, onMismatch, onTrusted])
+
+  // Lists once when the tab opens (the last folder, else home), then only on
+  // the author's own actions: never on a timer (see CLAUDE.md, idle lock).
+  useEffect(() => {
+    const last = lastFolder.get(localStore(), server)
+    void load(last ?? '').then((ok) => { if (ok === false && last) void load('') })
+    return () => {
+      hostKeys.drop(tab.id)
+      for (const [id, j] of jobs) if (j.state !== 'done') hub.filesCancel(id) // closing the tab cancels its jobs
+      for (const off of offs.values()) off()
+    }
+  }, []) // once per tab
+
+  const patch = (id: string, p: Partial<Job>) => { const j = jobs.get(id); if (j) { jobs.set(id, { ...j, ...p }); bump() } }
+
+  const finishJob = (id: string, done?: FilesDone, error?: string) => {
+    const j = jobs.get(id)
+    if (!j || j.state === 'done') return
+    offs.get(id)?.(); offs.delete(id)
+    patch(id, { state: 'done', done, error })
+    if (done && j.op !== 'download' && relistAfterJob(j.folder, shown.current, requested.current, loadBusy.current)) void load(shown.current)
+  }
+
+  // Only moves this one job; the name dialog (if any) is untouched, and
+  // leaving 'confirm' lets the next confirm job's dialog take over (Important 1).
+  const runJob = async (id: string, conflict: 'skip' | 'overwrite' | 'ask') => {
+    patch(id, { state: 'running' })
+    try { await hub.filesRun(id, conflict) } catch (e) { hub.filesCancel(id); finishJob(id, undefined, (e as Error).message) }
+  }
+  const cancelConfirm = (id: string) => { hub.filesCancel(id); finishJob(id, undefined, 'Cancelled') }
+  // Planning or running: the hub answers with files.done. A cancel sent while
+  // planning can be lost, so files.planned sends it again (plannedAction).
+  const cancelJob = (id: string) => { patch(id, { cancelRequested: true }); hub.filesCancel(id) }
+
+  const onJobEvent = (id: string, e: TermEvent) => {
+    const j = jobs.get(id)
+    if (!j) return
+    if (e.method === 'files.planned') {
+      const planned = e.params
+      patch(id, { planned })
+      // The dialog itself is derived from the jobs map (confirmJob, below):
+      // setting state to 'confirm' is enough to make it appear, in its turn.
+      const act = plannedAction(j.op, planned.conflicts.count, !!j.cancelRequested)
+      if (act === 'cancel') hub.filesCancel(id) // files.done finishes it
+      else if (act === 'confirm') patch(id, { state: 'confirm' })
+      else void runJob(id, act)
+    } else if (e.method === 'files.progress') patch(id, { progress: e.params })
+    else if (e.method === 'files.done') finishJob(id, e.params)
+    else if (e.method === 'hub.stopped') finishJob(id, undefined, 'hub restarted')
+  }
+
+  const startJob = async (op: FileOp, sources: string[], dest: string | undefined, label: string, extra: Partial<Job> = {}) => {
+    const id = newJobId()
+    jobs.set(id, { id, op, label, folder: shown.current, state: 'planning', ...extra }); bump()
+    offs.set(id, events.on(id, (e) => onJobEvent(id, e)))
+    try { await hub.filesPlan(id, server, op, sources, dest) } catch (e) { finishJob(id, undefined, (e as Error).message) }
+  }
+
+  const label = (n: string[]) => (n.length === 1 ? n[0] : `${n.length} items`)
+  const upload = async (mode: 'files' | 'folder' | 'both') => {
+    try {
+      const picks = await hub.pickUpload(server, shown.current, mode)
+      if (picks.length) await startJob('upload', picks.map((p) => p.token), shown.current, label(picks.map((p) => p.name)))
+    } catch (e) { setError((e as Error).message) }
+  }
+  const download = async () => {
+    if (!selected.length) return
+    try {
+      const d = await hub.pickDownloadDir(server)
+      if (d) await startJob('download', selected.map((x) => joinPath(shown.current, x.name)), d.token, label(selected.map((x) => x.name)))
+    } catch (e) { setError((e as Error).message) }
+  }
+  const remove = () => {
+    if (!selected.length) return
+    const names = selected.map((x) => x.name)
+    void startJob('delete', names.map((n) => joinPath(shown.current, n)), undefined, label(names),
+      { names, hasFolder: selected.some((x) => x.kind === 'dir') })
+  }
+  const drop = async (e: DragEvent) => {
+    e.preventDefault(); setDropping(false)
+    const fl = Array.from(e.dataTransfer.files)
+    if (!fl.length || !actionsReady(listing, loading)) return
+    try {
+      const picks = await hub.grantDropped(fl, server)
+      if (picks.length) await startJob('upload', picks.map((p) => p.token), shown.current, label(picks.map((p) => p.name)))
+    } catch (err) { setError((err as Error).message) }
+  }
+  const open = (x: FileEntry) => { if (x.kind === 'dir' || x.kind === 'link') void load(joinPath(shown.current, x.name)) }
+  const up = () => { const p = parentPath(listing ? shown.current : pathInput); if (p !== undefined) void load(p) }
+  const click = (x: FileEntry, e: MouseEvent) => {
+    setSel(nextSelection(sel.names, rows.map((r) => r.name), x.name, { toggle: e.metaKey || e.ctrlKey, range: e.shiftKey }, sel.anchor))
+  }
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Enter' && selected.length === 1) { e.preventDefault(); open(selected[0]) }
+    else if (e.key === 'Backspace') { e.preventDefault(); up() }
+    else if (e.key === 'F2' && selected.length === 1 && actionsReady(listing, loading)) { e.preventDefault(); setDialog({ kind: 'rename', from: selected[0].name, folder: shown.current }) }
+    else if (e.key === 'Delete' && actionsReady(listing, loading)) { e.preventDefault(); remove() }
+  }
+  const submitName = async (name: string): Promise<string | undefined> => {
+    if (!dialog) return undefined
+    const folder = dialog.folder
+    try {
+      if (dialog.kind === 'mkdir') await hub.filesMkdir(server, joinPath(folder, name))
+      if (dialog.kind === 'rename') await hub.filesRename(server, joinPath(folder, dialog.from), joinPath(folder, name))
+      setDialog(undefined)
+      // Only relist if the user is still looking at the folder acted on:
+      // navigating away meanwhile must not pull them back or overwrite what
+      // they navigated to.
+      if (folder === shown.current) await load(shown.current)
+      return undefined
+    } catch (e) { return (e as Error).message }
+  }
+  const sortBy = (key: SortKey) => setSort((s) => ({ key, desc: s.key === key ? !s.desc : false }))
+  const mac = navigator.platform.startsWith('Mac')
+  const [start, end] = windowRange(scrollTop, viewport, ROW, rows.length)
+  const jobList = [...jobs.values()]
+  // The oldest job waiting on the user (Map iteration is insertion order): its
+  // dialog shows; a job further back waits, undisturbed, until its turn. Deferred
+  // while a name dialog is open, so a landing plan never covers what the user is
+  // typing into (New folder/Rename) — it just waits its turn too.
+  const confirmJob = dialog ? undefined : jobList.find((j): j is Job & { planned: FilesPlanned } => j.state === 'confirm' && !!j.planned)
+
+  return (
+    <div className="filesview" style={{ display: visible ? 'flex' : 'none' }}>
+      <div className="files-toolbar">
+        <button type="button" className="icon" aria-label="Up" title="Up" onClick={up}><UpIcon /></button>
+        <form className="files-path" onSubmit={(e) => { e.preventDefault(); void load(pathInput.trim()) }}>
+          <input className="mono" aria-label="Path" value={pathInput} onChange={(e) => setPathInput(e.target.value)} spellCheck={false} />
+        </form>
+        <button type="button" className="icon" aria-label="Refresh" title="Refresh" onClick={() => void load(shown.current)}><RefreshIcon /></button>
+        <label className="files-hidden"><input type="checkbox" checked={showHidden}
+          onChange={(e) => { setShowHidden(e.target.checked); hiddenPref.set(localStore(), e.target.checked) }} />Show hidden files</label>
+        <span className="spacer" />
+        <button type="button" className="btn" disabled={!actionsReady(listing, loading)} onClick={() => setDialog({ kind: 'mkdir', folder: shown.current })}><PlusIcon />New folder</button>
+        {mac ? (
+          <button type="button" className="btn" disabled={!actionsReady(listing, loading)} onClick={() => void upload('both')}><UploadIcon />Upload</button>
+        ) : (<>
+          <button type="button" className="btn" disabled={!actionsReady(listing, loading)} onClick={() => void upload('files')}><UploadIcon />Upload files</button>
+          <button type="button" className="btn" disabled={!actionsReady(listing, loading)} onClick={() => void upload('folder')}><UploadIcon />Upload folder</button>
+        </>)}
+        <button type="button" className="btn" disabled={!actionsReady(listing, loading) || !selected.length} onClick={() => void download()}><DownloadIcon />Download</button>
+        <button type="button" className="btn" disabled={!actionsReady(listing, loading) || selected.length !== 1} onClick={() => setDialog({ kind: 'rename', from: selected[0].name, folder: shown.current })}><EditIcon />Rename</button>
+        <button type="button" className="btn danger-outline" disabled={!actionsReady(listing, loading) || !selected.length} onClick={remove}><TrashIcon />Delete</button>
+      </div>
+      <div className={'files-body' + (dropping ? ' dropping' : '')}
+        onDragOver={(e) => { e.preventDefault(); setDropping(true) }} onDragLeave={() => setDropping(false)} onDrop={(e) => void drop(e)}>
+        <div className="files-head" role="presentation">
+          {(['name', 'size', 'mtime', 'mode'] as SortKey[]).map((k) => (
+            <button key={k} type="button" className={'files-col ' + k} onClick={() => sortBy(k)}>
+              {{ name: 'Name', size: 'Size', mtime: 'Modified', mode: 'Permissions' }[k]}{sort.key === k ? (sort.desc ? ' ↓' : ' ↑') : ''}
+            </button>
+          ))}
+        </div>
+        {error ? <p className="files-note error">{displayText(error)}</p> : null}
+        {listing?.truncated && <p className="files-note muted">Showing the first 10,000 entries.</p>}
+        {listing && listing.bad > 0 && <p className="files-note muted">{`${listing.bad} ${listing.bad === 1 ? 'name is' : 'names are'} not shown: not safe to display or copy.`}</p>}
+        <div className="fileslist" ref={listRef} role="grid" aria-label={`Files on ${server}`} aria-busy={loading} tabIndex={0}
+          onKeyDown={onKey} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
+          <div style={{ height: start * ROW }} />
+          {rows.slice(start, end).map((x) => (
+            <div key={x.name} role="row" data-name={x.name} aria-selected={sel.names.has(x.name)}
+              className={'file-row' + (sel.names.has(x.name) ? ' selected' : '')}
+              onClick={(e) => click(x, e)} onDoubleClick={() => open(x)}>
+              <span className="files-col name">
+                {x.kind === 'dir' ? <FolderIcon /> : x.kind === 'link' ? <LinkIcon /> : <FileIcon />}
+                <span className="mono">{displayText(x.name)}</span>
+                {x.target !== undefined && <span className="muted mono">{` → ${displayText(x.target)}`}</span>}
+              </span>
+              <span className="files-col size">{x.kind === 'dir' ? '—' : formatSize(x.size)}</span>
+              <span className="files-col mtime">{formatTime(x.mtime)}</span>
+              <span className="files-col mode mono">{formatMode(x.kind, x.mode)}</span>
+            </div>
+          ))}
+          <div style={{ height: (rows.length - end) * ROW }} />
+          {listing && rows.length === 0 && <p className="files-note muted">Empty folder.</p>}
+        </div>
+      </div>
+      {jobList.length > 0 && (
+        <ul className="transfers" aria-label="Transfers">
+          {jobList.map((j) => (
+            <li key={j.id} className="transfer">
+              <span className="transfer-label">{`${{ upload: 'Upload', download: 'Download', delete: 'Delete' }[j.op]} ${displayText(j.label)}`}</span>
+              {j.state === 'planning' && <span className="muted">Checking…</span>}
+              {j.state === 'confirm' && <span className="muted">Waiting for you</span>}
+              {j.state === 'running' && (
+                <>
+                  <progress max={j.progress?.total || j.planned?.bytes || 1} value={j.progress?.done ?? 0} />
+                  <span className="muted mono">{j.progress ? `${formatSize(j.progress.done)} of ${formatSize(j.progress.total)} · ${displayText(j.progress.file)}` : ''}</span>
+                </>
+              )}
+              {j.state === 'done' && <span>{displayText(doneSummary(j.done, j.error))}</span>}
+              {j.state !== 'done'
+                ? <button type="button" className="btn" onClick={() => (j.state === 'confirm' ? cancelConfirm(j.id) : cancelJob(j.id))}>Cancel</button>
+                : <button type="button" className="icon" aria-label="Dismiss" onClick={() => { jobs.delete(j.id); bump() }}><CloseIcon /></button>}
+              {j.done && j.done.errors.length > 0 && (
+                <ul className="transfer-errors mono">
+                  {j.done.errors.map((m, i) => <li key={i}>{displayText(m)}</li>)}
+                  {j.done.errorCount > j.done.errors.length && <li className="muted">{`and ${j.done.errorCount - j.done.errors.length} more`}</li>}
+                </ul>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {confirmJob && confirmJob.op === 'delete' && (
+        <DeleteDialog key={confirmJob.id} names={confirmJob.names ?? []} planned={confirmJob.planned}
+          needsTyping={deleteNeedsTyping(!!confirmJob.hasFolder, (confirmJob.names ?? []).length, confirmJob.planned)}
+          onDelete={() => void runJob(confirmJob.id, 'skip')} onCancel={() => cancelConfirm(confirmJob.id)} />
+      )}
+      {confirmJob && confirmJob.op !== 'delete' && (
+        <ConflictDialog key={confirmJob.id} planned={confirmJob.planned} onChoice={(c) => {
+          if (c === 'cancel') cancelConfirm(confirmJob.id); else void runJob(confirmJob.id, c)
+        }} />
+      )}
+      {(dialog?.kind === 'mkdir' || dialog?.kind === 'rename') && (
+        <NameDialog title={dialog.kind === 'mkdir' ? 'New folder' : 'Rename'} initial={dialog.kind === 'rename' ? dialog.from : ''}
+          onSubmit={submitName} onCancel={() => setDialog(undefined)} />
+      )}
+    </div>
+  )
+}

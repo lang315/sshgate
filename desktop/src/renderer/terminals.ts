@@ -7,6 +7,7 @@ export function newTermId(): string {
 export interface Tab {
   id: string
   server: string
+  kind: 'term' | 'files'
   state: 'opening' | 'open' | 'exited'
   exitReason?: string
   sawOutput: boolean
@@ -17,8 +18,8 @@ export class TabSet {
   active?: string
   private order: string[] = [] // most recent last
 
-  open(server: string): Tab {
-    const tab: Tab = { id: newTermId(), server, state: 'opening', sawOutput: false }
+  open(server: string, kind: Tab['kind'] = 'term'): Tab {
+    const tab: Tab = { id: newTermId(), server, kind, state: kind === 'files' ? 'open' : 'opening', sawOutput: false }
     this.tabs.push(tab)
     this.activate(tab.id)
     return tab
@@ -41,13 +42,13 @@ export class TabSet {
   mostRecentFor(server: string): Tab | undefined {
     for (let i = this.order.length - 1; i >= 0; i--) {
       const t = this.find(this.order[i])
-      if (t && t.server === server && t.state !== 'exited') return t
+      if (t && t.server === server && t.kind === 'term' && t.state !== 'exited') return t
     }
     return undefined
   }
 
   openCount(server: string): number {
-    return this.tabs.filter((t) => t.server === server && t.state !== 'exited').length
+    return this.tabs.filter((t) => t.server === server && t.kind === 'term' && t.state !== 'exited').length
   }
 }
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -241,4 +242,53 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+func TestSFTPAgainstOpenSSH(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	host, port, cleanup := startSSH(t)
+	defer cleanup()
+	m := NewManager(DialConfig{Host: host, Port: port, User: "test", Password: "testpass", Auth: "password", Insecure: true, TimeoutMs: 30000})
+	defer m.Close()
+	c, err := m.SFTP()
+	if errors.Is(err, ErrNoSFTP) {
+		// CI must prove the no-replace plain rename below, which files.Rename's
+		// check-then-rename relies on; the image tag cannot be pinned offline.
+		if os.Getenv("CI") != "" {
+			t.Fatal("image offers no sftp subsystem; CI must run this test")
+		}
+		t.Skip("image offers no sftp subsystem")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := c.RealPath(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := home+"/sftp-a", home+"/sftp-b"
+	for _, p := range []string{a, b} {
+		f, err := c.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.Write([]byte(p)); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := c.Rename(a, b); err == nil {
+		t.Fatal("plain SFTP rename replaced an existing file on OpenSSH")
+	}
+	if _, ok := c.HasExtension("posix-rename@openssh.com"); !ok {
+		t.Fatal("OpenSSH offers no posix-rename")
+	}
+	fis, err := c.ReadDir(home)
+	if err != nil || len(fis) == 0 {
+		t.Fatalf("readdir %v %v", fis, err)
+	}
 }

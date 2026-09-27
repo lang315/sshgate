@@ -211,5 +211,7 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 	})
 	closeTerms := registerTermMethods(s, h)
 	defer closeTerms() // after Serve: no term.open is still in flight
+	closeFiles := registerFileMethods(s, h)
+	defer closeFiles() // after Serve: cancels this door's jobs and waits up to 5 s
 	return s.Serve(ctx, r, w)
 }

@@ -20,6 +20,13 @@ export const TerminalIcon = icon(<><path d="M5 8l4 4-4 4" /><path d="M12 16h7" /
 export const WarningIcon = icon(<><path d="M12 3l10 18H2z" /><path d="M12 10v5M12 18h.01" /></>)
 export const CheckIcon = icon(<path d="M5 12l5 5 9-10" />)
 export const ShieldIcon = icon(<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z" />)
+export const FolderIcon = icon(<path d="M3 6h6l2 2h10v11H3z" />)
+export const FileIcon = icon(<><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" /></>)
+export const LinkIcon = icon(<><path d="M10 14a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-1 1" /><path d="M14 10a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l1-1" /></>)
+export const UpIcon = icon(<path d="M12 19V5M6 11l6-6 6 6" />)
+export const RefreshIcon = icon(<><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></>)
+export const UploadIcon = icon(<><path d="M12 16V4M7 9l5-5 5 5" /><path d="M4 20h16" /></>)
+export const DownloadIcon = icon(<><path d="M12 4v12M7 11l5 5 5-5" /><path d="M4 20h16" /></>)
 
 // The app's only mark: a terminal glyph on the accent tile, then the name. No logo.
 export function Mark() {

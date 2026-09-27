@@ -41,14 +41,16 @@ export const CRASH_LOOP_TEXT = 'The window crashed repeatedly. Quit and restart 
 export const LOCK_FAILED_TEXT = 'Could not lock the vault after a crash; quit the app to lock it.'
 
 // A crashed renderer is the only path that reloads the window. Lock the vault first,
-// so the reloaded page starts at the unlock screen, and close the terminals the dead
-// renderer opened (nothing could reach them again). If the lock fails, or the renderer
-// keeps crashing, show a static text page instead: quitting stops the hub, which drops the key.
+// so the reloaded page starts at the unlock screen, close the terminals and cancel the
+// file transfers the dead renderer started, and drop its file grants. If the lock fails,
+// or the renderer keeps crashing, show a static text page instead: quitting stops the hub,
+// which drops the key.
 export async function recoverRenderer(
   hub: { call(method: string, params?: unknown, timeoutMs?: number): Promise<unknown> },
   win: { isDestroyed(): boolean; reload(): void; loadURL(url: string): Promise<void> },
   reason: string,
   policy: CrashPolicy,
+  onReset?: () => void,
 ): Promise<void> {
   console.error('sshgate: renderer gone:', reason)
   const decision = policy.record()
@@ -58,6 +60,8 @@ export async function recoverRenderer(
     return false
   })
   await hub.call('term.closeAll', {}, 5000).catch((e) => console.error('sshgate: term.closeAll after renderer crash failed:', (e as Error).message))
+  await hub.call('files.cancelAll', {}, 5000).catch((e) => console.error('sshgate: files.cancelAll after renderer crash failed:', (e as Error).message))
+  onReset?.()
   if (win.isDestroyed()) return
   const text = !locked ? LOCK_FAILED_TEXT : decision === 'error' ? CRASH_LOOP_TEXT : undefined
   if (text) await win.loadURL('data:text/plain;charset=utf-8,' + encodeURIComponent(text)).catch(() => {})

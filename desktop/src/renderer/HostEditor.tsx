@@ -1,16 +1,16 @@
 import { useId, useState, type FormEvent, type KeyboardEvent } from 'react'
 import type { SecretField, ServerInfo, ServerInput } from '../shared/protocol'
-import { arrowStep, closesTabs, draftFrom, endpointChanged, labelHint, SECRET_FIELDS, secretPlaceholder, toInput, type HostDraft } from './hostForm'
+import { arrowStep, closesTabs, closeWarning, draftFrom, endpointChanged, labelHint, SECRET_FIELDS, secretPlaceholder, toInput, type HostDraft } from './hostForm'
 import { CloseIcon, WarningIcon } from './icons'
 
-export function EditorWarnings({ server, draft, openTabs }: { server?: ServerInfo; draft: HostDraft; openTabs: number }) {
+export function EditorWarnings({ server, draft, openTabs, transfers }: { server?: ServerInfo; draft: HostDraft; openTabs: number; transfers: number }) {
   const moved = endpointChanged(server, draft)
-  const closes = openTabs > 0 && closesTabs(server, draft)
+  const closes = (openTabs > 0 || transfers > 0) && closesTabs(server, draft)
   if (!moved && !closes) return null
   return (
     <div className="warnings" role="status">
       {moved && <p><WarningIcon />Changing host or port forgets the host key and saved passwords unless you re-enter them.</p>}
-      {closes && <p><WarningIcon />{`Saving will close ${openTabs} open ${openTabs === 1 ? 'tab' : 'tabs'}.`}</p>}
+      {closes && <p><WarningIcon />{closeWarning(openTabs, transfers)}</p>}
     </div>
   )
 }
@@ -21,8 +21,8 @@ const ESCALATION: SecretField[] = ['suPassword', 'sudoPassword']
 // server undefined = a new host. Only what a plain host needs is open:
 // address, user, password. Key/agent auth, su/sudo and AI access are folded.
 // Secrets are never shown: an empty field keeps the saved value, Clear removes it.
-export function HostEditor({ server, openTabs, focusForget, onSave, onForget, onClose }: {
-  server?: ServerInfo; openTabs: number; focusForget?: boolean
+export function HostEditor({ server, openTabs, transfers, focusForget, onSave, onForget, onClose }: {
+  server?: ServerInfo; openTabs: number; transfers: number; focusForget?: boolean
   onSave: (input: ServerInput, original?: string) => Promise<void>
   onForget: (name: string) => Promise<void>
   onClose: () => void
@@ -161,7 +161,7 @@ export function HostEditor({ server, openTabs, focusForget, onSave, onForget, on
               )}
             </section>
           )}
-          <EditorWarnings server={server} draft={draft} openTabs={openTabs} />
+          <EditorWarnings server={server} draft={draft} openTabs={openTabs} transfers={transfers} />
         </div>
         <footer className="sheet-foot">
           {error && <p className="error">{error}</p>}

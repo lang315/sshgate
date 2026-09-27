@@ -46,39 +46,45 @@ describe('recoverRenderer', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const order: string[] = []
     await recoverRenderer(okHub(order), fakeWin(order), 'crashed', new CrashPolicy())
-    expect(order).toEqual(['lock', 'term.closeAll', 'reload'])
+    expect(order).toEqual(['lock', 'term.closeAll', 'files.cancelAll', 'reload'])
   })
   it('shows an error page instead of reloading when lock fails', async () => {
     const order: string[] = []
     const hub = { call: async (m: string) => { order.push(m); if (m === 'lock') throw new Error('lock timed out') } }
     await recoverRenderer(hub, fakeWin(order), 'oom', new CrashPolicy())
-    expect(order).toEqual(['lock', 'term.closeAll', "error:Could not lock the vault after a crash; quit the app to lock it."])
+    expect(order).toEqual(['lock', 'term.closeAll', 'files.cancelAll', "error:Could not lock the vault after a crash; quit the app to lock it."])
   })
   it('treats a dead hub as locked and reloads', async () => {
     for (const msg of ['hub is not running', 'hub restarted']) {
       const order: string[] = []
       const hub = { call: async (m: string) => { order.push(m); throw new Error(msg) } }
       await recoverRenderer(hub, fakeWin(order), 'crashed', new CrashPolicy())
-      expect(order).toEqual(['lock', 'term.closeAll', 'reload'])
+      expect(order).toEqual(['lock', 'term.closeAll', 'files.cancelAll', 'reload'])
     }
   })
   it('still reloads if only term.closeAll fails', async () => {
     const order: string[] = []
     const hub = { call: async (m: string) => { order.push(m); if (m === 'term.closeAll') throw new Error('x') } }
     await recoverRenderer(hub, fakeWin(order), 'oom', new CrashPolicy())
-    expect(order).toEqual(['lock', 'term.closeAll', 'reload'])
+    expect(order).toEqual(['lock', 'term.closeAll', 'files.cancelAll', 'reload'])
   })
   it('shows an error page on the 3rd crash within 60 s', async () => {
     const order: string[] = []
     const policy = new CrashPolicy()
     for (let i = 0; i < 3; i++) await recoverRenderer(okHub(order), fakeWin(order), 'crashed', policy)
-    expect(order.filter((o) => o !== 'lock' && o !== 'term.closeAll')).toEqual(
+    expect(order.filter((o) => o !== 'lock' && o !== 'term.closeAll' && o !== 'files.cancelAll')).toEqual(
       ['reload', 'reload', 'error:The window crashed repeatedly. Quit and restart the app.'])
   })
   it('does not touch a destroyed window', async () => {
     const order: string[] = []
     await recoverRenderer(okHub(order), fakeWin(order, true), 'killed', new CrashPolicy())
-    expect(order).toEqual(['lock', 'term.closeAll'])
+    expect(order).toEqual(['lock', 'term.closeAll', 'files.cancelAll'])
+  })
+  it('drops file grants after a crash', async () => {
+    const order: string[] = []
+    const reset = vi.fn()
+    await recoverRenderer(okHub(order), fakeWin(order), 'crashed', new CrashPolicy(), reset)
+    expect(reset).toHaveBeenCalledTimes(1)
   })
 })
 

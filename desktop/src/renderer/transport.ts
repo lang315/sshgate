@@ -1,4 +1,4 @@
-import type { ApprovalRequest, HubEvent, HubState, ImportResult, ImportScan, ServerInfo, ServerInput, Status, TermOpenResult } from '../shared/protocol'
+import type { ApprovalRequest, FileGrant, FileOp, FilesListResult, HubEvent, HubState, ImportResult, ImportScan, ServerInfo, ServerInput, Status, TermOpenResult } from '../shared/protocol'
 
 interface Bridge {
   call(method: string, params?: unknown): Promise<unknown>
@@ -6,6 +6,9 @@ interface Bridge {
   getState(): Promise<HubState>
   onEvent(cb: (e: HubEvent) => void): () => void
   onState(cb: (s: HubState) => void): () => void
+  pickUpload(server: string, folder: string, mode: 'files' | 'folder' | 'both'): Promise<FileGrant[]>
+  pickDownloadDir(server: string): Promise<FileGrant | null>
+  grantDropped(files: File[], server: string): Promise<FileGrant[]>
 }
 
 const bridge = (): Bridge => (window as unknown as { sshmcp: Bridge }).sshmcp
@@ -64,4 +67,23 @@ export const hub = {
   onEvent: (cb: (e: HubEvent) => void) => bridge().onEvent(cb),
   onState: (cb: (s: HubState) => void) => bridge().onState(cb),
   getState: () => bridge().getState(),
+  filesList: (server: string, path: string, trustHostKey?: { fingerprint: string; keyType: string }) =>
+    call<FilesListResult>('files.list', trustHostKey ? { server, path, trustHostKey } : { server, path }),
+  filesMkdir: async (server: string, path: string) => { await call('files.mkdir', { server, path }) },
+  filesRename: async (server: string, from: string, to: string) => { await call('files.rename', { server, from, to }) },
+  // sources/dest carry grant tokens where they name local paths; main swaps them.
+  filesPlan: async (id: string, server: string, op: FileOp, sources: string[], dest?: string) => {
+    await call('files.plan', dest === undefined ? { id, server, op, sources } : { id, server, op, sources, dest })
+  },
+  filesRun: (id: string, conflict: 'skip' | 'overwrite' | 'ask') => call<{ cancelled?: boolean }>('files.run', { id, conflict }),
+  filesCancel: (id: string) => bridge().notify('files.cancel', { id }),
+  pickUpload: async (server: string, folder: string, mode: 'files' | 'folder' | 'both') => {
+    try { return await bridge().pickUpload(server, folder, mode) } catch (e) { throw cleanError(e) }
+  },
+  pickDownloadDir: async (server: string) => {
+    try { return await bridge().pickDownloadDir(server) } catch (e) { throw cleanError(e) }
+  },
+  grantDropped: async (files: File[], server: string) => {
+    try { return await bridge().grantDropped(files, server) } catch (e) { throw cleanError(e) }
+  },
 }

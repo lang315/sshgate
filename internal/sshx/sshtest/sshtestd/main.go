@@ -4,6 +4,7 @@
 // With -write-store it writes a vault containing one AI-visible server
 // "box" that points at itself, ready to unlock with -password.
 // With -write-known-hosts it writes its host key as a known_hosts line.
+// With -sftp-root it serves the SFTP subsystem rooted in that directory.
 package main
 
 import (
@@ -13,6 +14,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 
@@ -26,6 +28,7 @@ func main() {
 	store := flag.String("write-store", "", "write a ready vault to this path")
 	pw := flag.String("password", "pw", "master password for -write-store")
 	kh := flag.String("write-known-hosts", "", "write this server's host key as a known_hosts line to this path")
+	sftpRoot := flag.String("sftp-root", "", "serve SFTP rooted in this directory (created if missing); home is <dir>/home")
 	flag.Parse()
 
 	srv, stop, err := sshtest.Listen()
@@ -51,6 +54,13 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+	}
+	if *sftpRoot != "" {
+		if err := os.MkdirAll(filepath.Join(*sftpRoot, "home"), 0o755); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		srv.ServeSFTP(*sftpRoot)
 	}
 	fmt.Printf("PORT=%d\n", srv.Port)
 

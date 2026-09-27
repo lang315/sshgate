@@ -48,6 +48,20 @@ describe('TabSet', () => {
   })
 })
 
+describe('TabSet files tabs', () => {
+  it('opens files tabs that never count as terminals', () => {
+    const t = new TabSet()
+    const f = t.open('box', 'files')
+    expect(f.kind).toBe('files')
+    expect(f.state).toBe('open')
+    expect(t.openCount('box')).toBe(0)
+    expect(t.mostRecentFor('box')).toBeUndefined()
+    const term = t.open('box')
+    expect(term.kind).toBe('term')
+    expect(t.mostRecentFor('box')?.id).toBe(term.id)
+  })
+})
+
 describe('Debouncer', () => {
   it('fires once after quiet time', async () => {
     vi.useFakeTimers()
