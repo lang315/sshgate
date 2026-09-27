@@ -269,6 +269,17 @@ func (m *Manager) OpenSession() (*ssh.Session, error) {
 	return c.NewSession()
 }
 
+// Client returns the shared connection, dialling it if needed. Forwards
+// (internal/tunnel) run on it; a caller watches client.Wait for its end.
+func (m *Manager) Client() (*ssh.Client, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.ensure(); err != nil {
+		return nil, err
+	}
+	return m.client, nil
+}
+
 // StartKeepalive pings the server every interval until Close. A ping that
 // fails or gets no reply within interval closes the client, which ends every
 // channel on it (terminals see EOF and report their own exit); onDead, if
