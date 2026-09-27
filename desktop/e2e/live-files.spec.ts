@@ -65,6 +65,10 @@ test.beforeAll(async () => {
   // instead of home; clear it before the tab is ever opened.
   await win.evaluate((k) => localStorage.removeItem(k), `sshgate.files.last.${host}`)
   await openFiles()
+  // The grid renders as soon as the tab mounts, before files.list replies:
+  // wait for the listing to settle so the Path input holds the real home,
+  // not the '' load() starts from.
+  await expect(grid()).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 })
   home = await win.getByLabel('Path').inputValue()
   expect(home, 'refusing to run on a home path with spaces or quotes').toMatch(/^\/[^\s'"\\$`]+$/)
 
@@ -112,7 +116,10 @@ test.afterAll(async () => {
     }
   }
   if (created && !cleaned) console.log(`\n>>> Remote scratch folder left on ${host}: ${remote()}\n`)
-  await l?.close()
+  // Best-effort: a failed close here (e.g. the first close in the
+  // portChanged branch already failed) must not throw out of afterAll
+  // after the message above has run.
+  await l?.close().catch(() => {})
 })
 
 test('exit gate: browse, upload, skip existing, download, rename, delete', async () => {
