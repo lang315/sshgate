@@ -138,8 +138,8 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 .approvals-help { padding: 0 16px 12px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--divider); }
 .approvals-scroll { flex: 1; min-height: 0; overflow: auto; padding: 4px 12px 12px; }
 .approvals .empty { padding: 24px 4px; }
-.approval { border: 1px solid var(--line); border-left: 3px solid var(--wait); border-radius: 8px; padding: 10px 12px; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; background: var(--raised); }
-.approval.sudo { border-left-color: var(--danger); }
+.approval { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; background: var(--raised); }
+.approval.sudo { border-color: var(--danger); }
 .cmd { white-space: pre-wrap; word-break: break-all; background: var(--term-bg); color: var(--term-fg); padding: 8px 10px; margin: 0; border-radius: 6px; }
 .cmd mark { background: var(--wait); color: var(--on-wait); unicode-bidi: isolate; }
 .actions .deny { background: var(--danger-fill); color: var(--on-danger); border: 0; }
