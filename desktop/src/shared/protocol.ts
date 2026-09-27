@@ -68,6 +68,12 @@ export interface FilesDone {
 }
 export interface FileGrant { token: string; name: string }
 
+export type TunnelKind = 'local' | 'remote' | 'dynamic'
+export interface Tunnel { id: string; kind: TunnelKind; listenPort: number; targetHost?: string; targetPort?: number; label?: string }
+export type TunnelStatus = 'stopped' | 'starting' | 'running' | 'error'
+export interface TunnelState { server: string; id: string; status: TunnelStatus; error?: string; conns: number }
+export type TunnelView = Tunnel & TunnelState
+
 export type HubEvent =
   | { method: 'pending'; params: { request: ApprovalRequest } }
   | { method: 'decided'; params: { request: ApprovalRequest; decision: { outcome: Outcome; reason: string } } }
@@ -78,15 +84,17 @@ export type HubEvent =
   | { method: 'files.planned'; params: FilesPlanned }
   | { method: 'files.progress'; params: FilesProgress }
   | { method: 'files.done'; params: FilesDone }
+  | { method: 'tunnels.state'; params: TunnelState }
 
 export const REQUEST_METHODS = ['hello', 'status', 'unlock', 'lock', 'servers', 'pending',
   'decide', 'denyAll', 'term.open', 'term.close',
   'vault.create', 'servers.save', 'servers.delete', 'servers.forgetHostKey',
-  'import.scan', 'import.apply', 'files.list', 'files.mkdir', 'files.rename'] as const
+  'import.scan', 'import.apply', 'files.list', 'files.mkdir', 'files.rename',
+  'tunnels.list', 'tunnels.save', 'tunnels.delete', 'tunnels.start'] as const
 export type RequestMethod = (typeof REQUEST_METHODS)[number]
 // Relayed through Electron main's FilesRelay (tokens → paths, native download
 // conflicts), never straight through relayCall.
 export const FILES_RELAYED = ['files.plan', 'files.run'] as const
-export const NOTIFY_METHODS = ['term.write', 'term.ack', 'term.resize', 'files.cancel'] as const
+export const NOTIFY_METHODS = ['term.write', 'term.ack', 'term.resize', 'files.cancel', 'tunnels.stop'] as const
 export type NotifyMethod = (typeof NOTIFY_METHODS)[number]
-export const PROTOCOL_VERSION = 4
+export const PROTOCOL_VERSION = 5
