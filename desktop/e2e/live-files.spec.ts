@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
+import { execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { launchLive, waitHumanUnlock, waitOpen, type LiveLaunched } from './launch'
@@ -131,4 +132,60 @@ test('exit gate: browse, upload, skip existing, download, rename, delete', async
   await del.getByLabel('Type delete to confirm').fill('delete')
   await del.getByRole('button', { name: 'Delete' }).click()
   await expect(grid().locator('[data-name="proj2"]')).toHaveCount(0)
+})
+
+test('permission denied', async () => {
+  test.skip(uid === 0, 'root can read any folder')
+  await openFiles()
+  await goTo(`${remote()}/locked`)
+  await expect(win.locator('.files-note.error')).toContainText(/permission denied/i)
+  await goTo(remote())
+})
+
+// Item 4: a download keeps running through a lock, and Cancel works after.
+// While locked the Files tab is behind the Unlock screen, so a new transfer
+// cannot start until unlock; the hub-side cancel-while-locked is
+// TestJobCancelWhileRunningAndWhileLocked.
+test('lock during download', async () => {
+  await openFiles()
+  await goTo(remote())
+  const dl = path.join(l.tmp, 'big-dl')
+  fs.mkdirSync(dl)
+  const part = () => fs.readdirSync(dl).find((n) => n.endsWith('.sshgate-part'))
+  const partSize = () => { const p = part(); return p ? fs.statSync(path.join(dl, p)).size : -1 }
+
+  await grid().locator('[data-name="big"]').click()
+  await stubOpen([dl])
+  await win.getByRole('button', { name: 'Download' }).click()
+  const row = transfers().locator('li', { hasText: 'Download big' })
+  await expect(row.locator('progress')).toBeVisible()
+  await expect.poll(partSize).toBeGreaterThan(0)
+
+  await win.getByRole('button', { name: 'Lock' }).click()
+  await expect(win.getByLabel('Master password')).toBeVisible()
+  const before = partSize()
+  await expect.poll(partSize, { message: `download finished or stalled; raise SSHGATE_LIVE_BIG_MB (${bigMB})`, timeout: 15_000 })
+    .toBeGreaterThan(before)
+
+  await waitHumanUnlock(win, 'Lock test')
+  await expect(row, `download finished during the lock; raise SSHGATE_LIVE_BIG_MB (${bigMB})`).not.toContainText('Downloaded')
+  await row.getByRole('button', { name: 'Cancel' }).click()
+  await expect(row).toContainText('Cancelled')
+  expect(part()).toBeUndefined()
+  expect(fs.existsSync(path.join(dl, 'big'))).toBe(false)
+})
+
+// Item 2: Playwright cannot make a real dropped File, so a person (or a
+// computer-use agent) drags the folder from Finder.
+test('finder drop', async () => {
+  test.skip(process.env.SSHGATE_LIVE_DROP !== '1', 'set SSHGATE_LIVE_DROP=1 to drag from Finder')
+  await openFiles()
+  await goTo(remote())
+  const drop = path.join(l.tmp, 'drop-me')
+  fs.mkdirSync(drop)
+  fs.writeFileSync(path.join(drop, 'x.txt'), 'x')
+  execFileSync('open', ['-R', drop])
+  console.log(`\n>>> Drag the folder "drop-me" from Finder onto the Files tab (3 min).\n`)
+  await expect(grid().locator('[data-name="drop-me"]')).toBeVisible({ timeout: 3 * 60_000 })
+  await expect(transfers()).toContainText('Uploaded 1')
 })
