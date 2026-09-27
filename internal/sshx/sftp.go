@@ -2,6 +2,7 @@ package sshx
 
 import (
 	"errors"
+	"io"
 	"time"
 
 	"github.com/pkg/sftp"
@@ -51,7 +52,7 @@ func newSFTP(client *ssh.Client) (*sftp.Client, error) {
 		}
 		return nil, err
 	}
-	c, err := sftp.NewClientPipe(r, w)
+	c, err := sftp.NewClientPipe(r, sessionCloser{w, s})
 	if !watchdog.Stop() {
 		s.Close()
 		if err == nil {
@@ -66,6 +67,19 @@ func newSFTP(client *ssh.Client) (*sftp.Client, error) {
 	go func() { c.Wait(); s.Close() }()
 	return c, nil
 }
+
+// sessionCloser makes sftp.Client.Close close the whole channel. Closing
+// only stdin sends EOF, and Close then waits for the server to close the
+// channel, which a stalled server never does. A channel close is answered by
+// the peer's SSH layer, not the sftp process (RFC 4254 5.3), so this one
+// returns. The session may then be closed twice (see newSFTP); the second
+// Close just returns an error nobody reads.
+type sessionCloser struct {
+	io.Writer
+	s *ssh.Session
+}
+
+func (w sessionCloser) Close() error { return w.s.Close() }
 
 // SFTP returns the shared client for listings and single operations. It
 // belongs to the current *ssh.Client: a redial replaces it, and it is

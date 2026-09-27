@@ -121,6 +121,33 @@ func TestJobCancelWhileRunningAndWhileLocked(t *testing.T) {
 	noPartFiles(t, dest)
 }
 
+// TestJobCancelStopsAStalledServer: a server that stops answering mid-read
+// (the gate is never opened while the job runs) must not keep the job
+// running: cancelGrace's force-close ends it with files.done.
+func TestJobCancelStopsAStalledServer(t *testing.T) {
+	fx := filesHub(t) // cancelGrace left alone: an earlier test's door may still read it
+	os.WriteFile(filepath.Join(fx.root, "home", "big"), []byte(strings.Repeat("z", 1<<20)), 0o644)
+	dest := t.TempDir()
+	plan(t, fx, map[string]any{"id": "st1", "server": "fs", "op": "download", "sources": []string{"/home/big"}, "dest": dest})
+	gate := make(chan struct{})
+	fx.srv.GateSFTP(gate)
+	t.Cleanup(func() { close(gate) })
+	if err := fx.c.Call(context.Background(), "files.run", map[string]any{"id": "st1", "conflict": "skip"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	gate <- struct{}{} // the read after this one stalls for good
+	sendNote(t, fx.w, "files.cancel", map[string]any{"id": "st1"})
+	start := time.Now()
+	d := waitNote(t, fx.notes, "files.done", "st1")
+	if d["cancelled"] != true {
+		t.Fatalf("done %v", d)
+	}
+	if el := time.Since(start); el > cancelGrace+2*time.Second {
+		t.Fatalf("files.done after %v on a stalled server", el)
+	}
+	noPartFiles(t, dest)
+}
+
 func TestJobRunNeedsUnlockAndAPlan(t *testing.T) {
 	fx := filesHub(t)
 	ctx := context.Background()
