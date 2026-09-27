@@ -76,10 +76,14 @@ test.beforeAll(async () => {
     `d="$HOME/${scratch}"; mkdir "$d" && mkdir "$d/locked" && chmod 000 "$d/locked" && ` +
     `dd if=/dev/zero of="$d/big" bs=1048576 count=${bigMB} 2>/dev/null && echo "SG""OK home=$HOME uid=$(id -u)"`,
     'SGOK home=')
-  const m = /SGOK home=(\S+) uid=(\d+)/.exec(out)
+  // Greedy .+ backtracks to the rightmost " uid=<digits>" (the actual
+  // output, not the earlier echoed command line), so a $HOME containing a
+  // space is captured whole rather than silently truncated at it.
+  const m = /SGOK home=(.+) uid=(\d+)/.exec(out)
   expect(m, 'setup output').not.toBeNull()
   home = m![1]
   uid = Number(m![2])
+  expect(home, 'refusing to run on a home path with spaces or quotes').toMatch(/^\/[^\s'"\\$`]+$/)
   expect(remote()).toMatch(/^\/.+\/sshgate-e2e-\d+$/)
 })
 
