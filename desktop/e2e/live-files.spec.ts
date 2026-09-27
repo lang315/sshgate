@@ -50,6 +50,9 @@ async function goTo(dir: string): Promise<void> {
   await win.getByLabel('Path').fill(dir)
   await win.getByLabel('Path').press('Enter')
   await expect(win.getByLabel('Path')).toHaveValue(dir)
+  // Wait for the load to complete: aria-busy may start as false (if sshtestd replies very fast)
+  // or true then false. Wait for any transition to complete.
+  await expect(grid()).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 })
 }
 
 const uploadFileName = process.platform === 'darwin' ? 'Upload' : 'Upload files'
