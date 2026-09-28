@@ -361,6 +361,38 @@ func TestAutoAllowEndsOnServerWrites(t *testing.T) {
 			t.Fatalf("no autoAllowOff/saved: %v", recs)
 		}
 	})
+	// Final-fixes item 10: a rename must not leave a grant or flag stranded
+	// under either the old or the new name.
+	t.Run("rename", func(t *testing.T) {
+		h, path := newHub(t, &fakeExec{})
+		if err := h.SetAutoAllow("vis", "forever"); err != nil {
+			t.Fatal(err)
+		}
+		in := config.ServerInput{Name: "vis2", Host: "h", Port: 22, User: "u", Auth: "agent"}
+		if err := h.SaveServer("vis", in); err != nil {
+			t.Fatal(err)
+		}
+		if g := grantOf(h, "vis"); g != nil {
+			t.Fatal("grant survived rename under the old name")
+		}
+		if g := grantOf(h, "vis2"); g != nil {
+			t.Fatal("grant created under the new name")
+		}
+		s, ok := h.Deps().File.FindServer("vis2")
+		if !ok || s.AutoAllow {
+			t.Fatalf("vis2 = %+v, ok=%v", s, ok)
+		}
+		_, recs := readAudit(t, path)
+		var found bool
+		for _, r := range recs {
+			if r["action"] == "autoAllowOff" && r["reason"] == "saved" && r["server"] == "vis" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("no autoAllowOff/saved for vis: %v", recs)
+		}
+	})
 	t.Run("delete", func(t *testing.T) {
 		h, path := newHub(t, &fakeExec{})
 		if err := h.SetAutoAllow("vis", "forever"); err != nil {
@@ -537,6 +569,36 @@ func TestSetAutoAllowRaceWindow(t *testing.T) {
 			t.Fatalf("the concurrent save's own autoAllowOff is missing: %v", recs)
 		}
 	})
+}
+
+// TestSetAutoAllowWriteRaceWindow covers final-fixes item 9: a concurrent
+// write landing between SetAutoAllow's first section (where rev is read) and
+// its own writeAutoAllow call must not be clobbered by a stale forever flag.
+// beforeWrite is the test seam that forces the window.
+func TestSetAutoAllowWriteRaceWindow(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	beforeWrite = func() {
+		// A concurrent write (any change) bumps Revision without h reloading.
+		if err := config.Update(path, testMK, func(f *config.File) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer func() { beforeWrite = nil }()
+
+	err := h.SetAutoAllow("vis", "forever")
+	if !errors.Is(err, errAutoAllowRace) {
+		t.Fatalf("got %v, want errAutoAllowRace", err)
+	}
+	if g := grantOf(h, "vis"); g != nil {
+		t.Fatal("grant installed despite a raced write")
+	}
+	if err := h.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := h.Deps().File.FindServer("vis")
+	if s.AutoAllow {
+		t.Fatal("flag written despite a concurrent write racing it")
+	}
 }
 
 // TestAutoAllowOffDoesNotAuditAFailedWrite covers the fix-round-1 finding: a
@@ -1125,21 +1187,35 @@ func TestAutoAllowCheck(t *testing.T) {
 
 	t.Run("unparseable output", func(t *testing.T) {
 		fe := &fakeExec{res: sshx.ExecResult{Stdout: "garbage"}}
-		h, _ := newHub(t, fe)
+		h, path := newHub(t, fe)
 		_, err := h.AutoAllowCheck(context.Background(), "vis")
 		if err == nil || err.Error() != "could not check this host" {
 			t.Fatalf("got %v", err)
 		}
+		assertAutoAllowCheckFailed(t, path)
 	})
 
 	t.Run("exec error", func(t *testing.T) {
 		fe := &fakeExec{err: errors.New("boom")}
-		h, _ := newHub(t, fe)
+		h, path := newHub(t, fe)
 		_, err := h.AutoAllowCheck(context.Background(), "vis")
 		if err == nil || err.Error() != "could not check this host" {
 			t.Fatalf("got %v", err)
 		}
+		assertAutoAllowCheckFailed(t, path)
 	})
+}
+
+// assertAutoAllowCheckFailed checks the last audit record is an
+// autoAllowCheck failure with no error detail in it: the detail stays on
+// stderr (final-fixes item 4).
+func assertAutoAllowCheckFailed(t *testing.T, path string) {
+	t.Helper()
+	_, recs := readAudit(t, path)
+	last := recs[len(recs)-1]
+	if last["action"] != "autoAllowCheck" || last["reason"] != "failed" {
+		t.Fatalf("audit: %v", last)
+	}
 }
 
 func TestAutoAllowCheckRefusals(t *testing.T) {
@@ -1183,6 +1259,49 @@ func TestAutoAllowCheckRefusals(t *testing.T) {
 // TestCLIModeNeverArms covers the constraint that a reload, or the hub
 // simply loading a store whose AutoAllow flag is already true, never arms a
 // grant: only SetAutoAllow does.
+// TestCloseEndsGrants covers final-fixes item 3: Hub.Close must end every
+// grant (cancelling in-flight runs) and audit autoAllowOff "hub stopped",
+// same as Lock, but the vault flag itself is untouched: a forever host comes
+// back paused, not off, after the hub restarts.
+func TestCloseEndsGrants(t *testing.T) {
+	be := newBlockExec()
+	h, path := newHub(t, be)
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	errc := make(chan error, 1)
+	go func() {
+		_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
+		errc <- err
+	}()
+	waitInflight(t, h, "vis", 1)
+
+	h.Close()
+	select {
+	case err := <-errc:
+		if !errors.Is(err, ErrCancelledRunning) {
+			t.Fatalf("err = %v, want ErrCancelledRunning", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Exec did not return after Close")
+	}
+	if g := grantOf(h, "vis"); g != nil {
+		t.Fatal("grant survived Close")
+	}
+	_, recs := readAudit(t, path)
+	if !hasAutoAllowOff(recs, "hub stopped") {
+		t.Fatalf("no autoAllowOff/hub stopped: %v", recs)
+	}
+	f, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := f.FindServer("vis")
+	if !s.AutoAllow {
+		t.Fatal("forever flag cleared by hub stop; it should come back paused")
+	}
+}
+
 func TestCLIModeNeverArms(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "servers.json")

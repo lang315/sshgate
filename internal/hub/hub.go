@@ -132,9 +132,21 @@ func New(o Options) (*Hub, error) {
 	return h, nil
 }
 
-// Close stops the idle auto-lock goroutine and ends every running tunnel.
-// It is safe to call more than once.
-func (h *Hub) Close() { h.closeOnce.Do(func() { h.endAllTunnels("hub stopped"); close(h.done) }) }
+// Close stops the idle auto-lock goroutine, ends every grant (a forever
+// flag stays in the vault; the server comes back paused), and ends every
+// running tunnel. It is safe to call more than once.
+func (h *Hub) Close() {
+	h.closeOnce.Do(func() {
+		h.mu.Lock()
+		ended := h.endAllGrantsLocked()
+		h.mu.Unlock()
+		for _, n := range ended {
+			h.grantEnded(n, "hub stopped")
+		}
+		h.endAllTunnels("hub stopped")
+		close(h.done)
+	})
+}
 
 func (h *Hub) Broker() *broker.Broker   { return h.broker }
 func (h *Hub) Registry() *sshx.Registry { return h.reg }
