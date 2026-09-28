@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -57,13 +58,28 @@ func autoRefusal(s config.Server) string {
 	return ""
 }
 
+// errAutoAllowRace is returned when the server changed (a save, delete,
+// forget, lock, or another arm) between SetAutoAllow's checks and the point
+// it would install the grant; nothing is installed.
+var errAutoAllowRace = errors.New("server changed; try again")
+
+// beforeArm is a test seam: called, if set, between SetAutoAllow's write step
+// and its arming section, to force a race window. Nil in production.
+var beforeArm func()
+
 // SetAutoAllow turns name's auto-allow on (a timed mode, or forever) or off.
-// forever on a server whose vault flag is already set only arms it (Resume).
+// forever on a server whose vault flag is already set and paused (no live
+// grant) only arms it (Resume); forever on an already-armed forever grant is
+// a no-op. Everything is checked once in a first h.mu section, and re-checked
+// against the same server state right before the grant is installed in a
+// second: the UI door runs requests concurrently, so a Lock, save, delete, or
+// forget landing in between must void this call instead of racing it.
 func (h *Hub) SetAutoAllow(name, mode string) error {
 	if mode == "off" {
 		return h.autoAllowOff(name, "turned off")
 	}
 	d, timed := autoModes[mode]
+
 	h.mu.Lock()
 	if err := h.checkLocked(name); err != nil {
 		h.mu.Unlock()
@@ -75,26 +91,62 @@ func (h *Hub) SetAutoAllow(name, mode string) error {
 		return fmt.Errorf("auto-allow refused: %s", why)
 	}
 	dc, err := h.resolveLocked(name)
-	h.mu.Unlock()
 	if err != nil {
+		h.mu.Unlock()
 		return ErrConnFailed
 	}
-	resume := !timed && s.AutoAllow
+	resume := !timed && s.AutoAllow && h.grants[name] == nil
+	alreadyForever := !timed && s.AutoAllow && h.grants[name] != nil
+	rev := h.deps.File.Revision
+	snap := snapOf(dc)
+	h.mu.Unlock()
+
+	if alreadyForever {
+		return nil // already armed forever: nothing changed, nothing to audit
+	}
+
 	if timed == s.AutoAllow { // timed over forever clears the flag; a new forever sets it
 		if err := h.writeAutoAllow(name, !timed); err != nil {
 			return err
 		}
+		h.mu.Lock()
+		rev = h.deps.File.Revision // the write's own revision bump is expected
+		h.mu.Unlock()
 	}
-	g := &grant{snap: snapOf(dc), inflight: map[uint64]context.CancelFunc{}}
+
+	if beforeArm != nil {
+		beforeArm()
+	}
+
+	h.mu.Lock()
+	if err := h.checkLocked(name); err != nil {
+		h.mu.Unlock()
+		return err
+	}
+	s2, _ := h.deps.File.FindServer(name)
+	if why := autoRefusal(s2); why != "" {
+		h.mu.Unlock()
+		return fmt.Errorf("auto-allow refused: %s", why)
+	}
+	dc2, err := h.resolveLocked(name)
+	if err != nil {
+		h.mu.Unlock()
+		return ErrConnFailed
+	}
+	if snapOf(dc2) != snap || h.deps.File.Revision != rev || (!timed && !s2.AutoAllow) {
+		h.mu.Unlock()
+		return errAutoAllowRace
+	}
+	g := &grant{snap: snap, inflight: map[uint64]context.CancelFunc{}}
 	if timed {
 		g.until = time.Now().Add(d)
 	}
-	h.mu.Lock()
 	if old := h.grants[name]; old != nil {
 		g.inflight = old.inflight // runs already going stay counted and cancellable
 	}
 	h.grants[name] = g
 	h.mu.Unlock()
+
 	r := broker.ConfigRecord{Action: "autoAllowOn", Server: name}
 	switch {
 	case resume:
@@ -145,7 +197,7 @@ func (h *Hub) autoAllowOff(name, reason string) error {
 	if flag {
 		err = h.writeAutoAllow(name, false)
 	}
-	if had || flag {
+	if had || (flag && err == nil) {
 		h.grantEnded(name, reason)
 	}
 	return err

@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -409,5 +410,110 @@ func TestServersForUIAutoAllow(t *testing.T) {
 	nokey := find(t, "nokey")
 	if nokey.AutoAllowRefused != "no pinned host key" {
 		t.Fatalf("nokey refused = %q", nokey.AutoAllowRefused)
+	}
+}
+
+// TestSetAutoAllowRaceWindow covers the fix-round-1 finding: the UI door runs
+// requests concurrently, so a Lock or a save landing between SetAutoAllow's
+// first check and its arming step must void the call instead of racing it.
+// beforeArm is the test seam that forces the window.
+func TestSetAutoAllowRaceWindow(t *testing.T) {
+	t.Run("lock", func(t *testing.T) {
+		h, path := newHub(t, &fakeExec{})
+		_, before := readAudit(t, path)
+		beforeArm = func() { h.Lock() }
+		defer func() { beforeArm = nil }()
+		err := h.SetAutoAllow("vis", "15m")
+		if !errors.Is(err, ErrLocked) {
+			t.Fatalf("got %v, want ErrLocked", err)
+		}
+		if g := grantOf(h, "vis"); g != nil {
+			t.Fatal("grant installed on a locked hub")
+		}
+		_, after := readAudit(t, path)
+		if len(after) != len(before) {
+			t.Fatalf("audit line written on a raced call: %v", after)
+		}
+	})
+
+	t.Run("save", func(t *testing.T) {
+		h, path := newHub(t, &fakeExec{})
+		beforeArm = func() {
+			in := config.ServerInput{Name: "vis", Host: "h", Port: 22, User: "u", Auth: "agent", AIVisible: true}
+			if err := h.SaveServer("vis", in); err != nil {
+				t.Fatal(err)
+			}
+		}
+		defer func() { beforeArm = nil }()
+		err := h.SetAutoAllow("vis", "forever")
+		if err == nil {
+			t.Fatal("want an error when a save lands in the gap")
+		}
+		if g := grantOf(h, "vis"); g != nil {
+			t.Fatal("grant installed after a concurrent save")
+		}
+		s, _ := h.Deps().File.FindServer("vis")
+		if s.AutoAllow {
+			t.Fatal("flag written back on after the concurrent save cleared it")
+		}
+		_, recs := readAudit(t, path)
+		if !hasAutoAllowOff(recs, "saved") {
+			t.Fatalf("the concurrent save's own autoAllowOff is missing: %v", recs)
+		}
+	})
+}
+
+// TestAutoAllowOffDoesNotAuditAFailedWrite covers the fix-round-1 finding: a
+// paused forever flag that fails to clear (vault locked) must not audit or
+// notify autoAllowOff, and the flag must be left untouched.
+func TestAutoAllowOffDoesNotAuditAFailedWrite(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	h.Lock() // ends the grant (audited "locked"); the flag stays true
+	if g := grantOf(h, "vis"); g != nil {
+		t.Fatal("grant survived Lock")
+	}
+	_, before := readAudit(t, path)
+
+	if err := h.SetAutoAllow("vis", "off"); !errors.Is(err, ErrLocked) {
+		t.Fatalf("got %v, want ErrLocked", err)
+	}
+
+	_, after := readAudit(t, path)
+	if len(after) != len(before) {
+		t.Fatalf("off wrote an audit line despite a failed write: %v", after[len(before):])
+	}
+	s, _ := h.Deps().File.FindServer("vis")
+	if !s.AutoAllow {
+		t.Fatal("flag cleared despite a failed write")
+	}
+}
+
+// TestSetAutoAllowForeverIdempotent covers the fix-round-1 finding: forever
+// on an already-armed forever grant (not paused) is a no-op, not a Resume.
+func TestSetAutoAllowForeverIdempotent(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	before := grantOf(h, "vis")
+	_, recs := readAudit(t, path)
+	nBefore := len(recs)
+
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	_, recs = readAudit(t, path)
+	if len(recs) != nBefore {
+		t.Fatalf("already-armed forever wrote an audit line: %v", recs[nBefore:])
+	}
+	after := grantOf(h, "vis")
+	if after == nil || !after.until.IsZero() {
+		t.Fatalf("grant changed: %+v", after)
+	}
+	if before != after {
+		t.Fatal("already-armed forever replaced the grant")
 	}
 }
