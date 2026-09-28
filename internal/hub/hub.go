@@ -98,7 +98,8 @@ type Hub struct {
 	reg     *sshx.Registry
 	broker  *broker.Broker
 	audit   *broker.Audit
-	files   *jobSet // every file job; see filejobs.go
+	files   *jobSet    // every file job; see filejobs.go
+	tunnels *tunnelSet // every running tunnel; see tunnels.go
 
 	storeErr     error // the last reload's error; guarded by h.mu
 	lockSink     func(reason string)
@@ -111,7 +112,7 @@ type Hub struct {
 
 // New loads the store if present; a missing store is not an error.
 func New(o Options) (*Hub, error) {
-	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit, files: newJobSet(), lastActivity: time.Now(), done: make(chan struct{})}
+	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit, files: newJobSet(), tunnels: newTunnelSet(), lastActivity: time.Now(), done: make(chan struct{})}
 	h.deps = &mcpserver.Deps{Path: o.StorePath}
 	f, err := config.Load(o.StorePath)
 	if err != nil && !os.IsNotExist(err) {
@@ -129,8 +130,9 @@ func New(o Options) (*Hub, error) {
 	return h, nil
 }
 
-// Close stops the idle auto-lock goroutine. It is safe to call more than once.
-func (h *Hub) Close() { h.closeOnce.Do(func() { close(h.done) }) }
+// Close stops the idle auto-lock goroutine and ends every running tunnel.
+// It is safe to call more than once.
+func (h *Hub) Close() { h.closeOnce.Do(func() { h.endAllTunnels("hub stopped"); close(h.done) }) }
 
 func (h *Hub) Broker() *broker.Broker   { return h.broker }
 func (h *Hub) Registry() *sshx.Registry { return h.reg }

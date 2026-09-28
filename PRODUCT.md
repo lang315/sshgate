@@ -31,7 +31,7 @@ Every AI-issued command blocks on an explicit human Allow. There are no auto-app
 
 - Screens that exist: create vault, unlock, host list with New/Edit/Delete, host editor (secrets write-only, Forget host key), terminal tabs, Files tab per host (listing, transfer strip) with its New folder, Rename, Delete files, and Files already exist dialogs, AI approval panel, host-key trust and mismatch dialogs, hub starting/restarting/failed, store-error banner.
 - Security behaviour is fixed and must survive any redesign: Deny is the default and keyboard-reachable; Allow is mouse-only and disabled for 500 ms after anything in the list changes; "Deny all" is always rendered so the list never shifts; the host-key Trust button follows the same rules, as do the Files dialogs' Overwrite all, Skip existing, and Delete (Cancel is their default); secrets are never displayed; the renderer never polls the hub (only `status`), or the idle lock never fires.
-- Not built and not to be designed as if present: Keychain, snippets, port forwarding, ProxyJump, local shell, split panes, sync (later roadmap slices, each behind an entry gate).
+- Not built and not to be designed as if present: Keychain, snippets, ProxyJump, local shell, split panes, sync (later roadmap slices, each behind an entry gate).
 - UI language: English.
 - Themes: dark, light, and Auto (follows the OS), chosen with a ☾ / ☀ / Auto control; Auto is the default, and the choice is a per-machine display preference.
 - Playwright e2e tests select on current roles, labels and a few class names (`nav.hosts`, `.tabbar .tab`, `.approvals`, `.approval`, `button.allow`, `button.denyall`); a redesign updates them in the same change.

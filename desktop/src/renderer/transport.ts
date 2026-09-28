@@ -1,4 +1,4 @@
-import type { ApprovalRequest, FileGrant, FileOp, FilesListResult, HubEvent, HubState, ImportResult, ImportScan, ServerInfo, ServerInput, Status, TermOpenResult } from '../shared/protocol'
+import type { ApprovalRequest, FileGrant, FileOp, FilesListResult, HubEvent, HubState, ImportResult, ImportScan, ServerInfo, ServerInput, Status, TermOpenResult, Tunnel, TunnelView } from '../shared/protocol'
 
 interface Bridge {
   call(method: string, params?: unknown): Promise<unknown>
@@ -86,4 +86,12 @@ export const hub = {
   grantDropped: async (files: File[], server: string) => {
     try { return await bridge().grantDropped(files, server) } catch (e) { throw cleanError(e) }
   },
+  tunnelsList: () => call<TunnelView[]>('tunnels.list', {}),
+  tunnelsSave: (server: string, tunnel: Tunnel) => call<Tunnel>('tunnels.save', {
+    server, tunnel: { id: tunnel.id, kind: tunnel.kind, listenPort: tunnel.listenPort,
+      targetHost: tunnel.targetHost ?? '', targetPort: tunnel.targetPort ?? 0, label: tunnel.label ?? '' },
+  }),
+  tunnelsDelete: async (server: string, id: string) => { await call('tunnels.delete', { server, id }) },
+  tunnelsStart: async (server: string, id: string) => { await call('tunnels.start', { server, id }) },
+  tunnelsStop: (server: string, id: string) => bridge().notify('tunnels.stop', { server, id }),
 }

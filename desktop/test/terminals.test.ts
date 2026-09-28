@@ -60,6 +60,15 @@ describe('TabSet files tabs', () => {
     expect(term.kind).toBe('term')
     expect(t.mostRecentFor('box')?.id).toBe(term.id)
   })
+
+  it('finds a tab by server and kind', () => {
+    const s = new TabSet()
+    const a = s.open('x', 'tunnels')
+    s.open('x')
+    expect(s.findKind('x', 'tunnels')).toBe(a)
+    expect(s.findKind('y', 'tunnels')).toBeUndefined()
+    expect(a.state).toBe('open')
+  })
 })
 
 describe('Debouncer', () => {

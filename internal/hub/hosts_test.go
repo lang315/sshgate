@@ -164,3 +164,17 @@ func TestVaultCreateDerivesKeyOnce(t *testing.T) {
 		t.Fatalf("unlock: %v, derivations = %d", err, derives)
 	}
 }
+
+func TestDialChangedIgnoresTunnelsAndAIVisible(t *testing.T) {
+	a := config.Server{Name: "a", Host: "h", Port: 22, User: "u", Auth: "agent"}
+	b := a
+	b.AIVisible = true
+	b.Tunnels = []config.Tunnel{{ID: "x", Kind: "dynamic", ListenPort: 1080}}
+	if dialChanged(a, b) {
+		t.Fatal("tunnels or aiVisible counted as a dial change")
+	}
+	b.Port = 23
+	if !dialChanged(a, b) {
+		t.Fatal("port change missed")
+	}
+}

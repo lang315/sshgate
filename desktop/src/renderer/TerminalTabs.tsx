@@ -1,16 +1,18 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react'
-import type { HostKeyMismatch, ServerInfo } from '../shared/protocol'
+import type { HostKeyMismatch, ServerInfo, TunnelView } from '../shared/protocol'
 import { hub } from './transport'
 import type { HostKeyPrompts } from './hostkeys'
-import { CloseIcon, FolderIcon, HomeIcon } from './icons'
+import { CloseIcon, FolderIcon, HomeIcon, TunnelIcon } from './icons'
 import { Dispatcher, TabSet } from './terminals'
 import { TermView, type TermApi, type TermEvent } from './TermView'
 import { FilesView } from './FilesView'
+import { TunnelsView } from './TunnelsView'
 import type { Theme } from './theme'
 
 export interface TerminalsHandle {
   open(server: string): void
   openFiles(server: string): void
+  openTunnels(server: string): void
   sendToTab(server: string, text: string): Promise<void>
   openCount(server: string): number
   transferCount(server: string): number
@@ -20,7 +22,8 @@ export interface TerminalsHandle {
 export const Terminals = forwardRef<TerminalsHandle, {
   theme: Theme; hostKeys: HostKeyPrompts; onMismatch: (m: HostKeyMismatch) => void; onTrusted: () => void
   home: ReactNode; actions: ReactNode; banner: ReactNode; servers: ServerInfo[]; onFocusApprovals: () => void
-}>(function Terminals({ theme, hostKeys, onMismatch, onTrusted, home: homeContent, actions, banner, servers, onFocusApprovals }, ref) {
+  tunnels: TunnelView[]; locked: boolean; onTunnelsChanged: () => void
+}>(function Terminals({ theme, hostKeys, onMismatch, onTrusted, home: homeContent, actions, banner, servers, onFocusApprovals, tunnels, locked, onTunnelsChanged }, ref) {
   const tabs = useRef(new TabSet()).current
   const apis = useRef(new Map<string, TermApi>()).current
   const events = useRef(new Dispatcher<TermEvent>()).current
@@ -52,6 +55,7 @@ export const Terminals = forwardRef<TerminalsHandle, {
   useImperativeHandle(ref, () => ({
     open(server) { tabs.open(server); changed() },
     openFiles(server) { tabs.open(server, 'files'); changed() },
+    openTunnels(server) { const t = tabs.findKind(server, 'tunnels'); if (t) tabs.activate(t.id); else tabs.open(server, 'tunnels'); changed() },
     async sendToTab(server, text) {
       let tab = tabs.mostRecentFor(server)
       if (!tab) tab = tabs.open(server)
@@ -78,7 +82,7 @@ export const Terminals = forwardRef<TerminalsHandle, {
         {tabs.tabs.map((t) => (
           <div key={t.id} className={'tab' + (t.id === tabs.active ? ' active' : '') + (t.state === 'exited' ? ' exited' : '')} data-state={t.state} data-kind={t.kind} title={target(t.server)}>
             <button type="button" className="tabname" onClick={() => { tabs.activate(t.id); changed() }}>
-              {t.kind === 'files' ? <FolderIcon /> : <span className="dot" aria-hidden="true" />}{t.server}{t.state === 'exited' ? ' · exited' : ''}
+              {t.kind === 'files' ? <FolderIcon /> : t.kind === 'tunnels' ? <TunnelIcon /> : <span className="dot" aria-hidden="true" />}{t.server}{t.state === 'exited' ? ' · exited' : ''}
             </button>
             {t.kind === 'term' && t.state === 'exited' && (
               <button type="button" className="reconnect" onClick={() => { tabs.close(t.id); tabs.open(t.server); changed() }}>Reconnect</button>
@@ -92,7 +96,9 @@ export const Terminals = forwardRef<TerminalsHandle, {
       <div className="termarea">
         <div className="homeview" style={{ display: home ? 'block' : 'none' }}>{homeContent}</div>
         {tabs.tabs.map((t) => (
-          t.kind === 'files' ? (
+          t.kind === 'tunnels' ? (
+            <TunnelsView key={t.id} server={t.server} visible={t.id === tabs.active} tunnels={tunnels} locked={locked} onChanged={onTunnelsChanged} />
+          ) : t.kind === 'files' ? (
             <FilesView key={t.id} tab={t} visible={t.id === tabs.active} events={events} hostKeys={hostKeys}
               onMismatch={onMismatch} onTrusted={onTrusted} onJobs={(n) => transfers.set(t.id, n)} />
           ) : (

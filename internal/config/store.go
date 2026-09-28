@@ -13,19 +13,20 @@ import (
 )
 
 type Server struct {
-	Name             string `json:"name"`
-	Host             string `json:"host"`
-	Port             int    `json:"port"`
-	User             string `json:"user"`
-	Auth             string `json:"auth"`
-	KeyPath          string `json:"keyPath,omitempty"`
-	HostKey          string `json:"hostKey,omitempty"`
-	HostKeyAlgo      string `json:"hostKeyAlgo,omitempty"` // pinned key's type, e.g. ssh-ed25519
-	AIVisible        bool   `json:"aiVisible,omitempty"`
-	EncPassword      string `json:"encPassword,omitempty"`
-	EncSuPassword    string `json:"encSuPassword,omitempty"`
-	EncSudoPassword  string `json:"encSudoPassword,omitempty"`
-	EncKeyPassphrase string `json:"encKeyPassphrase,omitempty"`
+	Name             string   `json:"name"`
+	Host             string   `json:"host"`
+	Port             int      `json:"port"`
+	User             string   `json:"user"`
+	Auth             string   `json:"auth"`
+	KeyPath          string   `json:"keyPath,omitempty"`
+	HostKey          string   `json:"hostKey,omitempty"`
+	HostKeyAlgo      string   `json:"hostKeyAlgo,omitempty"` // pinned key's type, e.g. ssh-ed25519
+	AIVisible        bool     `json:"aiVisible,omitempty"`
+	EncPassword      string   `json:"encPassword,omitempty"`
+	EncSuPassword    string   `json:"encSuPassword,omitempty"`
+	EncSudoPassword  string   `json:"encSudoPassword,omitempty"`
+	EncKeyPassphrase string   `json:"encKeyPassphrase,omitempty"`
+	Tunnels          []Tunnel `json:"tunnels,omitempty"`
 }
 
 type File struct {

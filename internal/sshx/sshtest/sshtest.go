@@ -3,7 +3,7 @@
 // back until stdin closes, then exits 0; an input line "flood <N>" also
 // makes it write N bytes of 80-column "yyyy" lines, then "FLOOD-DONE". An "exec" reports its command on
 // Execs, waits for Release to be closed, writes the command to stdout, and
-// exits 0.
+// exits 0. It serves direct-tcpip and loopback tcpip-forward channels.
 package sshtest
 
 import (
@@ -35,6 +35,7 @@ type Server struct {
 	sftpGate           chan struct{} // nil: ungated; else each SFTP ReadAt/WriteAt takes one value
 	sftpHostile        []string      // names listed in /hostile (see sftp.go)
 	sftpStall          bool          // accept the subsystem request but never serve it
+	refuseFwd          bool          // tcpip-forward always fails
 }
 
 // Listen starts a server without the testing package. stop closes it.
@@ -155,17 +156,20 @@ func (s *Server) serveConn(nc net.Conn, cfg *ssh.ServerConfig) {
 		return
 	}
 	go func() { <-s.done; conn.Close() }()
-	go ssh.DiscardRequests(reqs)
+	go s.globalRequests(conn, reqs)
 	for nch := range chans {
-		if nch.ChannelType() != "session" {
+		switch nch.ChannelType() {
+		case "session":
+			ch, creqs, err := nch.Accept()
+			if err != nil {
+				continue
+			}
+			go s.session(ch, creqs)
+		case "direct-tcpip":
+			go directTCPIP(nch)
+		default:
 			nch.Reject(ssh.UnknownChannelType, "")
-			continue
 		}
-		ch, creqs, err := nch.Accept()
-		if err != nil {
-			continue
-		}
-		go s.session(ch, creqs)
 	}
 }
 

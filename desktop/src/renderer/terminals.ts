@@ -7,7 +7,7 @@ export function newTermId(): string {
 export interface Tab {
   id: string
   server: string
-  kind: 'term' | 'files'
+  kind: 'term' | 'files' | 'tunnels'
   state: 'opening' | 'open' | 'exited'
   exitReason?: string
   sawOutput: boolean
@@ -19,12 +19,16 @@ export class TabSet {
   private order: string[] = [] // most recent last
 
   open(server: string, kind: Tab['kind'] = 'term'): Tab {
-    const tab: Tab = { id: newTermId(), server, kind, state: kind === 'files' ? 'open' : 'opening', sawOutput: false }
+    const tab: Tab = { id: newTermId(), server, kind, state: kind === 'term' ? 'opening' : 'open', sawOutput: false }
     this.tabs.push(tab)
     this.activate(tab.id)
     return tab
   }
   private find(id: string) { return this.tabs.find((t) => t.id === id) }
+  // One Tunnels tab per host: the existing one, if any.
+  findKind(server: string, kind: Tab['kind']): Tab | undefined {
+    return this.tabs.find((t) => t.server === server && t.kind === kind)
+  }
   opened(id: string) { const t = this.find(id); if (t && t.state === 'opening') t.state = 'open' }
   output(id: string) { const t = this.find(id); if (t) t.sawOutput = true }
   exited(id: string, reason: string) { const t = this.find(id); if (t) { t.state = 'exited'; t.exitReason = reason } }

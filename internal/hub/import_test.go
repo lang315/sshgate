@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -111,7 +112,7 @@ func TestImportScanAndApply(t *testing.T) {
 	}
 	want := config.Server{Name: "web", Host: "10.0.0.5", Port: 2200, User: "deploy", Auth: "key", KeyPath: fx.key,
 		HostKey: fx.fp, HostKeyAlgo: "ssh-ed25519"}
-	if s, ok := after.FindServer("web"); !ok || s != want {
+	if s, ok := after.FindServer("web"); !ok || !reflect.DeepEqual(s, want) {
 		t.Fatalf("stored %+v, want %+v", s, want)
 	}
 	if _, ok := after.FindServer("jump"); ok {

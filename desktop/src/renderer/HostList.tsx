@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import type { ServerInfo } from '../shared/protocol'
+import type { ServerInfo, TunnelView } from '../shared/protocol'
 import { filterHosts } from './hostForm'
-import { EditIcon, FolderIcon, PlusIcon, TrashIcon } from './icons'
+import { runningCount } from './tunnels'
+import { EditIcon, FolderIcon, PlusIcon, TrashIcon, TunnelIcon } from './icons'
 
-export function HostList({ servers, storePath, onOpen, onFiles, onNew, onEdit, onDelete, onImport }: {
-  servers: ServerInfo[]; storePath: string
-  onOpen: (name: string) => void; onFiles: (name: string) => void; onNew: () => void; onEdit: (name: string) => void; onDelete: (name: string) => void
+export function HostList({ servers, storePath, tunnels, onOpen, onFiles, onTunnels, onNew, onEdit, onDelete, onImport }: {
+  servers: ServerInfo[]; storePath: string; tunnels: TunnelView[]
+  onOpen: (name: string) => void; onFiles: (name: string) => void; onTunnels: (name: string) => void
+  onNew: () => void; onEdit: (name: string) => void; onDelete: (name: string) => void
   onImport: () => void
 }) {
   const [query, setQuery] = useState('')
@@ -35,12 +37,14 @@ export function HostList({ servers, storePath, onOpen, onFiles, onNew, onEdit, o
                     {s.name}
                     {s.aiVisible && <span className="chip ai">AI</span>}
                     {!s.hostKey && <span className="chip wait">New key</span>}
+                    {runningCount(tunnels, s.name) > 0 && <span className="chip tunnels" title="Running tunnels">{`${runningCount(tunnels, s.name)} ⇄`}</span>}
                   </span>
                   <span className="hostcard-addr mono">{`${s.user}@${s.host}:${s.port}`}</span>
                 </span>
               </button>
               <span className="hostcard-actions">
                 <button type="button" className="icon" aria-label={`Files ${s.name}`} title="Files" onClick={() => onFiles(s.name)}><FolderIcon /></button>
+                <button type="button" className="icon" aria-label={`Tunnels ${s.name}`} title="Tunnels" onClick={() => onTunnels(s.name)}><TunnelIcon /></button>
                 <button type="button" className="icon" aria-label={`Edit ${s.name}`} title="Edit" onClick={() => onEdit(s.name)}><EditIcon /></button>
                 <button type="button" className="icon" aria-label={`Delete ${s.name}`} title="Delete" onClick={() => onDelete(s.name)}><TrashIcon /></button>
               </span>

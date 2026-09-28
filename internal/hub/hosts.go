@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/lang315/sshgate/internal/broker"
@@ -135,11 +136,12 @@ func (h *Hub) denyPending(name string) {
 	}
 }
 
-// dialChanged: every field but AIVisible feeds the dial config or the name
-// the connection is registered under.
+// dialChanged: every field but AIVisible and Tunnels feeds the dial config
+// or the name the connection is registered under.
 func dialChanged(a, b config.Server) bool {
-	a.AIVisible = b.AIVisible
-	return a != b
+	a.AIVisible, a.Tunnels = b.AIVisible, nil
+	b.Tunnels = nil
+	return !reflect.DeepEqual(a, b)
 }
 
 // SaveServer creates (original == "") or updates a server. Its connection is
@@ -166,6 +168,7 @@ func (h *Hub) SaveServer(original string, in config.ServerInput) error {
 		name = in.Name
 	}
 	if dialChanged(before, after) {
+		h.endServerTunnels(name, "server changed")
 		h.files.endServer(name, "server changed")
 		h.reg.Close(name)
 	}
@@ -193,6 +196,7 @@ func (h *Hub) DeleteServer(name string) error {
 		return err
 	}
 	reloadErr := h.Reload()
+	h.endServerTunnels(name, "server changed")
 	h.files.endServer(name, "server changed")
 	h.reg.Close(name)
 	h.denyPending(name)
@@ -223,6 +227,7 @@ func (h *Hub) ForgetHostKey(name string) error {
 		return err
 	}
 	reloadErr := h.Reload()
+	h.endServerTunnels(name, "server changed")
 	h.files.endServer(name, "server changed")
 	h.reg.Close(name)
 	h.auditConfig(broker.ConfigRecord{Action: "forgetHostKey", Server: name, OldFingerprint: old})

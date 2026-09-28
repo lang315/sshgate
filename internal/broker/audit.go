@@ -62,6 +62,21 @@ type FileRecord struct {
 	Reason     string    `json:"reason,omitempty"`
 }
 
+// TunnelRecord is an audit line for a port forward: one at start, one at end.
+type TunnelRecord struct {
+	Time       time.Time `json:"time"`
+	Kind       string    `json:"kind"`  // always "tunnel"
+	Phase      string    `json:"phase"` // start, end
+	Server     string    `json:"server"`
+	Target     string    `json:"target"` // user@host:port
+	ID         string    `json:"id"`
+	TunnelKind string    `json:"tunnelKind"` // local, remote, dynamic
+	Listen     string    `json:"listen"`
+	To         string    `json:"to,omitempty"`
+	Conns      int       `json:"conns,omitempty"` // end: connections served
+	Reason     string    `json:"reason,omitempty"`
+}
+
 // Audit appends one JSON object per line. Output content is never part of a
 // record; only byte counts are.
 type Audit struct {
@@ -93,6 +108,11 @@ func (a *Audit) WriteConfig(r ConfigRecord) error {
 
 func (a *Audit) WriteFile(r FileRecord) error {
 	r.Kind = "file"
+	return a.append(r)
+}
+
+func (a *Audit) WriteTunnel(r TunnelRecord) error {
+	r.Kind = "tunnel"
 	return a.append(r)
 }
 

@@ -27,6 +27,7 @@ export const UpIcon = icon(<path d="M12 19V5M6 11l6-6 6 6" />)
 export const RefreshIcon = icon(<><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></>)
 export const UploadIcon = icon(<><path d="M12 16V4M7 9l5-5 5 5" /><path d="M4 20h16" /></>)
 export const DownloadIcon = icon(<><path d="M12 4v12M7 11l5 5 5-5" /><path d="M4 20h16" /></>)
+export const TunnelIcon = icon(<><path d="M4 8h13l-3-3" /><path d="M20 16H7l3 3" /></>)
 
 // The app's only mark: a terminal glyph on the accent tile, then the name. No logo.
 export function Mark() {

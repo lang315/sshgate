@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { HostKeyMismatch, HubState, ServerInfo, Status } from '../shared/protocol'
+import type { HostKeyMismatch, HubState, ServerInfo, Status, TunnelView } from '../shared/protocol'
 import { hub } from './transport'
+import { applyState } from './tunnels'
 import { screenFor } from './shell'
 import { Unlock } from './Unlock'
 import { CreateVault } from './CreateVault'
@@ -23,6 +24,7 @@ export function App() {
   const [unlockError, setUnlockError] = useState<string>()
   const [lockReason, setLockReason] = useState<'idle' | 'manual'>()
   const [servers, setServers] = useState<ServerInfo[]>([])
+  const [tunnels, setTunnels] = useState<TunnelView[]>([])
   const terms = useRef<TerminalsHandle>(null)
   const [everReady, setEverReady] = useState(false)
   const [editing, setEditing] = useState<{ name?: string; focusForget?: boolean }>()
@@ -68,10 +70,13 @@ export function App() {
   // status counts as UI activity and would hold off the idle lock. status
   // follows, so a refused reload of the vault file shows as storeError.
   const reloadServers = useCallback(() => hub.servers().then(setServers).catch(() => setServers([])).finally(refresh), [refresh])
+  const reloadTunnels = useCallback(() => hub.tunnelsList().then(setTunnels).catch(() => {}), [])
   useEffect(() => {
-    if (screen.kind === 'ready' || screen.kind === 'create-vault') reloadServers()
+    if (screen.kind === 'ready' || screen.kind === 'create-vault') { reloadServers(); reloadTunnels() }
     else setServers([])
-  }, [screen.kind, reloadServers])
+  }, [screen.kind, reloadServers, reloadTunnels])
+  useEffect(() => { if (hubState.kind !== 'running') setTunnels([]) }, [hubState.kind])
+  useEffect(() => hub.onEvent((e) => { if (e.method === 'tunnels.state') setTunnels((cur) => applyState(cur, e.params)) }), [])
 
   const [items, setItems] = useState<PendingItem[]>([])
   const [seedError, setSeedError] = useState<string>()
@@ -124,7 +129,7 @@ export function App() {
   const deleteHost = async (name: string) => {
     if (!window.confirm(`Delete ${name}? Its saved passwords and host key are removed and its open tabs close.`)) return
     try { await hub.deleteServer(name) } catch (e) { window.alert((e as Error).message) }
-    await reloadServers()
+    await reloadServers(); await reloadTunnels()
   }
 
   const ready = screen.kind === 'ready'
@@ -144,8 +149,9 @@ export function App() {
     </>
   )
   const hostList = (
-    <HostList servers={servers} storePath={status?.storePath ?? ''} onOpen={(name) => terms.current?.open(name)}
+    <HostList servers={servers} storePath={status?.storePath ?? ''} tunnels={tunnels} onOpen={(name) => terms.current?.open(name)}
       onFiles={(name) => terms.current?.openFiles(name)}
+      onTunnels={(name) => terms.current?.openTunnels(name)}
       onNew={() => { setImporting(false); setEditing({}) }}
       onEdit={async (name) => { setImporting(false); await reloadServers(); setEditing({ name }) }}
       onDelete={deleteHost}
@@ -169,13 +175,13 @@ export function App() {
           <main className="work">
             <Terminals ref={terms} theme={theme} hostKeys={hostKeys} onMismatch={setMismatch} onTrusted={reloadServers}
               home={hostList} actions={actions} banner={<StoreErrorBanner message={status?.storeError} />} servers={servers}
-              onFocusApprovals={focusApprovals} />
+              onFocusApprovals={focusApprovals} tunnels={tunnels} locked={!!status?.locked} onTunnelsChanged={reloadTunnels} />
             {/* Inside the work area: the host list and the AI column stay usable beside it. */}
             {ready && editing && (
               <HostEditor key={editing.name ?? ''} server={servers.find((s) => s.name === editing.name)}
                 openTabs={editing.name ? terms.current?.openCount(editing.name) ?? 0 : 0}
                 transfers={editing.name ? terms.current?.transferCount(editing.name) ?? 0 : 0} focusForget={editing.focusForget}
-                onSave={async (input, original) => { await hub.saveServer(input, original); await reloadServers(); setEditing(undefined) }}
+                onSave={async (input, original) => { await hub.saveServer(input, original); await reloadServers(); await reloadTunnels(); setEditing(undefined) }}
                 onForget={async (name) => { await hub.forgetHostKey(name); await reloadServers() }}
                 onClose={() => setEditing(undefined)} />
             )}
