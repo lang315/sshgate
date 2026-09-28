@@ -1,7 +1,7 @@
 # sshgate: Per-host Auto-allow for AI exec — Design
 
 Date: 2026-09-28
-Status: Draft, awaiting the author's review.
+Status: Approved 2026-09-28.
 Depends on: `2026-09-24-desktop-app-design.md` (slice 1), `2026-09-25-desktop-slice2a-design.md` (slice 2a), `2026-09-27-slice3b-port-forwarding-design.md` (slice 3b). Everything there still holds unless this document changes it by name.
 
 This spec reverses a standing decision. ROADMAP: "Every AI command is approved by a human. No auto-approval rules of any kind until a spec argues otherwise." Slice 1's decision table: "No auto-approval rules". This document is that argument, and it replaces both with the rule in "ROADMAP, PRODUCT, README, CLAUDE.md changes".
@@ -148,7 +148,7 @@ A reload never arms a grant. Only `servers.setAutoAllow` does.
 ## Desktop
 
 - **Host card:**
-  - An **Auto-allow** action button in `.hostcard-actions`, next to Files and Tunnels. Disabled with the `autoAllowRefused` reason as visible text tied by `aria-describedby`.
+  - An **Auto-allow** action button in `.hostcard-actions`, next to Files and Tunnels. It is always enabled; when the host is refused, the dialog it opens says why (`autoAllowRefused`, as visible text) and Enable stays disabled. A disabled button could not show the reason except as a tooltip.
   - While on: a chip "Auto 42m" (renderer countdown from `until`, no polling), "Auto ∞", or "Auto paused". The chip is decorative (`aria-hidden`, inside the card button like the other chips) and uses a new token `--auto` (not amber, never pulsing: amber means "requests waiting, act now"). The action button becomes **Stop auto-allow**.
 - **Auto-allow dialog** (opened by the button):
   - Duration radios: 15 min, 30 min, 60 min, 2 h, 4 h, Until turned off.
@@ -197,12 +197,12 @@ Go (`internal/hub`, `internal/config`, `internal/broker`, `cmd/sshgate`):
 Desktop (vitest):
 - Chip label and countdown; dropping chips on `locked`; paused state.
 - Feed reducer: newest first, cap 50, cleared on hub stop, truncated label.
-- Auto-allow button disabled reasons; dialog: Enable disabled for 500 ms and after content changes, mouse-only, typed host name for forever, root warning from the check result, remote tunnels listed.
+- Dialog: the refusal reason shown and Enable disabled for a refused host; Enable disabled for 500 ms and after content changes, mouse-only, typed host name for forever, root warning from the check result, remote tunnels listed.
 - No hub call is made in response to `autoAllow.ran` or `autoAllow.off`.
 
 Playwright (sshtestd):
 - Enable 15 min from the host card; an exec from a bridge client runs without a click and shows in the feed; Stop; the next exec waits in the column; enable again, Lock, unlock: chip gone and the next exec waits.
-- Enable forever (typed name); restart the app; unlock; the banner shows paused; an exec waits; Resume; the next exec runs.
+- Enable forever (typed name); lock; unlock; the banner shows paused; an exec waits; Resume; the next exec runs. (After a hub restart the hub is in the same state as after a lock: no grants, the flag in the vault; the Go tests cover a new `Hub` on the same file.)
 
 ## ROADMAP, PRODUCT, README, CLAUDE.md changes
 
