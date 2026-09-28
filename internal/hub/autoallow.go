@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 	"unicode/utf8"
 
@@ -284,8 +285,24 @@ type autoRun struct {
 func (h *Hub) autoStart(ctx context.Context, name string) *autoRun {
 	h.mu.Lock()
 	g := h.grants[name]
-	if g == nil || h.checkLocked(name) != nil {
+	if g == nil {
 		h.mu.Unlock()
+		return nil
+	}
+	// checkLocked failing (hidden, deleted, no pin, no vault) must fail
+	// closed, not just skip this run and leave the grant armed: an identical
+	// server returning later would otherwise resume auto runs with no human
+	// action. ErrLocked is the one exception: a lock in progress ends every
+	// grant itself, so this call must not race that with its own end.
+	if err := h.checkLocked(name); err != nil {
+		endedByLock := errors.Is(err, ErrLocked)
+		if !endedByLock {
+			h.endGrantLocked(name)
+		}
+		h.mu.Unlock()
+		if !endedByLock {
+			h.grantEnded(name, "server changed")
+		}
 		return nil
 	}
 	reason := ""
@@ -294,7 +311,10 @@ func (h *Hub) autoStart(ctx context.Context, name string) *autoRun {
 	switch {
 	case !g.until.IsZero() && !time.Now().Before(g.until):
 		reason = "expired"
-	case err != nil, autoRefusal(s) != "", snapOf(dc) != g.snap, g.until.IsZero() && !s.AutoAllow:
+	case err != nil:
+		reason = "server changed"
+		fmt.Fprintf(os.Stderr, "hub: auto-allow resolve %q: %v\n", name, err)
+	case autoRefusal(s) != "", snapOf(dc) != g.snap, g.until.IsZero() && !s.AutoAllow:
 		reason = "server changed"
 	case len(g.inflight) >= maxAutoInflight:
 		h.mu.Unlock()
@@ -324,9 +344,10 @@ const autoCmdCap = 1000
 
 // autoExec runs an auto-allowed exec: not counted in h.running (so it never
 // holds off the idle lock), audited with approval "auto", then reported to
-// the app.
-func (h *Hub) autoExec(ar *autoRun, r ExecRequest, cmd string, timeout int, base broker.AuditRecord) (ExecResponse, error) {
-	red := redactorFor(ar.dc)
+// the app. dc is Exec's own resolve, from before autoStart's; both sets of
+// secrets are masked, same as the approved path masks dc and dc2.
+func (h *Hub) autoExec(ar *autoRun, dc sshx.DialConfig, r ExecRequest, cmd string, timeout int, base broker.AuditRecord) (ExecResponse, error) {
+	red := redactorFor(dc, ar.dc)
 	base.Approval = "auto"
 	base.Command, base.Description = red.Redact(cmd), red.Redact(r.Description)
 	resp, err := h.run(ar.ctx, r.Server, ar.dc, cmd, false, timeout, base, red)

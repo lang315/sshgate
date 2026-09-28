@@ -103,6 +103,22 @@ func hasAutoAllowOff(recs []map[string]any, reason string) bool {
 	return false
 }
 
+// findAutoRecord returns the exec audit record for an auto-allowed run (no
+// "kind" field: that's config/file/tunnel records only; approval "auto").
+// A test whose grant ends in the same window (Lock, sweepGrants) can't just
+// take the last record: the grant's own "autoAllowOff" config record races
+// the exec's record, so either can land last.
+func findAutoRecord(t *testing.T, recs []map[string]any) map[string]any {
+	t.Helper()
+	for _, r := range recs {
+		if r["kind"] == nil && r["approval"] == "auto" {
+			return r
+		}
+	}
+	t.Fatalf("no auto-allow exec record found: %v", recs)
+	return nil
+}
+
 func TestSetAutoAllowTimed(t *testing.T) {
 	h, path := newHub(t, &fakeExec{})
 	before := time.Now()
@@ -804,6 +820,49 @@ func TestAutoExecForeverFlagClearedOutside(t *testing.T) {
 	}
 }
 
+// TestAutoStartFailsClosedWhenServerHidden covers the fix-round-1 finding:
+// checkLocked failing inside autoStart itself (here, the server was hidden
+// by an outside write) must end the grant right away, not just skip this run
+// and leave it armed for an identical server to resume auto runs later with
+// no human action. Exec's own top-of-function check already denies this
+// call (same as before the fix); autoStart is exercised directly since,
+// within one call, Exec never reaches it once that earlier check has failed.
+func TestAutoStartFailsClosedWhenServerHidden(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.Update(path, testMK, func(f *config.File) error {
+		for i := range f.Servers {
+			if f.Servers[i].Name == "vis" {
+				f.Servers[i].AIVisible = false
+				return nil
+			}
+		}
+		return serverNotFound("vis")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Reload(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}); err == nil || err.Error() != serverNotFound("vis").Error() {
+		t.Fatalf("err = %v, want %v", err, serverNotFound("vis"))
+	}
+
+	if ar := h.autoStart(context.Background(), "vis"); ar != nil {
+		t.Fatal("autoStart armed a run for a hidden server")
+	}
+	if g := grantOf(h, "vis"); g != nil {
+		t.Fatal("grant survived checkLocked failing inside autoStart")
+	}
+	_, recs2 := readAudit(t, path)
+	if !hasAutoAllowOff(recs2, "server changed") {
+		t.Fatalf("no autoAllowOff/server changed: %v", recs2)
+	}
+}
+
 func TestAutoExecCap(t *testing.T) {
 	be := newBlockExec()
 	h, _ := newHub(t, be)
@@ -847,9 +906,9 @@ func TestAutoExecCancelledOnLock(t *testing.T) {
 		t.Fatalf("err = %v, want ErrCancelledRunning", err)
 	}
 	_, recs := readAudit(t, path)
-	last := recs[len(recs)-1]
-	if last["outcome"] != "cancelled_running" || last["approval"] != "auto" {
-		t.Fatalf("audit: %v", last)
+	rec := findAutoRecord(t, recs)
+	if rec["outcome"] != "cancelled_running" || rec["approval"] != "auto" {
+		t.Fatalf("audit: %v", rec)
 	}
 }
 
@@ -986,21 +1045,22 @@ func TestAutoCommandCut(t *testing.T) {
 	select {
 	case p := <-calls:
 		shown, _ := p["command"].(string)
-		if len(shown) > 1000 {
-			t.Fatalf("command not cut: %d bytes", len(shown))
+		if len(shown) != 1000 {
+			t.Fatalf("command length = %d, want 1000", len(shown))
 		}
 		if !utf8.ValidString(shown) {
 			t.Fatal("cut command is not valid UTF-8")
 		}
-		if p["truncated"] != len(cmd)-len(shown) {
-			t.Fatalf("truncated = %v, want %d", p["truncated"], len(cmd)-len(shown))
+		if want := len(cmd) - 1000; p["truncated"] != want {
+			t.Fatalf("truncated = %v, want %d", p["truncated"], want)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("autoAllow.ran not sent")
 	}
 
 	// A multi-byte rune whose second byte would land exactly at the cut
-	// point (byte 1000) must not be split.
+	// point (byte 1000) must not be split: the cut backs up to byte 999,
+	// before the rune's first byte.
 	cmd2 := "echo " + strings.Repeat("a", 994) + "é" + strings.Repeat("a", 4000)
 	if _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: cmd2}); err != nil {
 		t.Fatal(err)
@@ -1008,11 +1068,14 @@ func TestAutoCommandCut(t *testing.T) {
 	select {
 	case p := <-calls:
 		shown, _ := p["command"].(string)
-		if len(shown) > 1000 {
-			t.Fatalf("command not cut: %d bytes", len(shown))
+		if len(shown) != 999 {
+			t.Fatalf("command length = %d, want 999 (cut before the straddling rune)", len(shown))
 		}
 		if !utf8.ValidString(shown) {
 			t.Fatalf("cut command is not valid UTF-8: %q", shown)
+		}
+		if want := len(cmd2) - 999; p["truncated"] != want {
+			t.Fatalf("truncated = %v, want %d", p["truncated"], want)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("autoAllow.ran not sent")

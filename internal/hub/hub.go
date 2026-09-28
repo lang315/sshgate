@@ -506,7 +506,7 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 	if !r.Sudo {
 		if ar := h.autoStart(ctx, r.Server); ar != nil {
 			defer ar.done()
-			return h.autoExec(ar, r, cmd, timeout, base)
+			return h.autoExec(ar, dc, r, cmd, timeout, base)
 		}
 	}
 

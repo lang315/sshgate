@@ -94,6 +94,7 @@ func newHubExpiry(t *testing.T, fe Executor, expiry time.Duration) (*Hub, string
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(h.Close)
 	unlockForTest(h)
 	return h, path
 }
