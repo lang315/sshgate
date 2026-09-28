@@ -46,6 +46,7 @@ func serve(ln net.Listener, onConns func(), dial func(context.Context, net.Conn)
 			in, err := ln.Accept()
 			if err != nil {
 				if (errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE)) && ctx.Err() == nil {
+					// ponytail: on Windows Winsock reports WSAEMFILE (10024), which syscall.EMFILE does not match, so there the tunnel still ends; match syscall.Errno(10024) in a _windows.go file if that ever bites.
 					t := time.NewTimer(backoff)
 					select {
 					case <-ctx.Done():

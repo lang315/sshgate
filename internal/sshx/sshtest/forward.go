@@ -13,7 +13,7 @@ import (
 func (s *Server) RefuseForward() { s.mu.Lock(); s.refuseFwd = true; s.mu.Unlock() }
 
 // StallDirect makes every later direct-tcpip channel open never answered:
-// the handler blocks until the server connection closes, then returns.
+// the handler blocks until the server stops, then returns.
 func (s *Server) StallDirect() { s.mu.Lock(); s.stallDirect = true; s.mu.Unlock() }
 
 // pipe copies both ways. A direction that ends at a clean EOF half-closes its
