@@ -91,7 +91,7 @@ type ExecResponse struct {
 
 type Hub struct {
 	o       Options
-	mu      sync.Mutex // guards deps.File, deps.MasterKey, storeErr, sinks, lastActivity and running
+	mu      sync.Mutex // guards deps.File, deps.MasterKey, storeErr, sinks, lastActivity, running, grants, grantSeq and autoSink
 	deps    *mcpserver.Deps
 	sink    func(broker.Event)
 	sinkGen uint64 // bumped on every setEventSink; lets release() no-op if superseded
@@ -105,14 +105,18 @@ type Hub struct {
 	lockSink     func(reason string)
 	lockSinkGen  uint64
 	lastActivity time.Time
-	running      int // approved AI commands currently executing
+	running      int               // approved AI commands currently executing
+	grants       map[string]*grant // auto-allow; see autoallow.go
+	grantSeq     uint64            // ids for grant.inflight
+	autoSink     func(method string, params any)
+	autoSinkGen  uint64
 	done         chan struct{}
 	closeOnce    sync.Once
 }
 
 // New loads the store if present; a missing store is not an error.
 func New(o Options) (*Hub, error) {
-	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit, files: newJobSet(), tunnels: newTunnelSet(), lastActivity: time.Now(), done: make(chan struct{})}
+	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit, files: newJobSet(), tunnels: newTunnelSet(), lastActivity: time.Now(), grants: map[string]*grant{}, done: make(chan struct{})}
 	h.deps = &mcpserver.Deps{Path: o.StorePath}
 	f, err := config.Load(o.StorePath)
 	if err != nil && !os.IsNotExist(err) {
@@ -226,9 +230,13 @@ func (h *Hub) Lock() { h.lockWithReason("manual") }
 func (h *Hub) lockWithReason(reason string) {
 	h.mu.Lock()
 	sink := h.zeroKeyLocked()
+	ended := h.endAllGrantsLocked()
 	h.mu.Unlock()
 	if sink != nil {
 		sink(reason)
+	}
+	for _, n := range ended {
+		h.grantEnded(n, "locked")
 	}
 }
 

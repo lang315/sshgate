@@ -102,6 +102,42 @@ func TestUIDoorDecideRejectsInvalidOutcome(t *testing.T) {
 	}
 }
 
+func TestUIDoorSetAutoAllow(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	c, _ := startUI(t, h)
+	if err := c.Call(context.Background(), "servers.setAutoAllow", map[string]any{"server": "vis", "mode": "15m"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if g := grantOf(h, "vis"); g == nil {
+		t.Fatal("no grant armed")
+	}
+
+	if err := c.Call(context.Background(), "servers.setAutoAllow", map[string]any{"server": "vis", "mode": "15m", "extra": "x"}, nil); err == nil {
+		t.Fatal("want error for an extra key")
+	} else {
+		var re *rpc.Error
+		if !errors.As(err, &re) || re.Code != -32602 {
+			t.Fatalf("extra key: want -32602, got %v", err)
+		}
+	}
+	if err := c.Call(context.Background(), "servers.setAutoAllow", json.RawMessage(`{"server":"vis","mode":"15m","server":"vis"}`), nil); err == nil {
+		t.Fatal("want error for a duplicate key")
+	} else {
+		var re *rpc.Error
+		if !errors.As(err, &re) || re.Code != -32602 {
+			t.Fatalf("duplicate key: want -32602, got %v", err)
+		}
+	}
+	if err := c.Call(context.Background(), "servers.setAutoAllow", map[string]any{"server": "vis", "mode": "1h"}, nil); err == nil {
+		t.Fatal("want error for an invalid mode")
+	} else {
+		var re *rpc.Error
+		if !errors.As(err, &re) || re.Code != -32602 {
+			t.Fatalf("bad mode: want -32602, got %v", err)
+		}
+	}
+}
+
 func TestUIDoorHelloAndLockedNotification(t *testing.T) {
 	h, _ := newEncryptedHub(t, Options{IdleLock: -1})
 	c, notes := startUIRaw(t, h)
@@ -110,6 +146,9 @@ func TestUIDoorHelloAndLockedNotification(t *testing.T) {
 	}
 	if err := c.Call(context.Background(), "hello", nil, &hello); err != nil || hello.Protocol != ProtocolVersion {
 		t.Fatalf("hello: %v %+v", err, hello)
+	}
+	if hello.Protocol != 6 {
+		t.Fatalf("protocol = %d, want 6", hello.Protocol)
 	}
 	if err := c.Call(context.Background(), "unlock", map[string]string{"password": "pw"}, nil); err != nil {
 		t.Fatal(err)

@@ -174,6 +174,7 @@ func (h *Hub) SaveServer(original string, in config.ServerInput) error {
 		h.reg.Close(name)
 	}
 	h.denyPending(name)
+	h.dropGrant(name, "saved", before.AutoAllow)
 	h.auditConfig(broker.ConfigRecord{Action: "save", Server: after.Name, Changed: changes(before, after, in)})
 	return reloadErr // the write itself succeeded
 }
@@ -184,9 +185,11 @@ func (h *Hub) DeleteServer(name string) error {
 		return err
 	}
 	defer clear(key)
+	var hadFlag bool
 	err = config.Update(h.o.StorePath, key, func(f *config.File) error {
 		for i, s := range f.Servers {
 			if s.Name == name {
+				hadFlag = s.AutoAllow
 				f.Servers = append(f.Servers[:i], f.Servers[i+1:]...)
 				return nil
 			}
@@ -201,6 +204,7 @@ func (h *Hub) DeleteServer(name string) error {
 	h.files.endServer(name, "server changed")
 	h.reg.Close(name)
 	h.denyPending(name)
+	h.dropGrant(name, "deleted", hadFlag)
 	h.auditConfig(broker.ConfigRecord{Action: "delete", Server: name})
 	return reloadErr // the write itself succeeded
 }
@@ -214,11 +218,14 @@ func (h *Hub) ForgetHostKey(name string) error {
 	}
 	defer clear(key)
 	var old string
+	var hadFlag bool
 	err = config.Update(h.o.StorePath, key, func(f *config.File) error {
 		for i := range f.Servers {
 			if f.Servers[i].Name == name {
 				old = f.Servers[i].HostKey
 				f.Servers[i].HostKey, f.Servers[i].HostKeyAlgo = "", ""
+				hadFlag = f.Servers[i].AutoAllow
+				f.Servers[i].AutoAllow = false
 				return nil
 			}
 		}
@@ -231,6 +238,7 @@ func (h *Hub) ForgetHostKey(name string) error {
 	h.endServerTunnels(name, "server changed")
 	h.files.endServer(name, "server changed")
 	h.reg.Close(name)
+	h.dropGrant(name, "server changed", hadFlag)
 	h.auditConfig(broker.ConfigRecord{Action: "forgetHostKey", Server: name, OldFingerprint: old})
 	return reloadErr // the write itself succeeded
 }

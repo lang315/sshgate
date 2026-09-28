@@ -2,7 +2,7 @@ package hub
 
 import "time"
 
-const ProtocolVersion = 5
+const ProtocolVersion = 6
 
 const defaultIdleLock = 15 * time.Minute
 
@@ -52,8 +52,12 @@ func (h *Hub) lockIfIdle(idle time.Duration) {
 		return
 	}
 	sink := h.zeroKeyLocked()
+	ended := h.endAllGrantsLocked()
 	h.mu.Unlock()
 	if sink != nil {
 		sink("idle")
+	}
+	for _, n := range ended {
+		h.grantEnded(n, "locked")
 	}
 }

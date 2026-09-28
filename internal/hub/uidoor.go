@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"time"
 
 	"github.com/lang315/sshgate/internal/broker"
 	"github.com/lang315/sshgate/internal/config"
@@ -14,20 +15,22 @@ import (
 // (visible or hidden), with connection metadata but never a secret field;
 // has* only says whether one is stored.
 type uiServer struct {
-	Name             string `json:"name"`
-	Host             string `json:"host"`
-	Port             int    `json:"port"`
-	User             string `json:"user"`
-	Auth             string `json:"auth"`
-	KeyPath          string `json:"keyPath"`
-	HostKey          string `json:"hostKey"`
-	HostKeyAlgo      string `json:"hostKeyAlgo"`
-	AIVisible        bool   `json:"aiVisible"`
-	Locked           bool   `json:"locked"`
-	HasPassword      bool   `json:"hasPassword"`
-	HasSuPassword    bool   `json:"hasSuPassword"`
-	HasSudoPassword  bool   `json:"hasSudoPassword"`
-	HasKeyPassphrase bool   `json:"hasKeyPassphrase"`
+	Name             string       `json:"name"`
+	Host             string       `json:"host"`
+	Port             int          `json:"port"`
+	User             string       `json:"user"`
+	Auth             string       `json:"auth"`
+	KeyPath          string       `json:"keyPath"`
+	HostKey          string       `json:"hostKey"`
+	HostKeyAlgo      string       `json:"hostKeyAlgo"`
+	AIVisible        bool         `json:"aiVisible"`
+	Locked           bool         `json:"locked"`
+	HasPassword      bool         `json:"hasPassword"`
+	HasSuPassword    bool         `json:"hasSuPassword"`
+	HasSudoPassword  bool         `json:"hasSudoPassword"`
+	HasKeyPassphrase bool         `json:"hasKeyPassphrase"`
+	AutoAllow        *uiAutoAllow `json:"autoAllow,omitempty"`
+	AutoAllowRefused string       `json:"autoAllowRefused,omitempty"`
 }
 
 // hasStore reports whether a store file was loaded, under h.mu.
@@ -53,12 +56,14 @@ func (h *Hub) serversForUI() []uiServer {
 	if h.deps.File == nil {
 		return out
 	}
+	now := time.Now()
 	for _, s := range h.deps.File.Servers {
 		out = append(out, uiServer{
 			Name: s.Name, Host: s.Host, Port: s.Port, User: s.User, Auth: s.Auth, KeyPath: s.KeyPath,
 			HostKey: s.HostKey, HostKeyAlgo: s.HostKeyAlgo, AIVisible: s.AIVisible, Locked: h.deps.IsLocked(s.Name),
 			HasPassword: s.EncPassword != "", HasSuPassword: s.EncSuPassword != "",
 			HasSudoPassword: s.EncSudoPassword != "", HasKeyPassphrase: s.EncKeyPassphrase != "",
+			AutoAllow: h.autoStateLocked(s, now), AutoAllowRefused: autoRefusal(s),
 		})
 	}
 	return out
@@ -82,6 +87,8 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		s.Notify("locked", map[string]string{"reason": reason})
 	})
 	defer releaseLock()
+	releaseAuto := h.setAutoSink(func(method string, params any) { s.Notify(method, params) })
+	defer releaseAuto()
 	// req registers a request that counts as UI activity for the idle
 	// auto-lock. status does not: the desktop app polls it.
 	req := func(name string, fn rpc.Handler) {
@@ -156,6 +163,19 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 			return nil, &rpc.Error{Code: -32602, Message: "invalid params"}
 		}
 		return empty, h.ForgetHostKey(p.Name)
+	})
+	req("servers.setAutoAllow", func(_ context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			Server string `json:"server"`
+			Mode   string `json:"mode"`
+		}
+		if err := strictParams(raw, &p, "server", "mode"); err != nil {
+			return nil, err
+		}
+		if _, ok := autoModes[p.Mode]; !ok && p.Mode != "off" && p.Mode != "forever" {
+			return nil, &rpc.Error{Code: -32602, Message: "mode must be off, 15m, 30m, 60m, 2h, 4h, or forever"}
+		}
+		return empty, h.SetAutoAllow(p.Server, p.Mode)
 	})
 	req("import.scan", func(ctx context.Context, _ json.RawMessage) (any, error) {
 		return h.ImportScan(ctx)

@@ -97,4 +97,4 @@ export type RequestMethod = (typeof REQUEST_METHODS)[number]
 export const FILES_RELAYED = ['files.plan', 'files.run'] as const
 export const NOTIFY_METHODS = ['term.write', 'term.ack', 'term.resize', 'files.cancel', 'tunnels.stop'] as const
 export type NotifyMethod = (typeof NOTIFY_METHODS)[number]
-export const PROTOCOL_VERSION = 5
+export const PROTOCOL_VERSION = 6
