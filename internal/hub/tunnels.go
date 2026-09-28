@@ -20,6 +20,7 @@ import (
 	"github.com/lang315/sshgate/internal/rpc"
 	"github.com/lang315/sshgate/internal/sshx"
 	"github.com/lang315/sshgate/internal/tunnel"
+	"golang.org/x/crypto/ssh"
 )
 
 // liveTunnel is a tunnel that is starting, running, or ended with an error
@@ -38,11 +39,12 @@ type liveTunnel struct {
 // serialises every tunnel state change's audit record and tunnels.state
 // with every other's, so both go out in the order the changes happened. It
 // is held across fwd.Close, audit, and the sink, and nothing under it takes
-// h.mu. mu guards live and every liveTunnel field.
+// h.mu. mu guards live, every liveTunnel field, and waiters.
 type tunnelSet struct {
 	evMu    sync.Mutex
 	mu      sync.Mutex
 	live    map[string]*liveTunnel // server + "\x00" + id
+	waiters map[*ssh.Client]chan struct{}
 	sink    func(tunnelState)
 	sinkGen uint64
 }
@@ -55,7 +57,29 @@ type tunnelState struct {
 	Conns  int    `json:"conns"`
 }
 
-func newTunnelSet() *tunnelSet { return &tunnelSet{live: map[string]*liveTunnel{}} }
+func newTunnelSet() *tunnelSet {
+	return &tunnelSet{live: map[string]*liveTunnel{}, waiters: map[*ssh.Client]chan struct{}{}}
+}
+
+// clientDone returns a channel closed when client.Wait returns, starting the
+// one waiter goroutine per client (called where mu is not held).
+func (ts *tunnelSet) clientDone(c *ssh.Client) <-chan struct{} {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ch, ok := ts.waiters[c]; ok {
+		return ch
+	}
+	ch := make(chan struct{})
+	ts.waiters[c] = ch
+	go func() {
+		c.Wait()
+		ts.mu.Lock()
+		delete(ts.waiters, c)
+		ts.mu.Unlock()
+		close(ch)
+	}()
+	return ch
+}
 
 func tunnelKey(server, id string) string { return server + "\x00" + id }
 
@@ -500,11 +524,15 @@ func (h *Hub) StartTunnel(server, id string) error {
 		TunnelKind: def.Kind, Listen: listenAddr(def), To: toAddr(def)})
 	h.tunnels.emit(server, id)
 	h.tunnels.evMu.Unlock()
-	go func() { client.Wait(); h.endTunnel(lt, "connection lost") }()
+	gone := h.tunnels.clientDone(client)
 	go func() {
-		<-fwd.Done()
-		if fwd.Err() != nil {
+		select {
+		case <-gone:
 			h.endTunnel(lt, "connection lost")
+		case <-fwd.Done():
+			if fwd.Err() != nil {
+				h.endTunnel(lt, "connection lost")
+			}
 		}
 	}()
 	return nil

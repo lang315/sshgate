@@ -249,6 +249,33 @@ func TestTunnelEndedByServerChangeAndConnectionLoss(t *testing.T) {
 	}
 }
 
+// TestTunnelOneWaiterPerClient: starting and stopping a tunnel on the same
+// connection must not spawn a new client.Wait waiter each time (goroutine
+// leak fixed by tunnelSet.waiters/clientDone).
+func TestTunnelOneWaiterPerClient(t *testing.T) {
+	fx := tunnelsHub(t)
+	ctx := context.Background()
+	lp := tunnelFreePort(t)
+	id := saveTunnel(t, fx, "fs", map[string]any{"id": "", "kind": "local", "listenPort": lp,
+		"targetHost": "127.0.0.1", "targetPort": tunnelEcho(t), "label": "echo"})
+	for i := 0; i < 20; i++ {
+		if err := fx.c.Call(ctx, "tunnels.start", map[string]any{"server": "fs", "id": id}, nil); err != nil {
+			t.Fatal(err)
+		}
+		for st := waitNote(t, fx.notes, "tunnels.state", id); st["status"] != "running"; st = waitNote(t, fx.notes, "tunnels.state", id) {
+		}
+		sendNote(t, fx.w, "tunnels.stop", map[string]any{"server": "fs", "id": id})
+		for st := waitNote(t, fx.notes, "tunnels.state", id); st["status"] != "stopped"; st = waitNote(t, fx.notes, "tunnels.state", id) {
+		}
+	}
+	fx.h.tunnels.mu.Lock()
+	n := len(fx.h.tunnels.waiters)
+	fx.h.tunnels.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("waiters = %d, want 1", n)
+	}
+}
+
 // TestTunnelStartingEndedByServerDeleteDuringDial: a servers.delete landing
 // while StartTunnel's dial is still in flight (status "starting") must end
 // the tunnel and close whatever it goes on to bind, rather than leaving an
