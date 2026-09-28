@@ -4,7 +4,7 @@ Long-lived plan across every slice. Each slice gets its own spec in
 `specs/` and its own implementation plan in `plans/`, written when that
 slice starts. This file only fixes order, gates, and cross-slice decisions.
 
-Updated: 2026-09-27 (renamed ssh-mcp → sshgate, own public repo lang315/sshgate; slice 2a closed, `sshgate web` removed; 2b split, 2b-1 import done; 3a done, exit gate met on buildpc)
+Updated: 2026-09-28 (renamed ssh-mcp → sshgate, own public repo lang315/sshgate; slice 2a closed, `sshgate web` removed; 2b split, 2b-1 import done; 3a done, exit gate met on buildpc; 3b done, exit gate met on buildpc)
 
 ## Standing decisions
 
@@ -38,7 +38,7 @@ plan note.
 | 2b-2 | ProxyJump (one hop first) | Not specced | — | 2b-1 | The author has a real host behind a bastion | Bastion host connects and runs an approved AI command |
 | 2c | Split panes, local shell, Windows agent (OpenSSH pipe, Pageant) | Not needed now (2026-09-26) | — | 2a | Daily use shows the need (panes, local shell); a Windows machine to test on (agent) | Author does not open another terminal for SSH work |
 | 3a | SFTP file browser (list, upload/download incl. folders, mkdir, rename, recursive delete, Finder drop) | Done 2026-09-27 (PR #2); exit gate met on buildpc (Windows OpenSSH) by the opt-in live e2e `desktop/e2e/live-files.spec.ts` | `specs/2026-09-26-slice3a-sftp-design.md` | 2a | Slice 2a done | The author browses, uploads a folder, downloads it back, and deletes it on a real host |
-| 3b | Port forwarding (local, remote, dynamic) | Specced 2026-09-27 | `specs/2026-09-27-slice3b-port-forwarding-design.md` | 3a | Slice 3a done | Tunnels usable from a saved host |
+| 3b | Port forwarding (local, remote, dynamic) | Done 2026-09-28 (PR #3); exit gate met on buildpc (Windows OpenSSH) by the opt-in live e2e `desktop/e2e/live-tunnels.spec.ts`: a local and a SOCKS5 tunnel carried the host's sshd banner, kept working while locked, and stopped | `specs/2026-09-27-slice3b-port-forwarding-design.md` | 3a | Slice 3a done | Tunnels usable from a saved host |
 | 4 | Egress and audit: pattern redaction of command output (private keys, `password=`, bearer tokens), audit rotation, audit viewer in the app | Not specced | — | 1 | A real incident, or a host with secrets the AI must query | Redaction tests pass on a corpus of real outputs |
 | 5 | Distribution: code signing, notarization, auto-update, installers, CI release builds | Not needed now (2026-09-26) | — | 2a | A second user asks for a build | Signed builds for all three OSes from CI |
 | — | Sync between machines, mobile, plugin API, Tabby plugin | Unscheduled | — | — | Explicit decision | — |
