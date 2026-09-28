@@ -4,18 +4,26 @@
 package tunnel
 
 import (
+	"context"
+	"errors"
 	"io"
 	"net"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 )
 
+// dialTimeout bounds how long a dial may take before Local, Remote or
+// Dynamic gives up on a connection.
+var dialTimeout = 10 * time.Second
+
 // Forward is one running tunnel.
 type Forward struct {
 	ln      net.Listener
 	onConns func()
+	cancel  context.CancelFunc
 	mu      sync.Mutex
 	conns   map[net.Conn]net.Conn // accepted conn -> its dialed peer (nil until dialed)
 	total   int
@@ -26,13 +34,27 @@ type Forward struct {
 
 // serve accepts on ln and, for each connection, dials its peer and pipes them
 // together. dial returning an error drops the connection with no pipe.
-func serve(ln net.Listener, onConns func(), dial func(net.Conn) (net.Conn, error)) *Forward {
-	f := &Forward{ln: ln, onConns: onConns, conns: map[net.Conn]net.Conn{}, done: make(chan struct{})}
+// Accept errors from a transient EMFILE/ENFILE (out of file descriptors) are
+// retried with a backoff instead of ending the tunnel.
+func serve(ln net.Listener, onConns func(), dial func(context.Context, net.Conn) (net.Conn, error)) *Forward {
+	ctx, cancel := context.WithCancel(context.Background())
+	f := &Forward{ln: ln, onConns: onConns, cancel: cancel, conns: map[net.Conn]net.Conn{}, done: make(chan struct{})}
 	go func() {
 		defer close(f.done)
+		backoff := 5 * time.Millisecond
 		for {
 			in, err := ln.Accept()
 			if err != nil {
+				if (errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE)) && ctx.Err() == nil {
+					t := time.NewTimer(backoff)
+					select {
+					case <-ctx.Done():
+						t.Stop()
+					case <-t.C:
+					}
+					backoff = min(backoff*2, time.Second)
+					continue
+				}
 				f.mu.Lock()
 				if !f.closed {
 					f.err = err
@@ -41,13 +63,14 @@ func serve(ln net.Listener, onConns func(), dial func(net.Conn) (net.Conn, error
 				f.Close()
 				return
 			}
+			backoff = 5 * time.Millisecond
 			if !f.track(in) {
 				in.Close()
 				continue
 			}
 			go func() {
 				defer f.untrack(in)
-				out, err := dial(in)
+				out, err := dial(ctx, in)
 				if err != nil {
 					return
 				}
@@ -119,6 +142,7 @@ func (f *Forward) Close() {
 		return
 	}
 	f.closed = true
+	f.cancel()
 	open := make([]net.Conn, 0, len(f.conns)*2)
 	for in, out := range f.conns {
 		open = append(open, in)
@@ -164,8 +188,10 @@ func Local(c *ssh.Client, listen, target string, onConns func()) (*Forward, erro
 	if err != nil {
 		return nil, err
 	}
-	return serve(ln, onConns, func(net.Conn) (net.Conn, error) {
-		return c.Dial("tcp", target)
+	return serve(ln, onConns, func(ctx context.Context, _ net.Conn) (net.Conn, error) {
+		dctx, cancel := context.WithTimeout(ctx, dialTimeout)
+		defer cancel()
+		return c.DialContext(dctx, "tcp", target)
 	}), nil
 }
 
@@ -175,8 +201,8 @@ func Remote(c *ssh.Client, listen, target string, onConns func()) (*Forward, err
 	if err != nil {
 		return nil, err
 	}
-	return serve(ln, onConns, func(net.Conn) (net.Conn, error) {
-		return net.DialTimeout("tcp", target, 10*time.Second)
+	return serve(ln, onConns, func(ctx context.Context, _ net.Conn) (net.Conn, error) {
+		return (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", target)
 	}), nil
 }
 
@@ -186,7 +212,11 @@ func Dynamic(c *ssh.Client, listen string, onConns func()) (*Forward, error) {
 	if err != nil {
 		return nil, err
 	}
-	return serve(ln, onConns, func(in net.Conn) (net.Conn, error) {
-		return socks(in, func(addr string) (net.Conn, error) { return c.Dial("tcp", addr) })
+	return serve(ln, onConns, func(ctx context.Context, in net.Conn) (net.Conn, error) {
+		return socks(in, func(addr string) (net.Conn, error) {
+			dctx, cancel := context.WithTimeout(ctx, dialTimeout)
+			defer cancel()
+			return c.DialContext(dctx, "tcp", addr)
+		})
 	}), nil
 }

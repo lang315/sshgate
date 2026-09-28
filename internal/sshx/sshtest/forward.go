@@ -12,10 +12,13 @@ import (
 // RefuseForward makes every later tcpip-forward request fail.
 func (s *Server) RefuseForward() { s.mu.Lock(); s.refuseFwd = true; s.mu.Unlock() }
 
+// StallDirect makes every later direct-tcpip channel open never answered:
+// the handler blocks until the server connection closes, then returns.
+func (s *Server) StallDirect() { s.mu.Lock(); s.stallDirect = true; s.mu.Unlock() }
+
 // pipe copies both ways. A direction that ends at a clean EOF half-closes its
 // destination, so the other direction can still carry a reply; an error, or
-// a destination with no CloseWrite, closes both ends. Forward.Close closes
-// the local end, whose read then fails, so nothing outlives the tunnel.
+// a destination with no CloseWrite, closes both ends.
 func pipe(a, b io.ReadWriteCloser) {
 	done := make(chan struct{}, 2)
 	half := func(dst, src io.ReadWriteCloser) {
@@ -36,7 +39,7 @@ func pipe(a, b io.ReadWriteCloser) {
 	b.Close()
 }
 
-func directTCPIP(nch ssh.NewChannel) {
+func (s *Server) directTCPIP(nch ssh.NewChannel) {
 	var p struct {
 		Host     string
 		Port     uint32
@@ -45,6 +48,13 @@ func directTCPIP(nch ssh.NewChannel) {
 	}
 	if err := ssh.Unmarshal(nch.ExtraData(), &p); err != nil {
 		nch.Reject(ssh.ConnectionFailed, "bad payload")
+		return
+	}
+	s.mu.Lock()
+	stall := s.stallDirect
+	s.mu.Unlock()
+	if stall {
+		<-s.done
 		return
 	}
 	out, err := net.Dial("tcp", net.JoinHostPort(p.Host, strconv.Itoa(int(p.Port))))

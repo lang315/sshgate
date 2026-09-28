@@ -1,12 +1,16 @@
 package tunnel
 
 import (
+	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -18,6 +22,19 @@ import (
 func client(t *testing.T) *ssh.Client {
 	t.Helper()
 	s := sshtest.Start(t)
+	c, err := ssh.Dial("tcp", s.Addr(), &ssh.ClientConfig{User: "u", Auth: []ssh.AuthMethod{ssh.Password("x")},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	return c
+}
+
+// clientOn dials into a running sshtest.Server, for tests that need the
+// server itself (e.g. to stall it) rather than just a client.
+func clientOn(t *testing.T, s *sshtest.Server) *ssh.Client {
+	t.Helper()
 	c, err := ssh.Dial("tcp", s.Addr(), &ssh.ClientConfig{User: "u", Auth: []ssh.AuthMethod{ssh.Password("x")},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey()})
 	if err != nil {
@@ -333,6 +350,97 @@ func TestCloseEndsHalfClosedConn(t *testing.T) {
 		t.Fatal("connection survived Close")
 	}
 	waitConns(t, f, 0)
+}
+
+func TestCloseInterruptsDial(t *testing.T) {
+	s := sshtest.Start(t)
+	s.StallDirect()
+	c := clientOn(t, s)
+	f, err := Local(c, freePort(t), "127.0.0.1:1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	conn, err := net.Dial("tcp", f.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	waitConns(t, f, 1)
+	f.Close()
+	deadline := time.Now().Add(1 * time.Second)
+	for time.Now().Before(deadline) && f.Conns() != 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if f.Conns() != 0 {
+		t.Fatalf("conns %d, want 0 (handler outlived Close)", f.Conns())
+	}
+}
+
+func TestDialTimeout(t *testing.T) {
+	old := dialTimeout
+	dialTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { dialTimeout = old })
+	s := sshtest.Start(t)
+	s.StallDirect()
+	c := clientOn(t, s)
+	f, err := Local(c, freePort(t), "127.0.0.1:1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	conn, err := net.Dial("tcp", f.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, err = conn.Read(make([]byte, 1))
+	if err == nil {
+		t.Fatal("read succeeded after a timed-out dial")
+	}
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("read timed out waiting for the dial itself: %v", err)
+	}
+}
+
+// emfileOnceListener wraps a real listener; its first Accept fails with
+// EMFILE, every later Accept behaves normally.
+type emfileOnceListener struct {
+	net.Listener
+	once sync.Once
+}
+
+func (l *emfileOnceListener) Accept() (net.Conn, error) {
+	fired := false
+	l.once.Do(func() { fired = true })
+	if fired {
+		return nil, &net.OpError{Op: "accept", Net: "tcp", Err: os.NewSyscallError("accept", syscall.EMFILE)}
+	}
+	return l.Listener.Accept()
+}
+
+func TestAcceptRetriesEMFILE(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fl := &emfileOnceListener{Listener: ln}
+	c := client(t)
+	h, p := echo(t)
+	f := serve(fl, nil, func(_ context.Context, _ net.Conn) (net.Conn, error) {
+		return c.Dial("tcp", net.JoinHostPort(h, strconv.Itoa(p)))
+	})
+	defer f.Close()
+	conn, err := net.Dial("tcp", fl.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	ping(t, conn)
+	if f.Err() != nil {
+		t.Fatalf("Err() = %v, want nil", f.Err())
+	}
 }
 
 func TestDoneWhenClientDies(t *testing.T) {
