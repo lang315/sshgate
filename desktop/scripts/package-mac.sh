@@ -5,11 +5,16 @@
 # bridge). Ad-hoc signed only: for the author's own machine, per the roadmap
 # (no signing or notarization before slice 5).
 # ponytail: this Mac's arch only, no icon; electron-builder when slice 5 needs installers.
+# The version is desktop/package.json's: bump it before tagging a release, or
+# the bundle and the release binaries (publish.yml stamps the tag) disagree.
+# Quit the app before re-running; out/sshgate.app is replaced in place. Run
+# Node natively (not under Rosetta) so Electron's arch matches go build's.
 set -eu
 cd "$(dirname "$0")/.."
 version=$(node -p "require('./package.json').version")
 out=out/sshgate.app
 
+rm -rf dist # tsc never deletes the output of a removed source
 npm run build
 rm -rf "$out"
 mkdir -p out

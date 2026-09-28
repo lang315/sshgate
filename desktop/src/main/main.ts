@@ -3,33 +3,16 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { setupAttention } from './attention'
 import { FilesRelay } from './files'
-import { HubProcess } from './hubProcess'
+import { HubProcess, hubLaunch } from './hubProcess'
 import { isMainFrameOf, registerIpc } from './ipc'
 import { CrashPolicy, installMenu, recoverRenderer } from './window'
 
 let win: BrowserWindow | undefined
 const crashPolicy = new CrashPolicy()
 
-// Hub binary: SSHGATE_BIN, else the repo-root build next to desktop/, else PATH.
-function hubCommand(): string {
-  if (process.env.SSHGATE_BIN) return process.env.SSHGATE_BIN
-  const exe = process.platform === 'win32' ? 'sshgate.exe' : 'sshgate'
-  const local = path.join(app.getAppPath(), '..', exe)
-  return fs.existsSync(local) ? local : exe
-}
-
-function hubArgs(): string[] {
-  const args = ['hub']
-  if (process.env.SSHGATE_STORE) args.push(`--store=${process.env.SSHGATE_STORE}`)
-  if (process.env.SSHGATE_SSH_CONFIG) args.push(`--sshConfig=${process.env.SSHGATE_SSH_CONFIG}`)
-  // Dev/test knob: a Go duration such as 3s (the hub rejects anything under 1s).
-  if (process.env.SSHGATE_IDLE_LOCK) args.push(`--idleLock=${process.env.SSHGATE_IDLE_LOCK}`)
-  return args
-}
-
-const hubBin = hubCommand()
-console.error('sshgate: hub binary', hubBin)
-const hub = new HubProcess({ command: hubBin, args: hubArgs(), env: process.env })
+const launch = hubLaunch({ env: process.env, packaged: app.isPackaged || !process.defaultApp, appPath: app.getAppPath(), platform: process.platform, exists: fs.existsSync })
+console.error('sshgate: hub binary', launch.command)
+const hub = new HubProcess(launch)
 const files = new FilesRelay(hub, dialog, getWindow)
 
 // Only a destroyed-safe reference to the app's own window ever reaches the hub relay.
