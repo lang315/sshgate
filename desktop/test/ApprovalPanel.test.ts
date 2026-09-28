@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { Item } from '../src/renderer/ApprovalPanel'
+import { ApprovalPanel, Item } from '../src/renderer/ApprovalPanel'
 import { seed } from '../src/renderer/approvals'
 import type { ApprovalRequest } from '../src/shared/protocol'
 
@@ -57,5 +57,35 @@ describe('Item', () => {
     expect(html).toContain('1 non-ASCII character highlighted (U+0456)')
     expect(html).toContain('AI&#x27;s description · unverified')
     expect(html).toContain('client claude-code (unverified)')
+  })
+})
+
+// Finds the substring of `html` between a div's own open tag (matched by `openTag`)
+// and its matching close tag, tracking div-nesting depth so a nested div inside
+// doesn't end the region early.
+function divContents(html: string, openTag: RegExp): string {
+  const m = openTag.exec(html)
+  if (!m) throw new Error(`open tag not found: ${openTag}`)
+  let depth = 1
+  const tagRe = /<(\/?)div\b[^>]*>/g
+  tagRe.lastIndex = m.index + m[0].length
+  let t: RegExpExecArray | null
+  while ((t = tagRe.exec(html))) {
+    depth += t[1] === '/' ? -1 : 1
+    if (depth === 0) return html.slice(m.index + m[0].length, t.index)
+  }
+  throw new Error('unbalanced div nesting')
+}
+
+describe('ApprovalPanel', () => {
+  it('keeps the Auto-allowed feed outside the scroll region the ResizeObserver watches', () => {
+    const html = renderToStaticMarkup(createElement(ApprovalPanel, {
+      items: [], seedError: undefined,
+      onDecide: async () => {}, onDenyAll: async () => {}, onSendToTab: async () => {},
+      onClose: () => {}, onEscape: () => {},
+      autoFeed: [], autoN: 0, paused: [], onStopAll: () => {}, onResume: () => {},
+    }))
+    expect(html).toContain('autofeed')
+    expect(divContents(html, /<div class="approvals-scroll"[^>]*>/)).not.toContain('autofeed')
   })
 })

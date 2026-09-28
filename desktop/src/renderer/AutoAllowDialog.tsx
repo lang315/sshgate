@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AutoAllowCheck, AutoAllowMode, ServerInfo } from '../shared/protocol'
-import { blockKeyboardActivation } from './approvals'
-import { AUTO_MODES, enableAllowed } from './autoallow'
+import { blockKeyboardActivation, ListChanges } from './approvals'
+import { AUTO_MODES, dialogChangeKey, enableAllowed } from './autoallow'
 
 type Mode = Exclude<AutoAllowMode, 'off'>
 
@@ -14,14 +14,20 @@ export function AutoAllowDialog({ server, remoteTunnels, check, onEnable, onCanc
   const [typed, setTyped] = useState('')
   const [checked, setChecked] = useState<AutoAllowCheck | 'error'>()
   const [openedAt] = useState(Date.now())
-  const [changedAt, setChangedAt] = useState(openedAt)
   const [now, setNow] = useState(openedAt)
   const [error, setError] = useState<string>()
   const refused = server.autoAllowRefused
   useEffect(() => { if (!refused) check().then(setChecked, () => setChecked('error')) }, []) // eslint-disable-line react-hooks/exhaustive-deps
-  // Content that moves under the cursor restarts the Enable delay.
-  useEffect(() => { setChangedAt(Date.now()) }, [mode, checked])
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 100); return () => clearInterval(t) }, [])
+  // Content that moves under the cursor restarts the Enable delay. Computed
+  // during render, like ApprovalPanel's ListChanges, not in a useEffect: an
+  // effect runs after paint, so the check() resolving would leave one painted
+  // frame where the buttons already shifted but Enable was still enabled.
+  const changeKey = dialogChangeKey(mode, checked)
+  const changes = useRef<ListChanges>(null)
+  changes.current ??= new ListChanges(changeKey, openedAt)
+  changes.current.setKey(changeKey, Date.now())
+  const changedAt = changes.current.at
   const root = checked !== undefined && checked !== 'error' && (checked.uid === 0 || checked.passwordlessSudo)
   const ok = enableAllowed({ mode, typed, host: server.name, refused, openedAt, changedAt, now })
   const enable = () => { if (ok) onEnable(mode).catch((e) => setError((e as Error).message)) }

@@ -83,7 +83,11 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 .hostcard-open { flex: 1; min-width: 0; display: flex; gap: 12px; align-items: center; padding: 12px; background: none; border: 0; text-align: left; border-radius: 8px; }
 .tile { width: 36px; height: 36px; flex: none; border-radius: 8px; display: grid; place-items: center; background: var(--accent-tint); color: var(--accent); font-weight: 600; font-size: 15px; }
 .hostcard-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.hostcard-name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.hostcard-name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* The 5-icon actions row (152px) overlays the top-right of the card on hover;
+   without this, a name with enough chips (AI + New key/tunnels/auto) would
+   sit wide enough to be hidden under it instead of wrapping below. */
+.hostcard:hover .hostcard-text, .hostcard:focus-within .hostcard-text { max-width: calc(100% - 160px); }
 .hostcard-addr { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hostcard-actions { position: absolute; top: 6px; right: 6px; background: var(--surface); border-radius: 6px; display: flex; align-items: center; gap: 2px; padding: 2px; opacity: 0; }
 .hostcard:hover .hostcard-actions, .hostcard:focus-within .hostcard-actions { opacity: 1; }

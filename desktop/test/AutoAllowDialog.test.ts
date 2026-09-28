@@ -2,6 +2,8 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { AutoAllowDialog } from '../src/renderer/AutoAllowDialog'
+import { ListChanges } from '../src/renderer/approvals'
+import { dialogChangeKey, enableAllowed } from '../src/renderer/autoallow'
 import type { ServerInfo } from '../src/shared/protocol'
 
 const server = (over: Partial<ServerInfo> = {}): ServerInfo => ({
@@ -52,5 +54,39 @@ describe('AutoAllowDialog', () => {
     expect(html).toContain('Remote tunnels running on this host reach your machine')
     expect(html).toContain('R server 127.0.0.1:2222 → localhost:22')
     expect(html).toContain('R server 127.0.0.1:3333 → localhost:80')
+  })
+})
+
+// The dialog computes changedAt from ListChanges.setKey called during render
+// (not a post-paint useEffect), so a change is never missed for one painted
+// frame. This pins the key -> time bookkeeping the dialog relies on.
+describe('dialogChangeKey + ListChanges bookkeeping (the dialog\'s Enable delay)', () => {
+  it('restarts the delay synchronously when the root-access check resolves mid-dialog', () => {
+    const changes = new ListChanges(dialogChangeKey('15m', undefined), 0)
+    // The sudo check resolves at T=1000, revealing the "root access" warning
+    // and shifting the buttons down.
+    changes.setKey(dialogChangeKey('15m', { uid: 0, passwordlessSudo: false }), 1000)
+    expect(changes.at).toBe(1000)
+    const allowedAt = (now: number) => enableAllowed({ mode: '15m', typed: '', host: 'h', openedAt: 0, changedAt: changes.at, now })
+    expect(allowedAt(1000)).toBe(false)
+    expect(allowedAt(1499)).toBe(false)
+    expect(allowedAt(1500)).toBe(true)
+  })
+
+  it('does not restart the delay when the key is unchanged', () => {
+    const changes = new ListChanges(dialogChangeKey('15m', undefined), 0)
+    changes.setKey(dialogChangeKey('15m', undefined), 1000) // re-render, no real change
+    expect(changes.at).toBe(0)
+  })
+
+  it('changes key when the check result changes but not when only typed changes', () => {
+    const pending = dialogChangeKey('forever', undefined)
+    const root = dialogChangeKey('forever', { uid: 0, passwordlessSudo: false })
+    const error = dialogChangeKey('forever', 'error')
+    expect(root).not.toBe(pending)
+    expect(error).not.toBe(pending)
+    expect(root).not.toBe(error)
+    // Typing the confirmation text isn't part of the key at all.
+    expect(dialogChangeKey('forever', undefined)).toBe(pending)
   })
 })

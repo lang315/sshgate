@@ -31,7 +31,10 @@ export function App() {
   const [autoDialog, setAutoDialog] = useState<string>()
   const [now, setNow] = useState(Date.now())
   // A renderer-only clock for auto-allow chips/countdowns; never calls the hub.
+  // Set immediately too, so a freshly enabled grant (servers just reloaded) never
+  // shows a countdown computed against a stale `now` from before it existed.
   useEffect(() => {
+    setNow(Date.now())
     if (!servers.some((s) => s.autoAllow?.until)) return
     const t = setInterval(() => setNow(Date.now()), 15_000)
     return () => clearInterval(t)
@@ -62,7 +65,7 @@ export function App() {
     hub.getState().then(setHubState).catch(() => {})
     const offState = hub.onState(setHubState)
     const offEvent = hub.onEvent((e) => {
-      if (e.method === 'locked') { setLockReason(e.params?.reason === 'idle' ? 'idle' : 'manual'); refresh(); setServers(dropOnLock) }
+      if (e.method === 'locked') { setLockReason(e.params?.reason === 'idle' ? 'idle' : 'manual'); refresh(); setServers(dropOnLock); setAutoDialog(undefined) }
       // The MCP door reloads the vault file on every AI call: re-read status
       // so a refused reload shows its banner before the user decides.
       if (e.method === 'pending') refresh()
@@ -162,15 +165,24 @@ export function App() {
   const enableAuto = async (name: string, mode: Exclude<AutoAllowMode, 'off'>) => {
     await hub.setAutoAllow(name, mode); setAutoDialog(undefined); await reloadServers()
   }
-  const stopAuto = async (name: string) => { await hub.setAutoAllow(name, 'off'); await reloadServers() }
-  const resumeAll = async () => {
-    for (const n of pausedHosts(servers)) await hub.setAutoAllow(n, 'forever')
-    await reloadServers()
+  // The kill switch: a rejection must never be silent, must never stop the rest of
+  // the hosts from being tried, and must never skip the reload.
+  const stopAuto = async (name: string) => {
+    try { await hub.setAutoAllow(name, 'off') } catch (e) { window.alert((e as Error).message) }
+    finally { await reloadServers() }
   }
-  const stopAll = async () => {
-    for (const n of autoHosts(servers, now)) await hub.setAutoAllow(n, 'off')
-    await reloadServers()
+  const setAllAuto = async (names: string[], mode: AutoAllowMode, verb: string) => {
+    const failed: string[] = []
+    let message = ''
+    try {
+      for (const n of names) {
+        try { await hub.setAutoAllow(n, mode) } catch (e) { failed.push(n); message = (e as Error).message }
+      }
+    } finally { await reloadServers() }
+    if (failed.length) window.alert(`Could not ${verb} auto-allow on ${failed.join(', ')}: ${message}`)
   }
+  const resumeAll = () => setAllAuto(pausedHosts(servers), 'forever', 'resume')
+  const stopAll = () => setAllAuto([...autoHosts(servers, now)], 'off', 'stop')
 
   const ready = screen.kind === 'ready'
   useEffect(() => { if (ready) setEverReady(true) }, [ready])

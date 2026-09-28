@@ -1,4 +1,4 @@
-import type { AutoAllowMode, AutoAllowRan, AutoAllowState, ServerInfo } from '../shared/protocol'
+import type { AutoAllowCheck, AutoAllowMode, AutoAllowRan, AutoAllowState, ServerInfo } from '../shared/protocol'
 import { ALLOW_DELAY_MS } from './approvals'
 
 // Per-host auto-allow (spec 2026-09-28-auto-allow-design.md). Everything here
@@ -48,3 +48,10 @@ export function enableAllowed(o: { mode: Exclude<AutoAllowMode, 'off'>; typed: s
   if (o.mode === 'forever' && o.typed !== o.host) return false
   return o.now - Math.max(o.openedAt, o.changedAt) >= ALLOW_DELAY_MS
 }
+
+// AutoAllowDialog's ListChanges key: the mode or the root-access check result
+// changing (root access revealed, or the check failing) shifts the buttons and
+// must restart the Enable delay. Excludes `typed`, so confirming "forever" by
+// typing the host name doesn't itself restart the wait.
+export const dialogChangeKey = (mode: Exclude<AutoAllowMode, 'off'>, checked: AutoAllowCheck | 'error' | undefined): string =>
+  `${mode}|${checked === undefined ? 'pending' : checked === 'error' ? 'error' : `${checked.uid}:${checked.passwordlessSudo}`}`
