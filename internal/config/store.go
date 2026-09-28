@@ -22,6 +22,7 @@ type Server struct {
 	HostKey          string   `json:"hostKey,omitempty"`
 	HostKeyAlgo      string   `json:"hostKeyAlgo,omitempty"` // pinned key's type, e.g. ssh-ed25519
 	AIVisible        bool     `json:"aiVisible,omitempty"`
+	AutoAllow        bool     `json:"autoAllow,omitempty"` // forever auto-allow; see hub/autoallow.go
 	EncPassword      string   `json:"encPassword,omitempty"`
 	EncSuPassword    string   `json:"encSuPassword,omitempty"`
 	EncSudoPassword  string   `json:"encSudoPassword,omitempty"`

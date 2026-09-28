@@ -49,6 +49,37 @@ func TestAuditAppendsJSONLWithMode0600(t *testing.T) {
 	}
 }
 
+// The new auto-allow fields must stay out of every ordinary record's JSON.
+func TestAuditRecordOmitsEmptyAutoFields(t *testing.T) {
+	ab, err := json.Marshal(AuditRecord{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var am map[string]any
+	if err := json.Unmarshal(ab, &am); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"approval", "waitMs"} {
+		if _, ok := am[name]; ok {
+			t.Fatalf("AuditRecord{} JSON has %q: %s", name, ab)
+		}
+	}
+
+	cb, err := json.Marshal(ConfigRecord{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cm map[string]any
+	if err := json.Unmarshal(cb, &cm); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"until", "forever", "reason"} {
+		if _, ok := cm[name]; ok {
+			t.Fatalf("ConfigRecord{} JSON has %q: %s", name, cb)
+		}
+	}
+}
+
 func TestOpenAuditTightensExistingFileMode(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
 	if err := os.WriteFile(path, nil, 0o644); err != nil {

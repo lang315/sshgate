@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -56,6 +57,30 @@ func TestMACTamperDetected(t *testing.T) {
 	loaded, _ := Load(path)
 	if err := loaded.VerifyMAC(mk); err == nil {
 		t.Fatal("tamper must be detected by MAC")
+	}
+}
+
+// autoAllow feeds the whole-file MAC like any other plain field: flipping it
+// on disk without resigning must be caught.
+func TestAutoAllowCoveredByMAC(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "servers.json")
+	k, mk, _ := NewKDF("pw")
+	f := &File{Version: 1, KDF: &k, Servers: []Server{{Name: "p", Host: "h", Port: 22, User: "root", Auth: "agent", AutoAllow: false}}}
+	if err := Save(path, f, mk); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path)
+	tampered := []byte(strings.Replace(string(raw), `"host": "h",`, `"host": "h", "autoAllow": true,`, 1))
+	if err := os.WriteFile(path, tampered, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := loaded.VerifyMAC(mk); err == nil {
+		t.Fatal("tampering autoAllow must be detected by MAC")
 	}
 }
 

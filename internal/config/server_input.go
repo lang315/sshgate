@@ -58,6 +58,7 @@ func (in ServerInput) Validate() error {
 // every secret in does not re-supply: the AAD binds secrets to the endpoint,
 // and carrying them over would hand them to whoever answers there. Tunnels are
 // kept as they are; only tunnels.save and tunnels.delete change them.
+// AutoAllow is never carried over: every save turns auto-allow off.
 func ApplyServer(f *File, original string, in ServerInput, masterKey []byte) (before, after Server, err error) {
 	idx := -1
 	if original != "" {

@@ -497,10 +497,12 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 	req := broker.Request{Client: r.Client, Server: r.Server, Target: target(dc), Command: cmd, Description: r.Description, Sudo: r.Sudo, TimeoutSec: timeout}
 	base := broker.AuditRecord{Time: time.Now(), Client: r.Client, Server: r.Server, Command: red.Redact(cmd), Description: red.Redact(r.Description), Sudo: r.Sudo, TimeoutSec: timeout}
 
+	submitted := time.Now()
 	d, err := h.broker.Submit(ctx, req)
 	if err != nil {
 		return ExecResponse{}, err // ErrTooManyPending, or ctx.Err() when withdrawn
 	}
+	base.WaitMs = time.Since(submitted).Milliseconds()
 	switch d.Outcome {
 	case broker.Expired:
 		base.Outcome = string(broker.Expired)

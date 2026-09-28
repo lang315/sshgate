@@ -178,3 +178,26 @@ func TestDialChangedIgnoresTunnelsAndAIVisible(t *testing.T) {
 		t.Fatal("port change missed")
 	}
 }
+
+func TestDialChangedIgnoresAutoAllow(t *testing.T) {
+	a := config.Server{Name: "a", Host: "h", Port: 22, User: "u", Auth: "agent"}
+	b := a
+	b.AutoAllow = true
+	if dialChanged(a, b) {
+		t.Fatal("autoAllow counted as a dial change")
+	}
+}
+
+// A KDF-less file was never MAC'd: its auto-allow flag is unauthenticated,
+// same as aiVisible and the pin.
+func TestCreateVaultClearsAutoAllow(t *testing.T) {
+	h, path := newHubAt(t, &config.File{Version: 1, Servers: []config.Server{
+		{Name: "a", Host: "h", Port: 22, User: "u", Auth: "agent", AutoAllow: true}}}, nil)
+	if err := h.CreateVault("longenough"); err != nil {
+		t.Fatal(err)
+	}
+	f, _ := config.Load(path)
+	if len(f.Servers) != 1 || f.Servers[0].AutoAllow {
+		t.Fatalf("autoAllow survived vault creation: %+v", f.Servers)
+	}
+}
