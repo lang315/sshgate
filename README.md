@@ -1,6 +1,6 @@
 # sshgate
 
-**sshgate** lets an AI agent (Claude Code or any MCP client) run shell commands on your SSH servers, but only after you approve each command in a desktop app. It is one Go binary plus an Electron app:
+**sshgate** lets an AI agent (Claude Code or any MCP client) run shell commands on your SSH servers, but only after you approve each command in a desktop app by default (see [Auto-allow](#auto-allow) for the one opt-in exception). It is one Go binary plus an Electron app:
 
 - the **bridge** (`sshgate`), which your MCP client starts;
 - the **hub** (`sshgate hub`), which holds an encrypted vault of saved servers, the SSH connections, and the approval queue;
@@ -82,7 +82,7 @@ Keep the app open while the AI works. When the app is closed, every tool call fa
 - **Host editor.** It never shows a saved password: leave a field empty to keep it, or click **Clear** to remove it. Changing the address or port forgets the pinned key and every password you don't re-enter, closes that server's tabs, and denies its waiting requests.
 - **Host key changed.** A server that presents a different key is refused, and the app shows both fingerprints. If the change was expected, click **Forget host key** in the editor and connect again.
 - **Themes.** Dark, light, or **Auto** (follows the OS), from the ☾ / ☀ / Auto control.
-- **Locking.** After 15 minutes with no activity and nothing pending, the vault locks itself; **Lock** does it by hand. While locked, the AI's calls fail and terminals keep running.
+- **Locking.** After 15 minutes with no activity and nothing pending, the vault locks itself; **Lock** does it by hand. A timed auto-allow grant holds this off until its deadline (a "Until turned off" grant does not). While locked, the AI's calls fail and terminals keep running.
 - **Notifications.** When the window is not focused, a new request shows an OS notification and a count on the tray icon.
 
 ### Auto-allow

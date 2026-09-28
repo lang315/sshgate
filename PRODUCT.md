@@ -22,15 +22,15 @@ Every AI-issued command blocks on an explicit human Allow by default. The one ex
 
 ## Operating Context
 
-- Claude Code runs in another window; its `exec`/`sudo-exec` calls arrive as pending requests (at most 5, expiring after 5 minutes) while the user may be typing in a terminal tab.
-- The vault is encrypted (master password, argon2id); the app starts locked and auto-locks after 15 minutes idle. Terminal tabs survive lock and hub restarts.
+- Claude Code runs in another window; its `exec`/`sudo-exec` calls arrive as pending requests (at most 5, expiring after 5 minutes) while the user may be typing in a terminal tab (plain exec on a host with an auto-allow grant runs without one).
+- The vault is encrypted (master password, argon2id); the app starts locked and auto-locks after 15 minutes idle, unless a timed auto-allow grant is holding that off until its deadline. Terminal tabs survive lock and hub restarts.
 - Hosts are added and edited in the app (slice 2a). First connection to a host asks the user to trust its key fingerprint.
 - OS notifications and a tray count signal pending requests when the window is unfocused.
 
 ## Capabilities and Constraints
 
 - Screens that exist: create vault, unlock, host list with New/Edit/Delete, host editor (secrets write-only, Forget host key), terminal tabs, Files tab per host (listing, transfer strip) with its New folder, Rename, Delete files, and Files already exist dialogs, AI approval panel, host-key trust and mismatch dialogs, hub starting/restarting/failed, store-error banner.
-- Security behaviour is fixed and must survive any redesign: Deny is the default and keyboard-reachable; Allow is mouse-only and disabled for 500 ms after anything in the list changes; "Deny all" is always rendered so the list never shifts; the host-key Trust button follows the same rules, as do the Files dialogs' Overwrite all, Skip existing, and Delete (Cancel is their default); secrets are never displayed; the renderer never polls the hub (only `status`), or the idle lock never fires.
+- Security behaviour is fixed and must survive any redesign: Deny is the default and keyboard-reachable; Allow is mouse-only and disabled for 500 ms after anything in the list changes; "Deny all" is always rendered so the list never shifts; the host-key Trust button, the auto-allow dialog's Enable, and the paused banner's Resume follow the same rules, as do the Files dialogs' Overwrite all, Skip existing, and Delete (Cancel is their default); secrets are never displayed; the renderer never polls the hub (only `status`), or the idle lock never fires.
 - Not built and not to be designed as if present: Keychain, snippets, ProxyJump, local shell, split panes, sync (later roadmap slices, each behind an entry gate).
 - UI language: English.
 - Themes: dark, light, and Auto (follows the OS), chosen with a ☾ / ☀ / Auto control; Auto is the default, and the choice is a per-machine display preference.
@@ -56,4 +56,4 @@ None. No screenshots, testimonials, or usage numbers exist; do not fabricate any
 
 ## Accessibility & Inclusion
 
-Keyboard use must reach everything except the deliberately mouse-only Allow, Trust, and the Files dialogs' Overwrite all, Skip existing, and Delete. Vietnamese input (IME) must work in terminals.
+Keyboard use must reach everything except the deliberately mouse-only Allow, Trust, the auto-allow dialog's Enable, the paused banner's Resume, and the Files dialogs' Overwrite all, Skip existing, and Delete. Vietnamese input (IME) must work in terminals.

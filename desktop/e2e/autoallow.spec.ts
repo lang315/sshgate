@@ -42,6 +42,11 @@ test('timed auto-allow runs exec without a click, and Stop and Lock end it', asy
   await win.getByRole('button', { name: 'Lock' }).click()
   await unlock(win)
   await expect(win.locator('.hostcard .chip.auto')).toHaveCount(0)
+  const afterLock = exec('a3', 'echo after-lock')
+  afterLock.catch(() => {}) // denied below; avoids a transient unhandled-rejection warning
+  await expect(win.locator('.approval')).toContainText('echo after-lock')
+  await win.locator('.approval input').press('Enter') // deny
+  await expect(afterLock).rejects.toThrow(/Denied/)
 })
 
 test('forever auto-allow pauses after unlock until Resume', async () => {
