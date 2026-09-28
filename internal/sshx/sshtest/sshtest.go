@@ -36,6 +36,7 @@ type Server struct {
 	sftpHostile        []string      // names listed in /hostile (see sftp.go)
 	sftpStall          bool          // accept the subsystem request but never serve it
 	refuseFwd          bool          // tcpip-forward always fails
+	stallDirect        bool          // direct-tcpip channel opens are never answered
 }
 
 // Listen starts a server without the testing package. stop closes it.
@@ -166,7 +167,7 @@ func (s *Server) serveConn(nc net.Conn, cfg *ssh.ServerConfig) {
 			}
 			go s.session(ch, creqs)
 		case "direct-tcpip":
-			go directTCPIP(nch)
+			go s.directTCPIP(nch)
 		default:
 			nch.Reject(ssh.UnknownChannelType, "")
 		}

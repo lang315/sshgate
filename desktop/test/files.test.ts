@@ -92,12 +92,12 @@ describe('delete confirmation', () => {
 })
 
 describe('job flow', () => {
-  it('relists after a job only in the folder shown, with no newer navigation', () => {
-    expect(relistAfterJob('/a', '/a', '/a', false)).toBe(true)
-    expect(relistAfterJob('/b', '/a', '/a', false)).toBe(false) // the job was elsewhere
-    expect(relistAfterJob('/a', '/a', '/b', true)).toBe(false) // the user is loading /b
-    expect(relistAfterJob('/a', '/a', '/a', true)).toBe(false) // a load is already in flight
-    expect(relistAfterJob('/a', '/a', '/b', false)).toBe(false) // /b failed; /a is not what the user asked for
+  it('relists now, after the in-flight load, or not at all', () => {
+    expect(relistAfterJob('/a', '/a', '/a', false)).toBe('now')
+    expect(relistAfterJob('/b', '/a', '/a', false)).toBe('no') // the job was elsewhere
+    expect(relistAfterJob('/a', '/a', '/b', true)).toBe('no') // the user is loading /b, not this job's folder
+    expect(relistAfterJob('/a', '/a', '/a', true)).toBe('after') // a load of this same folder is in flight
+    expect(relistAfterJob('/a', '/a', '/b', false)).toBe('no') // /b failed; /a is not what the user asked for
   })
   it('decides what a landed plan does; a cancel sent while planning wins', () => {
     expect(plannedAction('upload', 0, false)).toBe('skip')

@@ -1,10 +1,16 @@
 package tunnel
 
 import (
+	"context"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -16,6 +22,19 @@ import (
 func client(t *testing.T) *ssh.Client {
 	t.Helper()
 	s := sshtest.Start(t)
+	c, err := ssh.Dial("tcp", s.Addr(), &ssh.ClientConfig{User: "u", Auth: []ssh.AuthMethod{ssh.Password("x")},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	return c
+}
+
+// clientOn dials into a running sshtest.Server, for tests that need the
+// server itself (e.g. to stall it) rather than just a client.
+func clientOn(t *testing.T, s *sshtest.Server) *ssh.Client {
+	t.Helper()
 	c, err := ssh.Dial("tcp", s.Addr(), &ssh.ClientConfig{User: "u", Auth: []ssh.AuthMethod{ssh.Password("x")},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey()})
 	if err != nil {
@@ -43,6 +62,70 @@ func echo(t *testing.T) (host string, port int) {
 	}()
 	a := ln.Addr().(*net.TCPAddr)
 	return "127.0.0.1", a.Port
+}
+
+// replyAfterEOF listens on 127.0.0.1:0; each connection reads to EOF, then
+// replies with the byte count read and closes.
+func replyAfterEOF(t *testing.T) (host string, port int) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer c.Close()
+				n, _ := io.Copy(io.Discard, c)
+				fmt.Fprintf(c, "got %d", n)
+			}()
+		}
+	}()
+	a := ln.Addr().(*net.TCPAddr)
+	return "127.0.0.1", a.Port
+}
+
+// holdAfterEOF listens on 127.0.0.1:0; each connection reads to EOF (signalling
+// on eof), then holds the connection open without replying until closed.
+func holdAfterEOF(t *testing.T) (host string, port int, eof chan struct{}) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	eof = make(chan struct{}, 1)
+	var mu sync.Mutex
+	var conns []net.Conn
+	t.Cleanup(func() {
+		ln.Close()
+		mu.Lock()
+		for _, c := range conns {
+			c.Close()
+		}
+		mu.Unlock()
+	})
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, c)
+			mu.Unlock()
+			go func() {
+				io.Copy(io.Discard, c)
+				eof <- struct{}{}
+			}()
+		}
+	}()
+	a := ln.Addr().(*net.TCPAddr)
+	return "127.0.0.1", a.Port, eof
 }
 
 func freePort(t *testing.T) string {
@@ -171,6 +254,192 @@ func TestDynamic(t *testing.T) {
 	conn.Close()
 	if code != 7 {
 		t.Fatalf("bind reply %d, want 7", code)
+	}
+}
+
+func halfCloseReply(t *testing.T, conn net.Conn) {
+	t.Helper()
+	conn.Write([]byte("ping"))
+	if err := conn.(*net.TCPConn).CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	got, err := io.ReadAll(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "got 4" {
+		t.Fatalf("got %q, want %q", got, "got 4")
+	}
+}
+
+func TestHalfCloseLocal(t *testing.T) {
+	c := client(t)
+	h, p := replyAfterEOF(t)
+	f, err := Local(c, freePort(t), net.JoinHostPort(h, strconv.Itoa(p)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	conn, err := net.Dial("tcp", f.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	halfCloseReply(t, conn)
+}
+
+func TestHalfCloseRemote(t *testing.T) {
+	c := client(t)
+	h, p := replyAfterEOF(t)
+	f, err := Remote(c, freePort(t), net.JoinHostPort(h, strconv.Itoa(p)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	conn, err := net.Dial("tcp", f.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	halfCloseReply(t, conn)
+}
+
+func TestHalfCloseDynamic(t *testing.T) {
+	c := client(t)
+	_, p := replyAfterEOF(t)
+	f, err := Dynamic(c, freePort(t), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	port := binary.BigEndian.AppendUint16(nil, uint16(p))
+	conn, code := socksConnect(t, f.Addr(), append([]byte{5, 1, 0, 1, 127, 0, 0, 1}, port...))
+	if code != 0 {
+		t.Fatalf("reply %d", code)
+	}
+	defer conn.Close()
+	halfCloseReply(t, conn)
+}
+
+func TestCloseEndsHalfClosedConn(t *testing.T) {
+	c := client(t)
+	h, p, eof := holdAfterEOF(t)
+	f, err := Local(c, freePort(t), net.JoinHostPort(h, strconv.Itoa(p)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	conn, err := net.Dial("tcp", f.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.Write([]byte("ping"))
+	if err := conn.(*net.TCPConn).CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-eof:
+	case <-time.After(5 * time.Second):
+		t.Fatal("target never saw EOF")
+	}
+	f.Close()
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := conn.Read(make([]byte, 1)); err == nil {
+		t.Fatal("connection survived Close")
+	}
+	waitConns(t, f, 0)
+}
+
+func TestCloseInterruptsDial(t *testing.T) {
+	s := sshtest.Start(t)
+	s.StallDirect()
+	c := clientOn(t, s)
+	f, err := Local(c, freePort(t), "127.0.0.1:1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	conn, err := net.Dial("tcp", f.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	waitConns(t, f, 1)
+	f.Close()
+	deadline := time.Now().Add(1 * time.Second)
+	for time.Now().Before(deadline) && f.Conns() != 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if f.Conns() != 0 {
+		t.Fatalf("conns %d, want 0 (handler outlived Close)", f.Conns())
+	}
+}
+
+func TestDialTimeout(t *testing.T) {
+	old := dialTimeout
+	dialTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { dialTimeout = old })
+	s := sshtest.Start(t)
+	s.StallDirect()
+	c := clientOn(t, s)
+	f, err := Local(c, freePort(t), "127.0.0.1:1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	conn, err := net.Dial("tcp", f.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, err = conn.Read(make([]byte, 1))
+	if err == nil {
+		t.Fatal("read succeeded after a timed-out dial")
+	}
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("read timed out waiting for the dial itself: %v", err)
+	}
+}
+
+// emfileOnceListener wraps a real listener; its first Accept fails with
+// EMFILE, every later Accept behaves normally.
+type emfileOnceListener struct {
+	net.Listener
+	once sync.Once
+}
+
+func (l *emfileOnceListener) Accept() (net.Conn, error) {
+	fired := false
+	l.once.Do(func() { fired = true })
+	if fired {
+		return nil, &net.OpError{Op: "accept", Net: "tcp", Err: os.NewSyscallError("accept", syscall.EMFILE)}
+	}
+	return l.Listener.Accept()
+}
+
+func TestAcceptRetriesEMFILE(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fl := &emfileOnceListener{Listener: ln}
+	c := client(t)
+	h, p := echo(t)
+	f := serve(fl, nil, func(_ context.Context, _ net.Conn) (net.Conn, error) {
+		return c.Dial("tcp", net.JoinHostPort(h, strconv.Itoa(p)))
+	})
+	defer f.Close()
+	conn, err := net.Dial("tcp", fl.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	ping(t, conn)
+	if f.Err() != nil {
+		t.Fatalf("Err() = %v, want nil", f.Err())
 	}
 }
 
