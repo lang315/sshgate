@@ -162,6 +162,7 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 .aibtn.waiting { border-color: var(--wait); color: var(--wait); animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 3px var(--wait-tint); } }
 .banner.auto { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-radius: 6px; background: var(--auto-tint); color: var(--auto); }
+.autofeed { flex: none; max-height: 40%; overflow: auto; }
 .autofeed ul { list-style: none; margin: 0; padding: 0; }
 .autorun { display: grid; gap: 2px; padding: 6px 0; border-top: 1px solid var(--line); }
 .approval .who { display: flex; align-items: center; gap: 8px; }

@@ -37,10 +37,10 @@ export function AutoAllowDialog({ server, remoteTunnels, check, onEnable, onCanc
             {root && <p className="error">This is root access: the AI can do anything on this host.</p>}
             {checked === 'error' && <p className="muted">Could not check this host&apos;s sudo access.</p>}
             {remoteTunnels.length > 0 && (
-              <p className="banner-danger">
-                Remote tunnels running on this host reach your machine:
+              <div className="banner-danger">
+                <p>Remote tunnels running on this host reach your machine:</p>
                 <ul className="files-sample mono">{remoteTunnels.map((t) => <li key={t}>{t}</li>)}</ul>
-              </p>
+              </div>
             )}
             <fieldset className="kinds">
               <legend>For how long</legend>
