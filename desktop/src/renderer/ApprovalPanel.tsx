@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import type { AutoAllowRan } from '../shared/protocol'
 import { allowEnabled, blockKeyboardActivation, clickAllowed, highlightNonAscii, ListChanges, nonAsciiSummary, type PendingItem } from './approvals'
+import { commandLabel } from './autoallow'
+import { AutoAllowPaused } from './AutoAllowPaused'
 import { CloseIcon, WarningIcon } from './icons'
 
-export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToTab, onClose, onEscape }: {
+export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToTab, onClose, onEscape, autoFeed, autoN, paused, onStopAll, onResume }: {
   items: PendingItem[]
   seedError?: string
   onDecide: (id: string, outcome: 'allowed' | 'denied', reason: string) => Promise<void>
@@ -10,6 +13,7 @@ export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToT
   onSendToTab: (item: PendingItem) => Promise<void>
   onClose: () => void
   onEscape: () => void
+  autoFeed: AutoAllowRan[]; autoN: number; paused: string[]; onStopAll: () => void; onResume: () => void
 }) {
   const [now, setNow] = useState(Date.now())
   const [denyAllError, setDenyAllError] = useState<string>()
@@ -64,6 +68,24 @@ export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToT
           ))}
         </div>
       </div>
+      <section className="autofeed" aria-label="Auto-allowed">
+        <div className="approvals-head">
+          <h3>Auto-allowed</h3>
+          {/* Always rendered so nothing shifts, like Deny all. */}
+          <button type="button" className="btn danger-outline" onClick={onStopAll} disabled={autoN === 0}>Stop all auto-allow</button>
+        </div>
+        <AutoAllowPaused hosts={paused} onResume={onResume} onStop={onStopAll} />
+        {autoFeed.length === 0 ? <p className="muted empty">Nothing ran on auto-allow.</p> : (
+          <ul>{autoFeed.map((r, i) => (
+            <li key={`${r.time}-${i}`} className="autorun">
+              <span className="mono muted">{new Date(r.time).toLocaleTimeString()}</span> <strong>{r.server}</strong>
+              <code className="cmd">{highlightNonAscii(commandLabel(r)).map((s, j) => (s.nonAscii ? <mark key={j}>{s.text}</mark> : <span key={j}>{s.text}</span>))}</code>
+              {r.description && <span className="muted">{r.description}</span>}
+              <span className={r.error ? 'error' : 'muted'}>{r.error ?? `exit ${r.exitCode}`}</span>
+            </li>
+          ))}</ul>
+        )}
+      </section>
     </aside>
   )
 }
