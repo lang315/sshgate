@@ -89,7 +89,7 @@ func nameOr(s string) string {
 }
 
 func BuildServer(d *Deps, reg *sshx.Registry, disableSudo bool, maxChars int) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "sshgate", Version: "2.0.0"}, nil)
+	s := mcp.NewServer(&mcp.Implementation{Name: "sshgate", Version: Version}, nil)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "exec", Description: "Run a shell command on the SSH server given on this sshgate server's command line. It runs immediately, without human approval. " +
 		"If a su password was configured, the command runs as root inside one persistent root shell; otherwise each call runs in a fresh non-interactive shell, so `cd` and environment changes do not carry over between calls. " +
