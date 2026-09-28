@@ -12,11 +12,25 @@ import (
 // RefuseForward makes every later tcpip-forward request fail.
 func (s *Server) RefuseForward() { s.mu.Lock(); s.refuseFwd = true; s.mu.Unlock() }
 
-// pipe copies both ways and closes both ends when either direction ends.
+// pipe copies both ways. A direction that ends at a clean EOF half-closes its
+// destination, so the other direction can still carry a reply; an error, or
+// a destination with no CloseWrite, closes both ends. Forward.Close closes
+// the local end, whose read then fails, so nothing outlives the tunnel.
 func pipe(a, b io.ReadWriteCloser) {
 	done := make(chan struct{}, 2)
-	go func() { io.Copy(a, b); done <- struct{}{} }()
-	go func() { io.Copy(b, a); done <- struct{}{} }()
+	half := func(dst, src io.ReadWriteCloser) {
+		defer func() { done <- struct{}{} }()
+		if _, err := io.Copy(dst, src); err == nil {
+			if cw, ok := dst.(interface{ CloseWrite() error }); ok && cw.CloseWrite() == nil {
+				return
+			}
+		}
+		a.Close()
+		b.Close()
+	}
+	go half(a, b)
+	go half(b, a)
+	<-done
 	<-done
 	a.Close()
 	b.Close()

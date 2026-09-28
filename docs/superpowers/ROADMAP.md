@@ -4,7 +4,7 @@ Long-lived plan across every slice. Each slice gets its own spec in
 `specs/` and its own implementation plan in `plans/`, written when that
 slice starts. This file only fixes order, gates, and cross-slice decisions.
 
-Updated: 2026-09-28 (renamed ssh-mcp → sshgate, own public repo lang315/sshgate; slice 2a closed, `sshgate web` removed; 2b split, 2b-1 import done; 3a done, exit gate met on buildpc; 3b done, exit gate met on buildpc)
+Updated: 2026-09-28 (renamed ssh-mcp → sshgate, own public repo lang315/sshgate; slice 2a closed, `sshgate web` removed; 2b split, 2b-1 import done; 3a done, exit gate met on buildpc; 3b done, exit gate met on buildpc; tunnel half-close fixed)
 
 ## Standing decisions
 
@@ -95,4 +95,4 @@ plan note.
   - `vault.create` is asserted to derive the key once and never run Unlock's derivation (`newKDF`/`deriveKey` seams, `5fb34f3`).
 - Slice 2a → later (2026-09-26, web UI removed): `hub --cli` cannot create a vault or edit hosts, and nothing imports or exports servers any more. Headless machines get a vault by copying `servers.json` from the app's machine. Add a CLI path or import/export only if that copy stops being enough.
 - Slice 3b → later (2026-09-27): auto-start tunnels on unlock or app start, LAN sharing (binding beyond loopback), reconnect after the connection drops, and a remote dynamic forward. Add them only if daily use hits them.
-- Slice 3b → later (2026-09-27, final review): a tunnel closes both halves of a connection when either side ends (per the spec), so a half-closing client (`nc -N`) loses the reply. Fix: `CloseWrite` on the `ssh.Channel` / `*net.TCPConn` and wait for the second copy before closing.
+- Slice 3b, half-close → fixed 2026-09-28: tunnels now half-close (a direction's clean EOF calls `CloseWrite` on its destination so the other direction can still carry a reply); a direction's error, or a destination with no `CloseWrite`, still closes both ends.
