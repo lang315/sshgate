@@ -14,11 +14,11 @@ One user: the author, a developer/ops person managing a handful to a few dozen o
 
 ## Product Purpose
 
-sshgate lets an AI agent run commands on real servers only with a human decision on every single command. The desktop app is that human's control surface: it holds the unlocked vault, the SSH terminals, and the approval queue. Success means the author does their SSH work in this app instead of another terminal, and never approves an AI command they did not mean to.
+sshgate lets an AI agent run commands on real servers with a human decision on every single command by default. The human may put one host on auto-allow (plain exec only, never sudo-exec, never on root-equivalent hosts) for a set time, or until turned off with a Resume after each unlock; it is visible while on, audited, and stoppable at any time. The desktop app is that human's control surface: it holds the unlocked vault, the SSH terminals, and the approval queue. Success means the author does their SSH work in this app instead of another terminal, and never approves an AI command they did not mean to.
 
 ## Positioning
 
-Every AI-issued command blocks on an explicit human Allow. There are no auto-approval rules. The AI only sees hosts marked visible and only connects to hosts whose key is pinned. A plain SSH client (Termius, a terminal) has no approval gate; an AI shell tool has no human in the loop. This app is both a daily SSH client and the gate.
+Every AI-issued command blocks on an explicit human Allow by default. The one exception is a host the human has put on auto-allow: a grant is not a privilege boundary, and anything it leaves running (cron jobs, SSH keys, shell startup files) outlives the grant. The AI only sees hosts marked visible and only connects to hosts whose key is pinned. A plain SSH client (Termius, a terminal) has no approval gate; an AI shell tool has no human in the loop. This app is both a daily SSH client and the gate.
 
 ## Operating Context
 
@@ -48,7 +48,7 @@ None. No screenshots, testimonials, or usage numbers exist; do not fabricate any
 
 ## Product Principles
 
-1. A human decides every AI command; the interface never makes Allow easier than Deny.
+1. A human decides every AI command by default; the interface never makes Allow easier than Deny. The one exception a human can opt one host into, auto-allow, stays visible, audited, and stoppable at any time, and is never a privilege boundary.
 2. Nothing moves under the cursor: layout changes near a decision button reset its delay.
 3. The terminal is the daily workspace; everything else yields space to it.
 4. Show only what exists; no placeholder features.

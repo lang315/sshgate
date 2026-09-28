@@ -4,7 +4,7 @@ Long-lived plan across every slice. Each slice gets its own spec in
 `specs/` and its own implementation plan in `plans/`, written when that
 slice starts. This file only fixes order, gates, and cross-slice decisions.
 
-Updated: 2026-09-28 (renamed ssh-mcp → sshgate, own public repo lang315/sshgate; slice 2a closed, `sshgate web` removed; 2b split, 2b-1 import done; 3a done, exit gate met on buildpc; 3b done, exit gate met on buildpc; tunnel half-close fixed)
+Updated: 2026-09-28 (renamed ssh-mcp → sshgate, own public repo lang315/sshgate; slice 2a closed, `sshgate web` removed; 2b split, 2b-1 import done; 3a done, exit gate met on buildpc; 3b done, exit gate met on buildpc; tunnel half-close fixed; per-host auto-allow)
 
 ## Standing decisions
 
@@ -17,8 +17,11 @@ plan note.
   through one transport module.
 - The MCP door is a Unix socket or named pipe with a same-user check. Never
   HTTP or SSE on localhost.
-- Every AI command is approved by a human. No auto-approval rules of any
-  kind until a spec argues otherwise.
+- Every AI command is approved by a human by default. The human may put one
+  host on auto-allow (plain exec only, never sudo-exec, never on
+  root-equivalent hosts) for a set time, or until turned off with a Resume
+  after each unlock; it is visible while on, audited, and stoppable at any
+  time (`specs/2026-09-28-auto-allow-design.md`).
 - The AI never sees a host the user did not mark `AIVisible`, and never
   connects first to a host whose key is not pinned.
 - Vault format: argon2id, AES-GCM per field with AAD, whole-file MAC. Any
@@ -97,3 +100,4 @@ plan note.
 - Slice 3b → later (2026-09-27): auto-start tunnels on unlock or app start, LAN sharing (binding beyond loopback), reconnect after the connection drops, and a remote dynamic forward. Add them only if daily use hits them.
 - Slice 3b, half-close → fixed 2026-09-28: tunnels now half-close (a direction's clean EOF calls `CloseWrite` on its destination so the other direction can still carry a reply); a direction's error, or a destination with no `CloseWrite`, still closes both ends.
 - Local macOS bundle → 5 (2026-09-28, review of `desktop/scripts/package-mac.sh`): the bundle is stock Electron, ad-hoc signed without the hardened runtime, and its fuses are unchanged (RunAsNode, `NODE_OPTIONS`, `--inspect`, `--remote-debugging-port` all allowed). A process running as the same user can relaunch the app with a debugger port and, after the user unlocks, call the UI door (`decide`) to approve its own AI requests. The same process can also overwrite the user-writable `/Applications/sshgate.app` or use `~/.ssh` and the ssh-agent directly, so closing this needs slice 5's signing, notarization, hardened runtime, and flipped fuses (`@electron/fuses`), not a patch. Already done: the bundle ignores every `SSHGATE_*` knob (`hubLaunch`), so `open --env SSHGATE_BIN=… -a sshgate` cannot swap the hub; running `electron <the bundle's app dir>` still honours them.
+- Auto-allow → 4 (2026-09-28): a host on auto-allow sends its command output to the AI unreviewed; putting a host with secrets on auto-allow meets slice 4's entry gate.

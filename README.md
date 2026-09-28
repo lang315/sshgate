@@ -6,7 +6,7 @@
 - the **hub** (`sshgate hub`), which holds an encrypted vault of saved servers, the SSH connections, and the approval queue;
 - the **desktop app** (`desktop/`), which runs the hub and gives you SSH terminal tabs next to the AI's pending requests.
 
-There are no auto-approval rules. The AI only sees servers you mark visible, and only connects to a server whose host key you have pinned.
+Every AI command is approved by a human by default. You may put one host on auto-allow (plain exec only, never sudo-exec, never on root-equivalent hosts) for a set time, or until turned off with a Resume after each unlock; it is visible while on, audited, and stoppable at any time. The AI only sees servers you mark visible, and only connects to a server whose host key you have pinned.
 
 sshgate started as a Go rewrite of [tufantunc/ssh-mcp](https://github.com/tufantunc/ssh-mcp) (MIT) and is now a separate project, not affiliated with or endorsed by it.
 
@@ -85,11 +85,15 @@ Keep the app open while the AI works. When the app is closed, every tool call fa
 - **Locking.** After 15 minutes with no activity and nothing pending, the vault locks itself; **Lock** does it by hand. While locked, the AI's calls fail and terminals keep running.
 - **Notifications.** When the window is not focused, a new request shows an OS notification and a count on the tray icon.
 
+### Auto-allow
+
+Click the **Auto-allow** button on a host card to put that host on auto-allow: pick 15 min, 30 min, 60 min, 2 h, 4 h, or "Until turned off" (which needs the host name typed to confirm), then plain `exec` calls run without a click for that long. **Stop** on the card, **Stop all auto-allow** in the AI column, locking the vault, or the timer running out all end it. Every run still shows in the AI column's Auto-allowed feed and in the audit log; `sudo-exec` still always asks. A grant "Until turned off" is paused after every unlock until you click **Resume**.
+
 Closing the window quits the app and stops the hub. There is no Reload; if the renderer crashes, the app locks the vault and reloads at the unlock screen.
 
 ## Safety model
 
-- A human decides every AI command. There is no allow-list, no "always allow", and no auto-approval of any kind.
+- A human decides every AI command by default. The one exception is a host put on auto-allow: a grant is not a privilege boundary, and anything it leaves running (cron jobs, SSH keys, shell startup files) outlives the grant.
 - The AI sees only servers marked **Visible to AI**, and only while the vault is unlocked.
 - Every connection from the hub verifies a pinned host key. The hub never learns a key on its own; you pin it by clicking **Trust** after seeing the fingerprint.
 - An approval is bound to the `user@host:port` and key you saw. If the server is edited while a request waits, the request fails with "server changed".

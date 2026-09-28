@@ -91,6 +91,13 @@ The MCP socket or pipe accepts only same-uid peers. A same-uid attacker can
 submit requests, but they still require approval; beyond that, same-uid is out
 of scope as before.
 
+**Auto-allow narrows this for a host with a grant.** While a grant is active
+(`specs/2026-09-28-auto-allow-design.md`), a same-uid process that reaches the
+MCP door gets remote command execution on that host with no human decision:
+approval is no longer the only egress control there, and the same-uid
+attacker above becomes a same-uid exec primitive for the duration of the
+grant.
+
 ## Architecture
 
 ```

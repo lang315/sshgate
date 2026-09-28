@@ -1,7 +1,7 @@
 # sshgate: Per-host Auto-allow for AI exec — Design
 
 Date: 2026-09-28
-Status: Approved 2026-09-28.
+Status: Approved 2026-09-28; implemented (plan `plans/2026-09-28-auto-allow.md`).
 Depends on: `2026-09-24-desktop-app-design.md` (slice 1), `2026-09-25-desktop-slice2a-design.md` (slice 2a), `2026-09-27-slice3b-port-forwarding-design.md` (slice 3b). Everything there still holds unless this document changes it by name.
 
 This spec reverses a standing decision. ROADMAP: "Every AI command is approved by a human. No auto-approval rules of any kind until a spec argues otherwise." Slice 1's decision table: "No auto-approval rules". This document is that argument, and it replaces both with the rule in "ROADMAP, PRODUCT, README, CLAUDE.md changes".
