@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/lang315/sshgate/internal/broker"
 	"github.com/lang315/sshgate/internal/config"
@@ -268,6 +269,121 @@ func (h *Hub) setAutoSink(f func(method string, params any)) (release func()) {
 		}
 		h.mu.Unlock()
 	}
+}
+
+type autoRun struct {
+	dc   sshx.DialConfig
+	ctx  context.Context // cancelled when the grant ends
+	done func()
+}
+
+// autoStart decides, in one h.mu section, whether name's exec runs under its
+// grant, and registers the run. It resolves the server itself and compares
+// it with the grant's snapshot, so the run uses exactly what it checked; any
+// mismatch ends the grant and the request goes to approval. nil: approval.
+func (h *Hub) autoStart(ctx context.Context, name string) *autoRun {
+	h.mu.Lock()
+	g := h.grants[name]
+	if g == nil || h.checkLocked(name) != nil {
+		h.mu.Unlock()
+		return nil
+	}
+	reason := ""
+	s, _ := h.deps.File.FindServer(name)
+	dc, err := h.resolveLocked(name)
+	switch {
+	case !g.until.IsZero() && !time.Now().Before(g.until):
+		reason = "expired"
+	case err != nil, autoRefusal(s) != "", snapOf(dc) != g.snap, g.until.IsZero() && !s.AutoAllow:
+		reason = "server changed"
+	case len(g.inflight) >= maxAutoInflight:
+		h.mu.Unlock()
+		return nil
+	}
+	if reason != "" {
+		h.endGrantLocked(name)
+		h.mu.Unlock()
+		h.grantEnded(name, reason)
+		return nil
+	}
+	h.grantSeq++
+	id := h.grantSeq
+	rctx, cancel := context.WithCancel(ctx)
+	g.inflight[id] = cancel
+	h.mu.Unlock()
+	return &autoRun{dc: dc, ctx: rctx, done: func() {
+		h.mu.Lock()
+		delete(g.inflight, id)
+		h.mu.Unlock()
+		cancel()
+	}}
+}
+
+// autoCmdCap bounds the command text sent to the app's feed.
+const autoCmdCap = 1000
+
+// autoExec runs an auto-allowed exec: not counted in h.running (so it never
+// holds off the idle lock), audited with approval "auto", then reported to
+// the app.
+func (h *Hub) autoExec(ar *autoRun, r ExecRequest, cmd string, timeout int, base broker.AuditRecord) (ExecResponse, error) {
+	red := redactorFor(ar.dc)
+	base.Approval = "auto"
+	base.Command, base.Description = red.Redact(cmd), red.Redact(r.Description)
+	resp, err := h.run(ar.ctx, r.Server, ar.dc, cmd, false, timeout, base, red)
+	shown, cut := cutBytes(base.Command, autoCmdCap)
+	ran := map[string]any{"server": r.Server, "command": shown, "description": base.Description,
+		"time": time.Now().UTC().Format(time.RFC3339)}
+	if cut > 0 {
+		ran["truncated"] = cut
+	}
+	if err != nil {
+		ran["error"] = err.Error()
+	} else {
+		ran["exitCode"] = resp.ExitCode
+	}
+	h.notifyAuto("autoAllow.ran", ran)
+	return resp, err
+}
+
+// cutBytes cuts s to at most n bytes on a rune boundary; cut is how many
+// bytes were dropped.
+func cutBytes(s string, n int) (string, int) {
+	if len(s) <= n {
+		return s, 0
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n], len(s) - n
+}
+
+// sweepGrants ends timed grants past their deadline, cancelling their runs.
+// The idle loop calls it every tick; Exec also checks the deadline exactly.
+func (h *Hub) sweepGrants(now time.Time) {
+	h.mu.Lock()
+	var ended []string
+	for name, g := range h.grants {
+		if !g.until.IsZero() && !now.Before(g.until) {
+			h.endGrantLocked(name)
+			ended = append(ended, name)
+		}
+	}
+	h.mu.Unlock()
+	for _, n := range ended {
+		h.grantEnded(n, "expired")
+	}
+}
+
+// timedGrantLocked reports a timed grant still before its deadline; h.mu is
+// held. Such a grant holds off the idle lock: its deadline was fixed by the
+// human, and nothing the AI does moves it.
+func (h *Hub) timedGrantLocked(now time.Time) bool {
+	for _, g := range h.grants {
+		if !g.until.IsZero() && now.Before(g.until) {
+			return true
+		}
+	}
+	return false
 }
 
 // uiAutoAllow is a server's auto-allow state for the app.

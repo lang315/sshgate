@@ -1,15 +1,75 @@
 package hub
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
+	"github.com/lang315/sshgate/internal/broker"
 	"github.com/lang315/sshgate/internal/config"
+	"github.com/lang315/sshgate/internal/sshx"
 )
+
+// blockExec's Exec blocks until its ctx is cancelled (returning
+// sshx.ErrCancelled) or release is closed (returning a zero result). Calls
+// is appended under a mutex since TestAutoExecCap drives it concurrently.
+type blockExec struct {
+	release chan struct{}
+
+	mu    sync.Mutex
+	calls []string
+}
+
+func newBlockExec() *blockExec { return &blockExec{release: make(chan struct{})} }
+
+func (b *blockExec) Exec(ctx context.Context, cmd string) (sshx.ExecResult, error) {
+	b.mu.Lock()
+	b.calls = append(b.calls, cmd)
+	b.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		return sshx.ExecResult{}, sshx.ErrCancelled
+	case <-b.release:
+		return sshx.ExecResult{}, nil
+	}
+}
+
+func (b *blockExec) ExecSudo(ctx context.Context, cmd string) (sshx.ExecResult, error) {
+	return b.Exec(ctx, cmd)
+}
+
+// decideExec runs h.Exec on its own goroutine, waits for it to reach the
+// broker, denies it, and returns its error. Used by the auto-path tests
+// whose autoStart refuses the grant (expired, mismatch, cap, sudo) so the
+// request falls through to ordinary approval.
+func decideExec(t *testing.T, h *Hub, r ExecRequest) error {
+	t.Helper()
+	errc := make(chan error, 1)
+	go func() {
+		_, err := h.Exec(context.Background(), r)
+		errc <- err
+	}()
+	waitPending(t, h.Broker(), 1)
+	h.Broker().Decide(h.Broker().Pending()[0].ID, broker.Decision{Outcome: broker.Denied, Reason: "no"})
+	return <-errc
+}
+
+// waitInflight waits for name's grant to have exactly n auto runs in flight.
+func waitInflight(t *testing.T, h *Hub, name string, n int) {
+	t.Helper()
+	waitFor(t, "inflight count", func() bool {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		g := h.grants[name]
+		return g != nil && len(g.inflight) == n
+	})
+}
 
 // addServer adds s to the vault via config.Update, then reloads h. Used for
 // servers Task 1's newHub fixture doesn't have (root login, su/sudo
@@ -515,5 +575,478 @@ func TestSetAutoAllowForeverIdempotent(t *testing.T) {
 	}
 	if before != after {
 		t.Fatal("already-armed forever replaced the grant")
+	}
+}
+
+func TestAutoExecRunsWithoutApproval(t *testing.T) {
+	fe := &fakeExec{}
+	h, path := newHub(t, fe)
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	type call struct {
+		method string
+		params map[string]any
+	}
+	calls := make(chan call, 1)
+	release := h.setAutoSink(func(method string, params any) {
+		raw, err := os.ReadFile(filepath.Join(filepath.Dir(path), "audit.jsonl"))
+		if err != nil {
+			t.Error(err)
+		}
+		if !strings.Contains(string(raw), `"outcome":"allowed"`) {
+			t.Errorf("sink fired before the audit line was written: %s", raw)
+		}
+		calls <- call{method, params.(map[string]any)}
+	})
+	defer release()
+
+	res, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "echo hi", Description: "d", Client: "t"})
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if len(h.Broker().Pending()) != 0 {
+		t.Fatal("request reached the broker")
+	}
+	if len(fe.calls) != 1 || fe.calls[0] != "echo hi" {
+		t.Fatalf("calls = %v", fe.calls)
+	}
+	if res.ExitCode != 0 {
+		t.Fatalf("res = %+v", res)
+	}
+
+	_, recs := readAudit(t, path)
+	last := recs[len(recs)-1]
+	if last["outcome"] != "allowed" || last["approval"] != "auto" {
+		t.Fatalf("audit: %v", last)
+	}
+	if _, ok := last["waitMs"]; ok {
+		t.Fatalf("waitMs present on an auto run: %v", last)
+	}
+
+	select {
+	case c := <-calls:
+		if c.method != "autoAllow.ran" {
+			t.Fatalf("method = %q", c.method)
+		}
+		if c.params["server"] != "vis" || c.params["command"] != "echo hi" || c.params["exitCode"] != 0 {
+			t.Fatalf("params = %+v", c.params)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("autoAllow.ran not sent")
+	}
+}
+
+func TestAutoExecSudoStillAsks(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	if err := decideExec(t, h, ExecRequest{Server: "vis", Command: "id", Sudo: true}); err == nil {
+		t.Fatal("want a denial")
+	}
+}
+
+func TestAutoExecExpired(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	h.grants["vis"].until = time.Now().Add(-time.Second)
+	h.mu.Unlock()
+
+	if err := decideExec(t, h, ExecRequest{Server: "vis", Command: "ls"}); err == nil {
+		t.Fatal("want a denial")
+	}
+	if g := grantOf(h, "vis"); g != nil {
+		t.Fatal("expired grant still present")
+	}
+	_, recs := readAudit(t, path)
+	if !hasAutoAllowOff(recs, "expired") {
+		t.Fatalf("no autoAllowOff/expired: %v", recs)
+	}
+}
+
+func TestAutoExecSnapshotMismatch(t *testing.T) {
+	t.Run("port changed", func(t *testing.T) {
+		h, path := newHub(t, &fakeExec{})
+		if err := h.SetAutoAllow("vis", "15m"); err != nil {
+			t.Fatal(err)
+		}
+		if err := config.Update(path, testMK, func(f *config.File) error {
+			for i := range f.Servers {
+				if f.Servers[i].Name == "vis" {
+					f.Servers[i].Port = 23
+					f.Servers[i].HostKey = "SHA256:abc" // pin stays
+					return nil
+				}
+			}
+			return serverNotFound("vis")
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := h.Reload(); err != nil {
+			t.Fatal(err)
+		}
+		if err := decideExec(t, h, ExecRequest{Server: "vis", Command: "ls"}); err == nil {
+			t.Fatal("want a denial")
+		}
+		if g := grantOf(h, "vis"); g != nil {
+			t.Fatal("grant survived a port change")
+		}
+		_, recs := readAudit(t, path)
+		if !hasAutoAllowOff(recs, "server changed") {
+			t.Fatalf("no autoAllowOff/server changed: %v", recs)
+		}
+	})
+
+	t.Run("auth changed", func(t *testing.T) {
+		h, path := newHub(t, &fakeExec{})
+		if err := h.SetAutoAllow("vis", "15m"); err != nil {
+			t.Fatal(err)
+		}
+		if err := config.Update(path, testMK, func(f *config.File) error {
+			var kept []config.Server
+			for _, s := range f.Servers {
+				if s.Name != "vis" {
+					kept = append(kept, s)
+				}
+			}
+			kept = append(kept, config.Server{Name: "vis", Host: "h", Port: 22, User: "u", Auth: "password", HostKey: "SHA256:abc", AIVisible: true})
+			f.Servers = kept
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := h.Reload(); err != nil {
+			t.Fatal(err)
+		}
+		if err := decideExec(t, h, ExecRequest{Server: "vis", Command: "ls"}); err == nil {
+			t.Fatal("want a denial")
+		}
+		if g := grantOf(h, "vis"); g != nil {
+			t.Fatal("grant survived an auth change")
+		}
+		_, recs := readAudit(t, path)
+		if !hasAutoAllowOff(recs, "server changed") {
+			t.Fatalf("no autoAllowOff/server changed: %v", recs)
+		}
+	})
+
+	t.Run("su password added", func(t *testing.T) {
+		h, path := newHub(t, &fakeExec{})
+		if err := h.SetAutoAllow("vis", "15m"); err != nil {
+			t.Fatal(err)
+		}
+		// A real, decryptable ciphertext: a garbage one would fail Exec's own
+		// resolve before the auto path is ever reached, at the top of Exec.
+		if err := config.Update(path, testMK, func(f *config.File) error {
+			for i := range f.Servers {
+				if f.Servers[i].Name == "vis" {
+					enc, err := config.Encrypt(testMK, "vis/encSuPassword", config.AADFor(f, f.Servers[i], "encSuPassword"), "su-pw")
+					if err != nil {
+						return err
+					}
+					f.Servers[i].EncSuPassword = enc
+					return nil
+				}
+			}
+			return serverNotFound("vis")
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := h.Reload(); err != nil {
+			t.Fatal(err)
+		}
+		if err := decideExec(t, h, ExecRequest{Server: "vis", Command: "ls"}); err == nil {
+			t.Fatal("want a denial")
+		}
+		if g := grantOf(h, "vis"); g != nil {
+			t.Fatal("grant survived an su password being added")
+		}
+		_, recs := readAudit(t, path)
+		if !hasAutoAllowOff(recs, "server changed") {
+			t.Fatalf("no autoAllowOff/server changed: %v", recs)
+		}
+	})
+}
+
+func TestAutoExecForeverFlagClearedOutside(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.Update(path, testMK, func(f *config.File) error {
+		for i := range f.Servers {
+			if f.Servers[i].Name == "vis" {
+				f.Servers[i].AutoAllow = false
+				return nil
+			}
+		}
+		return serverNotFound("vis")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Reload(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := decideExec(t, h, ExecRequest{Server: "vis", Command: "ls"}); err == nil {
+		t.Fatal("want a denial")
+	}
+	if g := grantOf(h, "vis"); g != nil {
+		t.Fatal("grant survived the flag being cleared outside")
+	}
+	_, recs := readAudit(t, path)
+	if !hasAutoAllowOff(recs, "server changed") {
+		t.Fatalf("no autoAllowOff/server changed: %v", recs)
+	}
+}
+
+func TestAutoExecCap(t *testing.T) {
+	be := newBlockExec()
+	h, _ := newHub(t, be)
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		go h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
+	}
+	waitInflight(t, h, "vis", 2)
+
+	if err := decideExec(t, h, ExecRequest{Server: "vis", Command: "ls"}); err == nil {
+		t.Fatal("want the over-cap request to go to approval and be denied")
+	}
+
+	close(be.release)
+	waitFor(t, "grant to drain", func() bool {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		g := h.grants["vis"]
+		return g == nil || len(g.inflight) == 0
+	})
+}
+
+func TestAutoExecCancelledOnLock(t *testing.T) {
+	be := newBlockExec()
+	h, path := newHub(t, be)
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	errc := make(chan error, 1)
+	go func() {
+		_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
+		errc <- err
+	}()
+	waitInflight(t, h, "vis", 1)
+
+	h.Lock()
+	err := <-errc
+	if !errors.Is(err, ErrCancelledRunning) {
+		t.Fatalf("err = %v, want ErrCancelledRunning", err)
+	}
+	_, recs := readAudit(t, path)
+	last := recs[len(recs)-1]
+	if last["outcome"] != "cancelled_running" || last["approval"] != "auto" {
+		t.Fatalf("audit: %v", last)
+	}
+}
+
+func TestAutoExecErrorKeepsApproval(t *testing.T) {
+	fe := &fakeExec{err: errors.New("boom")}
+	h, path := newHub(t, fe)
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	calls := make(chan map[string]any, 1)
+	release := h.setAutoSink(func(method string, params any) {
+		if method == "autoAllow.ran" {
+			calls <- params.(map[string]any)
+		}
+	})
+	defer release()
+
+	_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	_, recs := readAudit(t, path)
+	last := recs[len(recs)-1]
+	if last["outcome"] != "error" || last["approval"] != "auto" {
+		t.Fatalf("audit: %v", last)
+	}
+	select {
+	case p := <-calls:
+		if p["error"] != err.Error() {
+			t.Fatalf("notification error = %v, want %q", p["error"], err.Error())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("autoAllow.ran not sent")
+	}
+	if grantOf(h, "vis") == nil {
+		t.Fatal("grant ended after a run-time error")
+	}
+}
+
+func TestAutoRunsDoNotHoldIdleLock(t *testing.T) {
+	be := newBlockExec()
+	h, _ := newHub(t, be)
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	errc := make(chan error, 1)
+	go func() {
+		_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
+		errc <- err
+	}()
+	waitInflight(t, h, "vis", 1)
+
+	h.mu.Lock()
+	h.lastActivity = time.Now().Add(-time.Hour)
+	h.mu.Unlock()
+	h.lockIfIdle(time.Minute)
+	if !h.Locked() {
+		t.Fatal("idle lock did not fire during a forever auto run")
+	}
+	if err := <-errc; !errors.Is(err, ErrCancelledRunning) {
+		t.Fatalf("err = %v, want ErrCancelledRunning", err)
+	}
+}
+
+func TestTimedGrantHoldsIdleLock(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	h.lastActivity = time.Now().Add(-time.Hour)
+	h.mu.Unlock()
+	h.lockIfIdle(time.Minute)
+	if h.Locked() {
+		t.Fatal("idle lock fired despite a timed grant before its deadline")
+	}
+
+	h.mu.Lock()
+	h.grants["vis"].until = time.Now().Add(-time.Second)
+	h.mu.Unlock()
+	h.lockIfIdle(time.Minute)
+	if !h.Locked() {
+		t.Fatal("idle lock did not fire once the grant passed its deadline")
+	}
+}
+
+func TestSweepGrantsCancelsAtDeadline(t *testing.T) {
+	be := newBlockExec()
+	h, path := newHub(t, be)
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	errc := make(chan error, 1)
+	go func() {
+		_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
+		errc <- err
+	}()
+	waitInflight(t, h, "vis", 1)
+
+	h.mu.Lock()
+	h.grants["vis"].until = time.Now().Add(-time.Second)
+	h.mu.Unlock()
+	h.sweepGrants(time.Now())
+
+	if err := <-errc; !errors.Is(err, ErrCancelledRunning) {
+		t.Fatalf("err = %v, want ErrCancelledRunning", err)
+	}
+	if g := grantOf(h, "vis"); g != nil {
+		t.Fatal("grant survived sweepGrants")
+	}
+	_, recs := readAudit(t, path)
+	if !hasAutoAllowOff(recs, "expired") {
+		t.Fatalf("no autoAllowOff/expired: %v", recs)
+	}
+}
+
+func TestAutoCommandCut(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	calls := make(chan map[string]any, 1)
+	release := h.setAutoSink(func(method string, params any) {
+		if method == "autoAllow.ran" {
+			calls <- params.(map[string]any)
+		}
+	})
+	defer release()
+
+	cmd := "echo " + strings.Repeat("a", 4995) // 5000 bytes total
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: cmd}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case p := <-calls:
+		shown, _ := p["command"].(string)
+		if len(shown) > 1000 {
+			t.Fatalf("command not cut: %d bytes", len(shown))
+		}
+		if !utf8.ValidString(shown) {
+			t.Fatal("cut command is not valid UTF-8")
+		}
+		if p["truncated"] != len(cmd)-len(shown) {
+			t.Fatalf("truncated = %v, want %d", p["truncated"], len(cmd)-len(shown))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("autoAllow.ran not sent")
+	}
+
+	// A multi-byte rune whose second byte would land exactly at the cut
+	// point (byte 1000) must not be split.
+	cmd2 := "echo " + strings.Repeat("a", 994) + "é" + strings.Repeat("a", 4000)
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: cmd2}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case p := <-calls:
+		shown, _ := p["command"].(string)
+		if len(shown) > 1000 {
+			t.Fatalf("command not cut: %d bytes", len(shown))
+		}
+		if !utf8.ValidString(shown) {
+			t.Fatalf("cut command is not valid UTF-8: %q", shown)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("autoAllow.ran not sent")
+	}
+}
+
+// TestCLIModeNeverArms covers the constraint that a reload, or the hub
+// simply loading a store whose AutoAllow flag is already true, never arms a
+// grant: only SetAutoAllow does.
+func TestCLIModeNeverArms(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "servers.json")
+	f := &config.File{Version: 1, Servers: []config.Server{
+		{Name: "vis", Host: "h", Port: 22, User: "u", Auth: "agent", HostKey: "SHA256:abc", AIVisible: true, AutoAllow: true},
+	}}
+	var mk []byte
+	f.KDF, mk = testVault(t)
+	if err := config.Save(path, f, mk); err != nil {
+		t.Fatal(err)
+	}
+	audit, err := broker.OpenAudit(filepath.Join(dir, "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { audit.Close() })
+	fe := &fakeExec{}
+	h, err := New(Options{StorePath: path, Audit: audit, ApprovalExpiry: time.Minute,
+		Dialer: func(sshx.DialConfig) Executor { return fe }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unlockForTest(h)
+
+	if err := decideExec(t, h, ExecRequest{Server: "vis", Command: "ls"}); err == nil {
+		t.Fatal("want a denial; the hub must never arm from the stored flag")
 	}
 }

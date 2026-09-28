@@ -128,9 +128,7 @@ func New(o Options) (*Hub, error) {
 	if idle == 0 {
 		idle = defaultIdleLock
 	}
-	if idle > 0 {
-		go h.idleLoop(idle)
-	}
+	go h.idleLoop(idle)
 	return h, nil
 }
 
@@ -505,6 +503,13 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 	req := broker.Request{Client: r.Client, Server: r.Server, Target: target(dc), Command: cmd, Description: r.Description, Sudo: r.Sudo, TimeoutSec: timeout}
 	base := broker.AuditRecord{Time: time.Now(), Client: r.Client, Server: r.Server, Command: red.Redact(cmd), Description: red.Redact(r.Description), Sudo: r.Sudo, TimeoutSec: timeout}
 
+	if !r.Sudo {
+		if ar := h.autoStart(ctx, r.Server); ar != nil {
+			defer ar.done()
+			return h.autoExec(ar, r, cmd, timeout, base)
+		}
+	}
+
 	submitted := time.Now()
 	d, err := h.broker.Submit(ctx, req)
 	if err != nil {
@@ -558,13 +563,21 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 	// Secrets may have changed on a reload during the wait; mask both sets.
 	red = redactorFor(dc, dc2)
 	base.Command, base.Description = red.Redact(cmd), red.Redact(r.Description)
-	ex := h.executor(r.Server, dc2)
+	return h.run(ctx, r.Server, dc2, cmd, r.Sudo, timeout, base, red)
+}
+
+// run executes cmd on name with dc, audits base (Outcome, exit code, sizes,
+// reason), and returns what the AI sees. It is the tail of both the approved
+// and the auto-allowed path.
+func (h *Hub) run(ctx context.Context, name string, dc sshx.DialConfig, cmd string, sudo bool, timeout int, base broker.AuditRecord, red *config.Redactor) (ExecResponse, error) {
+	ex := h.executor(name, dc)
 
 	runCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 	start := time.Now()
 	var res sshx.ExecResult
-	if r.Sudo {
+	var err error
+	if sudo {
 		res, err = ex.ExecSudo(runCtx, cmd)
 	} else {
 		res, err = ex.Exec(runCtx, cmd)
@@ -580,7 +593,7 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 		}
 		base.Outcome = "error"
 		h.record(base)
-		fmt.Fprintf(os.Stderr, "hub: exec on %q: %s\n", r.Server, base.Reason)
+		fmt.Fprintf(os.Stderr, "hub: exec on %q: %s\n", name, base.Reason)
 		if aiErr := forAI(err); aiErr != err {
 			return ExecResponse{}, aiErr
 		}

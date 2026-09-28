@@ -65,12 +65,12 @@ func unlockForTest(h *Hub) {
 // newHub writes an unlocked vault (master password "pw", key testMK) with
 // agent-auth servers: "vis" (AIVisible, pinned host key), "nokey"
 // (AIVisible, no pin) and "hid" (hidden).
-func newHub(t *testing.T, fe *fakeExec) (*Hub, string) {
+func newHub(t *testing.T, fe Executor) (*Hub, string) {
 	t.Helper()
 	return newHubExpiry(t, fe, 200*time.Millisecond)
 }
 
-func newHubExpiry(t *testing.T, fe *fakeExec, expiry time.Duration) (*Hub, string) {
+func newHubExpiry(t *testing.T, fe Executor, expiry time.Duration) (*Hub, string) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "servers.json")
