@@ -22,6 +22,8 @@ func route(args []string) (string, []string) {
 			return "web", args[1:]
 		case "hub":
 			return "hub", args[1:]
+		case "version", "--version":
+			return "version", nil
 		}
 	}
 	return "mcp", args
@@ -80,6 +82,8 @@ func main() {
 		err = fmt.Errorf("sshgate web was removed; manage hosts in the desktop app")
 	case "hub":
 		err = runHub(rest)
+	case "version":
+		fmt.Println("sshgate", mcpserver.Version)
 	default:
 		err = runMCP(rest)
 	}

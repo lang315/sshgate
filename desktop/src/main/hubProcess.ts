@@ -1,7 +1,35 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { EventEmitter } from 'node:events'
+import * as path from 'node:path'
 import * as readline from 'node:readline'
 import { PROTOCOL_VERSION, type HubState } from '../shared/protocol'
+
+// What main spawns as the hub. The binary is the one next to the app dir (the
+// repo-root build beside desktop/ when unpackaged, Contents/Resources/sshgate
+// in the packaged bundle), else sshgate on PATH. SSHGATE_* are dev/test knobs
+// and apply only to an unpackaged run: in the installed app whoever sets the
+// environment could otherwise swap the hub (which then receives the master
+// password on unlock), point it at another vault, or stretch the idle lock.
+// The hub's own knobs (SSHGATE_RUNTIME_DIR) are dropped from its env too.
+// main passes packaged = app.isPackaged || !process.defaultApp: our bundle
+// keeps Electron's executable name, so isPackaged is false there, while
+// defaultApp is true only for `electron <app dir>` (npm start, e2e).
+// ponytail: a same-user process can still run `electron <bundle's app dir>`
+// with the knobs; closing that is slice 5 (see ROADMAP).
+export function hubLaunch(o: {
+  env: NodeJS.ProcessEnv; packaged: boolean; appPath: string; platform: NodeJS.Platform; exists: (p: string) => boolean
+}): { command: string; args: string[]; env: NodeJS.ProcessEnv } {
+  const knobs: NodeJS.ProcessEnv = o.packaged ? {} : o.env
+  const env = o.packaged ? Object.fromEntries(Object.entries(o.env).filter(([k]) => !k.startsWith('SSHGATE_'))) : o.env
+  const exe = o.platform === 'win32' ? 'sshgate.exe' : 'sshgate'
+  const local = path.join(o.appPath, '..', exe)
+  const args = ['hub']
+  if (knobs.SSHGATE_STORE) args.push(`--store=${knobs.SSHGATE_STORE}`)
+  if (knobs.SSHGATE_SSH_CONFIG) args.push(`--sshConfig=${knobs.SSHGATE_SSH_CONFIG}`)
+  // A Go duration such as 3s (the hub rejects anything under 1s).
+  if (knobs.SSHGATE_IDLE_LOCK) args.push(`--idleLock=${knobs.SSHGATE_IDLE_LOCK}`)
+  return { command: knobs.SSHGATE_BIN || (o.exists(local) ? local : exe), args, env }
+}
 
 export interface HubProcessOptions {
   command: string

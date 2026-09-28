@@ -64,7 +64,7 @@ func hubCallErr(err error) *mcp.CallToolResult {
 // secrets; the hub is the single policy point. Each tool call dials fresh,
 // so the bridge itself is stateless.
 func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "sshgate", Version: "3.0.0"}, nil)
+	s := mcp.NewServer(&mcp.Implementation{Name: "sshgate", Version: Version}, nil)
 
 	withHub := func(ctx context.Context, fn func(c *rpc.Client) (*mcp.CallToolResult, error)) (*mcp.CallToolResult, error) {
 		conn, err := dial(ctx)
