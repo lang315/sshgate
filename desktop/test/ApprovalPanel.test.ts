@@ -83,7 +83,7 @@ describe('ApprovalPanel', () => {
       items: [], seedError: undefined,
       onDecide: async () => {}, onDenyAll: async () => {}, onSendToTab: async () => {},
       onClose: () => {}, onEscape: () => {},
-      autoFeed: [], autoN: 0, paused: [], onStopAll: () => {}, onResume: () => {},
+      autoFeed: [], autoN: 0, paused: [], onStopAll: () => {}, onStopPaused: () => {}, onResume: () => {},
     }))
     expect(html).toContain('autofeed')
     expect(divContents(html, /<div class="approvals-scroll"[^>]*>/)).not.toContain('autofeed')

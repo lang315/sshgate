@@ -5,7 +5,7 @@ import { commandLabel } from './autoallow'
 import { AutoAllowPaused } from './AutoAllowPaused'
 import { CloseIcon, WarningIcon } from './icons'
 
-export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToTab, onClose, onEscape, autoFeed, autoN, paused, onStopAll, onResume }: {
+export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToTab, onClose, onEscape, autoFeed, autoN, paused, onStopAll, onStopPaused, onResume }: {
   items: PendingItem[]
   seedError?: string
   onDecide: (id: string, outcome: 'allowed' | 'denied', reason: string) => Promise<void>
@@ -13,7 +13,7 @@ export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToT
   onSendToTab: (item: PendingItem) => Promise<void>
   onClose: () => void
   onEscape: () => void
-  autoFeed: AutoAllowRan[]; autoN: number; paused: string[]; onStopAll: () => void; onResume: () => void
+  autoFeed: AutoAllowRan[]; autoN: number; paused: string[]; onStopAll: () => void; onStopPaused: () => void; onResume: () => void
 }) {
   const [now, setNow] = useState(Date.now())
   const [denyAllError, setDenyAllError] = useState<string>()
@@ -74,7 +74,7 @@ export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToT
           {/* Always rendered so nothing shifts, like Deny all. */}
           <button type="button" className="btn danger-outline" onClick={onStopAll} disabled={autoN === 0}>Stop all auto-allow</button>
         </div>
-        <AutoAllowPaused hosts={paused} onResume={onResume} onStop={onStopAll} />
+        <AutoAllowPaused hosts={paused} onResume={onResume} onStop={onStopPaused} />
         {autoFeed.length === 0 ? <p className="muted empty">Nothing ran on auto-allow.</p> : (
           <ul>{autoFeed.map((r, i) => (
             <li key={`${r.time}-${i}`} className="autorun">

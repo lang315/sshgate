@@ -23,12 +23,13 @@ export function AutoAllowDialog({ server, remoteTunnels, check, onEnable, onCanc
   // during render, like ApprovalPanel's ListChanges, not in a useEffect: an
   // effect runs after paint, so the check() resolving would leave one painted
   // frame where the buttons already shifted but Enable was still enabled.
-  const changeKey = dialogChangeKey(mode, checked)
+  const changeKey = dialogChangeKey(mode, checked, error, remoteTunnels)
   const changes = useRef<ListChanges>(null)
   changes.current ??= new ListChanges(changeKey, openedAt)
   changes.current.setKey(changeKey, Date.now())
   const changedAt = changes.current.at
   const root = checked !== undefined && checked !== 'error' && (checked.uid === 0 || checked.passwordlessSudo)
+  const endsAt = new Date(now + (AUTO_MODES.find((m) => m.mode === mode)?.ms ?? 0)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   const ok = enableAllowed({ mode, typed, host: server.name, refused, openedAt, changedAt, now })
   const enable = () => { if (ok) onEnable(mode).catch((e) => setError((e as Error).message)) }
   return (
@@ -56,7 +57,7 @@ export function AutoAllowDialog({ server, remoteTunnels, check, onEnable, onCanc
             </fieldset>
             <p className="muted">{mode === 'forever'
               ? 'Stays set after restart. After each unlock it waits for you to click Resume.'
-              : 'Ends at its time, when you stop it, or when you lock the vault. The vault will not auto-lock before then.'}</p>
+              : `Ends at ${endsAt}, when you stop it, or when you lock the vault. The vault will not auto-lock before then.`}</p>
             {mode === 'forever' && (
               <label className="field">{`Type ${server.name} to confirm`}<input value={typed} onChange={(e) => setTyped(e.target.value)} /></label>
             )}

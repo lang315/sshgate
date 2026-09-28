@@ -93,7 +93,7 @@ Closing the window quits the app and stops the hub. There is no Reload; if the r
 
 ## Safety model
 
-- A human decides every AI command by default. The one exception is a host put on auto-allow: a grant is not a privilege boundary, and anything it leaves running (cron jobs, SSH keys, shell startup files) outlives the grant.
+- A human decides every AI command by default. The one exception is a host put on auto-allow: a grant is not a privilege boundary, and anything it leaves running (cron jobs, SSH keys, shell startup files) outlives the grant. If sudoers keeps a global timestamp (`timestamp_type=global`, or an old sudo with `!tty_tickets`), a human running sudo in a terminal lets auto runs use `sudo -n` as root for that ticket's lifetime; sshgate cannot see this. A `sudo` function planted during a grant can capture a password the human types in a terminal on that host.
 - The AI sees only servers marked **Visible to AI**, and only while the vault is unlocked.
 - Every connection from the hub verifies a pinned host key. The hub never learns a key on its own; you pin it by clicking **Trust** after seeing the fingerprint.
 - An approval is bound to the `user@host:port` and key you saw. If the server is edited while a request waits, the request fails with "server changed".

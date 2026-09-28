@@ -71,7 +71,13 @@ test('forever auto-allow pauses after unlock until Resume', async () => {
 
   await win.waitForTimeout(600)
   await win.getByRole('button', { name: 'Resume' }).first().click()
+  // Resume's setAutoAllow round trip must land before exec reaches the hub,
+  // or the grant isn't armed yet and the request waits the full 30 s for a
+  // click that never comes.
+  await expect(win.locator('.hostcard .chip.auto')).toHaveText('Auto ∞')
   const out = await exec('f2', 'echo resumed')
   expect(JSON.stringify(out)).toContain('echo resumed')
   await win.getByRole('button', { name: 'Stop auto-allow box', exact: true }).click()
+  // Let the off round trip land before the test (and afterAll) tears the app down.
+  await expect(win.locator('.hostcard .chip.auto')).toHaveCount(0)
 })

@@ -1,6 +1,51 @@
-import { describe, expect, it } from 'vitest'
-import type { AutoAllowRan, ServerInfo } from '../src/shared/protocol'
-import { applyOff, autoHosts, chipLabel, commandLabel, dropOnLock, enableAllowed, FEED_CAP, isActive, pausedHosts, pushFeed } from '../src/renderer/autoallow'
+import { describe, expect, it, vi } from 'vitest'
+import type { AutoAllowRan, HubEvent, ServerInfo } from '../src/shared/protocol'
+import { applyOff, autoHosts, chipLabel, commandLabel, dropOnLock, enableAllowed, FEED_CAP, handleAutoEvent, isActive, pausedHosts, pushFeed } from '../src/renderer/autoallow'
+
+// The renderer must never call the hub in response to autoAllow.ran or
+// autoAllow.off (the idle-lock rule: every call but status counts as UI
+// activity). Mocking transport so every hub method throws makes App's event
+// dispatch for these two methods fail loudly if it ever reaches into hub
+// instead of routing through handleAutoEvent.
+vi.mock('../src/renderer/transport', () => ({
+  hub: new Proxy({}, { get: () => { throw new Error('handleAutoEvent must never call the hub') } }),
+}))
+
+describe('handleAutoEvent', () => {
+  it('applies autoAllow.off via applyOff and touches only setServers', () => {
+    const servers: ServerInfo[] = [{ name: 'a', autoAllow: { forever: true } } as ServerInfo]
+    let updated: ServerInfo[] | undefined
+    const setServers = vi.fn((fn: (cur: ServerInfo[]) => ServerInfo[]) => { updated = fn(servers) })
+    const setAutoFeed = vi.fn()
+    const e: HubEvent = { method: 'autoAllow.off', params: { server: 'a', reason: 'turned off' } }
+    expect(() => handleAutoEvent(e, setServers, setAutoFeed)).not.toThrow()
+    expect(setServers).toHaveBeenCalledTimes(1)
+    expect(setAutoFeed).not.toHaveBeenCalled()
+    expect(updated).toEqual(applyOff(servers, 'a'))
+  })
+
+  it('pushes autoAllow.ran onto the feed via pushFeed and touches only setAutoFeed', () => {
+    const feed: AutoAllowRan[] = []
+    let updated: AutoAllowRan[] | undefined
+    const setAutoFeed = vi.fn((fn: (f: AutoAllowRan[]) => AutoAllowRan[]) => { updated = fn(feed) })
+    const setServers = vi.fn()
+    const ran: AutoAllowRan = { server: 'a', command: 'ls', description: '', exitCode: 0, time: new Date(now).toISOString() }
+    const e: HubEvent = { method: 'autoAllow.ran', params: ran }
+    expect(() => handleAutoEvent(e, setServers, setAutoFeed)).not.toThrow()
+    expect(setAutoFeed).toHaveBeenCalledTimes(1)
+    expect(setServers).not.toHaveBeenCalled()
+    expect(updated).toEqual(pushFeed(feed, ran))
+  })
+
+  it('ignores every other event', () => {
+    const setServers = vi.fn()
+    const setAutoFeed = vi.fn()
+    handleAutoEvent({ method: 'pending', params: { request: {} } } as unknown as HubEvent, setServers, setAutoFeed)
+    handleAutoEvent({ method: 'locked', params: { reason: 'idle' } } as HubEvent, setServers, setAutoFeed)
+    expect(setServers).not.toHaveBeenCalled()
+    expect(setAutoFeed).not.toHaveBeenCalled()
+  })
+})
 
 const now = Date.parse('2026-09-28T10:00:00Z')
 const at = (min: number) => new Date(now + min * 60_000).toISOString()

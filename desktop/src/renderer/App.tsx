@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AutoAllowMode, AutoAllowRan, HostKeyMismatch, HubState, ServerInfo, Status, TunnelState, TunnelView } from '../shared/protocol'
 import { hub } from './transport'
 import { applyState, replayStates, summary } from './tunnels'
-import { applyOff, autoHosts, dropOnLock, pausedHosts, pushFeed } from './autoallow'
+import { autoHosts, dropOnLock, handleAutoEvent, pausedHosts } from './autoallow'
 import { AutoAllowDialog } from './AutoAllowDialog'
 import { screenFor } from './shell'
 import { Unlock } from './Unlock'
@@ -69,8 +69,7 @@ export function App() {
       // The MCP door reloads the vault file on every AI call: re-read status
       // so a refused reload shows its banner before the user decides.
       if (e.method === 'pending') refresh()
-      if (e.method === 'autoAllow.off') setServers((cur) => applyOff(cur, e.params.server))
-      if (e.method === 'autoAllow.ran') setAutoFeed((f) => pushFeed(f, e.params))
+      handleAutoEvent(e, setServers, setAutoFeed)
     })
     return () => { offState(); offEvent() }
   }, [refresh])
@@ -183,6 +182,7 @@ export function App() {
   }
   const resumeAll = () => setAllAuto(pausedHosts(servers), 'forever', 'resume')
   const stopAll = () => setAllAuto([...autoHosts(servers, now)], 'off', 'stop')
+  const stopPaused = () => setAllAuto(pausedHosts(servers), 'off', 'stop')
 
   const ready = screen.kind === 'ready'
   useEffect(() => { if (ready) setEverReady(true) }, [ready])
@@ -211,7 +211,7 @@ export function App() {
       onDelete={deleteHost}
       onImport={() => { setEditing(undefined); setImporting(true) }}
       onAutoAllow={setAutoDialog} onStopAutoAllow={stopAuto}
-      paused={pausedHosts(servers)} onResume={resumeAll} onStopPaused={stopAll} />
+      paused={pausedHosts(servers)} onResume={resumeAll} onStopPaused={stopPaused} />
   )
   const autoServer = autoDialog ? servers.find((s) => s.name === autoDialog) : undefined
 
@@ -258,7 +258,7 @@ export function App() {
               }}
               onClose={() => { setAiOpen(false); terms.current?.focusActive() }}
               onEscape={() => terms.current?.focusActive()}
-              autoFeed={autoFeed} autoN={autoN} paused={pausedHosts(servers)} onStopAll={stopAll} onResume={resumeAll} />
+              autoFeed={autoFeed} autoN={autoN} paused={pausedHosts(servers)} onStopAll={stopAll} onStopPaused={stopPaused} onResume={resumeAll} />
           )}
         </div>
       )}

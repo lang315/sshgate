@@ -43,7 +43,7 @@ export function HostList({ servers, storePath, tunnels, now, onOpen, onFiles, on
                     {s.aiVisible && <span className="chip ai">AI</span>}
                     {!s.hostKey && <span className="chip wait">New key</span>}
                     {runningCount(tunnels, s.name) > 0 && <span className="chip tunnels" title="Running tunnels">{`${runningCount(tunnels, s.name)} ⇄`}</span>}
-                    {chipLabel(s.autoAllow, now) && <span className="chip auto">{chipLabel(s.autoAllow, now)}</span>}
+                    {chipLabel(s.autoAllow, now) && <span className="chip auto" aria-hidden="true">{chipLabel(s.autoAllow, now)}</span>}
                   </span>
                   <span className="hostcard-addr mono">{`${s.user}@${s.host}:${s.port}`}</span>
                 </span>

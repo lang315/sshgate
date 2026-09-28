@@ -92,7 +92,7 @@ Then:
 
 1. If the request is `sudoExec`, or there is no grant, go to approval as today.
 2. If the grant is timed and `now >= until`: end it (reason `expired`) and go to approval.
-3. Resolve the server now and compare `target`, `hostKey`, `hostKeyAlgo`, `auth` with `snap`; also re-check condition 4. Any mismatch: end the grant (reason `server changed`) and go to approval. This catches every way the server can change (a save, a reload after an outside write, delete and re-create under the same name, a new su password), so the "turning off" list below is a convenience, not the safeguard.
+3. Resolve the server now and compare `target`, `hostKey`, `hostKeyAlgo`, `auth` with `snap`; also re-check condition 4. Any mismatch: end the grant (reason `server changed`) and go to approval. `snap` catches every change to those fields, however it happened — a reload after an outside write, delete and re-create under the same name, a new su or sudo password — even without a `servers.save`. It does not cover `KeyPath` or a changed secret (e.g. a new key passphrase): those are caught only because every `servers.save`, `delete`, and `forgetHostKey` ends the grant anyway (see "Turning off"), not by `snap` itself.
 4. If the grant already has 2 runs in flight, go to approval. Why: skipping the broker skips its cap of 5 pending; unbounded parallel channels on the shared client would exhaust sshd's `MaxSessions` and lock the human out of a terminal on that host.
 5. Register the run's cancel func in `grant.inflight` and run it with the `DialConfig` resolved in step 3 (no second resolve: there was no wait to re-check across).
 
@@ -172,7 +172,7 @@ A reload never arms a grant. Only `servers.setAutoAllow` does.
 - Auto runs cannot hold off the idle lock; only a human-set deadline can, and only until that deadline.
 - At most 2 auto runs in flight per host; the rest wait for a human.
 - Every grant change and every auto run is audited; the feed and the host-card chip make an active grant visible from every tab.
-- Honest limit: during a grant the AI can do anything the account can, including persistence (`authorized_keys`, cron, `systemd --user`, shell startup files) that outlives the grant. The dialog says so; stopping the grant does not undo it.
+- Honest limit: during a grant the AI can do anything the account can, including persistence (`authorized_keys`, cron, `systemd --user`, shell startup files) that outlives the grant. The dialog says so; stopping the grant does not undo it. If sudoers keeps a global timestamp (`timestamp_type=global`, or an old sudo with `!tty_tickets`), a human running sudo in a terminal lets auto runs use `sudo -n` as root for that ticket's lifetime; the check cannot see this. A `sudo` function planted during a grant can capture a password the human types in a terminal on that host.
 
 ## Testing
 

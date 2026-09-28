@@ -1,12 +1,14 @@
-import type { AutoAllowCheck, AutoAllowMode, AutoAllowRan, AutoAllowState, ServerInfo } from '../shared/protocol'
+import type { AutoAllowCheck, AutoAllowMode, AutoAllowRan, AutoAllowState, HubEvent, ServerInfo } from '../shared/protocol'
 import { ALLOW_DELAY_MS } from './approvals'
 
 // Per-host auto-allow (spec 2026-09-28-auto-allow-design.md). Everything here
 // is pure: the renderer never asks the hub on a timer or on an auto-allow event.
 
-export const AUTO_MODES: { mode: Exclude<AutoAllowMode, 'off'>; label: string }[] = [
-  { mode: '15m', label: '15 min' }, { mode: '30m', label: '30 min' }, { mode: '60m', label: '60 min' },
-  { mode: '2h', label: '2 h' }, { mode: '4h', label: '4 h' }, { mode: 'forever', label: 'Until turned off' },
+// ms is the grant's duration, for the dialog's "Ends at <time>" copy; forever has none.
+export const AUTO_MODES: { mode: Exclude<AutoAllowMode, 'off'>; label: string; ms?: number }[] = [
+  { mode: '15m', label: '15 min', ms: 15 * 60_000 }, { mode: '30m', label: '30 min', ms: 30 * 60_000 },
+  { mode: '60m', label: '60 min', ms: 60 * 60_000 }, { mode: '2h', label: '2 h', ms: 2 * 60 * 60_000 },
+  { mode: '4h', label: '4 h', ms: 4 * 60 * 60_000 }, { mode: 'forever', label: 'Until turned off' },
 ]
 
 const left = (a: AutoAllowState | undefined, now: number) => (a?.until ? Date.parse(a.until) - now : 0)
@@ -36,6 +38,15 @@ export const dropOnLock = (servers: ServerInfo[]): ServerInfo[] =>
 export const applyOff = (servers: ServerInfo[], server: string): ServerInfo[] =>
   servers.map((s) => (s.name === server ? { ...s, autoAllow: undefined } : s))
 
+// handleAutoEvent applies autoAllow.off/autoAllow.ran to renderer state and
+// nothing else: it never calls the hub. Every call but status counts as UI
+// activity and would hold off the idle lock, so App's event dispatch must
+// route these two notifications through here rather than the hub.
+export function handleAutoEvent(e: HubEvent, setServers: (fn: (cur: ServerInfo[]) => ServerInfo[]) => void, setAutoFeed: (fn: (feed: AutoAllowRan[]) => AutoAllowRan[]) => void): void {
+  if (e.method === 'autoAllow.off') setServers((cur) => applyOff(cur, e.params.server))
+  if (e.method === 'autoAllow.ran') setAutoFeed((f) => pushFeed(f, e.params))
+}
+
 export const FEED_CAP = 50
 export const pushFeed = (feed: AutoAllowRan[], r: AutoAllowRan) => [r, ...feed].slice(0, FEED_CAP)
 
@@ -49,9 +60,10 @@ export function enableAllowed(o: { mode: Exclude<AutoAllowMode, 'off'>; typed: s
   return o.now - Math.max(o.openedAt, o.changedAt) >= ALLOW_DELAY_MS
 }
 
-// AutoAllowDialog's ListChanges key: the mode or the root-access check result
-// changing (root access revealed, or the check failing) shifts the buttons and
-// must restart the Enable delay. Excludes `typed`, so confirming "forever" by
-// typing the host name doesn't itself restart the wait.
-export const dialogChangeKey = (mode: Exclude<AutoAllowMode, 'off'>, checked: AutoAllowCheck | 'error' | undefined): string =>
-  `${mode}|${checked === undefined ? 'pending' : checked === 'error' ? 'error' : `${checked.uid}:${checked.passwordlessSudo}`}`
+// AutoAllowDialog's ListChanges key: anything that shifts the buttons must
+// restart the Enable delay — the mode, the root-access check result (root
+// access revealed, or the check failing), an enable error appearing, or the
+// remote-tunnels list. Excludes `typed`, so confirming "forever" by typing
+// the host name doesn't itself restart the wait.
+export const dialogChangeKey = (mode: Exclude<AutoAllowMode, 'off'>, checked: AutoAllowCheck | 'error' | undefined, error: string | undefined, remoteTunnels: string[]): string =>
+  JSON.stringify([mode, checked === undefined ? 'pending' : checked === 'error' ? 'error' : [checked.uid, checked.passwordlessSudo], error, remoteTunnels])
