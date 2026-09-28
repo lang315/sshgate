@@ -84,12 +84,16 @@ export function pruneSelection(names: Set<string>, entries: FileEntry[]): Set<st
 // Rename, Delete) must wait for this, not just for a listing to exist.
 export const actionsReady = (listing: unknown, loading: boolean) => !!listing && !loading
 
-// The automatic relist after a job ends in folder jobFolder. Skipped while any
-// load is in flight, and unless the folder shown is both the job's and the one the
-// user last asked for (a failed navigation leaves shown behind): it must never
-// supersede the user's own newer navigation.
-export const relistAfterJob = (jobFolder: string, shown: string, requested: string, loading: boolean) =>
-  !loading && jobFolder === shown && requested === shown
+// The automatic relist after a job ends in folder jobFolder: 'now' to relist
+// right away (nothing in flight, shown and requested are both the job's), 'after'
+// to relist once the in-flight load of that same folder settles (it may predate
+// the job's last change), or 'no' — a load of a different folder is in flight,
+// or the author has moved on. It must never supersede the user's own newer navigation.
+export const relistAfterJob = (jobFolder: string, shown: string, requested: string, loading: boolean): 'now' | 'after' | 'no' => {
+  if (!loading && jobFolder === shown && requested === shown) return 'now'
+  if (loading && requested === jobFolder) return 'after'
+  return 'no'
+}
 
 // What a job does when files.planned lands. A cancel sent while planning can reach
 // the hub before the job is registered and be lost, so it is sent again, and the

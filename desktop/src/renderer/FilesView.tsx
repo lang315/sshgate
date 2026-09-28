@@ -55,6 +55,7 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
   const requested = useRef('') // the folder the latest load() asked for (resolved once listed)
   const loadBusy = useRef(false) // the latest load() has not settled
   const loadGen = useRef(0) // bumped per load(); a resolving stale call is ignored
+  const relistPending = useRef<string | undefined>(undefined) // a job's folder, when its relist waits on the in-flight load
   const jobs = useRef(new Map<string, Job>()).current
   const offs = useRef(new Map<string, () => void>()).current
   const [, bump] = useReducer((n: number) => n + 1, 0)
@@ -104,7 +105,15 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
       if (gen !== loadGen.current) return undefined
       setListing(undefined); setError((e as Error).message)
       return false
-    } finally { if (gen === loadGen.current) { loadBusy.current = false; setLoading(false) } }
+    } finally {
+      if (gen === loadGen.current) {
+        loadBusy.current = false; setLoading(false)
+        if (relistPending.current !== undefined) {
+          const folder = relistPending.current; relistPending.current = undefined
+          if (folder === shown.current && folder === requested.current) void load(shown.current)
+        }
+      }
+    }
   }, [server, tab.id, hostKeys, onMismatch, onTrusted])
 
   // Lists once when the tab opens (the last folder, else home), then only on
@@ -126,7 +135,11 @@ export function FilesView({ tab, visible, events, hostKeys, onMismatch, onTruste
     if (!j || j.state === 'done') return
     offs.get(id)?.(); offs.delete(id)
     patch(id, { state: 'done', done, error })
-    if (done && j.op !== 'download' && relistAfterJob(j.folder, shown.current, requested.current, loadBusy.current)) void load(shown.current)
+    if (done && j.op !== 'download') {
+      const r = relistAfterJob(j.folder, shown.current, requested.current, loadBusy.current)
+      if (r === 'now') void load(shown.current)
+      else if (r === 'after') relistPending.current = j.folder
+    }
   }
 
   // Only moves this one job; the name dialog (if any) is untouched, and

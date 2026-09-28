@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyState, formFor, parseTunnelForm, runningCount, summary } from '../src/renderer/tunnels'
+import { applyState, formFor, parseTunnelForm, replayStates, runningCount, summary } from '../src/renderer/tunnels'
 import type { TunnelView } from '../src/shared/protocol'
 
 describe('summary', () => {
@@ -79,5 +79,15 @@ describe('state', () => {
   it('counts running per server', () => {
     expect(runningCount(list, 's')).toBe(1)
     expect(runningCount(list, 'u')).toBe(0)
+  })
+  it('replays buffered events onto a snapshot, newest per tunnel winning', () => {
+    const snapshot: TunnelView[] = [{ server: 's', id: 'a', kind: 'dynamic', listenPort: 1, status: 'stopped', conns: 0 }]
+    const next = replayStates(snapshot, [
+      { server: 's', id: 'a', status: 'running', conns: 0 },
+      { server: 's', id: 'a', status: 'running', conns: 2 },
+    ])
+    expect(next[0]).toMatchObject({ status: 'running', conns: 2 })
+    expect(replayStates(snapshot, [{ server: 'x', id: 'a', status: 'running', conns: 0 }])).toBe(snapshot)
+    expect(replayStates(snapshot, [])).toBe(snapshot)
   })
 })

@@ -49,3 +49,7 @@ export function applyState(list: TunnelView[], s: TunnelState): TunnelView[] {
 
 export const runningCount = (list: TunnelView[], server: string) =>
   list.filter((t) => t.server === server && t.status === 'running').length
+
+// Replays events buffered while a tunnels.list request was in flight onto its
+// reply, so a stale snapshot never overwrites a newer status.
+export const replayStates = (list: TunnelView[], events: TunnelState[]) => events.reduce(applyState, list)

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { HostKeyMismatch, HubState, ServerInfo, Status, TunnelView } from '../shared/protocol'
+import type { HostKeyMismatch, HubState, ServerInfo, Status, TunnelState, TunnelView } from '../shared/protocol'
 import { hub } from './transport'
-import { applyState } from './tunnels'
+import { applyState, replayStates } from './tunnels'
 import { screenFor } from './shell'
 import { Unlock } from './Unlock'
 import { CreateVault } from './CreateVault'
@@ -70,13 +70,27 @@ export function App() {
   // status counts as UI activity and would hold off the idle lock. status
   // follows, so a refused reload of the vault file shows as storeError.
   const reloadServers = useCallback(() => hub.servers().then(setServers).catch(() => setServers([])).finally(refresh), [refresh])
-  const reloadTunnels = useCallback(() => hub.tunnelsList().then(setTunnels).catch(() => {}), [])
+  // tunnels.state events can arrive while a tunnels.list request is in flight;
+  // each in-flight request buffers them and replays them onto its reply so an
+  // older snapshot never overwrites a newer status.
+  const tunnelBuffers = useRef(new Set<TunnelState[]>())
+  const reloadTunnels = useCallback(async () => {
+    const buf: TunnelState[] = []
+    tunnelBuffers.current.add(buf)
+    try { setTunnels(replayStates(await hub.tunnelsList(), buf)) }
+    catch { /* keep the current list */ }
+    finally { tunnelBuffers.current.delete(buf) }
+  }, [])
   useEffect(() => {
-    if (screen.kind === 'ready' || screen.kind === 'create-vault') { reloadServers(); reloadTunnels() }
+    if (screen.kind === 'ready' || screen.kind === 'create-vault') { reloadServers(); void reloadTunnels() }
     else setServers([])
   }, [screen.kind, reloadServers, reloadTunnels])
   useEffect(() => { if (hubState.kind !== 'running') setTunnels([]) }, [hubState.kind])
-  useEffect(() => hub.onEvent((e) => { if (e.method === 'tunnels.state') setTunnels((cur) => applyState(cur, e.params)) }), [])
+  useEffect(() => hub.onEvent((e) => {
+    if (e.method !== 'tunnels.state') return
+    setTunnels((cur) => applyState(cur, e.params))
+    for (const buf of tunnelBuffers.current) buf.push(e.params)
+  }), [])
 
   const [items, setItems] = useState<PendingItem[]>([])
   const [seedError, setSeedError] = useState<string>()
