@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lang315/sshgate/internal/rpc"
+	"github.com/lang315/sshgate/internal/sshx"
 )
 
 func startUI(t *testing.T, h *Hub) (*rpc.Client, chan string) {
@@ -135,6 +136,29 @@ func TestUIDoorSetAutoAllow(t *testing.T) {
 		if !errors.As(err, &re) || re.Code != -32602 {
 			t.Fatalf("bad mode: want -32602, got %v", err)
 		}
+	}
+}
+
+func TestUIDoorAutoAllowCheck(t *testing.T) {
+	fe := &fakeExec{res: sshx.ExecResult{Stdout: "1000\nnopasswd\n"}}
+	h, _ := newHub(t, fe)
+	c, _ := startUI(t, h)
+
+	var res struct {
+		UID              int  `json:"uid"`
+		PasswordlessSudo bool `json:"passwordlessSudo"`
+	}
+	if err := c.Call(context.Background(), "servers.autoAllowCheck", map[string]any{"server": "vis"}, &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.UID != 1000 || !res.PasswordlessSudo {
+		t.Fatalf("res = %+v", res)
+	}
+
+	err := c.Call(context.Background(), "servers.autoAllowCheck", map[string]any{"server": "vis", "extra": "x"}, nil)
+	var re *rpc.Error
+	if !errors.As(err, &re) || re.Code != -32602 {
+		t.Fatalf("extra key: want -32602, got %v", err)
 	}
 }
 

@@ -177,6 +177,15 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		}
 		return empty, h.SetAutoAllow(p.Server, p.Mode)
 	})
+	req("servers.autoAllowCheck", func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			Server string `json:"server"`
+		}
+		if err := strictParams(raw, &p, "server"); err != nil {
+			return nil, err
+		}
+		return h.AutoAllowCheck(ctx, p.Server)
+	})
 	req("import.scan", func(ctx context.Context, _ json.RawMessage) (any, error) {
 		return h.ImportScan(ctx)
 	})

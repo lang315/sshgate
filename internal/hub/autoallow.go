@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -412,6 +415,56 @@ type uiAutoAllow struct {
 	Until   string `json:"until,omitempty"`
 	Forever bool   `json:"forever,omitempty"`
 	Paused  bool   `json:"paused,omitempty"`
+}
+
+// autoProbe is the fixed command autoAllowCheck runs: the account's uid, and
+// "nopasswd" if sudo works without a password. Advice for the human only.
+const autoProbe = "id -u; sudo -n true 2>/dev/null && echo nopasswd"
+
+// AutoCheck is what autoProbe found.
+type AutoCheck struct {
+	UID              int  `json:"uid"`
+	PasswordlessSudo bool `json:"passwordlessSudo"`
+}
+
+var errAutoCheck = errors.New("could not check this host")
+
+// AutoAllowCheck runs autoProbe on name so the app can warn that auto-allow
+// there is root access. It checks what SetAutoAllow checks first.
+func (h *Hub) AutoAllowCheck(ctx context.Context, name string) (AutoCheck, error) {
+	h.mu.Lock()
+	if err := h.checkLocked(name); err != nil {
+		h.mu.Unlock()
+		return AutoCheck{}, err
+	}
+	s, _ := h.deps.File.FindServer(name)
+	if why := autoRefusal(s); why != "" {
+		h.mu.Unlock()
+		return AutoCheck{}, fmt.Errorf("auto-allow refused: %s", why)
+	}
+	dc, err := h.resolveLocked(name)
+	h.mu.Unlock()
+	if err != nil {
+		return AutoCheck{}, errAutoCheck
+	}
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	res, err := h.executor(name, dc).Exec(cctx, autoProbe)
+	lines := strings.Fields(res.Stdout)
+	if err != nil || len(lines) == 0 {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "hub: autoAllowCheck %q: %v\n", name, err)
+		}
+		return AutoCheck{}, errAutoCheck
+	}
+	uid, err := strconv.Atoi(lines[0])
+	if err != nil {
+		return AutoCheck{}, errAutoCheck
+	}
+	c := AutoCheck{UID: uid, PasswordlessSudo: slices.Contains(lines[1:], "nopasswd")}
+	h.auditConfig(broker.ConfigRecord{Action: "autoAllowCheck", Server: name,
+		Reason: fmt.Sprintf("uid %d, passwordless sudo %v", c.UID, c.PasswordlessSudo)})
+	return c, nil
 }
 
 // autoStateLocked is name's state for serversForUI; h.mu is held.

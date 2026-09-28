@@ -1082,6 +1082,104 @@ func TestAutoCommandCut(t *testing.T) {
 	}
 }
 
+func TestAutoAllowCheck(t *testing.T) {
+	t.Run("uid and passwordless sudo", func(t *testing.T) {
+		fe := &fakeExec{res: sshx.ExecResult{Stdout: "1000\nnopasswd\n"}}
+		h, path := newHub(t, fe)
+		c, err := h.AutoAllowCheck(context.Background(), "vis")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.UID != 1000 || !c.PasswordlessSudo {
+			t.Fatalf("c = %+v", c)
+		}
+		if len(fe.calls) != 1 || fe.calls[0] != autoProbe {
+			t.Fatalf("calls = %v", fe.calls)
+		}
+		_, recs := readAudit(t, path)
+		var rec map[string]any
+		for _, r := range recs {
+			if r["action"] == "autoAllowCheck" {
+				rec = r
+			}
+		}
+		if rec == nil {
+			t.Fatalf("no autoAllowCheck audit record: %v", recs)
+		}
+		if rec["server"] != "vis" || rec["reason"] != "uid 1000, passwordless sudo true" {
+			t.Fatalf("audit: %v", rec)
+		}
+	})
+
+	t.Run("uid without sudo", func(t *testing.T) {
+		fe := &fakeExec{res: sshx.ExecResult{Stdout: "0\n"}}
+		h, _ := newHub(t, fe)
+		c, err := h.AutoAllowCheck(context.Background(), "vis")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.UID != 0 || c.PasswordlessSudo {
+			t.Fatalf("c = %+v", c)
+		}
+	})
+
+	t.Run("unparseable output", func(t *testing.T) {
+		fe := &fakeExec{res: sshx.ExecResult{Stdout: "garbage"}}
+		h, _ := newHub(t, fe)
+		_, err := h.AutoAllowCheck(context.Background(), "vis")
+		if err == nil || err.Error() != "could not check this host" {
+			t.Fatalf("got %v", err)
+		}
+	})
+
+	t.Run("exec error", func(t *testing.T) {
+		fe := &fakeExec{err: errors.New("boom")}
+		h, _ := newHub(t, fe)
+		_, err := h.AutoAllowCheck(context.Background(), "vis")
+		if err == nil || err.Error() != "could not check this host" {
+			t.Fatalf("got %v", err)
+		}
+	})
+}
+
+func TestAutoAllowCheckRefusals(t *testing.T) {
+	fe := &fakeExec{}
+	h, path := newHub(t, fe)
+	addServer(t, h, path, config.Server{Name: "root", Host: "h", Port: 22, User: "root", Auth: "agent", HostKey: "SHA256:abc", AIVisible: true})
+	addServer(t, h, path, config.Server{Name: "suPw", Host: "h", Port: 22, User: "u", Auth: "agent", HostKey: "SHA256:abc", AIVisible: true, EncSuPassword: "x"})
+	addServer(t, h, path, config.Server{Name: "sudoPw", Host: "h", Port: 22, User: "u", Auth: "agent", HostKey: "SHA256:abc", AIVisible: true, EncSudoPassword: "x"})
+
+	cases := []struct {
+		name   string
+		locked bool
+		server string
+		want   string
+	}{
+		{"locked", true, "vis", ErrLocked.Error()},
+		{"nokey", false, "nokey", ErrNoHostKey.Error()},
+		{"hidden", false, "hid", serverNotFound("hid").Error()},
+		{"ghost", false, "ghost", serverNotFound("ghost").Error()},
+		{"root", false, "root", "auto-allow refused: root login"},
+		{"suPassword", false, "suPw", "auto-allow refused: has an su password"},
+		{"sudoPassword", false, "sudoPw", "auto-allow refused: has a sudo password"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if c.locked {
+				h.Lock()
+				defer unlockForTest(h)
+			}
+			_, err := h.AutoAllowCheck(context.Background(), c.server)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("got %v, want containing %q", err, c.want)
+			}
+		})
+	}
+	if len(fe.calls) != 0 {
+		t.Fatalf("calls = %v, want none for a refused check", fe.calls)
+	}
+}
+
 // TestCLIModeNeverArms covers the constraint that a reload, or the hub
 // simply loading a store whose AutoAllow flag is already true, never arms a
 // grant: only SetAutoAllow does.
