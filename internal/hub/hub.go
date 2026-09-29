@@ -91,7 +91,7 @@ type ExecResponse struct {
 
 type Hub struct {
 	o       Options
-	mu      sync.Mutex // guards deps.File, deps.MasterKey, storeErr, sinks, lastActivity, running, grants, grantSeq and autoSink; hosts.go's SaveServer/DeleteServer/ForgetHostKey hold it across their own config.Update, the reload that follows, and ending the server's auto-allow grant too, serializing with servers.setAutoAllow
+	mu      sync.Mutex // guards deps.File, deps.MasterKey, storeErr, sinks, lastActivity, running, grants, grantSeq and autoSink; CreateVault, SetAutoAllow, autoAllowOff, SaveServer, DeleteServer and ForgetHostKey each hold it across their own store write, the reload that follows, and ending a server's auto-allow grant, so all of them serialize with each other
 	deps    *mcpserver.Deps
 	sink    func(broker.Event)
 	sinkGen uint64 // bumped on every setEventSink; lets release() no-op if superseded

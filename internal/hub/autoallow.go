@@ -102,13 +102,15 @@ var errAutoAllowRace = errors.New("server changed; try again")
 // SetAutoAllow turns name's auto-allow on (a timed mode, or forever) or off.
 // forever on a server whose vault flag is already set and paused (no live
 // grant) only arms it (Resume); forever on an already-armed forever grant is
-// a no-op. Everything but off runs in one h.mu section, the same pattern
-// CreateVault uses (lock order h.mu → config.Update is safe: no path takes
-// h.mu from inside an Update). SaveServer, DeleteServer and ForgetHostKey
-// hold h.mu across their own write, reload and grant-end too (hosts.go), and
-// so does autoAllowOff below (the off path), so none of them can land inside
-// this section — only something outside the hub entirely (another process
-// editing the store file) can. The section
+// a no-op. Everything but off runs in this function's own one-h.mu section;
+// off instead delegates to autoAllowOff below, which holds its own single
+// h.mu section (write, reload, grant-end, audit) — the same pattern, just a
+// separate function. The pattern itself is the one CreateVault uses (lock
+// order h.mu → config.Update is safe: no path takes h.mu from inside an
+// Update). SaveServer, DeleteServer and ForgetHostKey also hold h.mu across
+// their own write, reload and grant-end (hosts.go), so none of them — nor
+// autoAllowOff — can land inside this section: only something outside the
+// hub entirely (another process editing the store file) can. The section
 // starts with its own reload, so a stale in-memory copy from before this
 // call never causes a spurious refusal; a flag write is then followed by
 // another reload and a fresh eligibility check before a grant is armed, so
@@ -235,27 +237,35 @@ func (h *Hub) SetAutoAllow(name, mode string) error {
 }
 
 // autoAllowOff ends name's grant and clears its flag, all in one h.mu
-// section — write, reload, grant-end, audit — the same pattern hosts.go's
-// SaveServer et al. use: a concurrent SetAutoAllow can't land in the gap
-// between the grant ending and the flag write landing, so it can never
-// leave a live grant behind an "off" audit record. The grant ends in memory
-// even if the write fails; the error is returned. No audit is written when
-// there was nothing to end (no grant, and the flag was already false, or the
-// write failed).
+// section — reload, write, reload, grant-end, audit — the same pattern
+// hosts.go's SaveServer et al. use: a concurrent SetAutoAllow can't land in
+// any gap here and leave a live grant behind an "off" audit record. It
+// reloads first, like SetAutoAllow does, so it reads the flag fresh instead
+// of a stale in-memory copy; if that reload fails, it still ends any grant
+// in memory (fail closed) and still attempts the write if memory (stale or
+// not) says the flag is set — config.Update loads the file fresh itself, so
+// this is safe either way. The grant ends in memory even if the write
+// fails; whether the write itself succeeded (not whether the reload that
+// follows it does) is what "ended" and the audit line depend on, so a
+// write that lands but whose confirming reload fails is still audited — the
+// write stands, same as hosts.go's callers, and its reload error is what
+// this call returns. No audit is written when there was nothing to end (no
+// grant, and the flag was already false, or the write itself failed).
 func (h *Hub) autoAllowOff(name, reason string) error {
 	h.mu.Lock()
+	err := h.reloadLocked() // best-effort; a failure doesn't stop the off below
 	flag := false
 	if h.deps.File != nil {
 		s, ok := h.deps.File.FindServer(name)
 		flag = ok && s.AutoAllow
 	}
-	var writeErr error
+	wrote := false
 	if flag {
-		key, err := h.writeKeyLocked()
-		if err != nil {
-			writeErr = err
+		key, keyErr := h.writeKeyLocked()
+		if keyErr != nil {
+			err = keyErr
 		} else {
-			writeErr = config.Update(h.o.StorePath, key, func(f *config.File) error {
+			updateErr := config.Update(h.o.StorePath, key, func(f *config.File) error {
 				for i := range f.Servers {
 					if f.Servers[i].Name == name {
 						f.Servers[i].AutoAllow = false
@@ -265,13 +275,16 @@ func (h *Hub) autoAllowOff(name, reason string) error {
 				return serverNotFound(name)
 			})
 			clear(key)
-			if writeErr == nil {
-				writeErr = h.reloadLocked()
+			if updateErr != nil {
+				err = updateErr
+			} else {
+				wrote = true
+				err = h.reloadLocked() // returned to the caller; the write stands regardless
 			}
 		}
 	}
 	had := h.endGrantLocked(name)
-	ended := had || (flag && writeErr == nil)
+	ended := had || wrote
 	if ended {
 		h.auditGrantEnded(name, reason)
 	}
@@ -280,7 +293,7 @@ func (h *Hub) autoAllowOff(name, reason string) error {
 	if ended {
 		h.notifyGrantEnded(name, reason)
 	}
-	return writeErr
+	return err
 }
 
 // endGrantLocked drops name's grant and cancels its runs; h.mu is held. The

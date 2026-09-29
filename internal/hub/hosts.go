@@ -204,10 +204,18 @@ func (h *Hub) SaveServer(original string, in config.ServerInput) error {
 	}
 	h.mu.Unlock()
 
-	// Notified before the dialChanged/denyPending cleanup below: denyPending
-	// can reenter SetAutoAllow synchronously (its broker.Decide fires the
-	// "decided" event on this goroutine), and a reentrant re-arm must not be
-	// able to race this call's own "off" notification.
+	// Notified before the dialChanged/denyPending cleanup below, not after:
+	// denyPending's broker.Decide fires a "decided" event for the pending
+	// request it just denied, which the UI door forwards to the app as its
+	// own outgoing notification (and o.OnEvent, a test/embedding hook) —
+	// production delivery never calls back into the hub, so this ordering
+	// is about what the app sees when, not a reentrancy race. Moving the
+	// notify here means the app learns the grant ended before it learns the
+	// request it was covering got denied, and before this save's own RPC
+	// reply lands. (A test event sink can reenter SetAutoAllow synchronously
+	// from its own "decided" callback, to reproduce specific interleavings
+	// deterministically; that is a test technique, not something production
+	// event delivery does.)
 	if endedOld {
 		h.notifyGrantEnded(name, "saved")
 	}

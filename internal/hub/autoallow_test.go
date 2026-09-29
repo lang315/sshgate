@@ -304,6 +304,92 @@ func TestAutoAllowOff(t *testing.T) {
 	}
 }
 
+// TestAutoAllowOffAuditsDespiteReloadFailureAfterWrite covers round 5 item
+// 1: autoAllowOff's flag write and the reload right after it are now two
+// separately tracked errors. A grant present at the point autoAllowOff runs
+// (or, as here, a flag that was still set) proves something really ended
+// once the Update itself has landed, regardless of whether the confirming
+// reload that follows succeeds — so the audit line must still be written,
+// and the flag must still be false on disk, even though this call returns
+// the reload's error. loadStore is the existing seam (hosts_test.go,
+// servers_test.go et al.); call 1 is autoAllowOff's own new leading reload
+// (item 2), call 2 is the one right after the write.
+func TestAutoAllowOffAuditsDespiteReloadFailureAfterWrite(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	h.endGrantLocked("vis") // paused forever: flag stays true, no live grant
+	h.mu.Unlock()
+
+	var calls int
+	loadStore = func(p string) (*config.File, error) {
+		calls++
+		if calls == 1 {
+			return config.Load(p)
+		}
+		return nil, errors.New("boom")
+	}
+	t.Cleanup(func() { loadStore = config.Load })
+
+	err := h.SetAutoAllow("vis", "off")
+	if err == nil || err.Error() != "boom" {
+		t.Fatalf("got %v, want the reload error", err)
+	}
+
+	f, lerr := config.Load(path)
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	s, _ := f.FindServer("vis")
+	if s.AutoAllow {
+		t.Fatal("flag still true on disk despite the Update succeeding")
+	}
+	_, recs := readAudit(t, path)
+	if !hasAutoAllowOff(recs, "turned off") {
+		t.Fatalf("no autoAllowOff/turned off despite a successful write: %v", recs)
+	}
+}
+
+// TestAutoAllowOffReloadsBeforeReadingFlag covers round 5 item 2:
+// autoAllowOff used to read the flag straight from whatever h.deps.File
+// already held, with no reload of its own. A flag flipped true on disk by a
+// write this hub's memory hasn't observed yet (an out-of-band config.Update,
+// standing in for a concurrent write this hub simply hasn't reloaded since)
+// would then be read as false, skipping the write entirely: "off" would
+// report success but leave the on-disk flag untouched. autoAllowOff now
+// reloads at the start of its section, the same as SetAutoAllow, so it
+// reads the fresh flag instead.
+func TestAutoAllowOffReloadsBeforeReadingFlag(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	// Out of band: nothing about this hub's own in-memory copy changes.
+	if err := config.Update(path, testMK, func(f *config.File) error {
+		for i := range f.Servers {
+			if f.Servers[i].Name == "vis" {
+				f.Servers[i].AutoAllow = true
+				return nil
+			}
+		}
+		return serverNotFound("vis")
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := h.SetAutoAllow("vis", "off"); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := f.FindServer("vis")
+	if s.AutoAllow {
+		t.Fatal("flag still true on disk: autoAllowOff read a stale in-memory flag instead of reloading first")
+	}
+}
+
 func TestAutoAllowEndsOnLock(t *testing.T) {
 	h, path := newHub(t, &fakeExec{})
 	if err := h.SetAutoAllow("vis", "15m"); err != nil {
