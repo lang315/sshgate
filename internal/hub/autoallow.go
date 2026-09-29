@@ -90,12 +90,13 @@ func (h *Hub) autoEligibleLocked(name string) (config.Server, sshx.DialConfig, e
 
 // errAutoAllowRace is returned by SetAutoAllow's post-write eligibility
 // recheck when the reload right after its own write shows a state that write
-// didn't produce; nothing is armed. SaveServer, DeleteServer and
-// ForgetHostKey now hold h.mu across their own config.Update, reload and
-// grant-end (hosts.go), so none of them can land inside this section any
-// more — the lock alone rules that out. What the recheck still catches is a
-// change from outside the hub entirely (another process editing the store
-// file directly); tests reproduce it via the loadStore seam.
+// didn't produce; nothing is armed. SaveServer, DeleteServer, ForgetHostKey
+// (hosts.go) and autoAllowOff below now all hold h.mu across their own
+// config.Update, reload and grant-end, so none of them can land inside this
+// section any more — the lock alone rules that out. What the recheck still
+// catches is a change from outside the hub entirely (another process
+// editing the store file directly); tests reproduce it via the loadStore
+// seam.
 var errAutoAllowRace = errors.New("server changed; try again")
 
 // SetAutoAllow turns name's auto-allow on (a timed mode, or forever) or off.
@@ -104,9 +105,10 @@ var errAutoAllowRace = errors.New("server changed; try again")
 // a no-op. Everything but off runs in one h.mu section, the same pattern
 // CreateVault uses (lock order h.mu → config.Update is safe: no path takes
 // h.mu from inside an Update). SaveServer, DeleteServer and ForgetHostKey
-// hold h.mu across their own write, reload and grant-end too (hosts.go), so
-// none of them can land inside this section — only something outside the
-// hub entirely (another process editing the store file) can. The section
+// hold h.mu across their own write, reload and grant-end too (hosts.go), and
+// so does autoAllowOff below (the off path), so none of them can land inside
+// this section — only something outside the hub entirely (another process
+// editing the store file) can. The section
 // starts with its own reload, so a stale in-memory copy from before this
 // call never causes a spurious refusal; a flag write is then followed by
 // another reload and a fresh eligibility check before a grant is armed, so
@@ -232,49 +234,53 @@ func (h *Hub) SetAutoAllow(name, mode string) error {
 	return nil
 }
 
-// writeAutoAllow sets name's vault flag and reloads; used only by
-// autoAllowOff, which ends the grant under h.mu and writes the flag outside
-// it.
-func (h *Hub) writeAutoAllow(name string, on bool) error {
-	key, err := h.writeKey()
-	if err != nil {
-		return err
-	}
-	defer clear(key)
-	err = config.Update(h.o.StorePath, key, func(f *config.File) error {
-		for i := range f.Servers {
-			if f.Servers[i].Name == name {
-				f.Servers[i].AutoAllow = on
-				return nil
-			}
-		}
-		return serverNotFound(name)
-	})
-	if err != nil {
-		return err
-	}
-	return h.Reload()
-}
-
-// autoAllowOff ends name's grant and clears its flag. The grant ends in
-// memory even if the write fails; the error is returned.
+// autoAllowOff ends name's grant and clears its flag, all in one h.mu
+// section — write, reload, grant-end, audit — the same pattern hosts.go's
+// SaveServer et al. use: a concurrent SetAutoAllow can't land in the gap
+// between the grant ending and the flag write landing, so it can never
+// leave a live grant behind an "off" audit record. The grant ends in memory
+// even if the write fails; the error is returned. No audit is written when
+// there was nothing to end (no grant, and the flag was already false, or the
+// write failed).
 func (h *Hub) autoAllowOff(name, reason string) error {
 	h.mu.Lock()
-	had := h.endGrantLocked(name)
 	flag := false
 	if h.deps.File != nil {
 		s, ok := h.deps.File.FindServer(name)
 		flag = ok && s.AutoAllow
 	}
-	h.mu.Unlock()
-	var err error
+	var writeErr error
 	if flag {
-		err = h.writeAutoAllow(name, false)
+		key, err := h.writeKeyLocked()
+		if err != nil {
+			writeErr = err
+		} else {
+			writeErr = config.Update(h.o.StorePath, key, func(f *config.File) error {
+				for i := range f.Servers {
+					if f.Servers[i].Name == name {
+						f.Servers[i].AutoAllow = false
+						return nil
+					}
+				}
+				return serverNotFound(name)
+			})
+			clear(key)
+			if writeErr == nil {
+				writeErr = h.reloadLocked()
+			}
+		}
 	}
-	if had || (flag && err == nil) {
-		h.grantEnded(name, reason)
+	had := h.endGrantLocked(name)
+	ended := had || (flag && writeErr == nil)
+	if ended {
+		h.auditGrantEnded(name, reason)
 	}
-	return err
+	h.mu.Unlock()
+
+	if ended {
+		h.notifyGrantEnded(name, reason)
+	}
+	return writeErr
 }
 
 // endGrantLocked drops name's grant and cancels its runs; h.mu is held. The
@@ -373,10 +379,11 @@ func (h *Hub) autoStart(ctx context.Context, name string) *autoRun {
 		endedByLock := errors.Is(err, ErrLocked)
 		if !endedByLock {
 			h.endGrantLocked(name)
+			h.auditGrantEnded(name, "server changed")
 		}
 		h.mu.Unlock()
 		if !endedByLock {
-			h.grantEnded(name, "server changed")
+			h.notifyGrantEnded(name, "server changed")
 		}
 		return nil
 	}
@@ -397,8 +404,9 @@ func (h *Hub) autoStart(ctx context.Context, name string) *autoRun {
 	}
 	if reason != "" {
 		h.endGrantLocked(name)
+		h.auditGrantEnded(name, reason)
 		h.mu.Unlock()
-		h.grantEnded(name, reason)
+		h.notifyGrantEnded(name, reason)
 		return nil
 	}
 	h.grantSeq++
@@ -461,12 +469,13 @@ func (h *Hub) sweepGrants(now time.Time) {
 	for name, g := range h.grants {
 		if !g.until.IsZero() && !now.Before(g.until) {
 			h.endGrantLocked(name)
+			h.auditGrantEnded(name, "expired")
 			ended = append(ended, name)
 		}
 	}
 	h.mu.Unlock()
 	for _, n := range ended {
-		h.grantEnded(n, "expired")
+		h.notifyGrantEnded(n, "expired")
 	}
 }
 

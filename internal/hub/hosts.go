@@ -187,15 +187,33 @@ func (h *Hub) SaveServer(original string, in config.ServerInput) error {
 		name = in.Name
 	}
 	reloadErr := h.reloadLocked()
-	had := h.endGrantLocked(name)
-	if after.Name != name && h.endGrantLocked(after.Name) {
-		had = true
-	}
-	ended := had || before.AutoAllow
-	if ended {
+	endedOld := h.endGrantLocked(name) || before.AutoAllow
+	if endedOld {
 		h.auditGrantEnded(name, "saved")
 	}
+	// A rename also ends a grant sitting under the target name (a stray
+	// left by an earlier bug, or of a since-deleted server that reused the
+	// name): recorded and notified under that name, not the old one, since
+	// it isn't the flag or grant this save's own server just had.
+	var endedNew bool
+	if after.Name != name {
+		endedNew = h.endGrantLocked(after.Name)
+		if endedNew {
+			h.auditGrantEnded(after.Name, "saved")
+		}
+	}
 	h.mu.Unlock()
+
+	// Notified before the dialChanged/denyPending cleanup below: denyPending
+	// can reenter SetAutoAllow synchronously (its broker.Decide fires the
+	// "decided" event on this goroutine), and a reentrant re-arm must not be
+	// able to race this call's own "off" notification.
+	if endedOld {
+		h.notifyGrantEnded(name, "saved")
+	}
+	if endedNew {
+		h.notifyGrantEnded(after.Name, "saved")
+	}
 
 	if dialChanged(before, after) {
 		h.endServerTunnels(name, "server changed")
@@ -203,9 +221,6 @@ func (h *Hub) SaveServer(original string, in config.ServerInput) error {
 		h.reg.Close(name)
 	}
 	h.denyPending(name)
-	if ended {
-		h.notifyGrantEnded(name, "saved")
-	}
 	h.auditConfig(broker.ConfigRecord{Action: "save", Server: after.Name, Changed: changes(before, after, in)})
 	return reloadErr // the write itself succeeded
 }
@@ -243,13 +258,13 @@ func (h *Hub) DeleteServer(name string) error {
 	}
 	h.mu.Unlock()
 
+	if ended {
+		h.notifyGrantEnded(name, "deleted")
+	}
 	h.endServerTunnels(name, "server changed")
 	h.files.endServer(name, "server changed")
 	h.reg.Close(name)
 	h.denyPending(name)
-	if ended {
-		h.notifyGrantEnded(name, "deleted")
-	}
 	h.auditConfig(broker.ConfigRecord{Action: "delete", Server: name})
 	return reloadErr // the write itself succeeded
 }
@@ -291,12 +306,12 @@ func (h *Hub) ForgetHostKey(name string) error {
 	}
 	h.mu.Unlock()
 
-	h.endServerTunnels(name, "server changed")
-	h.files.endServer(name, "server changed")
-	h.reg.Close(name)
 	if ended {
 		h.notifyGrantEnded(name, "server changed")
 	}
+	h.endServerTunnels(name, "server changed")
+	h.files.endServer(name, "server changed")
+	h.reg.Close(name)
 	h.auditConfig(broker.ConfigRecord{Action: "forgetHostKey", Server: name, OldFingerprint: old})
 	return reloadErr // the write itself succeeded
 }

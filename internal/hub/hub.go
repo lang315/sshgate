@@ -320,7 +320,12 @@ func (h *Hub) reloadLocked() (err error) {
 		}
 		return err
 	}
-	if h.deps.File != nil && f.Revision == h.deps.File.Revision {
+	// Revision equality alone isn't enough: a MAC-valid older copy restored
+	// on disk, then written again by a save, can land back on the exact
+	// revision number this in-memory copy already holds while its content
+	// (and so its MAC) differs. Comparing the MAC too catches that; two
+	// different File contents essentially never share one.
+	if h.deps.File != nil && f.Revision == h.deps.File.Revision && f.MAC == h.deps.File.MAC {
 		return nil
 	}
 	// A vault never loses its KDF; one that did lost its MAC check with it.

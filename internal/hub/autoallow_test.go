@@ -408,9 +408,21 @@ func TestAutoAllowEndsOnServerWrites(t *testing.T) {
 		if g := grantOf(h, "vis2"); g != nil {
 			t.Fatal("rename inherited a leftover grant under the target name")
 		}
+		// Round 4 item 5: the stray grant that just ended was under "vis2",
+		// never "vis" (nothing about "vis" itself ended here — it had no
+		// grant and no flag), so the record must say "vis2".
 		_, recs := readAudit(t, path)
-		if !hasAutoAllowOff(recs, "saved") {
-			t.Fatalf("no autoAllowOff/saved: %v", recs)
+		var found bool
+		for _, r := range recs {
+			if r["action"] == "autoAllowOff" && r["reason"] == "saved" && r["server"] == "vis2" {
+				found = true
+			}
+			if r["action"] == "autoAllowOff" && r["server"] == "vis" {
+				t.Fatalf("autoAllowOff recorded under vis, which had nothing to end: %v", r)
+			}
+		}
+		if !found {
+			t.Fatalf("no autoAllowOff/saved for vis2: %v", recs)
 		}
 	})
 	t.Run("delete", func(t *testing.T) {
@@ -827,6 +839,69 @@ func TestSetAutoAllowConcurrentWithSave(t *testing.T) {
 		}
 		if !found {
 			t.Fatal("flag ended up set with no autoAllowOn forever record in the audit")
+		}
+	}
+}
+
+// TestAutoAllowOffRaceWithConcurrentArm covers round 4 item 2:
+// autoAllowOff now holds h.mu across ending the grant, writing the flag,
+// reloading and auditing (autoallow.go), the same one-section pattern
+// hosts.go's SaveServer et al. use, so a concurrent SetAutoAllow("15m")
+// can't land in the gap between the grant ending and the flag write and
+// leave a live timed grant behind a stale "off" audit record: whichever call
+// acquires h.mu first now runs to completion before the other starts.
+func TestAutoAllowOffRaceWithConcurrentArm(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+
+	const iterations = 200
+	for i := 0; i < iterations; i++ {
+		if err := h.SetAutoAllow("vis", "forever"); err != nil {
+			t.Fatalf("iteration %d: arm: %v", i, err)
+		}
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		var offErr, setErr error
+		go func() { defer wg.Done(); offErr = h.SetAutoAllow("vis", "off") }()
+		go func() { defer wg.Done(); setErr = h.SetAutoAllow("vis", "15m") }()
+		wg.Wait()
+
+		if offErr != nil {
+			t.Fatalf("iteration %d: off: %v", i, offErr)
+		}
+		if setErr != nil {
+			t.Fatalf("iteration %d: 15m: %v", i, setErr)
+		}
+
+		f, err := config.Load(path)
+		if err != nil {
+			t.Fatalf("iteration %d: %v", i, err)
+		}
+		s, ok := f.FindServer("vis")
+		if !ok {
+			t.Fatalf("iteration %d: vis not found", i)
+		}
+		if s.AutoAllow {
+			t.Fatalf("iteration %d: a timed grant never sets the persistent flag, but it ended up true", i)
+		}
+
+		_, recs := readAudit(t, path)
+		var lastAction string
+		for _, r := range recs {
+			if r["server"] != "vis" {
+				continue
+			}
+			if a, _ := r["action"].(string); a == "autoAllowOff" || a == "autoAllowOn" || a == "autoAllowResume" {
+				lastAction = a
+			}
+		}
+		hasGrant := grantOf(h, "vis") != nil
+		if hasGrant && lastAction == "autoAllowOff" {
+			t.Fatalf("iteration %d: grant present but the last audit word for vis is autoAllowOff", i)
+		}
+		// Whichever call won, clean up so the next iteration starts paused.
+		if err := h.SetAutoAllow("vis", "off"); err != nil {
+			t.Fatalf("iteration %d: cleanup off: %v", i, err)
 		}
 	}
 }
