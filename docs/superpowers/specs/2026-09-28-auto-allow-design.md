@@ -1,7 +1,7 @@
 # sshgate: Per-host Auto-allow for AI exec — Design
 
 Date: 2026-09-28
-Status: Approved 2026-09-28; implemented (plan `plans/2026-09-28-auto-allow.md`).
+Status: Approved 2026-09-28; implemented (plan `plans/2026-09-28-auto-allow.md`). Amended 2026-09-29 (see "Amendment 2026-09-29" at the end): the control moves into the Host editor and root hosts and sudo-exec become per-host opt-ins; where the amendment and an earlier section disagree, the amendment wins.
 Depends on: `2026-09-24-desktop-app-design.md` (slice 1), `2026-09-25-desktop-slice2a-design.md` (slice 2a), `2026-09-27-slice3b-port-forwarding-design.md` (slice 3b). Everything there still holds unless this document changes it by name.
 
 This spec reverses a standing decision. ROADMAP: "Every AI command is approved by a human. No auto-approval rules of any kind until a spec argues otherwise." Slice 1's decision table: "No auto-approval rules". This document is that argument, and it replaces both with the rule in "ROADMAP, PRODUCT, README, CLAUDE.md changes".
@@ -211,3 +211,60 @@ Playwright (sshtestd):
 - README: replace "There are no auto-approval rules" and "no allow-list, no 'always allow', and no auto-approval of any kind" with the same rule and the honest limit (a grant is not a privilege boundary; persistence outlives it).
 - `2026-09-24-desktop-app-design.md` Threat Model: note that on a host with a grant, a same-uid process that reaches the MCP door gets remote exec without a human, and that approval is no longer the only egress control there; point to this spec.
 - CLAUDE.md: "Every MCP exec goes through `broker.Submit`" and the `Hub.Exec` order gain the auto-allow step; the UI-door method list, protocol 6, and the Desktop section gain the auto-allow pieces.
+
+## Amendment 2026-09-29: control in the Host editor; root and sudo-exec opt-ins
+
+Decided in chat with the author on 2026-09-29.
+
+### Two per-host opt-ins (vault, inside the MAC)
+
+- `config.Server.AutoAllowRoot` (`json:"autoAllowRoot,omitempty"`), shown as **Allow on root hosts**. When true, `autoRefusal` no longer refuses a `root` login, a stored su password, or a stored sudo password. The other refusals stay: not AI-visible, no pinned host key, locked, and no vault.
+- `config.Server.AutoAllowSudo` (`json:"autoAllowSudo,omitempty"`), shown as **Also auto-allow sudo-exec**. When true, `sudoExec` on a host with a grant runs without approval, as plain exec does. When false, `sudoExec` always asks.
+- Both default to false and are independent of each other. They are written only by `servers.save`: `ServerInput` gains `autoAllowRoot` and `autoAllowSudo` booleans, and `ApplyServer` copies them. `dialChanged` ignores them, like `AIVisible` and `AutoAllow`. `changes()` lists them in the `save` audit record. `vault.create` clears them on kept servers.
+- A change to either option needs a save, and every save ends the grant first. `autoStart` re-checks `autoRefusal` and, for a sudo request, `AutoAllowSudo` on the current server at every run.
+- An auto-allowed `sudoExec` is audited with `approval: "auto"` and `sudo: true`, and reported in `autoAllow.ran` like plain exec.
+- This replaces the earlier rules "`sudo-exec` is never auto-allowed" and "root-equivalent hosts are refused". Those rules now hold only while the options are off.
+
+### Auto-allow is set in the Host editor and applied on Save
+
+- `servers.save` takes an optional `autoAllow` mode: `off`, `15m`, `30m`, `60m`, `2h`, `4h`, or `forever`. A missing mode means `off`.
+- In one `h.mu` section the hub:
+  1. writes the server;
+  2. reloads;
+  3. ends the old grant, as every save does;
+  4. arms a new grant for the mode, using the same logic as `SetAutoAllow` (eligibility checks, the forever flag write, audit), all still in that section.
+- If the server is saved but the grant cannot be armed (refused, or not eligible), the save stands and the call returns the refusal error. The app shows "Saved, but auto-allow was not turned on: <reason>".
+- The editor's **AI access** section holds four controls:
+  - Visible to AI;
+  - **Auto-allow**, a select with Off, 15 min, 30 min, 60 min, 2 h, 4 h, and Until turned off;
+  - the two opt-in checkboxes, enabled only while Auto-allow is not Off.
+- Initial value of the Auto-allow select:
+  - **Until turned off** when the host's forever flag is set, whether the host is armed or paused. Saving re-arms it.
+  - **Off** otherwise. If a timed grant is running, a note says "On for N more min — saving ends it; pick a duration to keep auto-allow on".
+- **Confirm dialog.** Save shows the Auto-allow confirm dialog before sending when the mode is not Off, except when the host is already armed forever with the same options (the save keeps it as it is). The dialog:
+  - shows the chosen duration and has no radios;
+  - runs the `autoAllowCheck` probe;
+  - asks for the host name to be typed when forever is newly chosen;
+  - adds a red warning for each opt-in newly ticked:
+    - root: "Allowing root: the AI runs as root, and a command it plants can capture sudo or su passwords you type or store";
+    - sudo: "sudo-exec will run without asking: the AI has full root on this host".
+  - Enable is mouse-only with the 500 ms delay, and Cancel is the default. Cancel returns to the editor without saving.
+- The host card loses its **Auto-allow** button and keeps the chip and **Stop**. The paused banner (Resume, Stop), Stop all, and `servers.setAutoAllow` are unchanged. The app uses `servers.setAutoAllow` only for Stop, Stop all, and Resume.
+
+### Protocol 7
+
+- `ProtocolVersion` and `PROTOCOL_VERSION` become 7.
+- `servers.save` params gain `autoAllow`.
+- `ServerInput` and the `servers` result gain `autoAllowRoot` and `autoAllowSudo`.
+
+### Testing (in addition to the earlier list)
+
+- **Go:**
+  - Root login, su password, and sudo password are refused with the option off and allowed with it on.
+  - `sudoExec` on a granted host waits unless `AutoAllowSudo` is on; with it on, it runs, audited with `approval: "auto"` and `sudo: true`.
+  - `servers.save` with a mode arms a grant after ending the old one.
+  - A save whose arming is refused keeps the save and returns the refusal.
+  - The options are copied by `ApplyServer`, ignored by `dialChanged`, listed by `changes()`, and cleared by `vault.create`.
+  - Protocol 7.
+- **Vitest:** the editor form's initial values; when the confirm dialog is needed; that the dialog shows the right warnings; that the opt-ins are disabled while the mode is Off.
+- **Playwright:** enable 15 min from the editor, see an exec run and Stop it from the card; enable forever from the editor with the typed name; tick "Also auto-allow sudo-exec" and see a `sudoExec` run without a click.
