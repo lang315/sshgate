@@ -590,6 +590,37 @@ func TestSetAutoAllowConcurrentWithSave(t *testing.T) {
 	}
 }
 
+// TestSetAutoAllowStaleRevisionRefused is deterministic, direct coverage for
+// the revision guard inside SetAutoAllow's own config.Update (the deviation
+// from the fix plan, which said the one-lock design made this unnecessary):
+// a write h has not reloaded (so h's in-memory Revision is stale) must
+// refuse SetAutoAllow's write outright, not clobber it.
+func TestSetAutoAllowStaleRevisionRefused(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := config.Update(path, testMK, func(*config.File) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	_, before := readAudit(t, path)
+
+	if err := h.SetAutoAllow("vis", "forever"); !errors.Is(err, errAutoAllowRace) {
+		t.Fatalf("got %v, want errAutoAllowRace", err)
+	}
+	if grantOf(h, "vis") != nil {
+		t.Fatal("grant armed despite a stale revision")
+	}
+	_, after := readAudit(t, path)
+	if len(after) != len(before) {
+		t.Fatalf("audit line written on a refused write: %v", after[len(before):])
+	}
+	f, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := f.FindServer("vis"); s.AutoAllow {
+		t.Fatal("flag written despite a stale revision")
+	}
+}
+
 // TestSetAutoAllowReloadFailureAuditsAndArmsNothing covers item 1: if the
 // flag write succeeds but the reload right after it fails, the write still
 // happened and must be audited, but nothing may be armed on a state we could
