@@ -14,7 +14,7 @@ One user: the author, a developer/ops person managing a handful to a few dozen o
 
 ## Product Purpose
 
-sshgate lets an AI agent run commands on real servers with a human decision on every single command by default. The human may put one host on auto-allow (plain exec only, never sudo-exec, never on root-equivalent hosts) for a set time, or until turned off with a Resume after each unlock; it is visible while on, audited, and stoppable at any time. The desktop app is that human's control surface: it holds the unlocked vault, the SSH terminals, and the approval queue. Success means the author does their SSH work in this app instead of another terminal, and never approves an AI command they did not mean to.
+sshgate lets an AI agent run commands on real servers with a human decision on every single command by default. The human may put one host on auto-allow (plain exec by default; root hosts and sudo-exec only when the human opts in per host) for a set time, or until turned off with a Resume after each unlock; it is visible while on, audited, and stoppable at any time. The desktop app is that human's control surface: it holds the unlocked vault, the SSH terminals, and the approval queue. Success means the author does their SSH work in this app instead of another terminal, and never approves an AI command they did not mean to.
 
 ## Positioning
 
