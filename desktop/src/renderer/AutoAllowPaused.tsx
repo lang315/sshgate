@@ -11,7 +11,18 @@ export function AutoAllowPaused({ hosts, onResume, onStop }: { hosts: string[]; 
   changes.current.setKey(key, Date.now())
   const since = changes.current.at
   const [now, setNow] = useState(Date.now())
-  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 100); return () => clearInterval(t) }, [])
+  // Only ticks while there's a host to show and the Resume delay hasn't
+  // passed yet; it stops itself once it has, and restarts when the host
+  // list (and so `since`) changes.
+  useEffect(() => {
+    if (hosts.length === 0 || Date.now() - since >= ALLOW_DELAY_MS) return
+    const t = setInterval(() => {
+      const n = Date.now()
+      setNow(n)
+      if (n - since >= ALLOW_DELAY_MS) clearInterval(t)
+    }, 100)
+    return () => clearInterval(t)
+  }, [since, hosts.length])
   if (hosts.length === 0) return null
   return (
     <div className="banner auto" role="status">

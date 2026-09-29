@@ -37,6 +37,18 @@ describe('handleAutoEvent', () => {
     expect(updated).toEqual(pushFeed(feed, ran))
   })
 
+  it('ignores autoAllow.off with reason locked: dropOnLock already paused the host, and applyOff would wipe that', () => {
+    const servers: ServerInfo[] = [{ name: 'a', autoAllow: { forever: true } } as ServerInfo]
+    const afterLock = dropOnLock(servers)
+    let updated = afterLock
+    const setServers = vi.fn((fn: (cur: ServerInfo[]) => ServerInfo[]) => { updated = fn(updated) })
+    const setAutoFeed = vi.fn()
+    const e: HubEvent = { method: 'autoAllow.off', params: { server: 'a', reason: 'locked' } }
+    handleAutoEvent(e, setServers, setAutoFeed)
+    expect(setServers).not.toHaveBeenCalled()
+    expect(updated.find((s) => s.name === 'a')!.autoAllow).toEqual({ forever: true, paused: true })
+  })
+
   it('ignores every other event', () => {
     const setServers = vi.fn()
     const setAutoFeed = vi.fn()

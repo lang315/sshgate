@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AutoAllowMode, AutoAllowRan, HostKeyMismatch, HubState, ServerInfo, Status, TunnelState, TunnelView } from '../shared/protocol'
 import { hub } from './transport'
 import { applyState, replayStates, summary } from './tunnels'
@@ -180,15 +180,20 @@ export function App() {
     } finally { await reloadServers() }
     if (failed.length) window.alert(`Could not ${verb} auto-allow on ${failed.join(', ')}: ${message}`)
   }
-  const resumeAll = () => setAllAuto(pausedHosts(servers), 'forever', 'resume')
-  const stopAll = () => setAllAuto([...autoHosts(servers, now)], 'off', 'stop')
-  const stopPaused = () => setAllAuto(pausedHosts(servers), 'off', 'stop')
+  // Computed once per render, not once per use: autoHosts/pausedHosts are
+  // otherwise recomputed by every reader below (the AI button, HostList,
+  // Terminals, ApprovalPanel, stopAll/stopPaused).
+  const autoHostsSet = useMemo(() => autoHosts(servers, now), [servers, now])
+  const pausedHostsList = useMemo(() => pausedHosts(servers), [servers])
+  const resumeAll = () => setAllAuto(pausedHostsList, 'forever', 'resume')
+  const stopAll = () => setAllAuto([...autoHostsSet], 'off', 'stop')
+  const stopPaused = () => setAllAuto(pausedHostsList, 'off', 'stop')
 
   const ready = screen.kind === 'ready'
   useEffect(() => { if (ready) setEverReady(true) }, [ready])
 
   const lock = async () => { try { await hub.lock(); setUnlockError(undefined); await refresh() } catch { /* the locked/hub-state events recover the UI */ } }
-  const autoN = autoHosts(servers, now).size
+  const autoN = autoHostsSet.size
   const actions = (
     <>
       {(aiOpen || items.length > 0 || autoN > 0) && (
@@ -211,7 +216,7 @@ export function App() {
       onDelete={deleteHost}
       onImport={() => { setEditing(undefined); setImporting(true) }}
       onAutoAllow={setAutoDialog} onStopAutoAllow={stopAuto}
-      paused={pausedHosts(servers)} onResume={resumeAll} onStopPaused={stopPaused} />
+      paused={pausedHostsList} onResume={resumeAll} onStopPaused={stopPaused} />
   )
   const autoServer = autoDialog ? servers.find((s) => s.name === autoDialog) : undefined
 
@@ -233,7 +238,7 @@ export function App() {
             <Terminals ref={terms} theme={theme} hostKeys={hostKeys} onMismatch={setMismatch} onTrusted={reloadServers}
               home={hostList} actions={actions} banner={<StoreErrorBanner message={status?.storeError} />} servers={servers}
               onFocusApprovals={focusApprovals} tunnels={tunnels} locked={!!status?.locked} onTunnelsChanged={reloadTunnels}
-              autoHosts={autoHosts(servers, now)} />
+              autoHosts={autoHostsSet} />
             {/* Inside the work area: the host list and the AI column stay usable beside it. */}
             {ready && editing && (
               <HostEditor key={editing.name ?? ''} server={servers.find((s) => s.name === editing.name)}
@@ -258,7 +263,7 @@ export function App() {
               }}
               onClose={() => { setAiOpen(false); terms.current?.focusActive() }}
               onEscape={() => terms.current?.focusActive()}
-              autoFeed={autoFeed} autoN={autoN} paused={pausedHosts(servers)} onStopAll={stopAll} onStopPaused={stopPaused} onResume={resumeAll} />
+              autoFeed={autoFeed} autoN={autoN} paused={pausedHostsList} onStopAll={stopAll} onStopPaused={stopPaused} onResume={resumeAll} />
           )}
         </div>
       )}

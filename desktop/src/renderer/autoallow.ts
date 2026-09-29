@@ -42,8 +42,12 @@ export const applyOff = (servers: ServerInfo[], server: string): ServerInfo[] =>
 // nothing else: it never calls the hub. Every call but status counts as UI
 // activity and would hold off the idle lock, so App's event dispatch must
 // route these two notifications through here rather than the hub.
+// autoAllow.off with reason 'locked' is ignored: the 'locked' notification's
+// dropOnLock already pauses forever hosts, and applyOff would wipe that
+// (it clears autoAllow entirely, dropping `paused`), regardless of which of
+// the two notifications the renderer happens to see first.
 export function handleAutoEvent(e: HubEvent, setServers: (fn: (cur: ServerInfo[]) => ServerInfo[]) => void, setAutoFeed: (fn: (feed: AutoAllowRan[]) => AutoAllowRan[]) => void): void {
-  if (e.method === 'autoAllow.off') setServers((cur) => applyOff(cur, e.params.server))
+  if (e.method === 'autoAllow.off' && e.params.reason !== 'locked') setServers((cur) => applyOff(cur, e.params.server))
   if (e.method === 'autoAllow.ran') setAutoFeed((f) => pushFeed(f, e.params))
 }
 
