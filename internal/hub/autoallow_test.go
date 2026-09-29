@@ -431,6 +431,97 @@ func TestAutoAllowEndsOnServerWrites(t *testing.T) {
 	})
 }
 
+// TestSetAutoAllowFromInsideSaveDenyPending is a deterministic reproduction
+// of the interleaving round 2 fixes in SaveServer/DeleteServer/ForgetHostKey
+// (hosts.go): denyPending's broker.Decide call fires the broker's "decided"
+// event synchronously, on the caller's own goroutine, with no lock held.
+// Reentering SetAutoAllow from that event fully interleaves it with
+// SaveServer's own remaining steps. Before the fix, SaveServer reloaded,
+// then (after denyPending, where this reentrant call happens) dropped
+// whatever grant existed by then unconditionally — wiping the grant this
+// call had just armed while leaving the flag it had just written untouched,
+// which is exactly the (grant absent, flag true) violation. The fix moves
+// the reload and the grant-end into one h.mu section, done before
+// denyPending runs, so a grant armed from inside denyPending is never
+// touched again by this SaveServer call.
+func TestSetAutoAllowFromInsideSaveDenyPending(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	// A pending exec request for "vis" gives denyPending something to decide.
+	errc := make(chan error, 1)
+	go func() {
+		_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
+		errc <- err
+	}()
+	waitPending(t, h.Broker(), 1)
+
+	release := h.setEventSink(func(e broker.Event) {
+		if e.Kind == "decided" && e.Request.Server == "vis" {
+			if err := h.SetAutoAllow("vis", "forever"); err != nil && !errors.Is(err, errAutoAllowRace) {
+				t.Errorf("reentrant SetAutoAllow: %v", err)
+			}
+		}
+	})
+	defer release()
+
+	in := config.ServerInput{Name: "vis", Host: "h", Port: 22, User: "u", Auth: "agent", AIVisible: true}
+	if err := h.SaveServer("vis", in); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-errc; err == nil {
+		t.Fatal("want a denial for the pending request the save just denied")
+	}
+
+	f, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := f.FindServer("vis")
+	if hasGrant := grantOf(h, "vis") != nil; hasGrant != s.AutoAllow {
+		t.Fatalf("grant present = %v, flag on disk = %v", hasGrant, s.AutoAllow)
+	}
+}
+
+// TestSaveEndsPreexistingTimedGrantDespiteUnrelatedRevisionBump covers the
+// gap found in endGrantIfStale's first, wrong version (round 2, second
+// pass): comparing the reloaded revision against this save's own write for
+// plain equality wrongly protected a grant that predates the save whenever
+// some UNRELATED write (a tunnels.save on another host, say — reproduced
+// here via a raw config.Update run as a side effect of the loadStore seam,
+// right where the cleanup's reload lands) bumped the store's revision for a
+// reason that has nothing to do with this server's grant. A label-only save
+// (no dial-affecting field changes, so autoStart's own snapshot check would
+// not have caught this on its own) must still end a preexisting timed grant
+// — "every save turns it off" — regardless of that unrelated bump.
+func TestSaveEndsPreexistingTimedGrantDespiteUnrelatedRevisionBump(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	if grantOf(h, "vis") == nil {
+		t.Fatal("no grant armed")
+	}
+
+	loadStore = func(p string) (*config.File, error) {
+		if err := config.Update(p, testMK, func(f *config.File) error { return nil }); err != nil {
+			return nil, err
+		}
+		return config.Load(p)
+	}
+	t.Cleanup(func() { loadStore = config.Load })
+
+	in := config.ServerInput{Name: "vis", Host: "h", Port: 22, User: "u", Auth: "agent", AIVisible: true}
+	if err := h.SaveServer("vis", in); err != nil {
+		t.Fatal(err)
+	}
+	if g := grantOf(h, "vis"); g != nil {
+		t.Fatal("preexisting timed grant survived a label-only save because of an unrelated revision bump")
+	}
+	_, recs := readAudit(t, path)
+	if !hasAutoAllowOff(recs, "saved") {
+		t.Fatalf("no autoAllowOff/saved: %v", recs)
+	}
+}
+
 func TestAutoAllowSink(t *testing.T) {
 	h, path := newHub(t, &fakeExec{})
 	if err := h.SetAutoAllow("vis", "15m"); err != nil {
@@ -590,45 +681,25 @@ func TestSetAutoAllowConcurrentWithSave(t *testing.T) {
 	}
 }
 
-// TestSetAutoAllowStaleRevisionRefused is deterministic, direct coverage for
-// the revision guard inside SetAutoAllow's own config.Update (the deviation
-// from the fix plan, which said the one-lock design made this unnecessary):
-// a write h has not reloaded (so h's in-memory Revision is stale) must
-// refuse SetAutoAllow's write outright, not clobber it.
-func TestSetAutoAllowStaleRevisionRefused(t *testing.T) {
-	h, path := newHub(t, &fakeExec{})
-	if err := config.Update(path, testMK, func(*config.File) error { return nil }); err != nil {
-		t.Fatal(err)
-	}
-	_, before := readAudit(t, path)
-
-	if err := h.SetAutoAllow("vis", "forever"); !errors.Is(err, errAutoAllowRace) {
-		t.Fatalf("got %v, want errAutoAllowRace", err)
-	}
-	if grantOf(h, "vis") != nil {
-		t.Fatal("grant armed despite a stale revision")
-	}
-	_, after := readAudit(t, path)
-	if len(after) != len(before) {
-		t.Fatalf("audit line written on a refused write: %v", after[len(before):])
-	}
-	f, err := config.Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s, _ := f.FindServer("vis"); s.AutoAllow {
-		t.Fatal("flag written despite a stale revision")
-	}
-}
-
 // TestSetAutoAllowReloadFailureAuditsAndArmsNothing covers item 1: if the
 // flag write succeeds but the reload right after it fails, the write still
 // happened and must be audited, but nothing may be armed on a state we could
 // not confirm. loadStore is the existing seam hub.go documents for forcing a
 // reload failure (see hosts_test.go, servers_test.go, trust_test.go).
+// SetAutoAllow now reloads once at the very start of its section too (round
+// 2, item 4), so the seam only fails the second call (the one right after
+// the write); the first must still succeed, or the eligibility check itself
+// would fail first and the write would never be attempted.
 func TestSetAutoAllowReloadFailureAuditsAndArmsNothing(t *testing.T) {
 	h, path := newHub(t, &fakeExec{})
-	loadStore = func(string) (*config.File, error) { return nil, errors.New("boom") }
+	var calls int
+	loadStore = func(p string) (*config.File, error) {
+		calls++
+		if calls == 1 {
+			return config.Load(p)
+		}
+		return nil, errors.New("boom")
+	}
 	t.Cleanup(func() { loadStore = config.Load })
 
 	err := h.SetAutoAllow("vis", "forever")
@@ -651,6 +722,106 @@ func TestSetAutoAllowReloadFailureAuditsAndArmsNothing(t *testing.T) {
 	}
 	if s, _ := f.FindServer("vis"); !s.AutoAllow {
 		t.Fatal("flag write did not stand despite the reload failing")
+	}
+}
+
+// TestSetAutoAllowReloadFailureEndsOldForeverGrant covers item 3 (round 2):
+// switching an armed forever grant to a timed mode clears the forever flag
+// first; if the reload right after that fails, the old forever grant (still
+// armed, now backed by nothing since the flag is cleared) must be ended too,
+// not left standing — and exactly one autoAllowOff record/notification must
+// result, not two (the flag-change audit already covers it).
+func TestSetAutoAllowReloadFailureEndsOldForeverGrant(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	calls := make(chan map[string]string, 1)
+	release := h.setAutoSink(func(method string, params any) {
+		if method == "autoAllow.off" {
+			calls <- params.(map[string]string)
+		}
+	})
+	defer release()
+
+	var n int
+	loadStore = func(p string) (*config.File, error) {
+		n++
+		if n == 1 {
+			return config.Load(p) // SetAutoAllow's own initial reload (item 4)
+		}
+		return nil, errors.New("boom") // the reload right after clearing the flag
+	}
+	t.Cleanup(func() { loadStore = config.Load })
+
+	err := h.SetAutoAllow("vis", "15m")
+	if err == nil || err.Error() != "boom" {
+		t.Fatalf("got %v, want the reload error", err)
+	}
+	if g := grantOf(h, "vis"); g != nil {
+		t.Fatal("old forever grant survived a reload failure that cleared its flag")
+	}
+	_, recs := readAudit(t, path)
+	var offCount int
+	for _, r := range recs {
+		if r["action"] == "autoAllowOff" {
+			offCount++
+		}
+	}
+	if offCount != 1 {
+		t.Fatalf("want exactly one autoAllowOff record, got %d: %v", offCount, recs)
+	}
+	select {
+	case p := <-calls:
+		if p["server"] != "vis" || p["reason"] != "turned off" {
+			t.Fatalf("params = %+v", p)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("autoAllow.off notification not sent")
+	}
+}
+
+// TestSetAutoAllowPostWriteChangeRefused covers item 2 (round 2): the
+// post-reload recheck (`!timed && !s.AutoAllow`) has no deterministic test
+// of its own — the concurrency test only proves no violation is ever
+// observed, not that this specific branch is what prevents one. loadStore's
+// seam runs a real concurrent-shaped write (clearing the flag this call just
+// set) as a side effect of the reload right after that write, reproducing a
+// save landing between SetAutoAllow's own write and its own reload.
+func TestSetAutoAllowPostWriteChangeRefused(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	var n int
+	loadStore = func(p string) (*config.File, error) {
+		n++
+		if n == 2 { // right after SetAutoAllow's own write set the flag true
+			if err := config.Update(p, testMK, func(f *config.File) error {
+				for i := range f.Servers {
+					if f.Servers[i].Name == "vis" {
+						f.Servers[i].AutoAllow = false
+						return nil
+					}
+				}
+				return serverNotFound("vis")
+			}); err != nil {
+				return nil, err
+			}
+		}
+		return config.Load(p)
+	}
+	t.Cleanup(func() { loadStore = config.Load })
+
+	if err := h.SetAutoAllow("vis", "forever"); !errors.Is(err, errAutoAllowRace) {
+		t.Fatalf("got %v, want errAutoAllowRace", err)
+	}
+	if g := grantOf(h, "vis"); g != nil {
+		t.Fatal("grant armed despite the flag being cleared out from under it")
+	}
+	f, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := f.FindServer("vis"); s.AutoAllow {
+		t.Fatal("flag ended up true despite the concurrent clear")
 	}
 }
 
