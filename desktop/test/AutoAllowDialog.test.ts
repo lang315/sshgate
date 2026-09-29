@@ -15,7 +15,7 @@ const server = (over: Partial<ServerInfo> = {}): ServerInfo => ({
 })
 
 const dialog = (over: Partial<Parameters<typeof AutoAllowDialog>[0]> = {}) => renderToStaticMarkup(createElement(AutoAllowDialog, {
-  server: server(), mode: '15m', typeName: false, rootNew: false, sudoNew: false, remoteTunnels: [],
+  server: server(), mode: '15m', typeName: false, rootNew: false, sudoNew: false, sudo: false, remoteTunnels: [],
   check: async () => ({ uid: 1000, passwordlessSudo: false }),
   onEnable: async () => {}, onCancel: () => {},
   ...over,
@@ -68,6 +68,24 @@ describe('AutoAllowDialog', () => {
     expect(dialog({ sudoNew: false })).not.toContain(warning)
   })
 
+  it('states the sudo-exec status without contradicting the sudo opt-in', () => {
+    const stillAsks = 'sudo-exec still asks.'
+    const runsToo = 'sudo-exec also runs without asking on this host, the same as plain exec.'
+    // Off: still asks, no other sudo statement.
+    const off = dialog({ sudo: false, sudoNew: false })
+    expect(off).toContain(stillAsks)
+    expect(off).not.toContain(runsToo)
+    // Newly ticked: the red warning carries the message; no "still asks".
+    const newlyOn = dialog({ sudo: true, sudoNew: true })
+    expect(newlyOn).not.toContain(stillAsks)
+    expect(newlyOn).not.toContain(runsToo)
+    expect(newlyOn).toContain('sudo-exec will run without asking')
+    // Already on (re-arming an existing grant): the plain statement, no "still asks".
+    const alreadyOn = dialog({ sudo: true, sudoNew: false })
+    expect(alreadyOn).not.toContain(stillAsks)
+    expect(alreadyOn).toContain(runsToo)
+  })
+
   it('warns that running remote tunnels reach this machine', () => {
     const html = dialog({ remoteTunnels: ['R server 127.0.0.1:2222 → localhost:22', 'R server 127.0.0.1:3333 → localhost:80'] })
     expect(html).toContain('Remote tunnels running on this host reach your machine')
@@ -81,10 +99,10 @@ describe('AutoAllowDialog', () => {
 // frame. This pins the key -> time bookkeeping the dialog relies on.
 describe('dialogChangeKey + ListChanges bookkeeping (the dialog\'s Enable delay)', () => {
   it('restarts the delay synchronously when the root-access check resolves mid-dialog', () => {
-    const changes = new ListChanges(dialogChangeKey('15m', false, false, undefined, undefined, []), 0)
+    const changes = new ListChanges(dialogChangeKey('15m', false, false, false, undefined, undefined, []), 0)
     // The sudo check resolves at T=1000, revealing the "root access" warning
     // and shifting the buttons down.
-    changes.setKey(dialogChangeKey('15m', false, false, { uid: 0, passwordlessSudo: false }, undefined, []), 1000)
+    changes.setKey(dialogChangeKey('15m', false, false, false, { uid: 0, passwordlessSudo: false }, undefined, []), 1000)
     expect(changes.at).toBe(1000)
     const allowedAt = (now: number) => enableAllowed({ typeName: false, typed: '', host: 'h', openedAt: 0, changedAt: changes.at, now })
     expect(allowedAt(1000)).toBe(false)
@@ -93,28 +111,29 @@ describe('dialogChangeKey + ListChanges bookkeeping (the dialog\'s Enable delay)
   })
 
   it('does not restart the delay when the key is unchanged', () => {
-    const changes = new ListChanges(dialogChangeKey('15m', false, false, undefined, undefined, []), 0)
-    changes.setKey(dialogChangeKey('15m', false, false, undefined, undefined, []), 1000) // re-render, no real change
+    const changes = new ListChanges(dialogChangeKey('15m', false, false, false, undefined, undefined, []), 0)
+    changes.setKey(dialogChangeKey('15m', false, false, false, undefined, undefined, []), 1000) // re-render, no real change
     expect(changes.at).toBe(0)
   })
 
   it('changes key when the check result changes, when rootNew/sudoNew flip, but not when only typed changes', () => {
-    const pending = dialogChangeKey('forever', false, false, undefined, undefined, [])
-    const root = dialogChangeKey('forever', false, false, { uid: 0, passwordlessSudo: false }, undefined, [])
-    const error = dialogChangeKey('forever', false, false, 'error', undefined, [])
+    const pending = dialogChangeKey('forever', false, false, false, undefined, undefined, [])
+    const root = dialogChangeKey('forever', false, false, false, { uid: 0, passwordlessSudo: false }, undefined, [])
+    const error = dialogChangeKey('forever', false, false, false, 'error', undefined, [])
     expect(root).not.toBe(pending)
     expect(error).not.toBe(pending)
     expect(root).not.toBe(error)
-    expect(dialogChangeKey('forever', true, false, undefined, undefined, [])).not.toBe(pending)
-    expect(dialogChangeKey('forever', false, true, undefined, undefined, [])).not.toBe(pending)
+    expect(dialogChangeKey('forever', true, false, false, undefined, undefined, [])).not.toBe(pending)
+    expect(dialogChangeKey('forever', false, true, false, undefined, undefined, [])).not.toBe(pending)
+    expect(dialogChangeKey('forever', false, false, true, undefined, undefined, [])).not.toBe(pending)
     // Typing the confirmation text isn't part of the key at all.
-    expect(dialogChangeKey('forever', false, false, undefined, undefined, [])).toBe(pending)
+    expect(dialogChangeKey('forever', false, false, false, undefined, undefined, [])).toBe(pending)
   })
 
   it('changes key when an enable error appears or the remote-tunnels list changes', () => {
-    const base = dialogChangeKey('15m', false, false, undefined, undefined, [])
-    expect(dialogChangeKey('15m', false, false, undefined, 'boom', [])).not.toBe(base)
-    expect(dialogChangeKey('15m', false, false, undefined, undefined, ['t1'])).not.toBe(base)
-    expect(dialogChangeKey('15m', false, false, undefined, undefined, [])).toBe(base)
+    const base = dialogChangeKey('15m', false, false, false, undefined, undefined, [])
+    expect(dialogChangeKey('15m', false, false, false, undefined, 'boom', [])).not.toBe(base)
+    expect(dialogChangeKey('15m', false, false, false, undefined, undefined, ['t1'])).not.toBe(base)
+    expect(dialogChangeKey('15m', false, false, false, undefined, undefined, [])).toBe(base)
   })
 })

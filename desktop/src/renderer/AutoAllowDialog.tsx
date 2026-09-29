@@ -7,8 +7,8 @@ type Mode = Exclude<AutoAllowMode, 'off'>
 
 // Confirms the Host editor's Auto-allow choice before Save sends it (spec
 // Amendment 2026-09-29): the duration comes from the editor, not a radio here.
-export function AutoAllowDialog({ server, mode, typeName, rootNew, sudoNew, refused, remoteTunnels, check, onEnable, onCancel }: {
-  server: ServerInfo; mode: Mode; typeName: boolean; rootNew: boolean; sudoNew: boolean; refused?: string
+export function AutoAllowDialog({ server, mode, typeName, rootNew, sudoNew, sudo, refused, remoteTunnels, check, onEnable, onCancel }: {
+  server: ServerInfo; mode: Mode; typeName: boolean; rootNew: boolean; sudoNew: boolean; sudo: boolean; refused?: string
   remoteTunnels: string[]
   check: () => Promise<AutoAllowCheck>
   onEnable: () => Promise<void>; onCancel: () => void
@@ -24,7 +24,7 @@ export function AutoAllowDialog({ server, mode, typeName, rootNew, sudoNew, refu
   // during render, like ApprovalPanel's ListChanges, not in a useEffect: an
   // effect runs after paint, so the check() resolving would leave one painted
   // frame where the buttons already shifted but Enable was still enabled.
-  const changeKey = dialogChangeKey(mode, rootNew, sudoNew, checked, error, remoteTunnels)
+  const changeKey = dialogChangeKey(mode, rootNew, sudoNew, sudo, checked, error, remoteTunnels)
   const changes = useRef<ListChanges>(null)
   changes.current ??= new ListChanges(changeKey, openedAt)
   changes.current.setKey(changeKey, Date.now())
@@ -43,9 +43,11 @@ export function AutoAllowDialog({ server, mode, typeName, rootNew, sudoNew, refu
           <p className="error">{`Auto-allow is not available here: ${refused}`}</p>
         ) : (
           <>
-            <p>{`The AI runs any command this account can run on ${server.name} without asking, including commands planted by what it reads (prompt injection), and can leave things that run later (cron jobs, SSH keys, shell startup files). sudo-exec still asks.`}</p>
+            <p>{`The AI runs any command this account can run on ${server.name} without asking, including commands planted by what it reads (prompt injection), and can leave things that run later (cron jobs, SSH keys, shell startup files).`}</p>
+            {!sudo && <p>sudo-exec still asks.</p>}
             {rootNew && <p className="error">Allowing root: the AI runs as root, and a command it plants can capture sudo or su passwords you type or store</p>}
             {sudoNew && <p className="error">sudo-exec will run without asking: the AI has full root on this host</p>}
+            {sudo && !sudoNew && <p>sudo-exec also runs without asking on this host, the same as plain exec.</p>}
             {root && <p className="error">This is root access: the AI can do anything on this host.</p>}
             {checked === 'error' && <p className="muted">Could not check this host&apos;s sudo access.</p>}
             {remoteTunnels.length > 0 && (

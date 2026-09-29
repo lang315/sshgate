@@ -67,11 +67,12 @@ export function enableAllowed(o: { typeName: boolean; typed: string; host: strin
 
 // AutoAllowDialog's ListChanges key: anything that shifts the buttons must
 // restart the Enable delay — the mode and warnings chosen in the editor, the
+// effective sudo opt-in (it swaps which sudo-exec sentence shows), the
 // root-access check result (root access revealed, or the check failing), an
 // enable error appearing, or the remote-tunnels list. Excludes `typed`, so
 // confirming "forever" by typing the host name doesn't itself restart the wait.
-export const dialogChangeKey = (mode: Exclude<AutoAllowMode, 'off'>, rootNew: boolean, sudoNew: boolean, checked: AutoAllowCheck | 'error' | undefined, error: string | undefined, remoteTunnels: string[]): string =>
-  JSON.stringify([mode, rootNew, sudoNew, checked === undefined ? 'pending' : checked === 'error' ? 'error' : [checked.uid, checked.passwordlessSudo], error, remoteTunnels])
+export const dialogChangeKey = (mode: Exclude<AutoAllowMode, 'off'>, rootNew: boolean, sudoNew: boolean, sudo: boolean, checked: AutoAllowCheck | 'error' | undefined, error: string | undefined, remoteTunnels: string[]): string =>
+  JSON.stringify([mode, rootNew, sudoNew, sudo, checked === undefined ? 'pending' : checked === 'error' ? 'error' : [checked.uid, checked.passwordlessSudo], error, remoteTunnels])
 
 // The Host editor's Auto-allow controls (spec Amendment 2026-09-29).
 

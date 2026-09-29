@@ -211,7 +211,7 @@ export function HostEditor({ server, openTabs, transfers, focusForget, remoteTun
       const sc = saveConfirm(server, draft)
       return (
         <AutoAllowDialog server={server} mode={draft.autoAllow as Exclude<AutoAllowMode, 'off'>}
-          typeName={sc.typeName} rootNew={sc.rootNew} sudoNew={sc.sudoNew} refused={refusalHint}
+          typeName={sc.typeName} rootNew={sc.rootNew} sudoNew={sc.sudoNew} sudo={draft.autoAllowSudo} refused={refusalHint}
           remoteTunnels={remoteTunnels} check={() => autoAllowCheck(server.name)}
           onEnable={doSave} onCancel={() => setConfirm(false)} />
       )
