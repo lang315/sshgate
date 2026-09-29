@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AutoAllowRan, HubEvent, ServerInfo } from '../src/shared/protocol'
-import { applyOff, autoHosts, chipLabel, commandLabel, dropOnLock, enableAllowed, FEED_CAP, handleAutoEvent, isActive, pausedHosts, pushFeed } from '../src/renderer/autoallow'
+import { applyOff, autoHosts, chipLabel, commandLabel, draftRefusal, dropOnLock, enableAllowed, FEED_CAP, handleAutoEvent, isActive, pausedHosts, pushFeed, SAVED_BUT, saveConfirm, timedNote } from '../src/renderer/autoallow'
+import { draftFrom } from '../src/renderer/hostForm'
 
 // The renderer must never call the hub in response to autoAllow.ran or
 // autoAllow.off (the idle-lock rule: every call but status counts as UI
@@ -118,4 +119,86 @@ describe('enableAllowed', () => {
     expect(enableAllowed({ ...base, mode: 'forever', typed: 'Box' })).toBe(false)
   })
   it('never for a refused host', () => expect(enableAllowed({ ...base, refused: 'root login' })).toBe(false))
+})
+
+describe('timedNote', () => {
+  it('reports minutes left, rounded up, for a running timed grant', () => {
+    expect(timedNote({ autoAllow: { until: at(14.2) } } as ServerInfo, now))
+      .toBe('On for 15 more min — saving ends it; pick a duration to keep auto-allow on')
+    expect(timedNote({ autoAllow: { until: at(0.1) } } as ServerInfo, now))
+      .toBe('On for 1 more min — saving ends it; pick a duration to keep auto-allow on')
+  })
+  it('is undefined past the deadline, for a forever grant, with no grant, or no server', () => {
+    expect(timedNote({ autoAllow: { until: at(-1) } } as ServerInfo, now)).toBeUndefined()
+    expect(timedNote({ autoAllow: { forever: true } } as ServerInfo, now)).toBeUndefined()
+    expect(timedNote({} as ServerInfo, now)).toBeUndefined()
+    expect(timedNote(undefined, now)).toBeUndefined()
+  })
+})
+
+const acSrv = (autoAllow?: ServerInfo['autoAllow'], autoAllowRoot = false, autoAllowSudo = false) =>
+  ({ autoAllow, autoAllowRoot, autoAllowSudo }) as ServerInfo
+
+describe('saveConfirm', () => {
+  it('off: never needed', () => {
+    const s = acSrv(undefined)
+    expect(saveConfirm(s, { ...draftFrom(s), autoAllow: 'off' }).needed).toBe(false)
+  })
+  it('timed: needed, not a type-name confirm', () => {
+    const s = acSrv(undefined)
+    const r = saveConfirm(s, { ...draftFrom(s), autoAllow: '15m' })
+    expect(r).toMatchObject({ needed: true, typeName: false })
+  })
+  it('forever newly chosen: needed and a type-name confirm', () => {
+    const s = acSrv(undefined)
+    const r = saveConfirm(s, { ...draftFrom(s), autoAllow: 'forever' })
+    expect(r).toMatchObject({ needed: true, typeName: true })
+  })
+  it('forever already armed with the same options: not needed', () => {
+    const s = acSrv({ forever: true }, true, false)
+    expect(saveConfirm(s, draftFrom(s)).needed).toBe(false)
+  })
+  it('forever already armed but the root option newly ticked: needed and rootNew', () => {
+    const s = acSrv({ forever: true }, false, false)
+    const r = saveConfirm(s, { ...draftFrom(s), autoAllowRoot: true })
+    expect(r).toMatchObject({ needed: true, typeName: false, rootNew: true, sudoNew: false })
+  })
+  it('forever already armed but the sudo option newly ticked: needed and sudoNew', () => {
+    const s = acSrv({ forever: true }, false, false)
+    const r = saveConfirm(s, { ...draftFrom(s), autoAllowSudo: true })
+    expect(r).toMatchObject({ needed: true, rootNew: false, sudoNew: true })
+  })
+  it('a paused forever: needed, but not a type-name confirm (already forever)', () => {
+    const s = acSrv({ forever: true, paused: true })
+    const r = saveConfirm(s, draftFrom(s))
+    expect(r).toMatchObject({ needed: true, typeName: false })
+  })
+})
+
+const pinned = (over: Partial<ServerInfo> = {}): ServerInfo => ({ hostKey: 'SHA256:x', ...over }) as ServerInfo
+
+describe('draftRefusal', () => {
+  it('a new host has no pinned host key', () => {
+    expect(draftRefusal(undefined, draftFrom())).toBe('no pinned host key')
+  })
+  it('an existing host with no pin', () => {
+    const s = pinned({ hostKey: '' })
+    expect(draftRefusal(s, { ...draftFrom(s), aiVisible: true })).toBe('no pinned host key')
+  })
+  it('not visible to AI', () => {
+    const s = pinned()
+    expect(draftRefusal(s, { ...draftFrom(s), aiVisible: false })).toBe('not visible to AI')
+  })
+  it('a root/su/sudo refusal is lifted only by ticking Allow on root hosts', () => {
+    for (const reason of ['root login', 'has an su password', 'has a sudo password'] as const) {
+      const s = pinned({ autoAllowRefused: reason })
+      const d = { ...draftFrom(s), aiVisible: true, autoAllowRoot: false }
+      expect(draftRefusal(s, d)).toBe(reason)
+      expect(draftRefusal(s, { ...d, autoAllowRoot: true })).toBeUndefined()
+    }
+  })
+  it('otherwise undefined: the hub has the final say on the draft\'s other edits', () => {
+    const s = pinned()
+    expect(draftRefusal(s, { ...draftFrom(s), aiVisible: true })).toBeUndefined()
+  })
 })

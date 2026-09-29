@@ -8,6 +8,7 @@ import type { ServerInfo } from '../src/shared/protocol'
 const box: ServerInfo = {
   name: 'box', host: 'h', port: 22, user: 'u', auth: 'password', keyPath: '', hostKey: 'SHA256:x', hostKeyAlgo: 'ssh-ed25519',
   aiVisible: false, locked: false, hasPassword: true, hasSuPassword: false, hasSudoPassword: false, hasKeyPassphrase: false,
+  autoAllowRoot: false, autoAllowSudo: false,
 }
 const noop = async () => {}
 
@@ -17,7 +18,7 @@ describe('host editor secrets', () => {
     d.secrets.password = { value: '', cleared: true }
     d.secrets.suPassword = { value: 'su!', cleared: false }
     const input = toInput(d)
-    expect(input).toEqual({ name: 'box', host: 'h', port: 22, user: 'u', auth: 'password', keyPath: '', aiVisible: false, password: '', suPassword: 'su!' })
+    expect(input).toEqual({ name: 'box', host: 'h', port: 22, user: 'u', auth: 'password', keyPath: '', aiVisible: false, autoAllowRoot: false, autoAllowSudo: false, password: '', suPassword: 'su!' })
     expect('sudoPassword' in input).toBe(false)
     expect('keyPassphrase' in input).toBe(false)
   })
@@ -64,6 +65,24 @@ describe('host editor secrets', () => {
     expect(html).toContain('AI access · Off')
     expect(html).not.toMatch(/role="switch"[^>]*checked/)
     expect(html).toMatch(/<details[^>]*class="fold"[^>]*>\s*<summary[^>]*>Privilege escalation/)
+  })
+})
+
+describe('draftFrom auto-allow', () => {
+  it('is "forever" for a forever host, paused or not, and "off" for a timed or off host', () => {
+    expect(draftFrom({ ...box, autoAllow: { forever: true } }).autoAllow).toBe('forever')
+    expect(draftFrom({ ...box, autoAllow: { forever: true, paused: true } }).autoAllow).toBe('forever')
+    expect(draftFrom({ ...box, autoAllow: { until: '2026-01-01T00:00:00Z' } }).autoAllow).toBe('off')
+    expect(draftFrom(box).autoAllow).toBe('off')
+    expect(draftFrom().autoAllow).toBe('off')
+  })
+  it('takes autoAllowRoot/autoAllowSudo from the server, false for a new host', () => {
+    expect(draftFrom({ ...box, autoAllowRoot: true, autoAllowSudo: true })).toMatchObject({ autoAllowRoot: true, autoAllowSudo: true })
+    expect(draftFrom()).toMatchObject({ autoAllowRoot: false, autoAllowSudo: false })
+  })
+  it('toInput carries autoAllowRoot/autoAllowSudo', () => {
+    const d = { ...draftFrom(box), autoAllowRoot: true, autoAllowSudo: true }
+    expect(toInput(d)).toMatchObject({ autoAllowRoot: true, autoAllowSudo: true })
   })
 })
 

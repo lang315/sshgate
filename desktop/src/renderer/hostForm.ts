@@ -1,4 +1,4 @@
-import type { SecretField, ServerInfo, ServerInput } from '../shared/protocol'
+import type { AutoAllowMode, SecretField, ServerInfo, ServerInput } from '../shared/protocol'
 
 export const SECRET_FIELDS: { field: SecretField; label: string; has: (s: ServerInfo) => boolean }[] = [
   { field: 'password', label: 'Password', has: (s) => s.hasPassword },
@@ -11,6 +11,7 @@ export interface SecretEdit { value: string; cleared: boolean }
 
 export interface HostDraft {
   name: string; host: string; port: string; user: string; auth: string; keyPath: string; aiVisible: boolean
+  autoAllow: AutoAllowMode; autoAllowRoot: boolean; autoAllowSudo: boolean
   secrets: Record<SecretField, SecretEdit>
 }
 
@@ -20,6 +21,8 @@ export function draftFrom(s?: ServerInfo): HostDraft {
   return {
     name: s?.name ?? '', host: s?.host ?? '', port: String(s?.port ?? 22), user: s?.user ?? '',
     auth: s?.auth ?? 'password', keyPath: s?.keyPath ?? '', aiVisible: s?.aiVisible ?? false,
+    autoAllow: s?.autoAllow?.forever ? 'forever' : 'off',
+    autoAllowRoot: s?.autoAllowRoot ?? false, autoAllowSudo: s?.autoAllowSudo ?? false,
     secrets: { password: untouched(), suPassword: untouched(), sudoPassword: untouched(), keyPassphrase: untouched() },
   }
 }
@@ -30,6 +33,7 @@ export function toInput(d: HostDraft): ServerInput {
   const input: ServerInput = {
     name: d.name.trim() || d.host.trim(), host: d.host.trim(), port: Number(d.port), user: d.user.trim(), auth: d.auth,
     keyPath: d.auth === 'key' ? d.keyPath.trim() : '', aiVisible: d.aiVisible,
+    autoAllowRoot: d.autoAllowRoot, autoAllowSudo: d.autoAllowSudo,
   }
   for (const { field } of SECRET_FIELDS) {
     const e = d.secrets[field]

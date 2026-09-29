@@ -10,6 +10,7 @@ const server = (over: Partial<ServerInfo> = {}): ServerInfo => ({
   name: 'box', host: 'h', port: 22, user: 'u', auth: 'password', keyPath: '',
   hostKey: 'k', hostKeyAlgo: 'ssh-ed25519', aiVisible: true, locked: false,
   hasPassword: true, hasSuPassword: false, hasSudoPassword: false, hasKeyPassphrase: false,
+  autoAllowRoot: false, autoAllowSudo: false,
   ...over,
 })
 

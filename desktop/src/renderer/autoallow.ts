@@ -1,5 +1,6 @@
 import type { AutoAllowCheck, AutoAllowMode, AutoAllowRan, AutoAllowState, HubEvent, ServerInfo } from '../shared/protocol'
 import { ALLOW_DELAY_MS } from './approvals'
+import type { HostDraft } from './hostForm'
 
 // Per-host auto-allow (spec 2026-09-28-auto-allow-design.md). Everything here
 // is pure: the renderer never asks the hub on a timer or on an auto-allow event.
@@ -71,3 +72,37 @@ export function enableAllowed(o: { mode: Exclude<AutoAllowMode, 'off'>; typed: s
 // the host name doesn't itself restart the wait.
 export const dialogChangeKey = (mode: Exclude<AutoAllowMode, 'off'>, checked: AutoAllowCheck | 'error' | undefined, error: string | undefined, remoteTunnels: string[]): string =>
   JSON.stringify([mode, checked === undefined ? 'pending' : checked === 'error' ? 'error' : [checked.uid, checked.passwordlessSudo], error, remoteTunnels])
+
+// The Host editor's Auto-allow controls (spec Amendment 2026-09-29).
+
+export const SAVED_BUT = 'saved, but auto-allow was not turned on: '
+
+// The editor's note under the Auto-allow select when a timed grant is running.
+export function timedNote(s: ServerInfo | undefined, now: number): string | undefined {
+  const ms = left(s?.autoAllow, now)
+  if (ms <= 0) return undefined
+  return `On for ${Math.ceil(ms / 60_000)} more min — saving ends it; pick a duration to keep auto-allow on`
+}
+
+// Whether Save must show the Auto-allow confirm dialog, and which warnings it needs.
+export function saveConfirm(s: ServerInfo | undefined, d: HostDraft): { needed: boolean; typeName: boolean; rootNew: boolean; sudoNew: boolean } {
+  const alreadyArmedForever = d.autoAllow === 'forever' && !!s?.autoAllow?.forever && !s.autoAllow.paused &&
+    d.autoAllowRoot === s.autoAllowRoot && d.autoAllowSudo === s.autoAllowSudo
+  return {
+    needed: d.autoAllow !== 'off' && !alreadyArmedForever,
+    typeName: d.autoAllow === 'forever' && !s?.autoAllow?.forever,
+    rootNew: !!d.autoAllowRoot && !s?.autoAllowRoot,
+    sudoNew: !!d.autoAllowSudo && !s?.autoAllowSudo,
+  }
+}
+
+// Why the editor's Auto-allow controls would fail on save, shown ahead of time;
+// the hub has the final say on the draft's other edits.
+export function draftRefusal(s: ServerInfo | undefined, d: HostDraft): string | undefined {
+  if (!s || !s.hostKey) return 'no pinned host key'
+  if (!d.aiVisible) return 'not visible to AI'
+  if (s.autoAllowRefused === 'root login' || s.autoAllowRefused === 'has an su password' || s.autoAllowRefused === 'has a sudo password') {
+    return d.autoAllowRoot ? undefined : s.autoAllowRefused
+  }
+  return undefined
+}
