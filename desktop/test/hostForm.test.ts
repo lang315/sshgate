@@ -11,6 +11,7 @@ const box: ServerInfo = {
   autoAllowRoot: false, autoAllowSudo: false,
 }
 const noop = async () => {}
+const check = async () => ({ uid: 1000, passwordlessSudo: false })
 
 describe('host editor secrets', () => {
   it('omits untouched secrets, sends "" for cleared ones and the value for typed ones', () => {
@@ -26,7 +27,7 @@ describe('host editor secrets', () => {
     expect(secretPlaceholder(true, { value: '', cleared: false })).toBe('saved')
     expect(secretPlaceholder(false, { value: '', cleared: false })).toBe('')
     expect(secretPlaceholder(true, { value: '', cleared: true })).toBe('will be cleared')
-    const html = renderToStaticMarkup(createElement(HostEditor, { server: box, openTabs: 0, transfers: 0, onSave: noop, onForget: noop, onClose: () => {} }))
+    const html = renderToStaticMarkup(createElement(HostEditor, { server: box, openTabs: 0, transfers: 0, remoteTunnels: [], autoAllowCheck: check, onSave: noop, onForget: noop, onClose: () => {} }))
     expect(html.match(/placeholder="saved"/g)).toHaveLength(1)
     expect(html.match(/>Clear</g)).toHaveLength(1)
     expect(html).toContain('SHA256:x')
@@ -39,7 +40,7 @@ describe('host editor secrets', () => {
     expect(arrowStep(auths, 'password', 'ArrowLeft')).toBe('agent')
     expect(arrowStep(auths, 'key', 'ArrowUp')).toBe('password')
     expect(arrowStep(auths, 'key', 'Enter')).toBeUndefined()
-    const html = renderToStaticMarkup(createElement(HostEditor, { server: { ...box, auth: 'key' }, openTabs: 0, transfers: 0, onSave: noop, onForget: noop, onClose: () => {} }))
+    const html = renderToStaticMarkup(createElement(HostEditor, { server: { ...box, auth: 'key' }, openTabs: 0, transfers: 0, remoteTunnels: [], autoAllowCheck: check, onSave: noop, onForget: noop, onClose: () => {} }))
     expect(html.match(/role="radio"[^>]*tabindex="0"/g)).toHaveLength(1)
     expect(html).toMatch(/aria-checked="true" data-auth="key" tabindex="0"/)
   })
@@ -49,14 +50,14 @@ describe('host editor secrets', () => {
     expect(secretPlaceholder(true, { value: 'new', cleared: false }, true)).toBe('saved')
   })
   it('renders an existing host with the full fingerprint, a unique Close, and the saved-secrets note', () => {
-    const html = renderToStaticMarkup(createElement(HostEditor, { server: box, openTabs: 0, transfers: 0, onSave: noop, onForget: noop, onClose: () => {} }))
+    const html = renderToStaticMarkup(createElement(HostEditor, { server: box, openTabs: 0, transfers: 0, remoteTunnels: [], autoAllowCheck: check, onSave: noop, onForget: noop, onClose: () => {} }))
     expect(html).toContain('ssh-ed25519 SHA256:x')
     expect(html).toContain('aria-label="Close host editor"')
     expect(html.match(/>Close</g)).toHaveLength(1)
     expect(html).toContain('Saved secrets are never shown. Leave a field empty to keep it.')
   })
   it('opens a new host at Address, with only user and password, AI off, and extras folded', () => {
-    const html = renderToStaticMarkup(createElement(HostEditor, { openTabs: 0, transfers: 0, onSave: noop, onForget: noop, onClose: () => {} }))
+    const html = renderToStaticMarkup(createElement(HostEditor, { openTabs: 0, transfers: 0, remoteTunnels: [], autoAllowCheck: check, onSave: noop, onForget: noop, onClose: () => {} }))
     expect(html.indexOf('>Address<')).toBeGreaterThan(-1)
     expect(html.indexOf('>Address<')).toBeLessThan(html.indexOf('>Label<'))
     expect(html).toContain('+ Key or agent')

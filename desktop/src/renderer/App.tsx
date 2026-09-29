@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AutoAllowMode, AutoAllowRan, HostKeyMismatch, HubState, ServerInfo, Status, TunnelState, TunnelView } from '../shared/protocol'
+import type { AutoAllowMode, AutoAllowRan, HostKeyMismatch, HubState, ServerInfo, ServerInput, Status, TunnelState, TunnelView } from '../shared/protocol'
 import { hub } from './transport'
 import { applyState, replayStates, summary } from './tunnels'
-import { autoHosts, dropOnLock, handleAutoEvent, pausedHosts } from './autoallow'
-import { AutoAllowDialog } from './AutoAllowDialog'
+import { autoHosts, dropOnLock, handleAutoEvent, pausedHosts, SAVED_BUT } from './autoallow'
 import { screenFor } from './shell'
 import { Unlock } from './Unlock'
 import { CreateVault } from './CreateVault'
@@ -28,7 +27,6 @@ export function App() {
   const [servers, setServers] = useState<ServerInfo[]>([])
   const [tunnels, setTunnels] = useState<TunnelView[]>([])
   const [autoFeed, setAutoFeed] = useState<AutoAllowRan[]>([])
-  const [autoDialog, setAutoDialog] = useState<string>()
   const [now, setNow] = useState(Date.now())
   // A renderer-only clock for auto-allow chips/countdowns; never calls the hub.
   // Set immediately too, so a freshly enabled grant (servers just reloaded) never
@@ -65,7 +63,7 @@ export function App() {
     hub.getState().then(setHubState).catch(() => {})
     const offState = hub.onState(setHubState)
     const offEvent = hub.onEvent((e) => {
-      if (e.method === 'locked') { setLockReason(e.params?.reason === 'idle' ? 'idle' : 'manual'); refresh(); setServers(dropOnLock); setAutoDialog(undefined) }
+      if (e.method === 'locked') { setLockReason(e.params?.reason === 'idle' ? 'idle' : 'manual'); refresh(); setServers(dropOnLock) }
       // The MCP door reloads the vault file on every AI call: re-read status
       // so a refused reload shows its banner before the user decides.
       if (e.method === 'pending') refresh()
@@ -156,13 +154,18 @@ export function App() {
     await refresh()
   }
   const createVault = async (pw: string) => { await hub.createVault(pw); await refresh() }
+  const onSaveHost = async (input: ServerInput, original: string | undefined, mode: AutoAllowMode) => {
+    try { await hub.saveServer(input, original, mode) } catch (e) {
+      const m = (e as Error).message
+      if (!m.startsWith(SAVED_BUT)) throw e
+      window.alert(`Saved, but auto-allow was not turned on: ${m.slice(SAVED_BUT.length)}`)
+    }
+    await reloadServers(); await reloadTunnels(); setEditing(undefined)
+  }
   const deleteHost = async (name: string) => {
     if (!window.confirm(`Delete ${name}? Its saved passwords and host key are removed and its open tabs close.`)) return
     try { await hub.deleteServer(name) } catch (e) { window.alert((e as Error).message) }
     await reloadServers(); await reloadTunnels()
-  }
-  const enableAuto = async (name: string, mode: Exclude<AutoAllowMode, 'off'>) => {
-    await hub.setAutoAllow(name, mode); setAutoDialog(undefined); await reloadServers()
   }
   // The kill switch: a rejection must never be silent, must never stop the rest of
   // the hosts from being tried, and must never skip the reload.
@@ -215,10 +218,9 @@ export function App() {
       onEdit={async (name) => { setImporting(false); await reloadServers(); setEditing({ name }) }}
       onDelete={deleteHost}
       onImport={() => { setEditing(undefined); setImporting(true) }}
-      onAutoAllow={setAutoDialog} onStopAutoAllow={stopAuto}
+      onStopAutoAllow={stopAuto}
       paused={pausedHostsList} onResume={resumeAll} onStopPaused={stopPaused} />
   )
-  const autoServer = autoDialog ? servers.find((s) => s.name === autoDialog) : undefined
 
   // Once shown, the shell (tabs, terminals) stays mounted, hidden and inert, through
   // lock and hub restarts, so SSH sessions survive a lock and a restart can end them
@@ -244,7 +246,9 @@ export function App() {
               <HostEditor key={editing.name ?? ''} server={servers.find((s) => s.name === editing.name)}
                 openTabs={editing.name ? terms.current?.openCount(editing.name) ?? 0 : 0}
                 transfers={editing.name ? terms.current?.transferCount(editing.name) ?? 0 : 0} focusForget={editing.focusForget}
-                onSave={async (input, original) => { await hub.saveServer(input, original); await reloadServers(); await reloadTunnels(); setEditing(undefined) }}
+                remoteTunnels={editing.name ? tunnels.filter((t) => t.server === editing.name && t.kind === 'remote' && t.status === 'running').map(summary) : []}
+                autoAllowCheck={hub.autoAllowCheck}
+                onSave={onSaveHost}
                 onForget={async (name) => { await hub.forgetHostKey(name); await reloadServers() }}
                 onClose={() => setEditing(undefined)} />
             )}
@@ -271,13 +275,6 @@ export function App() {
       {ready && mismatch && (
         <HostKeyMismatchDialog info={mismatch} onClose={() => setMismatch(undefined)}
           onEdit={async () => { const name = mismatch.server; setMismatch(undefined); setImporting(false); await reloadServers(); setEditing({ name, focusForget: true }) }} />
-      )}
-      {ready && autoServer && (
-        <AutoAllowDialog server={autoServer}
-          remoteTunnels={tunnels.filter((t) => t.server === autoDialog && t.kind === 'remote' && t.status === 'running').map(summary)}
-          check={() => hub.autoAllowCheck(autoServer.name)}
-          onEnable={(mode) => enableAuto(autoServer.name, mode)}
-          onCancel={() => setAutoDialog(undefined)} />
       )}
     </div>
   )

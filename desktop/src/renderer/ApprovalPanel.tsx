@@ -79,6 +79,7 @@ export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToT
           <ul>{autoFeed.map((r, i) => (
             <li key={`${r.time}-${i}`} className="autorun">
               <span className="mono muted">{new Date(r.time).toLocaleTimeString()}</span> <strong>{r.server}</strong>
+              {r.sudo && <span className="chip danger">sudo</span>}
               <code className="cmd">{highlightNonAscii(commandLabel(r)).map((s, j) => (s.nonAscii ? <mark key={j}>{s.text}</mark> : <span key={j}>{s.text}</span>))}</code>
               {r.description && <span className="muted">{r.description}</span>}
               <span className={r.error ? 'error' : 'muted'}>{r.error ?? `exit ${r.exitCode}`}</span>

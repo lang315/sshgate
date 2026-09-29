@@ -58,20 +58,20 @@ export const pushFeed = (feed: AutoAllowRan[], r: AutoAllowRan) => [r, ...feed].
 export const commandLabel = (r: AutoAllowRan) => (r.truncated ? `${r.command} … (truncated ${r.truncated} bytes)` : r.command)
 
 // Enable is mouse-only and waits ALLOW_DELAY_MS after the dialog opens or its
-// content changes; forever also needs the host name typed exactly.
-export function enableAllowed(o: { mode: Exclude<AutoAllowMode, 'off'>; typed: string; host: string; refused?: string; openedAt: number; changedAt: number; now: number }): boolean {
+// content changes; typeName also needs the host name typed exactly.
+export function enableAllowed(o: { typeName: boolean; typed: string; host: string; refused?: string; openedAt: number; changedAt: number; now: number }): boolean {
   if (o.refused) return false
-  if (o.mode === 'forever' && o.typed !== o.host) return false
+  if (o.typeName && o.typed !== o.host) return false
   return o.now - Math.max(o.openedAt, o.changedAt) >= ALLOW_DELAY_MS
 }
 
 // AutoAllowDialog's ListChanges key: anything that shifts the buttons must
-// restart the Enable delay — the mode, the root-access check result (root
-// access revealed, or the check failing), an enable error appearing, or the
-// remote-tunnels list. Excludes `typed`, so confirming "forever" by typing
-// the host name doesn't itself restart the wait.
-export const dialogChangeKey = (mode: Exclude<AutoAllowMode, 'off'>, checked: AutoAllowCheck | 'error' | undefined, error: string | undefined, remoteTunnels: string[]): string =>
-  JSON.stringify([mode, checked === undefined ? 'pending' : checked === 'error' ? 'error' : [checked.uid, checked.passwordlessSudo], error, remoteTunnels])
+// restart the Enable delay — the mode and warnings chosen in the editor, the
+// root-access check result (root access revealed, or the check failing), an
+// enable error appearing, or the remote-tunnels list. Excludes `typed`, so
+// confirming "forever" by typing the host name doesn't itself restart the wait.
+export const dialogChangeKey = (mode: Exclude<AutoAllowMode, 'off'>, rootNew: boolean, sudoNew: boolean, checked: AutoAllowCheck | 'error' | undefined, error: string | undefined, remoteTunnels: string[]): string =>
+  JSON.stringify([mode, rootNew, sudoNew, checked === undefined ? 'pending' : checked === 'error' ? 'error' : [checked.uid, checked.passwordlessSudo], error, remoteTunnels])
 
 // The Host editor's Auto-allow controls (spec Amendment 2026-09-29).
 

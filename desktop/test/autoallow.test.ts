@@ -107,16 +107,16 @@ describe('feed', () => {
 })
 
 describe('enableAllowed', () => {
-  const base = { mode: '15m' as const, typed: '', host: 'box', refused: undefined, openedAt: now, changedAt: now, now: now + 600 }
+  const base = { typeName: false, typed: '', host: 'box', refused: undefined, openedAt: now, changedAt: now, now: now + 600 }
   it('waits 500 ms after opening or any change', () => {
     expect(enableAllowed(base)).toBe(true)
     expect(enableAllowed({ ...base, now: now + 499 })).toBe(false)
     expect(enableAllowed({ ...base, changedAt: now + 200 })).toBe(false)
   })
-  it('forever needs the host name typed exactly', () => {
-    expect(enableAllowed({ ...base, mode: 'forever' })).toBe(false)
-    expect(enableAllowed({ ...base, mode: 'forever', typed: 'box' })).toBe(true)
-    expect(enableAllowed({ ...base, mode: 'forever', typed: 'Box' })).toBe(false)
+  it('typeName needs the host name typed exactly', () => {
+    expect(enableAllowed({ ...base, typeName: true })).toBe(false)
+    expect(enableAllowed({ ...base, typeName: true, typed: 'box' })).toBe(true)
+    expect(enableAllowed({ ...base, typeName: true, typed: 'Box' })).toBe(false)
   })
   it('never for a refused host', () => expect(enableAllowed({ ...base, refused: 'root login' })).toBe(false))
 })
