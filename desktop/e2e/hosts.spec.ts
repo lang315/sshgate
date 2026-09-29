@@ -14,7 +14,9 @@ test('create a vault, add a host, trust its key, edit the port, forget the key',
   const editor = win.getByRole('dialog', { name: 'Host editor' })
   const prompt = win.getByRole('dialog', { name: 'Unknown host key' })
   const home = () => win.locator('.tabbar .hometab').click()
-  const openBox = async () => { await home(); await hosts.getByRole('button', { name: 'box', exact: true }).click() }
+  // Clicks the tile, not the card's bounding-box center: the auto-allow/files/tunnels/
+  // edit/delete icons overlay the card on hover and can intercept a center click.
+  const openBox = async () => { await home(); await hosts.getByRole('button', { name: 'box', exact: true }).locator('.tile').click() }
   const editBox = async () => { await home(); await hosts.getByRole('button', { name: 'Edit box' }).click() }
   const trust = async () => {
     await expect(prompt).toContainText('SHA256:')

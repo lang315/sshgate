@@ -158,6 +158,19 @@ func TestApplyServerAIVisibleOnlyKeepsEverythingElse(t *testing.T) {
 	}
 }
 
+// Every save turns auto-allow off, whether or not the caller mentions it.
+func TestApplyServerDropsAutoAllow(t *testing.T) {
+	_, mk, _ := NewKDF("pw")
+	f := &File{Version: 1, Servers: []Server{{Name: "a", Host: "h", Port: 22, User: "u", Auth: "agent", AutoAllow: true}}}
+	_, after, err := ApplyServer(f, "a", ServerInput{Name: "a", Host: "h", Port: 22, User: "u", Auth: "agent", AIVisible: true}, mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.AutoAllow {
+		t.Fatalf("autoAllow survived a save: %+v", after)
+	}
+}
+
 func TestApplyServerNamesKeyPathAndKeylessSecrets(t *testing.T) {
 	_, mk, _ := NewKDF("pw")
 	f := &File{Version: 1}

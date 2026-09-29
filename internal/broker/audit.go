@@ -21,6 +21,8 @@ type AuditRecord struct {
 	DurationMs  int64     `json:"durationMs,omitempty"`
 	StdoutBytes int       `json:"stdoutBytes,omitempty"`
 	StderrBytes int       `json:"stderrBytes,omitempty"`
+	Approval    string    `json:"approval,omitempty"` // "auto" when a grant allowed it (spec 2026-09-28)
+	WaitMs      int64     `json:"waitMs,omitempty"`   // submit to the human's decision
 }
 
 // ConfigRecord is an audit line for a vault change made from the app. It
@@ -28,7 +30,7 @@ type AuditRecord struct {
 type ConfigRecord struct {
 	Time           time.Time `json:"time"`
 	Kind           string    `json:"kind"`   // always "config"; exec records have none
-	Action         string    `json:"action"` // trust, forgetHostKey, delete, vaultCreate, save, import
+	Action         string    `json:"action"` // trust, forgetHostKey, delete, vaultCreate, save, import, autoAllowOn, autoAllowResume, autoAllowOff, autoAllowCheck
 	Server         string    `json:"server,omitempty"`
 	Host           string    `json:"host,omitempty"`
 	Port           int       `json:"port,omitempty"`
@@ -37,6 +39,9 @@ type ConfigRecord struct {
 	OldFingerprint string    `json:"oldFingerprint,omitempty"`
 	KeptServers    []string  `json:"keptServers,omitempty"`
 	Changed        []string  `json:"changed,omitempty"`
+	Until          string    `json:"until,omitempty"`   // autoAllowOn: RFC 3339 deadline of a timed grant
+	Forever        bool      `json:"forever,omitempty"` // autoAllowOn: a forever grant
+	Reason         string    `json:"reason,omitempty"`  // autoAllowOff: why it ended; autoAllowCheck: the result
 }
 
 // FileRecord is an audit line for a file operation from the app. Transfers

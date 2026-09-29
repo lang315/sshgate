@@ -220,3 +220,95 @@ func TestEndToEndApprovalFlow(t *testing.T) {
 	}
 	assertNoExec(t, srv) // hub is down; nothing should ever reach the SSH server
 }
+
+// TestEndToEndAutoAllow proves a plain exec on a granted host runs end to end
+// without any human decision: same bridge -> hub -> in-process sshd path as
+// TestEndToEndApprovalFlow, but no goroutine ever calls broker.Decide.
+func TestEndToEndAutoAllow(t *testing.T) {
+	srv := sshtest.Start(t)
+	close(srv.Release)
+	bin := buildBinary(t)
+
+	dir := t.TempDir()
+	store := filepath.Join(dir, "servers.json")
+	k, mk, err := config.NewKDF("pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &config.File{Version: 1, KDF: &k, Servers: []config.Server{{Name: "box", Host: srv.Host, Port: srv.Port, User: "test", Auth: "password", AIVisible: true}}}
+	enc, err := config.Encrypt(mk, "box/encPassword", config.AADFor(f, f.Servers[0], "encPassword"), "testpass")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Servers[0].EncPassword = enc
+	if err := config.Save(store, f, mk); err != nil {
+		t.Fatal(err)
+	}
+	m := sshx.NewManager(sshx.DialConfig{Host: srv.Host, Port: srv.Port, User: "test", Password: "testpass", Auth: "password", TimeoutMs: 30000,
+		OnLearnHostKey: func(fp string) { _ = config.RecordHostKey(store, "box", srv.Host, srv.Port, fp, "", mk) }})
+	if _, err := m.Exec(context.Background(), "true"); err != nil {
+		t.Fatal(err)
+	}
+	m.Close()
+	select {
+	case cmd := <-srv.Execs:
+		if cmd != "true" {
+			t.Fatalf("unexpected host-key-learning exec: %q", cmd)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not observe host-key-learning exec on Execs")
+	}
+
+	smDir, err := os.MkdirTemp("/tmp", "sm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(smDir) })
+	t.Setenv("SSHGATE_RUNTIME_DIR", smDir)
+
+	auditPath := filepath.Join(dir, "audit.jsonl")
+	audit, err := broker.OpenAudit(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := hub.New(hub.Options{StorePath: store, Audit: audit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Unlock("pw"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetAutoAllow("box", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	ln, err := hub.ListenMCPDoor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	// A short bound: if auto-allow regressed to needing approval, nothing
+	// here ever decides, so the call would otherwise hang until this
+	// deadline instead of the whole test hanging.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	go hub.ServeMCPDoor(ctx, ln, h)
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "claude-code-test", Version: "0"}, nil)
+	cs, err := client.Connect(ctx, &mcp.CommandTransport{Command: exec.Command(bin)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "exec", Arguments: map[string]any{"server": "box", "command": "echo hi"}})
+	if err != nil || res.IsError {
+		t.Fatalf("exec: %v %+v", err, res)
+	}
+	txt := res.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(txt, "hi") || !strings.Contains(txt, "exit code: 0") {
+		t.Fatalf("output wrong: %q", txt)
+	}
+	if n := len(h.Broker().Pending()); n != 0 {
+		t.Fatalf("request reached the broker: %d pending", n)
+	}
+}

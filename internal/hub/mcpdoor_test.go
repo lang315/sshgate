@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -202,6 +203,22 @@ func TestMCPDoorIgnoresNotificationExec(t *testing.T) {
 	}
 	if n := len(h.Broker().Pending()); n != 0 {
 		t.Fatalf("notification exec reached the broker: %d pending", n)
+	}
+}
+
+// The MCP door never reads or changes auto-allow; listServers must not show it.
+func TestListServersHidesAutoAllow(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	c := startDoor(t, h)
+	var raw json.RawMessage
+	if err := c.Call(context.Background(), "listServers", nil, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.ToLower(string(raw)), "autoallow") {
+		t.Fatalf("listServers leaked auto-allow: %s", raw)
 	}
 }
 

@@ -57,6 +57,14 @@ describe('transport', () => {
     expect(bridge.call).toHaveBeenLastCalledWith('servers.forgetHostKey', { name: 'box' })
   })
 
+  it('auto-allow calls', async () => {
+    await hub.setAutoAllow('box', '15m')
+    expect(bridge.call).toHaveBeenLastCalledWith('servers.setAutoAllow', { server: 'box', mode: '15m' })
+    bridge.call.mockResolvedValueOnce({ uid: 1000, passwordlessSudo: false })
+    expect(await hub.autoAllowCheck('box')).toEqual({ uid: 1000, passwordlessSudo: false })
+    expect(bridge.call).toHaveBeenLastCalledWith('servers.autoAllowCheck', { server: 'box' })
+  })
+
   it('cleanError strips the electron invoke prefix, with or without the inner "Error: "', () => {
     expect(cleanError(new Error("Error invoking remote method 'hub:call': Error: boom")).message).toBe('boom')
     expect(cleanError(new Error("Error invoking remote method 'hub:call': boom")).message).toBe('boom')

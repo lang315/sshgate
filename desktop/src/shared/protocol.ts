@@ -11,11 +11,21 @@ export interface ApprovalRequest {
   description: string; sudo: boolean; timeoutSec: number; receivedAt: string
 }
 
+export type AutoAllowMode = 'off' | '15m' | '30m' | '60m' | '2h' | '4h' | 'forever'
+export interface AutoAllowState { until?: string; forever?: boolean; paused?: boolean }
+
 export interface ServerInfo {
   name: string; host: string; port: number; user: string; auth: string; keyPath: string
   hostKey: string; hostKeyAlgo: string; aiVisible: boolean; locked: boolean
   hasPassword: boolean; hasSuPassword: boolean; hasSudoPassword: boolean; hasKeyPassphrase: boolean
+  autoAllow?: AutoAllowState; autoAllowRefused?: string
 }
+
+export interface AutoAllowRan {
+  server: string; command: string; truncated?: number; description: string
+  exitCode?: number; error?: string; time: string
+}
+export interface AutoAllowCheck { uid: number; passwordlessSudo: boolean }
 
 export type SecretField = 'password' | 'suPassword' | 'sudoPassword' | 'keyPassphrase'
 
@@ -85,16 +95,19 @@ export type HubEvent =
   | { method: 'files.progress'; params: FilesProgress }
   | { method: 'files.done'; params: FilesDone }
   | { method: 'tunnels.state'; params: TunnelState }
+  | { method: 'autoAllow.ran'; params: AutoAllowRan }
+  | { method: 'autoAllow.off'; params: { server: string; reason: string } }
 
 export const REQUEST_METHODS = ['hello', 'status', 'unlock', 'lock', 'servers', 'pending',
   'decide', 'denyAll', 'term.open', 'term.close',
   'vault.create', 'servers.save', 'servers.delete', 'servers.forgetHostKey',
   'import.scan', 'import.apply', 'files.list', 'files.mkdir', 'files.rename',
-  'tunnels.list', 'tunnels.save', 'tunnels.delete', 'tunnels.start'] as const
+  'tunnels.list', 'tunnels.save', 'tunnels.delete', 'tunnels.start',
+  'servers.setAutoAllow', 'servers.autoAllowCheck'] as const
 export type RequestMethod = (typeof REQUEST_METHODS)[number]
 // Relayed through Electron main's FilesRelay (tokens → paths, native download
 // conflicts), never straight through relayCall.
 export const FILES_RELAYED = ['files.plan', 'files.run'] as const
 export const NOTIFY_METHODS = ['term.write', 'term.ack', 'term.resize', 'files.cancel', 'tunnels.stop'] as const
 export type NotifyMethod = (typeof NOTIFY_METHODS)[number]
-export const PROTOCOL_VERSION = 5
+export const PROTOCOL_VERSION = 6

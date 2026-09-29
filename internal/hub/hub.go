@@ -91,7 +91,7 @@ type ExecResponse struct {
 
 type Hub struct {
 	o       Options
-	mu      sync.Mutex // guards deps.File, deps.MasterKey, storeErr, sinks, lastActivity and running
+	mu      sync.Mutex // guards deps.File, deps.MasterKey, storeErr, sinks, lastActivity, running, grants, grantSeq and autoSink; CreateVault, SetAutoAllow, autoAllowOff, SaveServer, DeleteServer and ForgetHostKey each hold it across their own store write, the reload that follows, and ending a server's auto-allow grant, so all of them serialize with each other
 	deps    *mcpserver.Deps
 	sink    func(broker.Event)
 	sinkGen uint64 // bumped on every setEventSink; lets release() no-op if superseded
@@ -105,14 +105,18 @@ type Hub struct {
 	lockSink     func(reason string)
 	lockSinkGen  uint64
 	lastActivity time.Time
-	running      int // approved AI commands currently executing
+	running      int               // approved AI commands currently executing
+	grants       map[string]*grant // auto-allow; see autoallow.go
+	grantSeq     uint64            // ids for grant.inflight
+	autoSink     func(method string, params any)
+	autoSinkGen  uint64
 	done         chan struct{}
 	closeOnce    sync.Once
 }
 
 // New loads the store if present; a missing store is not an error.
 func New(o Options) (*Hub, error) {
-	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit, files: newJobSet(), tunnels: newTunnelSet(), lastActivity: time.Now(), done: make(chan struct{})}
+	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit, files: newJobSet(), tunnels: newTunnelSet(), lastActivity: time.Now(), grants: map[string]*grant{}, done: make(chan struct{})}
 	h.deps = &mcpserver.Deps{Path: o.StorePath}
 	f, err := config.Load(o.StorePath)
 	if err != nil && !os.IsNotExist(err) {
@@ -124,15 +128,25 @@ func New(o Options) (*Hub, error) {
 	if idle == 0 {
 		idle = defaultIdleLock
 	}
-	if idle > 0 {
-		go h.idleLoop(idle)
-	}
+	go h.idleLoop(idle)
 	return h, nil
 }
 
-// Close stops the idle auto-lock goroutine and ends every running tunnel.
-// It is safe to call more than once.
-func (h *Hub) Close() { h.closeOnce.Do(func() { h.endAllTunnels("hub stopped"); close(h.done) }) }
+// Close stops the idle auto-lock goroutine, ends every grant (a forever
+// flag stays in the vault; the server comes back paused), and ends every
+// running tunnel. It is safe to call more than once.
+func (h *Hub) Close() {
+	h.closeOnce.Do(func() {
+		h.mu.Lock()
+		ended := h.endAllGrantsLocked()
+		h.mu.Unlock()
+		for _, n := range ended {
+			h.grantEnded(n, "hub stopped")
+		}
+		h.endAllTunnels("hub stopped")
+		close(h.done)
+	})
+}
 
 func (h *Hub) Broker() *broker.Broker   { return h.broker }
 func (h *Hub) Registry() *sshx.Registry { return h.reg }
@@ -226,9 +240,13 @@ func (h *Hub) Lock() { h.lockWithReason("manual") }
 func (h *Hub) lockWithReason(reason string) {
 	h.mu.Lock()
 	sink := h.zeroKeyLocked()
+	ended := h.endAllGrantsLocked()
 	h.mu.Unlock()
 	if sink != nil {
 		sink(reason)
+	}
+	for _, n := range ended {
+		h.grantEnded(n, "locked")
 	}
 }
 
@@ -302,7 +320,12 @@ func (h *Hub) reloadLocked() (err error) {
 		}
 		return err
 	}
-	if h.deps.File != nil && f.Revision == h.deps.File.Revision {
+	// Revision equality alone isn't enough: a MAC-valid older copy restored
+	// on disk, then written again by a save, can land back on the exact
+	// revision number this in-memory copy already holds while its content
+	// (and so its MAC) differs. Comparing the MAC too catches that; two
+	// different File contents essentially never share one.
+	if h.deps.File != nil && f.Revision == h.deps.File.Revision && f.MAC == h.deps.File.MAC {
 		return nil
 	}
 	// A vault never loses its KDF; one that did lost its MAC check with it.
@@ -497,10 +520,19 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 	req := broker.Request{Client: r.Client, Server: r.Server, Target: target(dc), Command: cmd, Description: r.Description, Sudo: r.Sudo, TimeoutSec: timeout}
 	base := broker.AuditRecord{Time: time.Now(), Client: r.Client, Server: r.Server, Command: red.Redact(cmd), Description: red.Redact(r.Description), Sudo: r.Sudo, TimeoutSec: timeout}
 
+	if !r.Sudo {
+		if ar := h.autoStart(ctx, r.Server); ar != nil {
+			defer ar.done()
+			return h.autoExec(ar, dc, r, cmd, timeout, base)
+		}
+	}
+
+	submitted := time.Now()
 	d, err := h.broker.Submit(ctx, req)
 	if err != nil {
 		return ExecResponse{}, err // ErrTooManyPending, or ctx.Err() when withdrawn
 	}
+	base.WaitMs = time.Since(submitted).Milliseconds()
 	switch d.Outcome {
 	case broker.Expired:
 		base.Outcome = string(broker.Expired)
@@ -548,13 +580,21 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 	// Secrets may have changed on a reload during the wait; mask both sets.
 	red = redactorFor(dc, dc2)
 	base.Command, base.Description = red.Redact(cmd), red.Redact(r.Description)
-	ex := h.executor(r.Server, dc2)
+	return h.run(ctx, r.Server, dc2, cmd, r.Sudo, timeout, base, red)
+}
+
+// run executes cmd on name with dc, audits base (Outcome, exit code, sizes,
+// reason), and returns what the AI sees. It is the tail of both the approved
+// and the auto-allowed path.
+func (h *Hub) run(ctx context.Context, name string, dc sshx.DialConfig, cmd string, sudo bool, timeout int, base broker.AuditRecord, red *config.Redactor) (ExecResponse, error) {
+	ex := h.executor(name, dc)
 
 	runCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 	start := time.Now()
 	var res sshx.ExecResult
-	if r.Sudo {
+	var err error
+	if sudo {
 		res, err = ex.ExecSudo(runCtx, cmd)
 	} else {
 		res, err = ex.Exec(runCtx, cmd)
@@ -570,7 +610,7 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 		}
 		base.Outcome = "error"
 		h.record(base)
-		fmt.Fprintf(os.Stderr, "hub: exec on %q: %s\n", r.Server, base.Reason)
+		fmt.Fprintf(os.Stderr, "hub: exec on %q: %s\n", name, base.Reason)
 		if aiErr := forAI(err); aiErr != err {
 			return ExecResponse{}, aiErr
 		}

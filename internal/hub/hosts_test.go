@@ -178,3 +178,83 @@ func TestDialChangedIgnoresTunnelsAndAIVisible(t *testing.T) {
 		t.Fatal("port change missed")
 	}
 }
+
+func TestDialChangedIgnoresAutoAllow(t *testing.T) {
+	a := config.Server{Name: "a", Host: "h", Port: 22, User: "u", Auth: "agent"}
+	b := a
+	b.AutoAllow = true
+	if dialChanged(a, b) {
+		t.Fatal("autoAllow counted as a dial change")
+	}
+}
+
+// A KDF-less file was never MAC'd: its auto-allow flag is unauthenticated,
+// same as aiVisible and the pin.
+func TestCreateVaultClearsAutoAllow(t *testing.T) {
+	h, path := newHubAt(t, &config.File{Version: 1, Servers: []config.Server{
+		{Name: "a", Host: "h", Port: 22, User: "u", Auth: "agent", AutoAllow: true}}}, nil)
+	if err := h.CreateVault("longenough"); err != nil {
+		t.Fatal(err)
+	}
+	f, _ := config.Load(path)
+	if len(f.Servers) != 1 || f.Servers[0].AutoAllow {
+		t.Fatalf("autoAllow survived vault creation: %+v", f.Servers)
+	}
+}
+
+// TestReloadDetectsRollbackByOneRevision covers round 4 item 1:
+// reloadLocked used to skip reloading whenever the on-disk Revision equalled
+// the in-memory one. That's not sufficient: a MAC-valid older copy of the
+// vault restored on disk (a backup, a file sync), then written again by a
+// save, can land back on the exact revision number memory already holds
+// while its content — and so its MAC — differs (memory at N; disk rolled
+// back to N-1; a save loads N-1 and writes N again). The old check would
+// then skip the reload the save's own SaveServer call does right after its
+// write, leaving the save's changes (here, hiding the server) real on disk
+// but invisible in memory: the MCP server list would still show the host.
+// Comparing the MAC too catches this, since two different File contents
+// essentially never share one.
+func TestReloadDetectsRollbackByOneRevision(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	old, err := os.ReadFile(path) // revision N-1
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetAutoAllow("vis", "forever"); err != nil { // revision N, in memory
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, old, 0o600); err != nil { // MAC-valid rollback by one
+		t.Fatal(err)
+	}
+	in := config.ServerInput{Name: "vis", Host: "h", Port: 22, User: "u", Auth: "agent", AIVisible: false}
+	if err := h.SaveServer("vis", in); err != nil { // hides it; disk lands back on revision N
+		t.Fatal(err)
+	}
+
+	disk, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds, ok := disk.FindServer("vis")
+	if !ok {
+		t.Fatal("vis missing from disk")
+	}
+	ms, ok := h.Deps().File.FindServer("vis")
+	if !ok {
+		t.Fatal("vis missing from memory")
+	}
+	if ms.AIVisible != ds.AIVisible {
+		t.Fatalf("memory not reloaded after a rollback-by-one save: memory AIVisible=%v, disk AIVisible=%v", ms.AIVisible, ds.AIVisible)
+	}
+	if ms.AutoAllow {
+		t.Fatal("autoAllow flag still true in memory; save's clear was not reloaded")
+	}
+	if ds.AutoAllow {
+		t.Fatal("autoAllow flag still true on disk")
+	}
+	for _, s := range h.ServersForMCP() {
+		if s.Name == "vis" {
+			t.Fatal("MCP list still shows the server the save just hid")
+		}
+	}
+}

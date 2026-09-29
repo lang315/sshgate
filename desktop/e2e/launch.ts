@@ -63,7 +63,9 @@ export async function unlock(win: Page): Promise<void> {
 
 export async function openBox(win: Page): Promise<void> {
   await win.locator('.tabbar .hometab').click()
-  await win.locator('nav.hosts').getByRole('button', { name: 'box', exact: true }).click()
+  // Click the tile, not the card's center: the hostcard-actions icons (including
+  // auto-allow) overlay the card on hover and can intercept a center click.
+  await win.locator('nav.hosts').getByRole('button', { name: 'box', exact: true }).locator('.tile').click()
   await waitOpen(win)
   await win.locator('.xterm').click()
 }

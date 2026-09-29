@@ -42,7 +42,9 @@ test('import a host from the SSH config, pinned from known_hosts', async () => {
   const card = hosts.locator('.hostcard', { hasText: 'work' })
   await expect(card).toBeVisible()
   await expect(card).not.toContainText('New key')
-  await hosts.getByRole('button', { name: 'work', exact: true }).click()
+  // Click the tile, not the card's center: the hostcard-actions icons (including
+  // auto-allow) overlay the card on hover and can intercept a center click.
+  await hosts.getByRole('button', { name: 'work', exact: true }).locator('.tile').click()
   await waitOpen(win)
   await expect(win.getByRole('dialog', { name: 'Unknown host key' })).toHaveCount(0)
   await win.locator('.xterm').click()

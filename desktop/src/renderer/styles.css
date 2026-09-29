@@ -7,6 +7,7 @@
   --danger: #F28B73; --danger-fill: #B5412F; --danger-tint: #3D1D18;
   --wait: #E9A23B; --wait-tint: #3A2C14; --ok: #6CC58F; --on-wait: #1A1407;
   --on-danger: #ffffff;
+  --auto: #8FA7F0; --auto-tint: #1F2744;
   --term-bg: #0E1012; --term-fg: #D8D4CC;
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
@@ -18,6 +19,7 @@
   --danger: #B5412F; --danger-fill: #B5412F; --danger-tint: #fbe2dc;
   --wait: #8B6123; --wait-tint: #fcefdc; --ok: #3F7A57; --on-wait: #ffffff;
   --on-danger: #ffffff;
+  --auto: #3B53A8; --auto-tint: #e3e8fb;
   --term-bg: #ffffff; --term-fg: #1b1f2e;
   --shadow: 0 8px 24px rgba(27, 31, 46, 0.12);
 }
@@ -51,6 +53,7 @@ input::placeholder { color: var(--muted); }
 .chip.ai { background: var(--accent-tint); color: var(--accent); }
 .chip.wait { background: var(--wait-tint); color: var(--wait); }
 .chip.danger { background: var(--danger-tint); color: var(--danger); }
+.chip.auto { background: var(--auto-tint); color: var(--auto); }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; padding: 2px; gap: 2px; background: var(--bg); }
 .seg button { border: 0; background: transparent; color: var(--muted); height: 26px; min-width: 30px; padding: 0 8px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; font-size: 12px; }
 .seg button[aria-checked="true"] { background: var(--raised); color: var(--text); }
@@ -80,7 +83,11 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 .hostcard-open { flex: 1; min-width: 0; display: flex; gap: 12px; align-items: center; padding: 12px; background: none; border: 0; text-align: left; border-radius: 8px; }
 .tile { width: 36px; height: 36px; flex: none; border-radius: 8px; display: grid; place-items: center; background: var(--accent-tint); color: var(--accent); font-weight: 600; font-size: 15px; }
 .hostcard-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.hostcard-name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.hostcard-name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* The 5-icon actions row (152px) overlays the top-right of the card on hover;
+   without this, a name with enough chips (AI + New key/tunnels/auto) would
+   sit wide enough to be hidden under it instead of wrapping below. */
+.hostcard:hover .hostcard-text, .hostcard:focus-within .hostcard-text { max-width: calc(100% - 160px); }
 .hostcard-addr { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hostcard-actions { position: absolute; top: 6px; right: 6px; background: var(--surface); border-radius: 6px; display: flex; align-items: center; gap: 2px; padding: 2px; opacity: 0; }
 .hostcard:hover .hostcard-actions, .hostcard:focus-within .hostcard-actions { opacity: 1; }
@@ -97,6 +104,7 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 .tab { padding-left: 4px; }
 .tab .tabname { height: 100%; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 8px; background: none; border: 0; color: inherit; font-weight: 500; white-space: nowrap; }
 .tab .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.autodot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--auto); margin-left: 6px; }
 .tab.exited .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
 .tab .reconnect { background: var(--accent-tint); color: var(--accent); border: 0; border-radius: 4px; padding: 2px 6px; font-size: 12px; font-weight: 600; }
 .tab .tabclose { width: 22px; height: 22px; }
@@ -154,8 +162,13 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 .actions .deny { background: var(--danger-fill); color: var(--on-danger); border: 0; }
 .actions .allow { background: transparent; color: var(--ok); border: 1px solid var(--ok); }
 .aibtn .count { margin-left: 2px; }
+.count.auto { background: var(--auto-tint); color: var(--auto); margin-left: 4px; }
 .aibtn.waiting { border-color: var(--wait); color: var(--wait); animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 3px var(--wait-tint); } }
+.banner.auto { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-radius: 6px; background: var(--auto-tint); color: var(--auto); }
+.autofeed { flex: none; max-height: 40%; overflow: auto; }
+.autofeed ul { list-style: none; margin: 0; padding: 0; }
+.autorun { display: grid; gap: 2px; padding: 6px 0; border-top: 1px solid var(--line); }
 .approval .who { display: flex; align-items: center; gap: 8px; }
 .approval .who strong { font-size: 14px; }
 .approval .when { margin-left: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }

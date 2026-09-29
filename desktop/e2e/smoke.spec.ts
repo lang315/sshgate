@@ -49,7 +49,9 @@ test('unlock, open a terminal, approve an AI command', async () => {
     await win.getByRole('button', { name: 'Unlock' }).click()
   }
   await unlock()
-  await win.locator('nav.hosts').getByRole('button', { name: 'box', exact: true }).click()
+  // Click the tile, not the card's center: the hostcard-actions icons (including
+  // auto-allow) overlay the card on hover and can intercept a center click.
+  await win.locator('nav.hosts').getByRole('button', { name: 'box', exact: true }).locator('.tile').click()
   await waitOpen(win)
   await win.locator('.xterm').click()
   await win.keyboard.type('echo smoke-ok')
@@ -68,7 +70,8 @@ test('unlock, open a terminal, approve an AI command', async () => {
 
   const socket = path.join(tmp, 'sshgate', 'hub.sock')
   const result = doorCall(socket, 'exec', { requestId: 'r1', client: 'e2e', server: 'box', command: 'echo approved', description: 'smoke' })
-  const allow = win.getByRole('button', { name: 'Allow' })
+  // exact: 'Stop all auto-allow' also matches a loose "Allow" query.
+  const allow = win.getByRole('button', { name: 'Allow', exact: true })
   await expect(allow).toBeVisible()
   await expect(allow).toBeEnabled({ timeout: 2000 })
 
@@ -107,7 +110,7 @@ test('unlock, open a terminal, approve an AI command', async () => {
   const first = doorCall(socket, 'exec', { requestId: 'r4', client: 'e2e', server: 'box', command: 'echo first', description: '' })
   const second = doorCall(socket, 'exec', { requestId: 'r5', client: 'e2e', server: 'box', command: 'echo second', description: '' })
   await expect(approvals).toHaveCount(2)
-  const allowFirst = approvals.filter({ hasText: 'echo first' }).getByRole('button', { name: 'Allow' })
+  const allowFirst = approvals.filter({ hasText: 'echo first' }).getByRole('button', { name: 'Allow', exact: true })
   await expect(allowFirst).toBeEnabled({ timeout: 2000 })
   await allowFirst.click()
   // Sample the buttons in-page on the frame the list shrinks, so a slow poll can't

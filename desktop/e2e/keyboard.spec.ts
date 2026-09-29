@@ -21,7 +21,8 @@ test('Tab never reaches Allow; the panel\'s only keyboard action is Deny', async
   await expect(win.locator('nav.hosts').getByRole('button', { name: 'box', exact: true })).toBeVisible()
   const result = doorCall(l.socket, 'exec', { requestId: 'k1', client: 'e2e', server: 'box', command: 'echo k1', description: '' })
   const panel = win.locator('.approvals')
-  await expect(panel.getByRole('button', { name: 'Allow' })).toBeEnabled({ timeout: 2000 })
+  // exact: 'Stop all auto-allow' also matches a loose "Allow" query.
+  await expect(panel.getByRole('button', { name: 'Allow', exact: true })).toBeEnabled({ timeout: 2000 })
 
   // Tab around the whole window (twice its stop count is plenty) and record
   // every stop inside the panel.

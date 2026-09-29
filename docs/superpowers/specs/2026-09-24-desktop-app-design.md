@@ -41,7 +41,7 @@ boundary is the point of the project.
 | Process model | The app hosts the hub. The `ssh-mcp` binary gains a `hub` subcommand (backend for Electron) and a bridge mode (MCP stdio → hub) |
 | AI execution | Separate `exec` channel, never the user's PTY. A "Send to tab" option pastes the command into the user's terminal without pressing Enter |
 | No persistent AI shell | Every `exec` is a fresh SSH channel: `cd`, environment variables, and virtualenvs do not carry over. The AI must write `cd /app && ./run` in one command. The command runs under the user's login shell with `-c` (non-interactive: `~/.bashrc` is usually skipped and `PATH` may differ from an interactive tab). The su-elevated path keeps its existing persistent root shell |
-| No auto-approval rules | "Always allow" is dropped from slice 1. Exact-string matching is a TOCTOU on remote state (`./deploy.sh` runs whatever the file contains today), and a rule store outside the vault MAC would let a file-level attacker bypass approval. Every request is approved by hand |
+| No auto-approval rules | "Always allow" is dropped from slice 1. Exact-string matching is a TOCTOU on remote state (`./deploy.sh` runs whatever the file contains today), and a rule store outside the vault MAC would let a file-level attacker bypass approval. Every request is approved by hand (superseded 2026-09-28 by `2026-09-28-auto-allow-design.md`: per-host auto-allow for plain exec) |
 | AI never first to a host | `exec` from the MCP door on a server with no pinned `HostKey` is refused. The user must connect once from the app, which pins the key under TOFU. The AI cannot be the party that accepts an unknown host key |
 | App closed | The bridge refuses with "Open the app to approve commands". There is no headless vault access |
 | `--host` CLI mode | Unchanged; standalone, no app needed |
@@ -90,6 +90,13 @@ tokens) is deferred to a later slice and listed under Known Risks.
 The MCP socket or pipe accepts only same-uid peers. A same-uid attacker can
 submit requests, but they still require approval; beyond that, same-uid is out
 of scope as before.
+
+**Auto-allow narrows this for a host with a grant.** While a grant is active
+(`specs/2026-09-28-auto-allow-design.md`), a same-uid process that reaches the
+MCP door gets remote command execution on that host with no human decision:
+approval is no longer the only egress control there, and the same-uid
+attacker above becomes a same-uid exec primitive for the duration of the
+grant.
 
 ## Architecture
 

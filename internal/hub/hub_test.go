@@ -65,12 +65,12 @@ func unlockForTest(h *Hub) {
 // newHub writes an unlocked vault (master password "pw", key testMK) with
 // agent-auth servers: "vis" (AIVisible, pinned host key), "nokey"
 // (AIVisible, no pin) and "hid" (hidden).
-func newHub(t *testing.T, fe *fakeExec) (*Hub, string) {
+func newHub(t *testing.T, fe Executor) (*Hub, string) {
 	t.Helper()
 	return newHubExpiry(t, fe, 200*time.Millisecond)
 }
 
-func newHubExpiry(t *testing.T, fe *fakeExec, expiry time.Duration) (*Hub, string) {
+func newHubExpiry(t *testing.T, fe Executor, expiry time.Duration) (*Hub, string) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "servers.json")
@@ -94,6 +94,7 @@ func newHubExpiry(t *testing.T, fe *fakeExec, expiry time.Duration) (*Hub, strin
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(h.Close)
 	unlockForTest(h)
 	return h, path
 }
@@ -219,6 +220,43 @@ func TestDescriptionStillValidated(t *testing.T) {
 	}
 	if len(h.Broker().Pending()) != 0 || len(fe.calls) != 0 {
 		t.Fatal("invalid description reached the broker")
+	}
+}
+
+// Exec records how long the human took to decide, for both outcomes; a
+// plain (non-auto) decision leaves Approval empty.
+func TestExecRecordsWaitMs(t *testing.T) {
+	fe := &fakeExec{}
+	h, path := newHub(t, fe)
+	go func() {
+		waitPending(t, h.Broker(), 1)
+		time.Sleep(20 * time.Millisecond)
+		allowFirst(t, h.Broker())
+	}()
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}); err != nil {
+		t.Fatal(err)
+	}
+	_, recs := readAudit(t, path)
+	last := recs[len(recs)-1]
+	if _, ok := last["approval"]; ok {
+		t.Fatalf("approval must be absent on a human decision: %+v", last)
+	}
+	if wm, ok := last["waitMs"].(float64); !ok || wm < 20 {
+		t.Fatalf("waitMs = %v, want >= 20", last["waitMs"])
+	}
+
+	go func() {
+		waitPending(t, h.Broker(), 1)
+		time.Sleep(20 * time.Millisecond)
+		decideFirst(t, h.Broker(), broker.Decision{Outcome: broker.Denied, Reason: "no"})
+	}()
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}); err == nil {
+		t.Fatal("want denied error")
+	}
+	_, recs = readAudit(t, path)
+	last = recs[len(recs)-1]
+	if wm, ok := last["waitMs"].(float64); !ok || wm < 20 {
+		t.Fatalf("waitMs on deny = %v, want >= 20", last["waitMs"])
 	}
 }
 

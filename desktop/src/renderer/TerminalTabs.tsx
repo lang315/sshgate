@@ -22,8 +22,8 @@ export interface TerminalsHandle {
 export const Terminals = forwardRef<TerminalsHandle, {
   theme: Theme; hostKeys: HostKeyPrompts; onMismatch: (m: HostKeyMismatch) => void; onTrusted: () => void
   home: ReactNode; actions: ReactNode; banner: ReactNode; servers: ServerInfo[]; onFocusApprovals: () => void
-  tunnels: TunnelView[]; locked: boolean; onTunnelsChanged: () => void
-}>(function Terminals({ theme, hostKeys, onMismatch, onTrusted, home: homeContent, actions, banner, servers, onFocusApprovals, tunnels, locked, onTunnelsChanged }, ref) {
+  tunnels: TunnelView[]; locked: boolean; onTunnelsChanged: () => void; autoHosts: Set<string>
+}>(function Terminals({ theme, hostKeys, onMismatch, onTrusted, home: homeContent, actions, banner, servers, onFocusApprovals, tunnels, locked, onTunnelsChanged, autoHosts }, ref) {
   const tabs = useRef(new TabSet()).current
   const apis = useRef(new Map<string, TermApi>()).current
   const events = useRef(new Dispatcher<TermEvent>()).current
@@ -82,7 +82,9 @@ export const Terminals = forwardRef<TerminalsHandle, {
         {tabs.tabs.map((t) => (
           <div key={t.id} className={'tab' + (t.id === tabs.active ? ' active' : '') + (t.state === 'exited' ? ' exited' : '')} data-state={t.state} data-kind={t.kind} title={target(t.server)}>
             <button type="button" className="tabname" onClick={() => { tabs.activate(t.id); changed() }}>
-              {t.kind === 'files' ? <FolderIcon /> : t.kind === 'tunnels' ? <TunnelIcon /> : <span className="dot" aria-hidden="true" />}{t.server}{t.state === 'exited' ? ' · exited' : ''}
+              {t.kind === 'files' ? <FolderIcon /> : t.kind === 'tunnels' ? <TunnelIcon /> : <span className="dot" aria-hidden="true" />}{t.server}
+              {autoHosts.has(t.server) && <span className="autodot" role="img" aria-label="auto-allow on" />}
+              {t.state === 'exited' ? ' · exited' : ''}
             </button>
             {t.kind === 'term' && t.state === 'exited' && (
               <button type="button" className="reconnect" onClick={() => { tabs.close(t.id); tabs.open(t.server); changed() }}>Reconnect</button>
