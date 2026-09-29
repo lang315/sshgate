@@ -35,15 +35,6 @@ type grant struct {
 	until    time.Time // zero: forever
 	snap     grantSnap // the server as it was when the human enabled it
 	inflight map[uint64]context.CancelFunc
-	// armedRev is the store revision this grant was armed at (h.deps.File.Revision
-	// right after SetAutoAllow's own write and reload, or the current revision
-	// when arming needed no write, e.g. Resume). A save/delete/forget ends a
-	// grant only if armedRev is older than the revision its own write produced
-	// (internal/hub/hosts.go, endGrantIfStale): a plain "did anything write
-	// since my reload" check is wrong, since an unrelated write elsewhere (a
-	// tunnels.save on another host, say) bumping the revision further must not
-	// protect a grant that genuinely predates this write from ending.
-	armedRev int
 }
 
 // grantSnap is what an auto run must still match; any difference ends the grant.
@@ -97,14 +88,14 @@ func (h *Hub) autoEligibleLocked(name string) (config.Server, sshx.DialConfig, e
 	return s, dc, nil
 }
 
-// errAutoAllowRace is returned when a concurrent vault write (a save,
-// delete, forget) reaches the store between SetAutoAllow's own flag write
-// and the point it would arm a grant; nothing is armed. SaveServer et al.
-// take h.mu only for writeKey, Reload and ending a grant — their
-// config.Update itself runs without it — so their write can land inside
-// SetAutoAllow's single h.mu section despite the lock: the revision check
-// inside the Update below, and the re-check after the reload that follows
-// it, are what catch that, not the lock.
+// errAutoAllowRace is returned by SetAutoAllow's post-write eligibility
+// recheck when the reload right after its own write shows a state that write
+// didn't produce; nothing is armed. SaveServer, DeleteServer and
+// ForgetHostKey now hold h.mu across their own config.Update, reload and
+// grant-end (hosts.go), so none of them can land inside this section any
+// more — the lock alone rules that out. What the recheck still catches is a
+// change from outside the hub entirely (another process editing the store
+// file directly); tests reproduce it via the loadStore seam.
 var errAutoAllowRace = errors.New("server changed; try again")
 
 // SetAutoAllow turns name's auto-allow on (a timed mode, or forever) or off.
@@ -112,13 +103,15 @@ var errAutoAllowRace = errors.New("server changed; try again")
 // grant) only arms it (Resume); forever on an already-armed forever grant is
 // a no-op. Everything but off runs in one h.mu section, the same pattern
 // CreateVault uses (lock order h.mu → config.Update is safe: no path takes
-// h.mu from inside an Update): the section starts with its own reload, so a
-// stale in-memory copy from before this call never causes a spurious
-// refusal (only a write landing inside the section itself does, via the
-// revision check below); a flag write is then followed by another reload
-// and a fresh eligibility check before a grant is armed, so a Lock, save,
-// delete, or forget landing mid-write is caught against the reloaded state
-// instead of racing this call.
+// h.mu from inside an Update). SaveServer, DeleteServer and ForgetHostKey
+// hold h.mu across their own write, reload and grant-end too (hosts.go), so
+// none of them can land inside this section — only something outside the
+// hub entirely (another process editing the store file) can. The section
+// starts with its own reload, so a stale in-memory copy from before this
+// call never causes a spurious refusal; a flag write is then followed by
+// another reload and a fresh eligibility check before a grant is armed, so
+// such an outside change is caught against the reloaded state instead of
+// arming on stale data.
 //
 // Every early return unlocks h.mu itself instead of a blanket defer: ending
 // a grant this call is abandoning still needs to notify the app, and
@@ -152,14 +145,7 @@ func (h *Hub) SetAutoAllow(name, mode string) error {
 	if timed == s.AutoAllow { // timed over forever clears the flag; a new forever sets it
 		key := bytes.Clone(h.deps.MasterKey) // non-nil: autoEligibleLocked's checkLocked just passed
 		defer clear(key)
-		rev := h.deps.File.Revision
 		if err := config.Update(h.o.StorePath, key, func(f *config.File) error {
-			// A concurrent save/delete/forget's own config.Update runs
-			// without h.mu, so it can land here despite us holding it: catch
-			// it by revision instead of blindly overwriting its write.
-			if f.Revision != rev {
-				return errAutoAllowRace
-			}
 			for i := range f.Servers {
 				if f.Servers[i].Name == name {
 					f.Servers[i].AutoAllow = !timed
@@ -194,7 +180,7 @@ func (h *Hub) SetAutoAllow(name, mode string) error {
 			ended := timed && h.endGrantLocked(name)
 			h.mu.Unlock()
 			if ended {
-				h.notifyAuto("autoAllow.off", map[string]string{"server": name, "reason": "turned off"})
+				h.notifyGrantEnded(name, "turned off")
 			}
 			return err
 		}
@@ -210,7 +196,7 @@ func (h *Hub) SetAutoAllow(name, mode string) error {
 			ended := timed && h.endGrantLocked(name)
 			h.mu.Unlock()
 			if ended {
-				h.notifyAuto("autoAllow.off", map[string]string{"server": name, "reason": "turned off"})
+				h.notifyGrantEnded(name, "turned off")
 			}
 			if errors.Is(err, errAutoResolve) {
 				return ErrConnFailed
@@ -223,12 +209,7 @@ func (h *Hub) SetAutoAllow(name, mode string) error {
 		}
 	}
 
-	// h.deps.File.Revision here is always fresh, whether or not the branch
-	// above wrote anything: it's either item 4's own initial reload (no
-	// write happened, e.g. Resume) or this call's own post-write reload —
-	// nothing else can have reloaded in between, since h.mu has been held
-	// continuously since.
-	g := &grant{snap: snapOf(dc), inflight: map[uint64]context.CancelFunc{}, armedRev: h.deps.File.Revision}
+	g := &grant{snap: snapOf(dc), inflight: map[uint64]context.CancelFunc{}}
 	if timed {
 		g.until = time.Now().Add(d)
 	}
@@ -320,10 +301,24 @@ func (h *Hub) endAllGrantsLocked() []string {
 	return names
 }
 
+// auditGrantEnded writes name's grant-end audit record; auditConfig never
+// takes h.mu, so this half may run with it held (hosts.go's SaveServer et
+// al. do, to keep the audit truthfully ordered before anything else can
+// re-arm the grant).
+func (h *Hub) auditGrantEnded(name, reason string) {
+	h.auditConfig(broker.ConfigRecord{Action: "autoAllowOff", Server: name, Reason: reason})
+}
+
+// notifyGrantEnded tells the app a grant ended; notifyAuto takes h.mu, so
+// this half must run without it held.
+func (h *Hub) notifyGrantEnded(name, reason string) {
+	h.notifyAuto("autoAllow.off", map[string]string{"server": name, "reason": reason})
+}
+
 // grantEnded audits, then tells the app; h.mu is not held.
 func (h *Hub) grantEnded(name, reason string) {
-	h.auditConfig(broker.ConfigRecord{Action: "autoAllowOff", Server: name, Reason: reason})
-	h.notifyAuto("autoAllow.off", map[string]string{"server": name, "reason": reason})
+	h.auditGrantEnded(name, reason)
+	h.notifyGrantEnded(name, reason)
 }
 
 func (h *Hub) notifyAuto(method string, params any) {

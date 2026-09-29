@@ -114,10 +114,10 @@ func changes(a, b config.Server, in config.ServerInput) []string {
 	return out
 }
 
-// writeKey returns a copy of the master key for a store write.
-func (h *Hub) writeKey() ([]byte, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
+// writeKeyLocked is writeKey with h.mu held: SaveServer, DeleteServer and
+// ForgetHostKey call it directly since their own write, reload and grant-end
+// all run in one h.mu section (writeKey's own Lock would deadlock there).
+func (h *Hub) writeKeyLocked() ([]byte, error) {
 	switch {
 	case h.deps.MasterKey != nil:
 		return bytes.Clone(h.deps.MasterKey), nil
@@ -125,6 +125,13 @@ func (h *Hub) writeKey() ([]byte, error) {
 		return nil, ErrLocked
 	}
 	return nil, errNoVault
+}
+
+// writeKey returns a copy of the master key for a store write.
+func (h *Hub) writeKey() ([]byte, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.writeKeyLocked()
 }
 
 // denyPending denies name's pending AI requests: each was for the server as
@@ -145,84 +152,76 @@ func dialChanged(a, b config.Server) bool {
 	return !reflect.DeepEqual(a, b)
 }
 
-// endGrantIfStale reloads and ends name's grant if it predates wrote (the
-// revision the caller's own write just produced: config.Save always does
-// f.Revision++, so it's the pre-write revision the caller captured inside
-// its own fn, plus one) — i.e. grant.armedRev < wrote, or the reload failed
-// (can't confirm anything: fail closed, ending the grant unconditionally,
-// same as the old plain endGrantLocked).
-//
-// This is not the same as "did the reloaded revision change at all since my
-// write": an unrelated write elsewhere (a tunnels.save on another host,
-// say) landing between this call's own write and this cleanup bumps the
-// store's revision too, with nothing to do with this server's grant. Ending
-// the grant only when the revision matches exactly would then skip ending a
-// grant that has been armed and untouched since long before this call —
-// exactly the case a save must always end (every save turns auto-allow
-// off). Comparing the grant's own armedRev against wrote instead asks the
-// right question regardless of what else wrote in between: was this grant
-// armed before this write took effect (end it, timed or forever alike), or
-// after (leave it — a human enabled it once this write's state already
-// held, e.g. SetAutoAllow racing this same save and winning).
-func (h *Hub) endGrantIfStale(name string, wrote int) (reloadErr error, had bool) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	reloadErr = h.reloadLocked()
-	g := h.grants[name]
-	if reloadErr != nil || (g != nil && g.armedRev < wrote) {
-		had = h.endGrantLocked(name)
-	}
-	return reloadErr, had
-}
-
 // SaveServer creates (original == "") or updates a server. Its connection is
 // closed only if something that feeds the dial changed, never for an
 // aiVisible toggle; its pending AI requests are denied either way.
+//
+// The write, the reload that follows, and ending the server's auto-allow
+// grant all run in one h.mu section — the CreateVault/SetAutoAllow pattern
+// (lock order h.mu → config.Update is safe: no config.Update fn takes h.mu).
+// That serializes this call with servers.setAutoAllow, so any grant present
+// when this section runs provably predates this save: it is ended
+// unconditionally, no revision bookkeeping needed. A rename ends the grant
+// under both the old name and, if different, the new one, so it can't leave
+// one behind or inherit a leftover one.
 func (h *Hub) SaveServer(original string, in config.ServerInput) error {
-	key, err := h.writeKey()
+	h.mu.Lock()
+	key, err := h.writeKeyLocked()
 	if err != nil {
+		h.mu.Unlock()
 		return err
 	}
 	defer clear(key)
 	var before, after config.Server
-	var preRev int
 	err = config.Update(h.o.StorePath, key, func(f *config.File) error {
-		preRev = f.Revision
 		var err error
 		before, after, err = config.ApplyServer(f, original, in, key)
 		return err
 	})
 	if err != nil {
+		h.mu.Unlock()
 		return err
 	}
 	name := original
 	if name == "" {
 		name = in.Name
 	}
-	reloadErr, had := h.endGrantIfStale(name, preRev+1)
+	reloadErr := h.reloadLocked()
+	had := h.endGrantLocked(name)
+	if after.Name != name && h.endGrantLocked(after.Name) {
+		had = true
+	}
+	ended := had || before.AutoAllow
+	if ended {
+		h.auditGrantEnded(name, "saved")
+	}
+	h.mu.Unlock()
+
 	if dialChanged(before, after) {
 		h.endServerTunnels(name, "server changed")
 		h.files.endServer(name, "server changed")
 		h.reg.Close(name)
 	}
 	h.denyPending(name)
-	if had || before.AutoAllow {
-		h.grantEnded(name, "saved")
+	if ended {
+		h.notifyGrantEnded(name, "saved")
 	}
 	h.auditConfig(broker.ConfigRecord{Action: "save", Server: after.Name, Changed: changes(before, after, in)})
 	return reloadErr // the write itself succeeded
 }
 
+// DeleteServer removes name, in the same one-h.mu-section pattern as
+// SaveServer.
 func (h *Hub) DeleteServer(name string) error {
-	key, err := h.writeKey()
+	h.mu.Lock()
+	key, err := h.writeKeyLocked()
 	if err != nil {
+		h.mu.Unlock()
 		return err
 	}
 	defer clear(key)
 	var hadFlag bool
-	var preRev int
 	err = config.Update(h.o.StorePath, key, func(f *config.File) error {
-		preRev = f.Revision
 		for i, s := range f.Servers {
 			if s.Name == name {
 				hadFlag = s.AutoAllow
@@ -233,33 +232,42 @@ func (h *Hub) DeleteServer(name string) error {
 		return serverNotFound(name)
 	})
 	if err != nil {
+		h.mu.Unlock()
 		return err
 	}
-	reloadErr, had := h.endGrantIfStale(name, preRev+1)
+	reloadErr := h.reloadLocked()
+	had := h.endGrantLocked(name)
+	ended := had || hadFlag
+	if ended {
+		h.auditGrantEnded(name, "deleted")
+	}
+	h.mu.Unlock()
+
 	h.endServerTunnels(name, "server changed")
 	h.files.endServer(name, "server changed")
 	h.reg.Close(name)
 	h.denyPending(name)
-	if had || hadFlag {
-		h.grantEnded(name, "deleted")
+	if ended {
+		h.notifyGrantEnded(name, "deleted")
 	}
 	h.auditConfig(broker.ConfigRecord{Action: "delete", Server: name})
 	return reloadErr // the write itself succeeded
 }
 
 // ForgetHostKey clears a server's pin and closes its connection, so the next
-// open asks the user again. An unpinned server is a no-op success.
+// open asks the user again. An unpinned server is a no-op success. Same
+// one-h.mu-section pattern as SaveServer.
 func (h *Hub) ForgetHostKey(name string) error {
-	key, err := h.writeKey()
+	h.mu.Lock()
+	key, err := h.writeKeyLocked()
 	if err != nil {
+		h.mu.Unlock()
 		return err
 	}
 	defer clear(key)
 	var old string
 	var hadFlag bool
-	var preRev int
 	err = config.Update(h.o.StorePath, key, func(f *config.File) error {
-		preRev = f.Revision
 		for i := range f.Servers {
 			if f.Servers[i].Name == name {
 				old = f.Servers[i].HostKey
@@ -272,14 +280,22 @@ func (h *Hub) ForgetHostKey(name string) error {
 		return serverNotFound(name)
 	})
 	if err != nil {
+		h.mu.Unlock()
 		return err
 	}
-	reloadErr, had := h.endGrantIfStale(name, preRev+1)
+	reloadErr := h.reloadLocked()
+	had := h.endGrantLocked(name)
+	ended := had || hadFlag
+	if ended {
+		h.auditGrantEnded(name, "server changed")
+	}
+	h.mu.Unlock()
+
 	h.endServerTunnels(name, "server changed")
 	h.files.endServer(name, "server changed")
 	h.reg.Close(name)
-	if had || hadFlag {
-		h.grantEnded(name, "server changed")
+	if ended {
+		h.notifyGrantEnded(name, "server changed")
 	}
 	h.auditConfig(broker.ConfigRecord{Action: "forgetHostKey", Server: name, OldFingerprint: old})
 	return reloadErr // the write itself succeeded

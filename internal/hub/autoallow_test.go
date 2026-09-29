@@ -393,6 +393,26 @@ func TestAutoAllowEndsOnServerWrites(t *testing.T) {
 			t.Fatalf("no autoAllowOff/saved for vis: %v", recs)
 		}
 	})
+	// A rename must not inherit a grant already sitting under the target
+	// name either (a stray left by an earlier bug, or of a since-deleted
+	// server that reused the name): SaveServer ends both names.
+	t.Run("rename ends a leftover grant under the target name too", func(t *testing.T) {
+		h, path := newHub(t, &fakeExec{})
+		h.mu.Lock()
+		h.grants["vis2"] = &grant{inflight: map[uint64]context.CancelFunc{}}
+		h.mu.Unlock()
+		in := config.ServerInput{Name: "vis2", Host: "h", Port: 22, User: "u", Auth: "agent"}
+		if err := h.SaveServer("vis", in); err != nil {
+			t.Fatal(err)
+		}
+		if g := grantOf(h, "vis2"); g != nil {
+			t.Fatal("rename inherited a leftover grant under the target name")
+		}
+		_, recs := readAudit(t, path)
+		if !hasAutoAllowOff(recs, "saved") {
+			t.Fatalf("no autoAllowOff/saved: %v", recs)
+		}
+	})
 	t.Run("delete", func(t *testing.T) {
 		h, path := newHub(t, &fakeExec{})
 		if err := h.SetAutoAllow("vis", "forever"); err != nil {
@@ -432,18 +452,13 @@ func TestAutoAllowEndsOnServerWrites(t *testing.T) {
 }
 
 // TestSetAutoAllowFromInsideSaveDenyPending is a deterministic reproduction
-// of the interleaving round 2 fixes in SaveServer/DeleteServer/ForgetHostKey
-// (hosts.go): denyPending's broker.Decide call fires the broker's "decided"
+// of denyPending's reentrancy: broker.Decide fires the broker's "decided"
 // event synchronously, on the caller's own goroutine, with no lock held.
-// Reentering SetAutoAllow from that event fully interleaves it with
-// SaveServer's own remaining steps. Before the fix, SaveServer reloaded,
-// then (after denyPending, where this reentrant call happens) dropped
-// whatever grant existed by then unconditionally — wiping the grant this
-// call had just armed while leaving the flag it had just written untouched,
-// which is exactly the (grant absent, flag true) violation. The fix moves
-// the reload and the grant-end into one h.mu section, done before
-// denyPending runs, so a grant armed from inside denyPending is never
-// touched again by this SaveServer call.
+// Reentering SetAutoAllow from that event runs it after SaveServer's own
+// h.mu section (write, reload, grant-end) has already finished — denyPending
+// is called only once that section has unlocked (hosts.go) — so this
+// reentrant call races nothing: no other write can be in flight, and it must
+// arm cleanly, not hit errAutoAllowRace at all.
 func TestSetAutoAllowFromInsideSaveDenyPending(t *testing.T) {
 	h, path := newHub(t, &fakeExec{})
 	// A pending exec request for "vis" gives denyPending something to decide.
@@ -456,7 +471,7 @@ func TestSetAutoAllowFromInsideSaveDenyPending(t *testing.T) {
 
 	release := h.setEventSink(func(e broker.Event) {
 		if e.Kind == "decided" && e.Request.Server == "vis" {
-			if err := h.SetAutoAllow("vis", "forever"); err != nil && !errors.Is(err, errAutoAllowRace) {
+			if err := h.SetAutoAllow("vis", "forever"); err != nil {
 				t.Errorf("reentrant SetAutoAllow: %v", err)
 			}
 		}
@@ -481,17 +496,18 @@ func TestSetAutoAllowFromInsideSaveDenyPending(t *testing.T) {
 	}
 }
 
-// TestSaveEndsPreexistingTimedGrantDespiteUnrelatedRevisionBump covers the
-// gap found in endGrantIfStale's first, wrong version (round 2, second
-// pass): comparing the reloaded revision against this save's own write for
-// plain equality wrongly protected a grant that predates the save whenever
-// some UNRELATED write (a tunnels.save on another host, say — reproduced
-// here via a raw config.Update run as a side effect of the loadStore seam,
-// right where the cleanup's reload lands) bumped the store's revision for a
-// reason that has nothing to do with this server's grant. A label-only save
-// (no dial-affecting field changes, so autoStart's own snapshot check would
-// not have caught this on its own) must still end a preexisting timed grant
-// — "every save turns it off" — regardless of that unrelated bump.
+// TestSaveEndsPreexistingTimedGrantDespiteUnrelatedRevisionBump guards
+// against reintroducing revision arithmetic: an earlier design (round 2)
+// compared the reloaded revision against this save's own write, which wrongly
+// protected a grant that predates the save whenever some UNRELATED write (a
+// tunnels.save on another host, say — reproduced here via a raw config.Update
+// run as a side effect of the loadStore seam, right where the cleanup's
+// reload lands) bumped the store's revision for a reason that has nothing to
+// do with this server's grant. The current design ends the grant
+// unconditionally instead, so an unrelated bump can't protect it: a
+// label-only save (no dial-affecting field changes, so autoStart's own
+// snapshot check would not have caught this on its own) must still end a
+// preexisting timed grant — "every save turns it off".
 func TestSaveEndsPreexistingTimedGrantDespiteUnrelatedRevisionBump(t *testing.T) {
 	h, path := newHub(t, &fakeExec{})
 	if err := h.SetAutoAllow("vis", "15m"); err != nil {
@@ -519,6 +535,129 @@ func TestSaveEndsPreexistingTimedGrantDespiteUnrelatedRevisionBump(t *testing.T)
 	_, recs := readAudit(t, path)
 	if !hasAutoAllowOff(recs, "saved") {
 		t.Fatalf("no autoAllowOff/saved: %v", recs)
+	}
+}
+
+// TestSaveEndsGrantDespiteReloadFailure covers round 3's "fail closed" rule:
+// SaveServer ends the server's grant unconditionally even when the reload
+// that follows its own write fails, since a grant present at that point
+// provably predates the write regardless of what the reload can confirm.
+// loadStore is the existing seam (hosts_test.go, servers_test.go et al.).
+func TestSaveEndsGrantDespiteReloadFailure(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	loadStore = func(string) (*config.File, error) { return nil, errors.New("boom") }
+	t.Cleanup(func() { loadStore = config.Load })
+
+	in := config.ServerInput{Name: "vis", Host: "h", Port: 22, User: "u", Auth: "agent", AIVisible: true}
+	err := h.SaveServer("vis", in)
+	if err == nil || err.Error() != "boom" {
+		t.Fatalf("got %v, want the reload error", err)
+	}
+	if g := grantOf(h, "vis"); g != nil {
+		t.Fatal("grant survived a save despite its own reload failing (fail closed)")
+	}
+	_, recs := readAudit(t, path)
+	if !hasAutoAllowOff(recs, "saved") {
+		t.Fatalf("no autoAllowOff/saved: %v", recs)
+	}
+}
+
+// TestReviewSaveEndsGrantAfterVaultRollback is round 3's reviewer test for
+// the first hole in the old armedRev design: a MAC-valid older copy of the
+// vault (restored from a backup, or by a file sync) makes the store's
+// revision go backwards, so a save's own write produces a "wrote" revision
+// lower than the grant's armedRev — the grant then survived the save with no
+// audit record. The fixed design (unconditional end, no revision arithmetic)
+// has nothing to compare, so a rollback can't create this hole.
+func TestReviewSaveEndsGrantAfterVaultRollback(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	old, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ { // unrelated writes (e.g. tunnels.save on another host)
+		if err := config.Update(path, testMK, func(f *config.File) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, old, 0o600); err != nil { // restore the older valid copy
+		t.Fatal(err)
+	}
+	in := config.ServerInput{Name: "vis", Host: "h", Port: 22, User: "u", Auth: "agent", AIVisible: true}
+	if err := h.SaveServer("vis", in); err != nil {
+		t.Fatal(err)
+	}
+	if g := grantOf(h, "vis"); g != nil {
+		t.Fatal("grant survived a save after a vault rollback")
+	}
+	_, recs := readAudit(t, path)
+	if !hasAutoAllowOff(recs, "saved") {
+		t.Fatalf("no autoAllowOff/saved: %v", recs)
+	}
+}
+
+// TestReviewSaveAuditOrderSurvivesRearmDuringDenyPending is round 3's
+// reviewer test for the second hole in the old armedRev design: with a
+// paused forever grant (flag on, no live grant), a save's denyPending step
+// re-enters SetAutoAllow(15m) from the broker's synchronous "decided" event.
+// The old code wrote the save's own "autoAllowOff saved" audit line AFTER
+// denyPending (and so after the reentrant re-arm's "autoAllowOn" line),
+// misreporting a live grant as off. The fix moves the grant-end and its
+// audit line into the h.mu section, which finishes before denyPending runs,
+// so "saved" can only ever precede a re-arm that happens because of it, not
+// follow one. This checks the order directly (index, not mere presence): a
+// live grant at the end must not have "saved" as the last word about it.
+func TestReviewSaveAuditOrderSurvivesRearmDuringDenyPending(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	h.endGrantLocked("vis") // paused forever: flag stays true, no live grant
+	h.mu.Unlock()
+
+	errc := make(chan error, 1)
+	go func() { _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}); errc <- err }()
+	waitPending(t, h.Broker(), 1)
+
+	rel := h.setEventSink(func(e broker.Event) {
+		if e.Kind == "decided" && e.Request.Server == "vis" {
+			if err := h.SetAutoAllow("vis", "15m"); err != nil {
+				t.Errorf("reentrant SetAutoAllow: %v", err)
+			}
+		}
+	})
+	defer rel()
+
+	in := config.ServerInput{Name: "vis", Host: "h", Port: 22, User: "u", Auth: "agent", AIVisible: true}
+	if err := h.SaveServer("vis", in); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-errc; err == nil {
+		t.Fatal("want a denial for the pending request the save's denyPending decided")
+	}
+
+	_, recs := readAudit(t, path)
+	lastOff, lastOn := -1, -1
+	for i, r := range recs {
+		if r["server"] != "vis" {
+			continue
+		}
+		switch r["action"] {
+		case "autoAllowOff":
+			lastOff = i
+		case "autoAllowOn", "autoAllowResume":
+			lastOn = i
+		}
+	}
+	if grantOf(h, "vis") != nil && lastOff > lastOn {
+		t.Fatalf("grant armed but the last audit word for vis is autoAllowOff: off@%d, on@%d, recs=%v", lastOff, lastOn, recs)
 	}
 }
 
@@ -612,16 +751,14 @@ func TestServersForUIAutoAllow(t *testing.T) {
 	}
 }
 
-// TestSetAutoAllowConcurrentWithSave covers item 1's fix: SetAutoAllow now
-// runs as one h.mu section, and its own store write is guarded by a revision
-// check, so a concurrent SaveServer landing anywhere in the middle of it
-// (SaveServer's own config.Update runs without h.mu, so it is not kept out by
-// the lock alone) can never leave a grant standing with the on-disk flag
-// false. Whichever call's effect is the one left standing wins outright:
-// either no grant and the flag false (the save's effect stood, or won the
-// arm-time recheck), or a grant and the flag true (SetAutoAllow's forever
-// completed clean). A raced SetAutoAllow returning errAutoAllowRace is also
-// fine: nothing armed, nothing but the save's own write stands.
+// TestSetAutoAllowConcurrentWithSave covers round 3's design: SaveServer now
+// holds h.mu across its own write, reload and grant-end (hosts.go), the same
+// section SetAutoAllow uses, so the two fully serialize — whichever call
+// acquires h.mu first runs to completion before the other starts. Neither
+// call can land inside the other's section any more, so this must always
+// land on one of the two clean equilibria (no grant and the flag false, or a
+// grant and the flag true) with no race error from either call, and the
+// audit's last word about "vis" must never be an off while a grant is live.
 func TestSetAutoAllowConcurrentWithSave(t *testing.T) {
 	h, path := newHub(t, &fakeExec{})
 	in := config.ServerInput{Name: "vis", Host: "h", Port: 22, User: "u", Auth: "agent", AIVisible: true}
@@ -638,7 +775,7 @@ func TestSetAutoAllowConcurrentWithSave(t *testing.T) {
 		if saveErr != nil {
 			t.Fatalf("iteration %d: SaveServer: %v", i, saveErr)
 		}
-		if setErr != nil && !errors.Is(setErr, errAutoAllowRace) {
+		if setErr != nil {
 			t.Fatalf("iteration %d: SetAutoAllow: %v", i, setErr)
 		}
 
@@ -654,9 +791,22 @@ func TestSetAutoAllowConcurrentWithSave(t *testing.T) {
 		if hasGrant != s.AutoAllow {
 			t.Fatalf("iteration %d: grant present = %v, flag on disk = %v", i, hasGrant, s.AutoAllow)
 		}
+		_, recs := readAudit(t, path)
+		var lastAction string
+		for _, r := range recs {
+			if r["server"] != "vis" {
+				continue
+			}
+			if a, _ := r["action"].(string); a == "autoAllowOff" || a == "autoAllowOn" || a == "autoAllowResume" {
+				lastAction = a
+			}
+		}
+		if hasGrant && lastAction == "autoAllowOff" {
+			t.Fatalf("iteration %d: grant present but the last audit word for vis is autoAllowOff", i)
+		}
 		if hasGrant {
-			// Only a clean, un-raced SetAutoAllow may leave a grant armed;
-			// reset for the next iteration.
+			// Only a clean SetAutoAllow may leave a grant armed; reset for
+			// the next iteration.
 			if err := h.SetAutoAllow("vis", "off"); err != nil {
 				t.Fatalf("iteration %d: cleanup off: %v", i, err)
 			}
@@ -781,13 +931,15 @@ func TestSetAutoAllowReloadFailureEndsOldForeverGrant(t *testing.T) {
 	}
 }
 
-// TestSetAutoAllowPostWriteChangeRefused covers item 2 (round 2): the
-// post-reload recheck (`!timed && !s.AutoAllow`) has no deterministic test
-// of its own — the concurrency test only proves no violation is ever
-// observed, not that this specific branch is what prevents one. loadStore's
-// seam runs a real concurrent-shaped write (clearing the flag this call just
-// set) as a side effect of the reload right after that write, reproducing a
-// save landing between SetAutoAllow's own write and its own reload.
+// TestSetAutoAllowPostWriteChangeRefused covers the post-reload recheck
+// (`!timed && !s.AutoAllow`), which has no deterministic test of its own —
+// the concurrency test only proves no violation is ever observed, not that
+// this specific branch is what prevents one. Round 3 holds h.mu across
+// SaveServer/DeleteServer/ForgetHostKey's own write, reload and grant-end, so
+// none of them can land here any more; what the recheck still catches is a
+// change from outside the hub (another process editing the store file).
+// loadStore's seam stands in for that: it clears the flag this call just set
+// as a side effect of the reload right after that write.
 func TestSetAutoAllowPostWriteChangeRefused(t *testing.T) {
 	h, path := newHub(t, &fakeExec{})
 	var n int
