@@ -125,6 +125,9 @@ type endedNote struct{ name, reason string }
 // state instead of arming on stale data.
 func (h *Hub) armLocked(name, mode string) ([]endedNote, error) {
 	d, timed := autoModes[mode]
+	if !timed && mode != "forever" {
+		return nil, fmt.Errorf("unknown auto-allow mode %q", mode)
+	}
 
 	s, dc, err := h.autoEligibleLocked(name)
 	if err != nil {

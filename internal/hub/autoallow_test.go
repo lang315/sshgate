@@ -2235,6 +2235,38 @@ func TestSaveArmRefusedKeepsSave(t *testing.T) {
 	}
 }
 
+// TestUnknownAutoAllowModeRefused: armLocked refuses any mode that is
+// neither "forever" nor a key of autoModes, before arming or writing
+// anything — a controller sending a garbage mode string must fail closed,
+// not silently arm forever.
+func TestUnknownAutoAllowModeRefused(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	wantErr := `unknown auto-allow mode "1h"`
+
+	in := inputFor(t, h, "vis")
+	err := h.SaveServerWithAutoAllow("vis", in, "1h")
+	if err == nil || err.Error() != errSavedButPrefix+wantErr {
+		t.Fatalf("got %v, want %q", err, errSavedButPrefix+wantErr)
+	}
+	if g := grantOf(h, "vis"); g != nil {
+		t.Fatal("grant armed for an unknown mode")
+	}
+	f, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := f.FindServer("vis"); s.AutoAllow {
+		t.Fatal("forever flag set for an unknown mode")
+	}
+
+	if err := h.SetAutoAllow("vis", "1h"); err == nil || err.Error() != wantErr {
+		t.Fatalf("got %v, want %q", err, wantErr)
+	}
+	if g := grantOf(h, "vis"); g != nil {
+		t.Fatal("grant armed for an unknown mode")
+	}
+}
+
 // TestSaveRenameArmsUnderNewName: the new grant is armed under the name
 // this save leaves the server with, not the original.
 func TestSaveRenameArmsUnderNewName(t *testing.T) {
