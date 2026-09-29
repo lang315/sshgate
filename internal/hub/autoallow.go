@@ -47,13 +47,17 @@ func snapOf(dc sshx.DialConfig) grantSnap {
 // autoRefusal says why s can never be on auto-allow, or "". A root login, or a
 // stored su or sudo password, is root access: a command planted during a
 // grant could capture a sudo password the next time the human approves a
-// sudo-exec.
+// sudo-exec. Amendment 2026-09-29: AutoAllowRoot opts a host out of that
+// refusal; the human has accepted the risk. Not AI-visible and no pinned
+// host key are refused regardless.
 func autoRefusal(s config.Server) string {
 	switch {
 	case !s.AIVisible:
 		return "not visible to AI"
 	case s.HostKey == "":
 		return "no pinned host key"
+	case s.AutoAllowRoot:
+		return "" // opted in: root logins and stored su/sudo passwords allowed
 	case s.User == "root":
 		return "root login"
 	case s.EncSuPassword != "":
@@ -375,8 +379,11 @@ type autoRun struct {
 // autoStart decides, in one h.mu section, whether name's exec runs under its
 // grant, and registers the run. It resolves the server itself and compares
 // it with the grant's snapshot, so the run uses exactly what it checked; any
-// mismatch ends the grant and the request goes to approval. nil: approval.
-func (h *Hub) autoStart(ctx context.Context, name string) *autoRun {
+// mismatch ends the grant and the request goes to approval. nil: approval. A
+// sudo request needs its own opt-in (AutoAllowSudo); that check runs after
+// everything that can end the grant, so a changed or expired server still
+// ends it even when the request is sudo.
+func (h *Hub) autoStart(ctx context.Context, name string, sudo bool) *autoRun {
 	h.mu.Lock()
 	g := h.grants[name]
 	if g == nil {
@@ -422,6 +429,10 @@ func (h *Hub) autoStart(ctx context.Context, name string) *autoRun {
 		h.notifyGrantEnded(name, reason)
 		return nil
 	}
+	if sudo && !s.AutoAllowSudo { // sudo-exec needs its own opt-in; the grant stays
+		h.mu.Unlock()
+		return nil
+	}
 	h.grantSeq++
 	id := h.grantSeq
 	rctx, cancel := context.WithCancel(ctx)
@@ -446,12 +457,15 @@ func (h *Hub) autoExec(ar *autoRun, dc sshx.DialConfig, r ExecRequest, cmd strin
 	red := redactorFor(dc, ar.dc)
 	base.Approval = "auto"
 	base.Command, base.Description = red.Redact(cmd), red.Redact(r.Description)
-	resp, err := h.run(ar.ctx, r.Server, ar.dc, cmd, false, timeout, base, red)
+	resp, err := h.run(ar.ctx, r.Server, ar.dc, cmd, r.Sudo, timeout, base, red)
 	shown, cut := cutBytes(base.Command, autoCmdCap)
 	ran := map[string]any{"server": r.Server, "command": shown, "description": base.Description,
 		"time": time.Now().UTC().Format(time.RFC3339)}
 	if cut > 0 {
 		ran["truncated"] = cut
+	}
+	if r.Sudo {
+		ran["sudo"] = true
 	}
 	if err != nil {
 		ran["error"] = err.Error()

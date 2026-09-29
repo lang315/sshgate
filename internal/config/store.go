@@ -22,7 +22,9 @@ type Server struct {
 	HostKey          string   `json:"hostKey,omitempty"`
 	HostKeyAlgo      string   `json:"hostKeyAlgo,omitempty"` // pinned key's type, e.g. ssh-ed25519
 	AIVisible        bool     `json:"aiVisible,omitempty"`
-	AutoAllow        bool     `json:"autoAllow,omitempty"` // forever auto-allow; see hub/autoallow.go
+	AutoAllow        bool     `json:"autoAllow,omitempty"`     // forever auto-allow; see hub/autoallow.go
+	AutoAllowRoot    bool     `json:"autoAllowRoot,omitempty"` // opt-in: allow auto-allow on root logins and su/sudo-password hosts
+	AutoAllowSudo    bool     `json:"autoAllowSudo,omitempty"` // opt-in: auto-allow also covers sudo-exec
 	EncPassword      string   `json:"encPassword,omitempty"`
 	EncSuPassword    string   `json:"encSuPassword,omitempty"`
 	EncSudoPassword  string   `json:"encSudoPassword,omitempty"`

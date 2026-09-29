@@ -74,7 +74,9 @@ func waitInflight(t *testing.T, h *Hub, name string, n int) {
 // addServer adds s to the vault via config.Update, then reloads h. Used for
 // servers Task 1's newHub fixture doesn't have (root login, su/sudo
 // passwords): only presence of Enc*Password is checked by autoRefusal, so
-// any non-empty string does for those fields.
+// any non-empty string does for those fields when the refusal itself, not a
+// resolve past it, is what a test needs (encServer below builds a real,
+// decryptable ciphertext for a test that must reach resolveLocked).
 func addServer(t *testing.T, h *Hub, path string, s config.Server) {
 	t.Helper()
 	if err := config.Update(path, testMK, func(f *config.File) error {
@@ -259,6 +261,95 @@ func TestSetAutoAllowRefusals(t *testing.T) {
 				t.Fatal("grant created")
 			}
 		})
+	}
+}
+
+// encServer returns a config.Server (agent auth, pinned, AI-visible) with
+// field set to a real, decryptable ciphertext of pt: a garbage blob would
+// fail Exec's own resolve before the auto path is ever reached. aadFor only
+// depends on version/name/host/port/user/auth, so computing it against a
+// scratch one-server File gives the same AAD the vault computes once this
+// server is actually stored.
+func encServer(t *testing.T, name, field, pt string) config.Server {
+	t.Helper()
+	s := config.Server{Name: name, Host: "h", Port: 22, User: "u", Auth: "agent", HostKey: "SHA256:abc", AIVisible: true}
+	enc, err := config.Encrypt(testMK, name+"/"+field, config.AADFor(&config.File{Version: 1}, s, field), pt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	switch field {
+	case "encSuPassword":
+		s.EncSuPassword = enc
+	case "encSudoPassword":
+		s.EncSudoPassword = enc
+	}
+	return s
+}
+
+// setAutoAllowRoot flips name's AutoAllowRoot flag outside servers.save (a
+// raw store rewrite) and reloads h, the same technique addServer's sibling
+// tests use to simulate an out-of-band or already-saved state.
+func setAutoAllowRoot(t *testing.T, h *Hub, path, name string, on bool) {
+	t.Helper()
+	if err := config.Update(path, testMK, func(f *config.File) error {
+		for i := range f.Servers {
+			if f.Servers[i].Name == name {
+				f.Servers[i].AutoAllowRoot = on
+				return nil
+			}
+		}
+		return serverNotFound(name)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Reload(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Amendment 2026-09-29: AutoAllowRoot lets a root login, a stored su
+// password, or a stored sudo password onto auto-allow. The refusals that
+// always apply (not visible to AI, no pinned host key) still hold with the
+// option on.
+func TestRootOptInAllowsRootHosts(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	root := config.Server{Name: "root", Host: "h", Port: 22, User: "root", Auth: "agent", HostKey: "SHA256:abc", AIVisible: true}
+	addServer(t, h, path, root)
+	addServer(t, h, path, encServer(t, "suPw", "encSuPassword", "su-pw"))
+	addServer(t, h, path, encServer(t, "sudoPw", "encSudoPassword", "sudo-pw"))
+
+	for _, name := range []string{"root", "suPw", "sudoPw"} {
+		if err := h.SetAutoAllow(name, "15m"); err == nil {
+			t.Fatalf("%s: want a refusal with the option off", name)
+		}
+		if g := grantOf(h, name); g != nil {
+			t.Fatalf("%s: grant created despite the option being off", name)
+		}
+	}
+
+	for _, name := range []string{"root", "suPw", "sudoPw"} {
+		setAutoAllowRoot(t, h, path, name, true)
+		if err := h.SetAutoAllow(name, "15m"); err != nil {
+			t.Fatalf("%s: got %v, want the option to allow it", name, err)
+		}
+		if g := grantOf(h, name); g == nil {
+			t.Fatalf("%s: no grant created", name)
+		}
+		if err := h.SetAutoAllow(name, "off"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The refusals that always apply still hold with the option on.
+	addServer(t, h, path, config.Server{Name: "nopin", Host: "h", Port: 22, User: "root", Auth: "agent", AIVisible: true, AutoAllowRoot: true})
+	if err := h.SetAutoAllow("nopin", "15m"); err == nil || !strings.Contains(err.Error(), ErrNoHostKey.Error()) {
+		t.Fatalf("got %v, want %v", err, ErrNoHostKey)
+	}
+	// Not AI-visible: checkLocked reports it byte-identical to a nonexistent
+	// server (spec rule) before autoRefusal is ever reached.
+	addServer(t, h, path, config.Server{Name: "hiddenroot", Host: "h", Port: 22, User: "root", Auth: "agent", HostKey: "SHA256:abc", AutoAllowRoot: true})
+	if err := h.SetAutoAllow("hiddenroot", "15m"); err == nil || err.Error() != serverNotFound("hiddenroot").Error() {
+		t.Fatalf("got %v, want %v", err, serverNotFound("hiddenroot"))
 	}
 }
 
@@ -849,6 +940,20 @@ func TestServersForUIAutoAllow(t *testing.T) {
 	}
 }
 
+func TestServersForUIShowsAutoAllowOptIns(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	addServer(t, h, path, config.Server{Name: "opted", Host: "h", Port: 22, User: "u", Auth: "agent", HostKey: "SHA256:abc", AIVisible: true, AutoAllowRoot: true, AutoAllowSudo: true})
+	for _, s := range h.serversForUI() {
+		if s.Name == "opted" {
+			if !s.AutoAllowRoot || !s.AutoAllowSudo {
+				t.Fatalf("opted = %+v", s)
+			}
+			return
+		}
+	}
+	t.Fatal("opted not found")
+}
+
 // TestSetAutoAllowConcurrentWithSave covers round 3's design: SaveServer now
 // holds h.mu across its own write, reload and grant-end (hosts.go), the same
 // section SetAutoAllow uses, so the two fully serialize — whichever call
@@ -1262,6 +1367,77 @@ func TestAutoExecSudoStillAsks(t *testing.T) {
 	}
 }
 
+// Amendment 2026-09-29: sudo-exec on a granted host needs its own opt-in.
+// Without it, a sudo request goes to approval and the grant survives the
+// denial (autoStart only ends a grant it finds to be stale). With
+// AutoAllowSudo turned on by a raw store rewrite (not a servers.save, so the
+// grant stays armed across it), the same request runs with no approval.
+func TestSudoExecNeedsOptIn(t *testing.T) {
+	fe := &fakeExec{}
+	h, path := newHub(t, fe)
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := decideExec(t, h, ExecRequest{Server: "vis", Command: "id", Sudo: true}); err == nil {
+		t.Fatal("want a denial")
+	}
+	if g := grantOf(h, "vis"); g == nil {
+		t.Fatal("grant ended by a denied sudo request")
+	}
+
+	if err := config.Update(path, testMK, func(f *config.File) error {
+		for i := range f.Servers {
+			if f.Servers[i].Name == "vis" {
+				f.Servers[i].AutoAllowSudo = true
+				return nil
+			}
+		}
+		return serverNotFound("vis")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if g := grantOf(h, "vis"); g == nil {
+		t.Fatal("grant lost across the opt-in rewrite")
+	}
+
+	type call struct {
+		method string
+		params map[string]any
+	}
+	calls := make(chan call, 1)
+	release := h.setAutoSink(func(method string, params any) { calls <- call{method, params.(map[string]any)} })
+	defer release()
+
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "id", Sudo: true, Description: "d"}); err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if len(h.Broker().Pending()) != 0 {
+		t.Fatal("sudo request reached the broker despite the opt-in")
+	}
+	if len(fe.calls) != 1 || fe.calls[0] != "sudo:id" {
+		t.Fatalf("calls = %v", fe.calls)
+	}
+
+	_, recs := readAudit(t, path)
+	last := findAutoRecord(t, recs)
+	if last["approval"] != "auto" || last["sudo"] != true {
+		t.Fatalf("audit: %v", last)
+	}
+
+	select {
+	case c := <-calls:
+		if c.method != "autoAllow.ran" || c.params["sudo"] != true {
+			t.Fatalf("params = %+v", c.params)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("autoAllow.ran not sent")
+	}
+}
+
 func TestAutoExecExpired(t *testing.T) {
 	h, path := newHub(t, &fakeExec{})
 	if err := h.SetAutoAllow("vis", "15m"); err != nil {
@@ -1387,6 +1563,31 @@ func TestAutoExecSnapshotMismatch(t *testing.T) {
 	})
 }
 
+// A root server with the option on and a live grant: turning the option off
+// outside servers.save (a raw rewrite + reload) is caught at the next exec
+// like any other snap mismatch, since autoStart re-checks autoRefusal on the
+// current server every run.
+func TestAutoStartEndsGrantWhenRootOptInRemoved(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	addServer(t, h, path, config.Server{Name: "root", Host: "h", Port: 22, User: "root", Auth: "agent", HostKey: "SHA256:abc", AIVisible: true, AutoAllowRoot: true})
+	if err := h.SetAutoAllow("root", "15m"); err != nil {
+		t.Fatal(err)
+	}
+
+	setAutoAllowRoot(t, h, path, "root", false)
+
+	if err := decideExec(t, h, ExecRequest{Server: "root", Command: "ls"}); err == nil {
+		t.Fatal("want a denial (fell through to approval)")
+	}
+	if g := grantOf(h, "root"); g != nil {
+		t.Fatal("grant survived the opt-in being removed")
+	}
+	_, recs := readAudit(t, path)
+	if !hasAutoAllowOff(recs, "server changed") {
+		t.Fatalf("no autoAllowOff/server changed: %v", recs)
+	}
+}
+
 func TestAutoExecForeverFlagClearedOutside(t *testing.T) {
 	h, path := newHub(t, &fakeExec{})
 	if err := h.SetAutoAllow("vis", "forever"); err != nil {
@@ -1450,7 +1651,7 @@ func TestAutoStartFailsClosedWhenServerHidden(t *testing.T) {
 		t.Fatalf("err = %v, want %v", err, serverNotFound("vis"))
 	}
 
-	if ar := h.autoStart(context.Background(), "vis"); ar != nil {
+	if ar := h.autoStart(context.Background(), "vis", false); ar != nil {
 		t.Fatal("autoStart armed a run for a hidden server")
 	}
 	if g := grantOf(h, "vis"); g != nil {

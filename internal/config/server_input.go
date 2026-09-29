@@ -19,6 +19,8 @@ type ServerInput struct {
 	Auth          string  `json:"auth"`
 	KeyPath       string  `json:"keyPath"`
 	AIVisible     bool    `json:"aiVisible"`
+	AutoAllowRoot bool    `json:"autoAllowRoot"`
+	AutoAllowSudo bool    `json:"autoAllowSudo"`
 	Password      *string `json:"password"`
 	SuPassword    *string `json:"suPassword"`
 	SudoPassword  *string `json:"sudoPassword"`
@@ -58,7 +60,8 @@ func (in ServerInput) Validate() error {
 // every secret in does not re-supply: the AAD binds secrets to the endpoint,
 // and carrying them over would hand them to whoever answers there. Tunnels are
 // kept as they are; only tunnels.save and tunnels.delete change them.
-// AutoAllow is never carried over: every save turns auto-allow off.
+// AutoAllow is never carried over (every save turns auto-allow off); the two
+// opt-ins are fields the editor sends.
 func ApplyServer(f *File, original string, in ServerInput, masterKey []byte) (before, after Server, err error) {
 	idx := -1
 	if original != "" {
@@ -80,7 +83,8 @@ func ApplyServer(f *File, original string, in ServerInput, masterKey []byte) (be
 	if in.Auth != "key" {
 		in.KeyPath = ""
 	}
-	after = Server{Name: in.Name, Host: in.Host, Port: in.Port, User: in.User, Auth: in.Auth, KeyPath: in.KeyPath, AIVisible: in.AIVisible, Tunnels: before.Tunnels}
+	after = Server{Name: in.Name, Host: in.Host, Port: in.Port, User: in.User, Auth: in.Auth, KeyPath: in.KeyPath, AIVisible: in.AIVisible,
+		AutoAllowRoot: in.AutoAllowRoot, AutoAllowSudo: in.AutoAllowSudo, Tunnels: before.Tunnels}
 	moved := idx >= 0 && (before.Host != in.Host || before.Port != in.Port)
 	if idx >= 0 && !moved {
 		after.HostKey, after.HostKeyAlgo = before.HostKey, before.HostKeyAlgo

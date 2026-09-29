@@ -31,6 +31,8 @@ type uiServer struct {
 	HasKeyPassphrase bool         `json:"hasKeyPassphrase"`
 	AutoAllow        *uiAutoAllow `json:"autoAllow,omitempty"`
 	AutoAllowRefused string       `json:"autoAllowRefused,omitempty"`
+	AutoAllowRoot    bool         `json:"autoAllowRoot"`
+	AutoAllowSudo    bool         `json:"autoAllowSudo"`
 }
 
 // hasStore reports whether a store file was loaded, under h.mu.
@@ -64,6 +66,7 @@ func (h *Hub) serversForUI() []uiServer {
 			HasPassword: s.EncPassword != "", HasSuPassword: s.EncSuPassword != "",
 			HasSudoPassword: s.EncSudoPassword != "", HasKeyPassphrase: s.EncKeyPassphrase != "",
 			AutoAllow: h.autoStateLocked(s, now), AutoAllowRefused: autoRefusal(s),
+			AutoAllowRoot: s.AutoAllowRoot, AutoAllowSudo: s.AutoAllowSudo,
 		})
 	}
 	return out

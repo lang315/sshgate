@@ -20,7 +20,7 @@ var errNoVault = errors.New("create a vault first")
 var newKDF = config.NewKDF
 
 // CreateVault gives a store with no master password (or no file yet) one.
-// Kept servers lose aiVisible, autoAllow and their pins: a KDF-less file was never
+// Kept servers lose aiVisible, autoAllow (and its two opt-ins) and their pins: a KDF-less file was never
 // MAC'd, so its flags and pins are unauthenticated, and a pin must come
 // through the fingerprint prompt. The key is derived once, here, and installed in the
 // same h.mu section that saves and reloads, so nothing sees a vault that
@@ -53,6 +53,7 @@ func (h *Hub) CreateVault(pw string) error {
 			}
 			s.AIVisible = false
 			s.AutoAllow = false
+			s.AutoAllowRoot, s.AutoAllowSudo = false, false
 			s.HostKey, s.HostKeyAlgo = "", ""
 			kept = append(kept, s.Name)
 		}
@@ -91,7 +92,8 @@ func changes(a, b config.Server, in config.ServerInput) []string {
 	}{
 		{"name", a.Name, b.Name}, {"host", a.Host, b.Host}, {"port", a.Port, b.Port}, {"user", a.User, b.User},
 		{"auth", a.Auth, b.Auth}, {"keyPath", a.KeyPath, b.KeyPath}, {"aiVisible", a.AIVisible, b.AIVisible},
-		{"autoAllow", a.AutoAllow, b.AutoAllow}, {"hostKey", a.HostKey, b.HostKey},
+		{"autoAllow", a.AutoAllow, b.AutoAllow}, {"autoAllowRoot", a.AutoAllowRoot, b.AutoAllowRoot},
+		{"autoAllowSudo", a.AutoAllowSudo, b.AutoAllowSudo}, {"hostKey", a.HostKey, b.HostKey},
 	} {
 		if f.x != f.y {
 			out = append(out, fmt.Sprintf("%s: %v → %v", f.name, f.x, f.y))
@@ -144,10 +146,11 @@ func (h *Hub) denyPending(name string) {
 	}
 }
 
-// dialChanged: every field but AIVisible, AutoAllow and Tunnels feeds the
-// dial config or the name the connection is registered under.
+// dialChanged: every field but AIVisible, AutoAllow, the two opt-ins and
+// Tunnels feeds the dial config or the name the connection is registered
+// under.
 func dialChanged(a, b config.Server) bool {
-	a.AIVisible, a.AutoAllow, a.Tunnels = b.AIVisible, b.AutoAllow, nil
+	a.AIVisible, a.AutoAllow, a.AutoAllowRoot, a.AutoAllowSudo, a.Tunnels = b.AIVisible, b.AutoAllow, b.AutoAllowRoot, b.AutoAllowSudo, nil
 	b.Tunnels = nil
 	return !reflect.DeepEqual(a, b)
 }
