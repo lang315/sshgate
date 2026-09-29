@@ -2068,3 +2068,186 @@ func TestCLIModeNeverArms(t *testing.T) {
 		t.Fatal("want a denial; the hub must never arm from the stored flag")
 	}
 }
+
+// Task 2 (Amendment 2026-09-29): servers.save takes an optional auto-allow
+// mode, armed in the same h.mu section as the write. inputFor (servers_test.go)
+// returns "vis" unchanged (same host/port), so its pin survives the save and
+// it stays eligible.
+
+func TestSaveArmsTimed(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	in := inputFor(t, h, "vis")
+	before := time.Now()
+	if err := h.SaveServerWithAutoAllow("vis", in, "15m"); err != nil {
+		t.Fatal(err)
+	}
+	g := grantOf(h, "vis")
+	if g == nil || g.until.IsZero() {
+		t.Fatalf("grant = %+v", g)
+	}
+	want := before.Add(15 * time.Minute)
+	if diff := g.until.Sub(want); diff < -5*time.Second || diff > 5*time.Second {
+		t.Fatalf("until = %v, want ~%v", g.until, want)
+	}
+	_, recs := readAudit(t, path)
+	var sawSave, sawOn bool
+	for _, r := range recs {
+		if r["action"] == "save" {
+			sawSave = true
+		}
+		if r["action"] == "autoAllowOn" {
+			sawOn = true
+			if _, ok := r["until"]; !ok {
+				t.Fatalf("autoAllowOn missing until: %v", r)
+			}
+		}
+	}
+	if !sawSave || !sawOn {
+		t.Fatalf("audit missing save/autoAllowOn: %v", recs)
+	}
+}
+
+func TestSaveArmsForever(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	in := inputFor(t, h, "vis")
+	if err := h.SaveServerWithAutoAllow("vis", in, "forever"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	s, ok := h.Deps().File.FindServer("vis")
+	if !ok || !s.AutoAllow {
+		t.Fatalf("flag not set: %+v", s)
+	}
+	g := grantOf(h, "vis")
+	if g == nil || !g.until.IsZero() {
+		t.Fatalf("grant = %+v", g)
+	}
+	_, recs := readAudit(t, path)
+	var sawOn bool
+	for _, r := range recs {
+		if r["action"] == "autoAllowOn" && r["forever"] == true {
+			sawOn = true
+		}
+	}
+	if !sawOn {
+		t.Fatalf("audit missing autoAllowOn forever: %v", recs)
+	}
+}
+
+// TestSaveEndsOldGrantThenArms: the audit order is autoAllowOff (reason
+// "saved") then autoAllowOn (with until), both written inside the locked
+// section, then save, written after unlocking.
+func TestSaveEndsOldGrantThenArms(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	in := inputFor(t, h, "vis")
+	if err := h.SaveServerWithAutoAllow("vis", in, "30m"); err != nil {
+		t.Fatal(err)
+	}
+	_, recs := readAudit(t, path)
+	if len(recs) < 3 {
+		t.Fatalf("too few audit records: %v", recs)
+	}
+	last3 := recs[len(recs)-3:]
+	if last3[0]["action"] != "autoAllowOff" || last3[0]["reason"] != "saved" {
+		t.Fatalf("record[0] = %v, want autoAllowOff saved", last3[0])
+	}
+	if last3[1]["action"] != "autoAllowOn" {
+		t.Fatalf("record[1] = %v, want autoAllowOn", last3[1])
+	}
+	if _, ok := last3[1]["until"]; !ok {
+		t.Fatalf("autoAllowOn missing until: %v", last3[1])
+	}
+	if last3[2]["action"] != "save" {
+		t.Fatalf("record[2] = %v, want save", last3[2])
+	}
+	g := grantOf(h, "vis")
+	if g == nil || g.until.IsZero() {
+		t.Fatalf("grant not timed: %+v", g)
+	}
+	if err := h.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := h.Deps().File.FindServer("vis")
+	if s.AutoAllow {
+		t.Fatal("forever flag still set")
+	}
+}
+
+// TestSaveOffEndsGrant: mode "off" or "" behaves exactly like today's
+// SaveServer: the grant ends and nothing is armed.
+func TestSaveOffEndsGrant(t *testing.T) {
+	for _, mode := range []string{"off", ""} {
+		t.Run(mode, func(t *testing.T) {
+			h, _ := newHub(t, &fakeExec{})
+			if err := h.SetAutoAllow("vis", "15m"); err != nil {
+				t.Fatal(err)
+			}
+			in := inputFor(t, h, "vis")
+			if err := h.SaveServerWithAutoAllow("vis", in, mode); err != nil {
+				t.Fatal(err)
+			}
+			if g := grantOf(h, "vis"); g != nil {
+				t.Fatal("grant survived a save with mode off")
+			}
+		})
+	}
+}
+
+// TestSaveArmRefusedKeepsSave: the write stands even when arming is refused,
+// and the returned error is prefixed with errSavedButPrefix.
+func TestSaveArmRefusedKeepsSave(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	addServer(t, h, path, config.Server{Name: "root", Host: "h", Port: 22, User: "root", Auth: "agent", HostKey: "SHA256:abc", AIVisible: true})
+
+	in := inputFor(t, h, "root")
+	in.Name = "root2" // the label change that must land on disk despite the refusal
+	err := h.SaveServerWithAutoAllow("root", in, "15m")
+	wantErr := errSavedButPrefix + "auto-allow refused: root login"
+	if err == nil || err.Error() != wantErr {
+		t.Fatalf("got %v, want %q", err, wantErr)
+	}
+	if g := grantOf(h, "root2"); g != nil {
+		t.Fatal("grant armed despite the refusal")
+	}
+	f, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.FindServer("root"); ok {
+		t.Fatal("old name still present")
+	}
+	if _, ok := f.FindServer("root2"); !ok {
+		t.Fatal("rename did not land on disk")
+	}
+
+	in2 := inputFor(t, h, "root2")
+	in2.AutoAllowRoot = true
+	if err := h.SaveServerWithAutoAllow("root2", in2, "15m"); err != nil {
+		t.Fatal(err)
+	}
+	if g := grantOf(h, "root2"); g == nil {
+		t.Fatal("grant not armed once AutoAllowRoot is set")
+	}
+}
+
+// TestSaveRenameArmsUnderNewName: the new grant is armed under the name
+// this save leaves the server with, not the original.
+func TestSaveRenameArmsUnderNewName(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	in := inputFor(t, h, "vis")
+	in.Name = "vis2"
+	if err := h.SaveServerWithAutoAllow("vis", in, "15m"); err != nil {
+		t.Fatal(err)
+	}
+	if g := grantOf(h, "vis2"); g == nil {
+		t.Fatal("no grant under the new name")
+	}
+	if g := grantOf(h, "vis"); g != nil {
+		t.Fatal("grant left behind under the old name")
+	}
+}

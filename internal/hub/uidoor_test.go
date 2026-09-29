@@ -139,6 +139,33 @@ func TestUIDoorSetAutoAllow(t *testing.T) {
 	}
 }
 
+func TestUIDoorServersSaveAutoAllow(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	c, _ := startUI(t, h)
+
+	in := inputFor(t, h, "vis")
+	if err := c.Call(context.Background(), "servers.save", map[string]any{"original": "vis", "server": in, "autoAllow": "15m"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if g := grantOf(h, "vis"); g == nil {
+		t.Fatal("no grant armed")
+	}
+
+	err := c.Call(context.Background(), "servers.save", map[string]any{"original": "vis", "server": in, "autoAllow": "1h"}, nil)
+	var re *rpc.Error
+	if !errors.As(err, &re) || re.Code != -32602 {
+		t.Fatalf("bad mode: want -32602, got %v", err)
+	}
+
+	// A missing autoAllow means off.
+	if err := c.Call(context.Background(), "servers.save", map[string]any{"original": "vis", "server": in}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if g := grantOf(h, "vis"); g != nil {
+		t.Fatal("grant survived a save with no autoAllow field")
+	}
+}
+
 func TestUIDoorAutoAllowCheck(t *testing.T) {
 	fe := &fakeExec{res: sshx.ExecResult{Stdout: "1000\nnopasswd\n"}}
 	h, _ := newHub(t, fe)
@@ -171,8 +198,8 @@ func TestUIDoorHelloAndLockedNotification(t *testing.T) {
 	if err := c.Call(context.Background(), "hello", nil, &hello); err != nil || hello.Protocol != ProtocolVersion {
 		t.Fatalf("hello: %v %+v", err, hello)
 	}
-	if hello.Protocol != 6 {
-		t.Fatalf("protocol = %d, want 6", hello.Protocol)
+	if hello.Protocol != 7 {
+		t.Fatalf("protocol = %d, want 7", hello.Protocol)
 	}
 	if err := c.Call(context.Background(), "unlock", map[string]string{"password": "pw"}, nil); err != nil {
 		t.Fatal(err)
