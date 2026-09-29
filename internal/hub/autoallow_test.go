@@ -521,83 +521,105 @@ func TestServersForUIAutoAllow(t *testing.T) {
 	}
 }
 
-// TestSetAutoAllowRaceWindow covers the fix-round-1 finding: the UI door runs
-// requests concurrently, so a Lock or a save landing between SetAutoAllow's
-// first check and its arming step must void the call instead of racing it.
-// beforeArm is the test seam that forces the window.
-func TestSetAutoAllowRaceWindow(t *testing.T) {
-	t.Run("lock", func(t *testing.T) {
-		h, path := newHub(t, &fakeExec{})
-		_, before := readAudit(t, path)
-		beforeArm = func() { h.Lock() }
-		defer func() { beforeArm = nil }()
-		err := h.SetAutoAllow("vis", "15m")
-		if !errors.Is(err, ErrLocked) {
-			t.Fatalf("got %v, want ErrLocked", err)
-		}
-		if g := grantOf(h, "vis"); g != nil {
-			t.Fatal("grant installed on a locked hub")
-		}
-		_, after := readAudit(t, path)
-		if len(after) != len(before) {
-			t.Fatalf("audit line written on a raced call: %v", after)
-		}
-	})
+// TestSetAutoAllowConcurrentWithSave covers item 1's fix: SetAutoAllow now
+// runs as one h.mu section, and its own store write is guarded by a revision
+// check, so a concurrent SaveServer landing anywhere in the middle of it
+// (SaveServer's own config.Update runs without h.mu, so it is not kept out by
+// the lock alone) can never leave a grant standing with the on-disk flag
+// false. Whichever call's effect is the one left standing wins outright:
+// either no grant and the flag false (the save's effect stood, or won the
+// arm-time recheck), or a grant and the flag true (SetAutoAllow's forever
+// completed clean). A raced SetAutoAllow returning errAutoAllowRace is also
+// fine: nothing armed, nothing but the save's own write stands.
+func TestSetAutoAllowConcurrentWithSave(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	in := config.ServerInput{Name: "vis", Host: "h", Port: 22, User: "u", Auth: "agent", AIVisible: true}
 
-	t.Run("save", func(t *testing.T) {
-		h, path := newHub(t, &fakeExec{})
-		beforeArm = func() {
-			in := config.ServerInput{Name: "vis", Host: "h", Port: 22, User: "u", Auth: "agent", AIVisible: true}
-			if err := h.SaveServer("vis", in); err != nil {
-				t.Fatal(err)
+	const iterations = 200
+	for i := 0; i < iterations; i++ {
+		var wg sync.WaitGroup
+		wg.Add(2)
+		var saveErr, setErr error
+		go func() { defer wg.Done(); saveErr = h.SaveServer("vis", in) }()
+		go func() { defer wg.Done(); setErr = h.SetAutoAllow("vis", "forever") }()
+		wg.Wait()
+
+		if saveErr != nil {
+			t.Fatalf("iteration %d: SaveServer: %v", i, saveErr)
+		}
+		if setErr != nil && !errors.Is(setErr, errAutoAllowRace) {
+			t.Fatalf("iteration %d: SetAutoAllow: %v", i, setErr)
+		}
+
+		f, err := config.Load(path)
+		if err != nil {
+			t.Fatalf("iteration %d: %v", i, err)
+		}
+		s, ok := f.FindServer("vis")
+		if !ok {
+			t.Fatalf("iteration %d: vis not found", i)
+		}
+		hasGrant := grantOf(h, "vis") != nil
+		if hasGrant != s.AutoAllow {
+			t.Fatalf("iteration %d: grant present = %v, flag on disk = %v", i, hasGrant, s.AutoAllow)
+		}
+		if hasGrant {
+			// Only a clean, un-raced SetAutoAllow may leave a grant armed;
+			// reset for the next iteration.
+			if err := h.SetAutoAllow("vis", "off"); err != nil {
+				t.Fatalf("iteration %d: cleanup off: %v", i, err)
 			}
 		}
-		defer func() { beforeArm = nil }()
-		err := h.SetAutoAllow("vis", "forever")
-		if err == nil {
-			t.Fatal("want an error when a save lands in the gap")
-		}
-		if g := grantOf(h, "vis"); g != nil {
-			t.Fatal("grant installed after a concurrent save")
-		}
-		s, _ := h.Deps().File.FindServer("vis")
-		if s.AutoAllow {
-			t.Fatal("flag written back on after the concurrent save cleared it")
-		}
-		_, recs := readAudit(t, path)
-		if !hasAutoAllowOff(recs, "saved") {
-			t.Fatalf("the concurrent save's own autoAllowOff is missing: %v", recs)
-		}
-	})
-}
+	}
 
-// TestSetAutoAllowWriteRaceWindow covers final-fixes item 9: a concurrent
-// write landing between SetAutoAllow's first section (where rev is read) and
-// its own writeAutoAllow call must not be clobbered by a stale forever flag.
-// beforeWrite is the test seam that forces the window.
-func TestSetAutoAllowWriteRaceWindow(t *testing.T) {
-	h, path := newHub(t, &fakeExec{})
-	beforeWrite = func() {
-		// A concurrent write (any change) bumps Revision without h reloading.
-		if err := config.Update(path, testMK, func(f *config.File) error { return nil }); err != nil {
-			t.Fatal(err)
-		}
-	}
-	defer func() { beforeWrite = nil }()
-
-	err := h.SetAutoAllow("vis", "forever")
-	if !errors.Is(err, errAutoAllowRace) {
-		t.Fatalf("got %v, want errAutoAllowRace", err)
-	}
-	if g := grantOf(h, "vis"); g != nil {
-		t.Fatal("grant installed despite a raced write")
-	}
-	if err := h.Reload(); err != nil {
+	_, recs := readAudit(t, path)
+	f, err := config.Load(path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	s, _ := h.Deps().File.FindServer("vis")
-	if s.AutoAllow {
-		t.Fatal("flag written despite a concurrent write racing it")
+	if s, ok := f.FindServer("vis"); ok && s.AutoAllow {
+		var found bool
+		for _, r := range recs {
+			if r["action"] == "autoAllowOn" && r["forever"] == true {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatal("flag ended up set with no autoAllowOn forever record in the audit")
+		}
+	}
+}
+
+// TestSetAutoAllowReloadFailureAuditsAndArmsNothing covers item 1: if the
+// flag write succeeds but the reload right after it fails, the write still
+// happened and must be audited, but nothing may be armed on a state we could
+// not confirm. loadStore is the existing seam hub.go documents for forcing a
+// reload failure (see hosts_test.go, servers_test.go, trust_test.go).
+func TestSetAutoAllowReloadFailureAuditsAndArmsNothing(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	loadStore = func(string) (*config.File, error) { return nil, errors.New("boom") }
+	t.Cleanup(func() { loadStore = config.Load })
+
+	err := h.SetAutoAllow("vis", "forever")
+	if err == nil || err.Error() != "boom" {
+		t.Fatalf("got %v, want the reload error", err)
+	}
+	if g := grantOf(h, "vis"); g != nil {
+		t.Fatal("grant armed despite a failed reload")
+	}
+	_, recs := readAudit(t, path)
+	last := recs[len(recs)-1]
+	if last["action"] != "autoAllowOn" || last["forever"] != true {
+		t.Fatalf("audit: %v", last)
+	}
+
+	loadStore = config.Load
+	f, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := f.FindServer("vis"); !s.AutoAllow {
+		t.Fatal("flag write did not stand despite the reload failing")
 	}
 }
 

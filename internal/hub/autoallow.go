@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -63,28 +64,49 @@ func autoRefusal(s config.Server) string {
 	return ""
 }
 
-// errAutoAllowRace is returned when the server changed (a save, delete,
-// forget, lock, or another arm) between SetAutoAllow's checks and the point
-// it would install the grant, or between its checks and its own vault write;
-// nothing is installed or written.
+// errAutoResolve marks a resolve failure inside autoEligibleLocked, distinct
+// from the checkLocked/refusal errors above it: AutoAllowCheck audits this
+// one as a check failure (never the detail) and returns errAutoCheck;
+// SetAutoAllow just maps it to ErrConnFailed.
+var errAutoResolve = errors.New("resolve failed")
+
+// autoEligibleLocked runs the checks SetAutoAllow and AutoAllowCheck share:
+// checkLocked (vault exists, visible, unlocked, pinned), then autoRefusal,
+// then resolve. h.mu must be held.
+func (h *Hub) autoEligibleLocked(name string) (config.Server, sshx.DialConfig, error) {
+	if err := h.checkLocked(name); err != nil {
+		return config.Server{}, sshx.DialConfig{}, err
+	}
+	s, _ := h.deps.File.FindServer(name)
+	if why := autoRefusal(s); why != "" {
+		return config.Server{}, sshx.DialConfig{}, fmt.Errorf("auto-allow refused: %s", why)
+	}
+	dc, err := h.resolveLocked(name)
+	if err != nil {
+		return config.Server{}, sshx.DialConfig{}, errAutoResolve
+	}
+	return s, dc, nil
+}
+
+// errAutoAllowRace is returned when a concurrent vault write (a save,
+// delete, forget) reaches the store between SetAutoAllow's own flag write
+// and the point it would arm a grant; nothing is armed. SaveServer et al.
+// take h.mu only for writeKey, Reload and dropGrant — their config.Update
+// itself runs without it — so their write can land inside SetAutoAllow's
+// single h.mu section despite the lock: the revision check inside the
+// Update below, and the re-check after the reload that follows it, are what
+// catch that, not the lock.
 var errAutoAllowRace = errors.New("server changed; try again")
-
-// beforeArm is a test seam: called, if set, between SetAutoAllow's write step
-// and its arming section, to force a race window. Nil in production.
-var beforeArm func()
-
-// beforeWrite is a test seam: called, if set, between SetAutoAllow's first
-// section and its own writeAutoAllow call, to force a race window there.
-// Nil in production.
-var beforeWrite func()
 
 // SetAutoAllow turns name's auto-allow on (a timed mode, or forever) or off.
 // forever on a server whose vault flag is already set and paused (no live
 // grant) only arms it (Resume); forever on an already-armed forever grant is
-// a no-op. Everything is checked once in a first h.mu section, and re-checked
-// against the same server state right before the grant is installed in a
-// second: the UI door runs requests concurrently, so a Lock, save, delete, or
-// forget landing in between must void this call instead of racing it.
+// a no-op. Everything but off runs in one h.mu section, the same pattern
+// CreateVault uses (lock order h.mu → config.Update is safe: no path takes
+// h.mu from inside an Update): a flag write is followed by a reload and a
+// fresh eligibility check before a grant is armed, so a Lock, save, delete,
+// or forget landing mid-write is caught against the reloaded state instead
+// of racing this call.
 func (h *Hub) SetAutoAllow(name, mode string) error {
 	if mode == "off" {
 		return h.autoAllowOff(name, "turned off")
@@ -92,67 +114,74 @@ func (h *Hub) SetAutoAllow(name, mode string) error {
 	d, timed := autoModes[mode]
 
 	h.mu.Lock()
-	if err := h.checkLocked(name); err != nil {
-		h.mu.Unlock()
+	defer h.mu.Unlock()
+
+	s, dc, err := h.autoEligibleLocked(name)
+	if err != nil {
+		if errors.Is(err, errAutoResolve) {
+			return ErrConnFailed
+		}
 		return err
 	}
-	s, _ := h.deps.File.FindServer(name)
-	if why := autoRefusal(s); why != "" {
-		h.mu.Unlock()
-		return fmt.Errorf("auto-allow refused: %s", why)
-	}
-	dc, err := h.resolveLocked(name)
-	if err != nil {
-		h.mu.Unlock()
-		return ErrConnFailed
-	}
 	resume := !timed && s.AutoAllow && h.grants[name] == nil
-	alreadyForever := !timed && s.AutoAllow && h.grants[name] != nil
-	rev := h.deps.File.Revision
-	snap := snapOf(dc)
-	h.mu.Unlock()
-
-	if beforeWrite != nil {
-		beforeWrite()
-	}
-
-	if alreadyForever {
+	if !timed && s.AutoAllow && h.grants[name] != nil {
 		return nil // already armed forever: nothing changed, nothing to audit
 	}
 
 	if timed == s.AutoAllow { // timed over forever clears the flag; a new forever sets it
-		if err := h.writeAutoAllow(name, !timed, rev); err != nil {
+		key := bytes.Clone(h.deps.MasterKey) // non-nil: autoEligibleLocked's checkLocked just passed
+		defer clear(key)
+		rev := h.deps.File.Revision
+		if err := config.Update(h.o.StorePath, key, func(f *config.File) error {
+			// A concurrent save/delete/forget's own config.Update runs
+			// without h.mu, so it can land here despite us holding it: catch
+			// it by revision instead of blindly overwriting its write.
+			if f.Revision != rev {
+				return errAutoAllowRace
+			}
+			for i := range f.Servers {
+				if f.Servers[i].Name == name {
+					f.Servers[i].AutoAllow = !timed
+					return nil
+				}
+			}
+			return serverNotFound(name)
+		}); err != nil {
 			return err
 		}
-		h.mu.Lock()
-		rev = h.deps.File.Revision // the write's own revision bump is expected
-		h.mu.Unlock()
+		// The write stands from here on; every remaining failure must audit
+		// the flag change it leaves behind instead of arming a grant.
+		auditFlagChange := func() {
+			if timed {
+				h.auditConfig(broker.ConfigRecord{Action: "autoAllowOff", Server: name, Reason: "turned off"})
+			} else {
+				h.auditConfig(broker.ConfigRecord{Action: "autoAllowOn", Server: name, Forever: true})
+			}
+		}
+		if err := h.reloadLocked(); err != nil {
+			auditFlagChange()
+			return err
+		}
+		// The file may have changed on disk beyond our own write (the same
+		// concurrent write landing between it and this reload instead of
+		// inside it): re-check eligibility against the reloaded state, and
+		// that a forever request still sees its own flag set, before arming
+		// anything.
+		s, dc, err = h.autoEligibleLocked(name)
+		switch {
+		case err != nil:
+			auditFlagChange()
+			if errors.Is(err, errAutoResolve) {
+				return ErrConnFailed
+			}
+			return err
+		case !timed && !s.AutoAllow:
+			auditFlagChange()
+			return errAutoAllowRace
+		}
 	}
 
-	if beforeArm != nil {
-		beforeArm()
-	}
-
-	h.mu.Lock()
-	if err := h.checkLocked(name); err != nil {
-		h.mu.Unlock()
-		return err
-	}
-	s2, _ := h.deps.File.FindServer(name)
-	if why := autoRefusal(s2); why != "" {
-		h.mu.Unlock()
-		return fmt.Errorf("auto-allow refused: %s", why)
-	}
-	dc2, err := h.resolveLocked(name)
-	if err != nil {
-		h.mu.Unlock()
-		return ErrConnFailed
-	}
-	if snapOf(dc2) != snap || h.deps.File.Revision != rev || (!timed && !s2.AutoAllow) {
-		h.mu.Unlock()
-		return errAutoAllowRace
-	}
-	g := &grant{snap: snap, inflight: map[uint64]context.CancelFunc{}}
+	g := &grant{snap: snapOf(dc), inflight: map[uint64]context.CancelFunc{}}
 	if timed {
 		g.until = time.Now().Add(d)
 	}
@@ -160,7 +189,6 @@ func (h *Hub) SetAutoAllow(name, mode string) error {
 		g.inflight = old.inflight // runs already going stay counted and cancellable
 	}
 	h.grants[name] = g
-	h.mu.Unlock()
 
 	r := broker.ConfigRecord{Action: "autoAllowOn", Server: name}
 	switch {
@@ -175,21 +203,16 @@ func (h *Hub) SetAutoAllow(name, mode string) error {
 	return nil
 }
 
-// writeAutoAllow sets name's vault flag and reloads. rev must still match the
-// store's revision (as observed by the caller before this write) or the
-// write is refused with errAutoAllowRace: a concurrent save landing first
-// must not be clobbered by a stray forever flag. rev -1 skips the check
-// (autoAllowOff clearing its own flag).
-func (h *Hub) writeAutoAllow(name string, on bool, rev int) error {
+// writeAutoAllow sets name's vault flag and reloads; used only by
+// autoAllowOff, which ends the grant under h.mu and writes the flag outside
+// it.
+func (h *Hub) writeAutoAllow(name string, on bool) error {
 	key, err := h.writeKey()
 	if err != nil {
 		return err
 	}
 	defer clear(key)
 	err = config.Update(h.o.StorePath, key, func(f *config.File) error {
-		if rev != -1 && f.Revision != rev {
-			return errAutoAllowRace
-		}
 		for i := range f.Servers {
 			if f.Servers[i].Name == name {
 				f.Servers[i].AutoAllow = on
@@ -217,7 +240,7 @@ func (h *Hub) autoAllowOff(name, reason string) error {
 	h.mu.Unlock()
 	var err error
 	if flag {
-		err = h.writeAutoAllow(name, false, -1)
+		err = h.writeAutoAllow(name, false)
 	}
 	if had || (flag && err == nil) {
 		h.grantEnded(name, reason)
@@ -450,20 +473,15 @@ var errAutoCheck = errors.New("could not check this host")
 // there is root access. It checks what SetAutoAllow checks first.
 func (h *Hub) AutoAllowCheck(ctx context.Context, name string) (AutoCheck, error) {
 	h.mu.Lock()
-	if err := h.checkLocked(name); err != nil {
-		h.mu.Unlock()
-		return AutoCheck{}, err
-	}
-	s, _ := h.deps.File.FindServer(name)
-	if why := autoRefusal(s); why != "" {
-		h.mu.Unlock()
-		return AutoCheck{}, fmt.Errorf("auto-allow refused: %s", why)
-	}
-	dc, err := h.resolveLocked(name)
+	_, dc, err := h.autoEligibleLocked(name)
 	h.mu.Unlock()
-	// Past this point the probe is actually attempted: audit every failure
-	// too, reason "failed" only, never the detail (that stays on stderr).
 	if err != nil {
+		if !errors.Is(err, errAutoResolve) {
+			return AutoCheck{}, err
+		}
+		// Past this point the probe was actually attempted: audit the
+		// failure too, reason "failed" only, never the detail (that stays
+		// on stderr).
 		h.auditConfig(broker.ConfigRecord{Action: "autoAllowCheck", Server: name, Reason: "failed"})
 		return AutoCheck{}, errAutoCheck
 	}
