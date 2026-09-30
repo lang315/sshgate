@@ -121,3 +121,16 @@ Exit gate: on the author's real vault, the Audit tab shows the day's AI requests
 - **CLAUDE.md:**
   - The UI-door method list gains `audit.read` and the `audit.appended` notification, and the protocol becomes 8.
   - The desktop section gets an Audit tab bullet.
+
+## Amendment 2026-09-30 (planning)
+
+The plan (`plans/2026-09-30-slice4b-audit-viewer.md`) settled these points. Where this section differs from the sections above, it wins.
+
+- **`path`.** `audit.read` also returns `path`, the audit file's location, for the footer.
+- **Filter logic.** `kinds` and `outcomes` combine as a union: a record matches when its kind is in `kinds`, or when it is an exec whose outcome is in `outcomes`. `server` and `text` then narrow the result.
+- **`cancelled`.** No record is written with outcome `cancelled`, so the filter matches `approved_but_cancelled` and `cancelled_running`. Badges also cover `sent_to_tab`.
+- **Text search.** Before matching, the search decodes Go's JSON escapes for `<`, `>` and `&`, so `2>&1` is found.
+- **`skipped`.** It counts malformed lines across the whole file.
+- **Torn last line.** A last line with no trailing newline is closed with one when the file is opened.
+- **Callback.** The `audit.appended` callback reads only atomics: an unlocked flag and the sink. Some audit writes happen while `h.mu` is held, so the callback must not take it.
+- **Tab class.** The Audit tab uses class `.audittab`, so the existing `.hometab` locators still match one element.

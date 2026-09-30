@@ -142,3 +142,19 @@ A prompt-injected AI can encode output to get it past redaction. The auto-allow 
   - The safety model gains a "Redaction is a seatbelt, not a boundary" bullet with the limits above.
 - **PRODUCT.md:** the Positioning paragraph mentions output redaction to the AI.
 - **CLAUDE.md:** the `Hub.Exec` order bullet and the "MCP tools" paragraph mention `RedactPatterns` before the cap, and the `redacted` field and note.
+
+## Amendment 2026-09-30 (planning)
+
+The plan (`plans/2026-09-30-slice4a-output-redaction.md`) settled these points. Where this section differs from the sections above, it wins.
+
+- **Note line order.** Kinds in the note line follow the table order: `private_key, password, secret, auth_header, url_password, token`. The earlier example therefore reads `(private_key ×1, password ×2)`. A single match reads "1 value".
+- **Key words:**
+  - `secret` matches anywhere in the key.
+  - `pass`, `token`, `auth`, `apikey`, `credential(s)` and `*_key` match only as the key's last word, so `token_url` and `auth_method` stay.
+  - `PWD`, the shell's working directory, is excluded.
+  - nginx's `*_pass` directives (`proxy_pass`, `fastcgi_pass` …), which take upstream URLs, are excluded.
+- **Conf lines.** The `key value` form, a space separator with no `=` or `:`, applies to password keys only. A bare `-p value` flag is not covered, only `--password=value`.
+- **`token` kind.** A token must contain a digit, so words that merely start with a prefix, such as `sk-learn`, stay.
+- **Corpus.** Negative cases have no `.want`; they must come back byte for byte. Each positive `.in` starts with a `# counts:` line that the test checks.
+- **Hub tests.** They use the hub's fake exec seam rather than `sshtest`, because `sshtest` cannot return a multi-line PEM. A full-stack `sshtest` step in `TestEndToEndAutoAllow` checks the note line end to end.
+- **Fake secrets.** They are shaped so that GitHub push protection does not flag them, for example AWS's documented `EXAMPLE` keys.
