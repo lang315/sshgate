@@ -84,6 +84,9 @@ func TestRedactCapWindowCutLeaks(t *testing.T) {
 		blocks := pemBlocks((w - c.keep - 10) / len(pemBlocks(1)))
 		pad := strings.Repeat("x", w-c.keep-len(blocks)-1) + "\n"
 		in := blocks + pad + c.line + filler(150<<10)
+		if u, _ := RedactPatterns(in[:w]); !strings.Contains(u, c.leak) {
+			t.Fatalf("setup: unaligned head window does not leak %q", c.leak)
+		}
 		out, _ := RedactCap(NewRedactor(), in, capMax)
 		if strings.Contains(out, c.leak) {
 			t.Errorf("head cut leaked %q", c.leak)
@@ -100,9 +103,28 @@ func TestRedactCapWindowCutLeaks(t *testing.T) {
 		blocks := pemBlocks((w - c.rem - 10) / len(pemBlocks(1)))
 		pad := strings.Repeat("x", w-c.rem-len(blocks)-1) + "\n"
 		in := filler(150<<10) + c.line + pad + blocks
+		if u, _ := RedactPatterns(in[len(in)-w:]); !strings.Contains(u, c.leak) {
+			t.Fatalf("setup: unaligned tail window does not leak %q", c.leak)
+		}
 		out, _ := RedactCap(NewRedactor(), in, capMax)
 		if strings.Contains(out, c.leak) {
 			t.Errorf("tail cut leaked %q", c.leak)
+		}
+	}
+}
+
+// A window edge that falls inside a line of at least redactMargin bytes keeps
+// the byte-boundary window, so long-line output still returns max/2 per half.
+func TestRedactCapLongLines(t *testing.T) {
+	long := strings.Repeat("a", 1<<20) + "\n"
+	for name, in := range map[string]string{
+		"one line":        long,
+		"short then line": "HTTP/1.1 200 OK\n" + long,
+	} {
+		out, _ := RedactCap(NewRedactor(), in, capMax)
+		head, tail, ok := strings.Cut(out, truncMarker(len(in)-capMax))
+		if !ok || len(head) != capMax/2 || len(tail) != capMax/2 {
+			t.Errorf("%s: head %d tail %d, want %d each", name, len(head), len(tail), capMax/2)
 		}
 	}
 }

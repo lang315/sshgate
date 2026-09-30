@@ -109,7 +109,19 @@ Closing the window quits the app and stops the hub. There is no Reload; if the r
 - The vault uses Argon2id for the master key, AES-GCM with per-field authenticated data for each secret, and an HMAC over the whole file. A tampered or corrupt vault file is refused, never overwritten.
 - The master password is never read from a file or environment variable, only typed into the app (or `hub --cli`).
 - Saved secrets are masked in all command output. The audit log (`audit.jsonl`, next to the vault) records every request and decision, never command output; an allowed run's record counts what was redacted, by kind.
-- Redaction is a seatbelt, not a boundary. Before output reaches the AI, sshgate also masks private key blocks, values after password-, secret- and token-like keys, credential headers (`Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`), URL passwords, and well-known tokens (AWS, GitHub, GitLab, Slack, `sk-`, JWTs), always, with no opt-out. It misses a secret with no key and no known prefix (a password alone on a line), `.pgpass` lines, secrets split across lines (except PEM blocks), anything encoded (`base64`, `xxd`, `rev`, `gzip`), and a few command-line and file shapes: WordPress `define('DB_PASSWORD', …)`, XML `<password>`, `curl -u user:pw`, `mysql -pPW`, a one-line `.netrc`, `/etc/shadow` hashes, and an unencoded `@` inside a URL password. A prompt-injected AI can encode output to get it past redaction; the auto-allow warnings above still apply. To see a real value yourself, use **Send to tab**: the command then runs in your terminal and its output never reaches the AI.
+- Redaction is a seatbelt, not a boundary, and it is always on with no opt-out. Before output reaches the AI, sshgate also masks:
+  - private key blocks;
+  - the value after a key whose name has a password word (`password`, `passwd`, `pwd`, `passphrase`, or `pass` last) or a secret word (`secret`, or `token`, `auth`, `apikey`, `credential(s)`, `api_key`, `access_key`, `private_key`, `secret_key`, `app_key`, `encryption_key`, `signing_key`, `master_key`, `session_key`, `hmac_key` last), plus redis `requirepass` and `masterauth`; other `*_KEY` names (`JWT_KEY`, `LICENSE_KEY`, `PIN`) are not covered;
+  - credential headers (`Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`), URL passwords, and well-known token families: AWS (`AKIA`, `ASIA`), GitHub (`ghp_`… and `github_pat_`), GitLab (`glpat-`), Slack (`xox…`), `sk-`, Stripe secret and restricted keys (`sk_live_`, `sk_test_`, `rk_live_`, `rk_test_`), and JWTs. Stripe `whsec_` and `pk_` and any other prefix are not handled.
+
+  It misses:
+  - a secret with no key and no known prefix (a password alone on a line), `.pgpass` lines, secrets split across lines (except PEM blocks), and anything encoded (`base64`, `xxd`, `rev`, `gzip`);
+  - WordPress `define('DB_PASSWORD', …)`, XML `<password>`, `curl -u user:pw`, `mysql -pPW`, short `-p value` flags (`sshpass -p`), a one-line `.netrc`, `/etc/shadow` hashes, and an unencoded `@` inside a URL password;
+  - a value the keep rules leave alone: one starting with `$` and an identifier or with `%s`/`%d`/`%v`/`%q`, letters followed by `(` or `[`, an absolute or `~/` path, or a placeholder such as `changeme`, `none` or `yes`, so a real password like `$ecr3t!` or `Hunter[2x9` is not masked;
+  - an unquoted value with spaces, masked only up to the first space;
+  - `auth: {password hunter2x}` (a flow map holding a space-separated pair): the value stays in clear while a mask is counted.
+
+  A prompt-injected AI can encode output to get it past redaction; the auto-allow warnings above still apply. To see a real value yourself, use **Send to tab**: the command then runs in your terminal and its output never reaches the AI.
 - The socket between bridge and hub is per-user and checked both ways (UID on Unix, SID on Windows). The AI's side can list servers and submit commands; it cannot unlock, approve, or read secrets.
 
 ## Tools the AI gets

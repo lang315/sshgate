@@ -209,7 +209,7 @@ func spacedPair(s string, m []int, key, kind string, nested bool) bool {
 // "" for none. It matches whole words (split on non-alphanumerics and
 // camelCase), case-insensitively: password and passwd inside any word, pwd
 // and secret as any word, and pass, token, auth, apikey, credential(s),
-// and api/access/private/secret + key only as the last word(s), so
+// and api/access/private/secret/app/encryption/signing/master/session/hmac + key only as the last word(s), so
 // passFile, tokenTtlSeconds, SSH_AUTH_SOCK and credential.helper stay.
 // requirepass and masterauth (redis) are password keys even though they
 // are single fused words with no "pass"/"auth" word boundary.
@@ -225,7 +225,7 @@ func keyKind(key string) string {
 		return ""
 	}
 	for _, x := range w {
-		if strings.Contains(x, "password") || strings.Contains(x, "passwd") || x == "pwd" {
+		if strings.Contains(x, "password") || strings.Contains(x, "passwd") || x == "pwd" || x == "passphrase" {
 			return "password"
 		}
 	}
@@ -243,7 +243,8 @@ func keyKind(key string) string {
 		return "password"
 	case last == "token", last == "auth", last == "apikey", last == "credential", last == "credentials":
 		return "secret"
-	case last == "key" && (prev == "api" || prev == "access" || prev == "private" || prev == "secret"):
+	case last == "key" && (prev == "api" || prev == "access" || prev == "private" || prev == "secret" ||
+		prev == "app" || prev == "encryption" || prev == "signing" || prev == "master" || prev == "session" || prev == "hmac"):
 		return "secret"
 	}
 	return ""
@@ -334,6 +335,13 @@ const redactMargin = 64 << 10
 // pattern-masked in its head and tail windows: the middle is dropped by the
 // cap anyway, so masking cost stays bounded however much a command prints.
 // The truncation marker counts bytes dropped from the vault-redacted output.
+//
+// Windows are aligned to line boundaries so a cut never splits a secret: the
+// fragment cut off at each edge is dropped when it is shorter than
+// redactMargin. A longer fragment is kept at the byte boundary, so output made
+// of very long lines still returns max/2 bytes per half. Aligned output can
+// be shorter than max plus the marker. Residual: a line of 64 KiB or more
+// that masking shrinks by 32 KiB or more within itself can keep a cut piece.
 func RedactCap(r *Redactor, s string, max int) (string, map[string]int) {
 	s = r.Redact(s)
 	w := max/2 + redactMargin
@@ -343,10 +351,10 @@ func RedactCap(r *Redactor, s string, max int) (string, map[string]int) {
 	}
 	// Align windows to line boundaries to avoid splitting secrets at cut edges.
 	hw, tw := s[:w], s[len(s)-w:]
-	if i := strings.LastIndexByte(hw, '\n'); i >= 0 {
+	if i := strings.LastIndexByte(hw, '\n'); i >= 0 && len(hw)-i <= redactMargin {
 		hw = hw[:i+1]
 	}
-	if i := strings.IndexByte(tw, '\n'); i >= 0 {
+	if i := strings.IndexByte(tw, '\n'); i >= 0 && i < redactMargin {
 		tw = tw[i+1:]
 	}
 	head, c := RedactPatterns(hw)
