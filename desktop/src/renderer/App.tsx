@@ -240,7 +240,7 @@ export function App() {
             <Terminals ref={terms} theme={theme} hostKeys={hostKeys} onMismatch={setMismatch} onTrusted={reloadServers}
               home={hostList} actions={actions} banner={<StoreErrorBanner message={status?.storeError} />} servers={servers}
               onFocusApprovals={focusApprovals} tunnels={tunnels} locked={!!status?.locked} onTunnelsChanged={reloadTunnels}
-              autoHosts={autoHostsSet} />
+              autoHosts={autoHostsSet} ready={ready} />
             {/* Inside the work area: the host list and the AI column stay usable beside it. */}
             {ready && editing && (
               <HostEditor key={editing.name ?? ''} server={servers.find((s) => s.name === editing.name)}

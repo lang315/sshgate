@@ -2,11 +2,12 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type Reac
 import type { HostKeyMismatch, ServerInfo, TunnelView } from '../shared/protocol'
 import { hub } from './transport'
 import type { HostKeyPrompts } from './hostkeys'
-import { CloseIcon, FolderIcon, HomeIcon, TunnelIcon } from './icons'
-import { Dispatcher, TabSet } from './terminals'
+import { CloseIcon, FolderIcon, HomeIcon, ListIcon, TunnelIcon } from './icons'
+import { AUDIT_TAB, Dispatcher, TabSet } from './terminals'
 import { TermView, type TermApi, type TermEvent } from './TermView'
 import { FilesView } from './FilesView'
 import { TunnelsView } from './TunnelsView'
+import { AuditView } from './AuditView'
 import type { Theme } from './theme'
 
 export interface TerminalsHandle {
@@ -22,8 +23,8 @@ export interface TerminalsHandle {
 export const Terminals = forwardRef<TerminalsHandle, {
   theme: Theme; hostKeys: HostKeyPrompts; onMismatch: (m: HostKeyMismatch) => void; onTrusted: () => void
   home: ReactNode; actions: ReactNode; banner: ReactNode; servers: ServerInfo[]; onFocusApprovals: () => void
-  tunnels: TunnelView[]; locked: boolean; onTunnelsChanged: () => void; autoHosts: Set<string>
-}>(function Terminals({ theme, hostKeys, onMismatch, onTrusted, home: homeContent, actions, banner, servers, onFocusApprovals, tunnels, locked, onTunnelsChanged, autoHosts }, ref) {
+  tunnels: TunnelView[]; locked: boolean; onTunnelsChanged: () => void; autoHosts: Set<string>; ready: boolean
+}>(function Terminals({ theme, hostKeys, onMismatch, onTrusted, home: homeContent, actions, banner, servers, onFocusApprovals, tunnels, locked, onTunnelsChanged, autoHosts, ready }, ref) {
   const tabs = useRef(new TabSet()).current
   const apis = useRef(new Map<string, TermApi>()).current
   const events = useRef(new Dispatcher<TermEvent>()).current
@@ -69,6 +70,7 @@ export const Terminals = forwardRef<TerminalsHandle, {
   }))
 
   const home = tabs.active === undefined
+  const audit = tabs.active === AUDIT_TAB
   const target = (server: string) => {
     const s = servers.find((x) => x.name === server)
     return s ? `${s.user}@${s.host}:${s.port}` : server
@@ -78,6 +80,9 @@ export const Terminals = forwardRef<TerminalsHandle, {
       <div className="tabbar">
         <button type="button" className={'hometab' + (home ? ' active' : '')} onClick={() => { tabs.showHome(); changed() }}>
           <HomeIcon />Hosts
+        </button>
+        <button type="button" className={'audittab' + (audit ? ' active' : '')} onClick={() => { tabs.showAudit(); changed() }}>
+          <ListIcon />Audit
         </button>
         {tabs.tabs.map((t) => (
           <div key={t.id} className={'tab' + (t.id === tabs.active ? ' active' : '') + (t.state === 'exited' ? ' exited' : '')} data-state={t.state} data-kind={t.kind} title={target(t.server)}>
@@ -97,6 +102,7 @@ export const Terminals = forwardRef<TerminalsHandle, {
       {banner}
       <div className="termarea">
         <div className="homeview" style={{ display: home ? 'block' : 'none' }}>{homeContent}</div>
+        <AuditView visible={audit} ready={ready} servers={servers} />
         {tabs.tabs.map((t) => (
           t.kind === 'tunnels' ? (
             <TunnelsView key={t.id} server={t.server} visible={t.id === tabs.active} tunnels={tunnels} locked={locked} onChanged={onTunnelsChanged} />
