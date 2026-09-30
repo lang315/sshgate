@@ -155,6 +155,25 @@ The plan (`plans/2026-09-30-slice4a-output-redaction.md`) settled these points. 
   - nginx's `*_pass` directives (`proxy_pass`, `fastcgi_pass` …), which take upstream URLs, are excluded.
 - **Conf lines.** The `key value` form, a space separator with no `=` or `:`, applies to password keys only. A bare `-p value` flag is not covered, only `--password=value`.
 - **`token` kind.** A token must contain a digit, so words that merely start with a prefix, such as `sk-learn`, stay.
-- **Corpus.** Negative cases have no `.want`; they must come back byte for byte. Each positive `.in` starts with a `# counts:` line that the test checks.
+- **Corpus.** Each `.in` starts with a `# redact-test:` header line: the fake secrets for a positive case, or `negative`. Negative cases have no `.want`; they must come back byte for byte. A positive case's `.want` starts with a `# counts:` line, which the test checks.
 - **Hub tests.** They use the hub's fake exec seam rather than `sshtest`, because `sshtest` cannot return a multi-line PEM. A full-stack `sshtest` step in `TestEndToEndAutoAllow` checks the note line end to end.
 - **Fake secrets.** They are shaped so that GitHub push protection does not flag them, for example AWS's documented `EXAMPLE` keys.
+
+## Amendment 2026-09-30 (Task 1 review)
+
+This section wins over the sections above.
+
+- **Separators.** `=>` is a separator (PHP, Ruby, Perl). An unquoted value never starts with `>`.
+- **Values that are kept.** A value is kept only if it is one of the following:
+  - a code expression: an identifier or dotted path followed by `(` or `[`;
+  - a value starting with `${`, `{{`, `$` + an identifier, `%` + a printf verb (`s`, `v`, `d`, `q`), or `process.env.`;
+  - an empty value or a placeholder. The placeholders now also include `yes`, `no`, `on` and `off`, so `PasswordAuthentication no` stays;
+  - an absolute or home path: it starts with `/` or `~/`, has another `/`, and has no whitespace.
+
+  Other values that contain brackets or start with `$` or `%` are masked, because strong passwords contain them.
+- **Nested pairs.** When a key is rejected, or its value is kept, its value is scanned again for key-value pairs. `sort_key=name&api_key=…` and `"authDb": "Server=db;Password=…"` are therefore masked.
+- **Unterminated quotes.** A quoted value with no closing quote is masked to the end of its line.
+- **Orphan END.** An `-----END … PRIVATE KEY-----` line with no BEGIN of that kind before it is masked from the start of the text. This covers a window that starts inside a key.
+- **Added to the password and token rules:** `requirepass` and `masterauth` (redis) as password keys; `sk_test_` and `rk_test_` as token prefixes.
+- **Cost.** Masking is linear in the output size. Only windows of the raw output around what the cap keeps are masked: the head and tail, each widened by 64 KiB. The truncation marker still counts the bytes dropped from the raw output.
+- **Still not covered (Limits):** WordPress `define('DB_PASSWORD', …)`, XML `<password>`, `curl -u user:pw`, `mysql -pPW`, a one-line `.netrc`, `/etc/shadow` hashes, and an unencoded `@` inside a URL password.
