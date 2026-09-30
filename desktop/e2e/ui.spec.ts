@@ -37,8 +37,8 @@ test('Hosts is the home tab, search filters the cards, closing the last tab retu
   await search.fill('BO')
   await expect(hosts.getByRole('button', { name: 'box', exact: true })).toBeVisible()
   await search.fill('')
-  // Click the tile, not the card's center: the hostcard-actions icons (including
-  // auto-allow) overlay the card on hover and can intercept a center click.
+  // Click the tile: only the card's top row opens it; the footer holds the
+  // chips and action icons.
   await hosts.getByRole('button', { name: 'box', exact: true }).locator('.tile').click()
   await expect(win.locator('.xterm')).toBeVisible()
   await expect(hosts).toBeHidden()

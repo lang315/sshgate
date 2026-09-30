@@ -49,8 +49,8 @@ test('unlock, open a terminal, approve an AI command', async () => {
     await win.getByRole('button', { name: 'Unlock' }).click()
   }
   await unlock()
-  // Click the tile, not the card's center: the hostcard-actions icons (including
-  // auto-allow) overlay the card on hover and can intercept a center click.
+  // Click the tile: only the card's top row opens it; the footer holds the
+  // chips and action icons.
   await win.locator('nav.hosts').getByRole('button', { name: 'box', exact: true }).locator('.tile').click()
   await waitOpen(win)
   await win.locator('.xterm').click()

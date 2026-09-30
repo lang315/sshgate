@@ -50,7 +50,7 @@ export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToT
         <button type="button" className="btn danger-outline denyall" onClick={denyAll} disabled={items.length < 2}>Deny all</button>
         <button type="button" className="icon" aria-label="Close AI requests" title="Close" onClick={onClose}><CloseIcon /></button>
       </div>
-      <p className="approvals-help">Every command waits for you. Enter in a request denies; Allow takes a mouse click.</p>
+      <p className="approvals-help">{autoN > 0 ? 'Commands wait for you, except on hosts with auto-allow on.' : 'Every command waits for you.'} Enter in a request denies; Allow takes a mouse click.</p>
       {/* Scrolling moves a different Allow under a still cursor: it restarts the delay. */}
       <div className="approvals-scroll" onScroll={scrolled}>
         {/* Observed for height changes: anything that shifts the items lives in here. */}
@@ -72,17 +72,21 @@ export function ApprovalPanel({ items, seedError, onDecide, onDenyAll, onSendToT
         <div className="approvals-head">
           <h3>Auto-allowed</h3>
           {/* Always rendered so nothing shifts, like Deny all. */}
-          <button type="button" className="btn danger-outline" onClick={onStopAll} disabled={autoN === 0}>Stop all auto-allow</button>
+          <button type="button" className="btn sm danger-outline" onClick={onStopAll} disabled={autoN === 0}>Stop all auto-allow</button>
         </div>
         <AutoAllowPaused hosts={paused} onResume={onResume} onStop={onStopPaused} />
         {autoFeed.length === 0 ? <p className="muted empty">Nothing ran on auto-allow.</p> : (
-          <ul>{autoFeed.map((r, i) => (
+          <ul className="autolist">{autoFeed.map((r, i) => (
             <li key={`${r.time}-${i}`} className="autorun">
-              <span className="mono muted">{new Date(r.time).toLocaleTimeString()}</span> <strong>{r.server}</strong>
-              {r.sudo && <span className="chip danger">sudo</span>}
-              <code className="cmd">{highlightNonAscii(commandLabel(r)).map((s, j) => (s.nonAscii ? <mark key={j}>{s.text}</mark> : <span key={j}>{s.text}</span>))}</code>
-              {r.description && <span className="muted">{r.description}</span>}
-              <span className={r.error ? 'error' : 'muted'}>{r.error ?? `exit ${r.exitCode}`}</span>
+              <div className="autorun-head">
+                <strong>{r.server}</strong>
+                {r.sudo && <span className="chip danger">sudo</span>}
+                <span className={'autorun-status ' + (r.error ? 'fail' : r.exitCode === 0 ? 'ok' : 'nonzero')}>{r.error ? 'error' : `exit ${r.exitCode}`}</span>
+                <time className="when mono" dateTime={r.time}>{new Date(r.time).toLocaleTimeString()}</time>
+              </div>
+              <code className="cmd" title={commandLabel(r)}>{highlightNonAscii(commandLabel(r)).map((s, j) => (s.nonAscii ? <mark key={j}>{s.text}</mark> : <span key={j}>{s.text}</span>))}</code>
+              {r.error && <p className="autorun-error">{r.error}</p>}
+              {r.description && <p className="autorun-desc" title={r.description}>{r.description}</p>}
             </li>
           ))}</ul>
         )}
