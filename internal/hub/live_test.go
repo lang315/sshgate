@@ -162,16 +162,23 @@ func TestLiveRedact(t *testing.T) {
 		t.Skip("set SSHGATE_LIVE_REDACT=1 (or a list of server names) to check redaction on the servers in your vault")
 	}
 	h, _, names := openLiveVault(t)
-	n := 0
+	n, checked := 0, 0
 	for _, name := range names {
 		if only != "1" && !slices.Contains(strings.Split(only, ","), name) {
 			continue
 		}
 		n++
-		t.Run(name, func(t *testing.T) { liveRedact(t, h, name) })
+		t.Run(name, func(t *testing.T) {
+			if liveRedact(t, h, name) {
+				checked++
+			}
+		})
 	}
 	if n == 0 {
 		t.Fatal("no matching server in the vault")
+	}
+	if checked == 0 {
+		t.Fatal("no host was checked: every matching server was skipped")
 	}
 }
 
@@ -188,7 +195,7 @@ var liveRedactCmds = []string{
 
 // liveRedact checks one server. Everything it logs is a fixed command
 // string, a byte count, or counts by kind.
-func liveRedact(t *testing.T, h *Hub, name string) {
+func liveRedact(t *testing.T, h *Hub, name string) (checked bool) {
 	dc, err := h.Resolve(name)
 	if err != nil {
 		t.Skip("cannot resolve this server; open it in the app first")
@@ -200,7 +207,12 @@ func liveRedact(t *testing.T, h *Hub, name string) {
 	mgr := h.Registry().Get(name, dc)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if res, err := mgr.Exec(ctx, "uname -s"); err != nil || res.ExitCode != 0 || strings.TrimSpace(res.Stdout) == "" {
+	res, err := mgr.Exec(ctx, "uname -s")
+	if err != nil {
+		t.Errorf("uname -s failed: %s", execErrClass(err))
+		return false
+	}
+	if res.ExitCode != 0 || strings.TrimSpace(res.Stdout) == "" {
 		t.Skip("not a POSIX host (uname -s failed)")
 	}
 	total := map[string]int{}
@@ -222,7 +234,8 @@ func liveRedact(t *testing.T, h *Hub, name string) {
 			t.Errorf("command %d (%q): tripwire %q hit in masked output", i, cmd, trip)
 		}
 	}
-	t.Logf("%s: %d bytes read, masked %s", name, read, countsText(total))
+	t.Logf("host %s: bytes=%d counts: %s", name, read, countsText(total))
+	return true
 }
 
 // execErrClass names why an exec failed in fixed text. It never uses
