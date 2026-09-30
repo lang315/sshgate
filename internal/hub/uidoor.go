@@ -106,6 +106,9 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		for {
 			select {
 			case m := <-auditQ:
+				if !h.unlocked.Load() {
+					continue // a backlog must not go out after a lock
+				}
 				s.Notify("audit.appended", map[string]any{"seq": m.seq, "record": m.line})
 			case <-qctx.Done():
 				return

@@ -25,6 +25,19 @@ type auditPage struct {
 	Path    string `json:"path"`
 }
 
+// waitAuditSink waits for a UI door to install its audit sink: ServeUIDoor
+// runs in a goroutine, and a record written before that is dropped.
+func waitAuditSink(t *testing.T, h *Hub) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for h.auditSink.Load() == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("UI door never installed its audit sink")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 // waitAudit returns the next audit.appended whose record has kind (exec
 // records have none), skipping every other notification.
 func waitAudit(t *testing.T, notes chan note, kind string) (int, map[string]any) {
@@ -134,6 +147,7 @@ func TestAuditReadReturnsRecordsNewestFirst(t *testing.T) {
 func TestAuditAppendedExecAndConfig(t *testing.T) {
 	h, _ := newHub(t, &fakeExec{})
 	_, _, notes := startTermDoor(t, h)
+	waitAuditSink(t, h)
 	go decideFirst(t, h.Broker(), broker.Decision{Outcome: broker.Denied})
 	h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
 	if seq, rec := waitAudit(t, notes, "exec"); seq != 1 || rec["command"] != "ls" || rec["outcome"] != "denied" {
@@ -172,6 +186,7 @@ func TestAuditAppendedFileAndTunnel(t *testing.T) {
 func TestAuditAppendedNotWhileLocked(t *testing.T) {
 	h, _ := newHub(t, &fakeExec{})
 	_, _, notes := startTermDoor(t, h)
+	waitAuditSink(t, h)
 	h.Lock()
 	h.auditConfig(broker.ConfigRecord{Action: "whileLocked"})
 	unlockForTest(h)
@@ -181,20 +196,20 @@ func TestAuditAppendedNotWhileLocked(t *testing.T) {
 	}
 }
 
-// A UI door whose output nobody reads must not hold up writers that log with
-// h.mu held, nor the idle lock.
+// A UI door whose output nobody reads must not hold up writers (the sink only
+// queues) nor the idle lock.
 func TestAuditAppendedNeverBlocksUnderHubLock(t *testing.T) {
 	h, _ := newHub(t, &fakeExec{})
 	uiR, hubW := io.Pipe()
 	hubR, uiW := io.Pipe()
 	go ServeUIDoor(context.Background(), h, hubR, hubW)
 	t.Cleanup(func() { uiR.Close(); uiW.Close(); hubW.Close() })
-	time.Sleep(50 * time.Millisecond) // let ServeUIDoor install its sinks
+	waitAuditSink(t, h)
 
 	in := config.ServerInput{Name: "vis", Host: "h", Port: 22, User: "u", Auth: "agent", AIVisible: true}
 	done := make(chan error, 1)
 	go func() {
-		for i := 0; i < 300; i++ { // more than the queue holds; each writes a record under h.mu
+		for i := 0; i < 300; i++ { // more than the queue holds; each writes a record
 			if err := h.SaveServer("vis", in); err != nil {
 				done <- err
 				return
