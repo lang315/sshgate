@@ -92,8 +92,31 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 	defer releaseLock()
 	releaseAuto := h.setAutoSink(func(method string, params any) { s.Notify(method, params) })
 	defer releaseAuto()
+	// audit.appended goes through a queue with one drain goroutine, so a
+	// writer holding h.mu never waits on the pipe (see auditAppended). The
+	// channel is never closed: a sender may still hold the sink after release.
+	type auditMsg struct {
+		seq  int
+		line json.RawMessage
+	}
+	auditQ := make(chan auditMsg, 256)
+	qctx, stopAudit := context.WithCancel(ctx)
+	defer stopAudit()
+	go func() {
+		for {
+			select {
+			case m := <-auditQ:
+				s.Notify("audit.appended", map[string]any{"seq": m.seq, "record": m.line})
+			case <-qctx.Done():
+				return
+			}
+		}
+	}()
 	releaseAudit := h.setAuditSink(func(seq int, line json.RawMessage) {
-		s.Notify("audit.appended", map[string]any{"seq": seq, "record": line})
+		select {
+		case auditQ <- auditMsg{seq, line}:
+		default: // 256 behind: drop; the renderer dedupes by seq and can Refresh
+		}
 	})
 	defer releaseAudit()
 	// req registers a request that counts as UI activity for the idle

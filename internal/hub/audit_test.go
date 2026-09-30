@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/lang315/sshgate/internal/broker"
+	"github.com/lang315/sshgate/internal/config"
 	"github.com/lang315/sshgate/internal/rpc"
 )
 
@@ -176,5 +178,60 @@ func TestAuditAppendedNotWhileLocked(t *testing.T) {
 	h.auditConfig(broker.ConfigRecord{Action: "afterUnlock"})
 	if seq, rec := waitAudit(t, notes, "config"); seq != 2 || rec["action"] != "afterUnlock" {
 		t.Fatalf("first audit.appended: seq %d %v; the locked write must send nothing", seq, rec)
+	}
+}
+
+// A UI door whose output nobody reads must not hold up writers that log with
+// h.mu held, nor the idle lock.
+func TestAuditAppendedNeverBlocksUnderHubLock(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	uiR, hubW := io.Pipe()
+	hubR, uiW := io.Pipe()
+	go ServeUIDoor(context.Background(), h, hubR, hubW)
+	t.Cleanup(func() { uiR.Close(); uiW.Close(); hubW.Close() })
+	time.Sleep(50 * time.Millisecond) // let ServeUIDoor install its sinks
+
+	in := config.ServerInput{Name: "vis", Host: "h", Port: 22, User: "u", Auth: "agent", AIVisible: true}
+	done := make(chan error, 1)
+	go func() {
+		for i := 0; i < 300; i++ { // more than the queue holds; each writes a record under h.mu
+			if err := h.SaveServer("vis", in); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("audit writes blocked on an unread UI door")
+	}
+	go h.lockIfIdle(0) // its "locked" notification may block on the pipe; the key must already be gone
+	deadline := time.Now().Add(10 * time.Second)
+	for !h.Locked() {
+		if time.Now().After(deadline) {
+			t.Fatal("idle lock did not zero the key")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestAuditAfterVaultCreate(t *testing.T) {
+	h, _ := newHubAt(t, &config.File{Version: 1}, nil)
+	c, _, notes := startTermDoor(t, h)
+	ctx := context.Background()
+	if err := c.Call(ctx, "vault.create", map[string]string{"password": "longenough"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, rec := waitAudit(t, notes, "config"); rec["action"] != "vaultCreate" {
+		t.Fatalf("%v", rec)
+	}
+	var page auditPage
+	if err := c.Call(ctx, "audit.read", map[string]any{}, &page); err != nil || len(page.Records) != 1 {
+		t.Fatalf("%v %+v", err, page)
 	}
 }

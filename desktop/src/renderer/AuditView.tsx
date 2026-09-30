@@ -64,14 +64,17 @@ export function AuditView({ visible, ready, servers }: { visible: boolean; ready
   useEffect(() => hub.onEvent((e) => {
     if (e.method === 'locked') {
       gen.next()
+      typing.cancel() // a pending search must not read after a lock
       setOlder(false)
       setExpanded(new Set())
       setList(clearOnLock())
     } else if (e.method === 'audit.appended') {
       setList((l) => appendLive(l, e.params, query.current, atTop.current))
     }
-  }), [gen])
+  }), [gen, typing])
   // Every change of ready (a lock, an unlock, a hub restart) starts over.
+  // Keep this declared before the auto-load effect: on a ready change the
+  // reset must run first so the load sees the fresh idle list.
   useEffect(() => { gen.next(); setOlder(false); setList(EMPTY) }, [ready, gen])
   useEffect(() => {
     if (visible && ready && list.status === 'idle') void load(filtersNow.current)
@@ -136,7 +139,7 @@ export function AuditView({ visible, ready, servers }: { visible: boolean; ready
                       <td className="host">{displayText(v.host)}</td>
                       <td className="badges">{v.badges.map((b, i) => <span key={i} className={'chip ' + b.tone}>{displayText(b.text)}</span>)}</td>
                       <td className="main mono" title={displayText(v.main)}>{displayText(v.main)}</td>
-                      <td className="side">{v.side.join(' · ')}</td>
+                      <td className="side">{displayText(v.side.join(' · '))}</td>
                     </tr>
                     {open && <tr className="auditdetail"><td colSpan={5}><AuditDetail record={e.record} /></td></tr>}
                   </Fragment>
@@ -154,7 +157,7 @@ export function AuditView({ visible, ready, servers }: { visible: boolean; ready
       </div>
       <footer className="muted">
         {list.skipped > 0 && `${list.skipped} malformed line${list.skipped === 1 ? '' : 's'} skipped · `}
-        {list.path && <>Audit file: <code>{list.path}</code></>}
+        {list.path && <>Audit file: <code>{displayText(list.path)}</code></>}
       </footer>
     </section>
   )

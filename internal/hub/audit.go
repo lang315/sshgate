@@ -13,9 +13,9 @@ import (
 // goroutine wrote the record, sometimes with h.mu held (CreateVault,
 // SaveServer, SetAutoAllow, a grant ending), so it takes no hub lock: the
 // lock state and the sink are atomics. Nothing is sent while locked.
-// ponytail: the sink writes to the UI door's pipe synchronously, like every
-// other notification; Electron main drains it continuously. If a slow reader
-// ever shows, queue on a buffered channel with one drain goroutine.
+// ponytail: the UI door's sink queues on a 256-slot channel drained by one
+// goroutine, so this never waits on the pipe; when the reader is 256 records
+// behind, new records are dropped (the renderer dedupes by seq and Refreshes).
 func (h *Hub) auditAppended(seq int, line json.RawMessage) {
 	if !h.unlocked.Load() {
 		return
@@ -48,7 +48,7 @@ func auditQuery(raw json.RawMessage) (broker.ReadQuery, error) {
 		return q, &rpc.Error{Code: -32602, Message: "before must be a seq"}
 	}
 	if q.Limit < 0 || q.Limit > broker.MaxReadLimit {
-		return q, &rpc.Error{Code: -32602, Message: "limit must be 1-" + strconv.Itoa(broker.MaxReadLimit)}
+		return q, &rpc.Error{Code: -32602, Message: "limit must be 0-" + strconv.Itoa(broker.MaxReadLimit)}
 	}
 	for _, k := range q.Kinds {
 		if !slices.Contains(auditKinds, k) {
