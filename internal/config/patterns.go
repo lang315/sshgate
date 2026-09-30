@@ -57,12 +57,12 @@ var redisPasswordKeys = map[string]bool{"requirepass": true, "masterauth": true}
 // the key and separator stay. It is pure, and idempotent: a marker is a
 // placeholder, which every rule keeps.
 //
-// ponytail: RE2 passes over the whole output, about 0.6 s per MiB measured,
+// ponytail: RE2 passes over the whole output, about 0.6–0.75 s per MiB measured,
 // linear as long as kvPass's nesting is capped: uncapped, a whitespace-free
 // chain like "key=" repeated cost 20 s at 64 KiB (quadratic). Capped at depth
-// 4 it costs 39 ms at 64 KiB and 373 ms at 1 MiB, so a secret behind a 5th
-// nested rejected key is not found. Pre-filter lines by trigger word if huge
-// outputs make the linear cost matter.
+// 4 it costs 39 ms at 64 KiB and ~600 ms at 1 MiB, so a secret behind a 5th
+// nested rejected key is not found. RedactCap windows (max/2 + 64 KiB each)
+// bound the input, so pre-filtering is not needed.
 func RedactPatterns(s string) (string, map[string]int) {
 	var counts map[string]int
 	mark := func(kind string) string {
