@@ -32,6 +32,7 @@ var (
 	errAppeared      = errors.New("destination appeared after the plan; not replaced")
 	errNoReplace     = errors.New("the server cannot replace files (no posix-rename)")
 	errParentMissing = errors.New("the containing folder could not be created")
+	errDirReplaced   = errors.New("a folder was replaced before it could be made private")
 )
 
 func hasPosixRename(c *sftp.Client) bool {
@@ -68,8 +69,9 @@ func (p *Plan) Run(ctx context.Context, c *sftp.Client, overwrite bool, progress
 
 func (p *Plan) runCopy(ctx context.Context, c *sftp.Client, overwrite bool, progress Progress, r *Result) {
 	var done int64
-	var made []item         // folders this run created; their final mode is set last
-	var failedDirs []string // folders whose mkdir failed; nothing under them is written
+	var made []item              // folders this run created; their final mode is set last
+	private := map[string]bool{} // their paths: 0700 until then, so nothing staged in them
+	var failedDirs []string      // folders whose mkdir failed; nothing under them is written
 	// A no-replace server would fail every conflicting upload at commit time
 	// anyway; check once so those files are never sent just to fail.
 	noReplace := p.Op == OpUpload && overwrite && !hasPosixRename(c)
@@ -100,6 +102,7 @@ func (p *Plan) runCopy(ctx context.Context, c *sftp.Client, overwrite bool, prog
 				continue
 			}
 			made = append(made, it)
+			private[it.rel] = true
 			continue
 		}
 		if it.exists {
@@ -119,7 +122,7 @@ func (p *Plan) runCopy(ctx context.Context, c *sftp.Client, overwrite bool, prog
 		if p.Op == OpDownload {
 			n, err = p.download(ctx, c, it, overwrite && it.exists, prog)
 		} else {
-			n, err = p.upload(ctx, c, it, overwrite && it.exists, prog)
+			n, err = p.upload(ctx, c, it, overwrite && it.exists, private[path.Dir(it.rel)], prog)
 		}
 		done += n
 		if err != nil {
@@ -146,7 +149,22 @@ func (p *Plan) mkdir(c *sftp.Client, rel string) error {
 	if err := c.Mkdir(d); err != nil {
 		return err
 	}
-	return c.Chmod(d, 0o700)
+	return makePrivate(c, d)
+}
+
+// makePrivate chmods a folder the run just made to 0700, before anything is
+// put in it. A setgid bit it inherited is kept: chmod clears it on Linux,
+// and files in a setgid folder must get the folder's group. A folder that
+// is no longer a folder (swapped for a link since the mkdir) is refused.
+func makePrivate(c *sftp.Client, d string) error {
+	fi, err := c.Lstat(d)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() {
+		return errDirReplaced
+	}
+	return c.Chmod(d, 0o700|fi.Mode()&fs.ModeSetgid)
 }
 
 func (p *Plan) setDirMode(c *sftp.Client, it item) {
@@ -248,7 +266,7 @@ func commitLocal(root *os.Root, part, final string, replace bool) error {
 	return root.Rename(part, final)
 }
 
-func (p *Plan) upload(ctx context.Context, c *sftp.Client, it item, replace bool, prog func(int64)) (int64, error) {
+func (p *Plan) upload(ctx context.Context, c *sftp.Client, it item, replace, inPrivate bool, prog func(int64)) (int64, error) {
 	final := path.Join(p.dest, it.rel)
 	part := path.Join(path.Dir(final), partName(path.Base(final)))
 	// it.root.Open follows an in-root symlink; a source swapped for one after
@@ -268,16 +286,40 @@ func (p *Plan) upload(ctx context.Context, c *sftp.Client, it item, replace bool
 	if st, err := src.Stat(); err != nil || !st.Mode().IsRegular() || !os.SameFile(lfi, st) {
 		return 0, errNotRegular
 	}
+	// pkg/sftp v1.13.11 has no create-with-attributes open: the server creates
+	// the part file at its own default mode, and a chmod cannot revoke an fd
+	// another user opens before it. So the part file is created only inside
+	// a 0700 folder: one this run made (inPrivate), else a staging folder
+	// of the part file's name beside final, so the commit's link or rename
+	// never crosses a filesystem.
+	// ponytail: one staging folder per top-level file (3 round trips); share
+	// one per parent if many top-level files measurably hurt.
+	exposed := false
+	if !inPrivate {
+		stage := part
+		if err := c.Mkdir(stage); err != nil {
+			// A server that refuses folders (sftp-server -P mkdir, an
+			// upload-only account) gets the part file beside final as before,
+			// at the server's default mode until the chmod below.
+			exposed = true
+		} else {
+			defer c.RemoveDirectory(stage)
+			if err := makePrivate(c, stage); err != nil {
+				return 0, err
+			}
+			part = path.Join(stage, "data")
+		}
+	}
 	dst, err := c.OpenFile(part, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
 	if err != nil {
 		return 0, err
 	}
-	// pkg/sftp v1.13.11 has no create-with-attributes open, so the empty part
-	// file exists at the server's default mode for one round trip.
-	if err := dst.Chmod(0o600); err != nil {
-		dst.Close()
-		c.Remove(part)
-		return 0, err
+	if exposed {
+		if err := dst.Chmod(0o600); err != nil {
+			dst.Close()
+			c.Remove(part)
+			return 0, err
+		}
 	}
 	r := &ctxReader{ctx: ctx, r: src, prog: prog}
 	_, err = dst.ReadFromWithConcurrency(r, 64)
