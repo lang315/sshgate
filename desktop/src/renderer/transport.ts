@@ -1,4 +1,4 @@
-import type { ApprovalRequest, AutoAllowCheck, AutoAllowMode, FileGrant, FileOp, FilesListResult, HubEvent, HubState, ImportResult, ImportScan, ServerInfo, ServerInput, Status, TermOpenResult, Tunnel, TunnelView } from '../shared/protocol'
+import type { ApprovalRequest, AuditPage, AuditQuery, AutoAllowCheck, AutoAllowMode, FileGrant, FileOp, FilesListResult, HubEvent, HubState, ImportResult, ImportScan, ServerInfo, ServerInput, Status, TermOpenResult, Tunnel, TunnelView } from '../shared/protocol'
 
 interface Bridge {
   call(method: string, params?: unknown): Promise<unknown>
@@ -96,4 +96,5 @@ export const hub = {
   tunnelsStop: (server: string, id: string) => bridge().notify('tunnels.stop', { server, id }),
   setAutoAllow: async (server: string, mode: AutoAllowMode) => { await call('servers.setAutoAllow', { server, mode }) },
   autoAllowCheck: (server: string) => call<AutoAllowCheck>('servers.autoAllowCheck', { server }),
+  auditRead: (q: AuditQuery) => call<AuditPage>('audit.read', q),
 }

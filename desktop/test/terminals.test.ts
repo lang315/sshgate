@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { approvalsKey, clipboardKey, Debouncer, Dispatcher, newTermId, printable, TabSet, isUserInput } from '../src/renderer/terminals'
+import { approvalsKey, AUDIT_TAB, clipboardKey, Debouncer, Dispatcher, newTermId, printable, TabSet, isUserInput } from '../src/renderer/terminals'
 
 describe('newTermId', () => {
   it('matches the hub id rules and is unique', () => {
@@ -45,6 +45,19 @@ describe('TabSet', () => {
     s.activate(a.id)
     s.close(a.id)
     expect(s.active).toBeUndefined()
+  })
+  it('shows the fixed Audit tab, which is never in the activation order', () => {
+    const s = new TabSet()
+    const a = s.open('box')
+    s.showAudit()
+    expect(s.active).toBe(AUDIT_TAB)
+    s.close(a.id)
+    expect(s.active).toBe(AUDIT_TAB)
+    const b = s.open('box')
+    s.showAudit()
+    s.activate(b.id)
+    s.close(b.id)
+    expect(s.active).toBeUndefined() // back to Hosts, not to Audit
   })
 })
 
