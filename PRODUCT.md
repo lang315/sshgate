@@ -18,7 +18,7 @@ sshgate lets an AI agent run commands on real servers with a human decision on e
 
 ## Positioning
 
-Every AI-issued command blocks on an explicit human Allow by default. The one exception is a host the human has put on auto-allow: a grant is not a privilege boundary, and anything it leaves running (cron jobs, SSH keys, shell startup files) outlives the grant. The AI only sees hosts marked visible and only connects to hosts whose key is pinned. A plain SSH client (Termius, a terminal) has no approval gate; an AI shell tool has no human in the loop. This app is both a daily SSH client and the gate.
+Every AI-issued command blocks on an explicit human Allow by default. The one exception is a host the human has put on auto-allow: a grant is not a privilege boundary, and anything it leaves running (cron jobs, SSH keys, shell startup files) outlives the grant. The AI only sees hosts marked visible and only connects to hosts whose key is pinned. A plain SSH client (Termius, a terminal) has no approval gate; an AI shell tool has no human in the loop. This app is both a daily SSH client and the gate. Output that reaches the AI has saved secrets, and values that look like secrets (keys, passwords, tokens), masked, with a note saying how many; that masking is a seatbelt, not a boundary.
 
 ## Operating Context
 
