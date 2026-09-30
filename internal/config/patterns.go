@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -337,4 +338,53 @@ func isPathValue(v string) bool {
 		return false
 	}
 	return strings.Count(v, "/") >= 2
+}
+
+// redactMargin widens each window so a secret that starts before the kept
+// part of the output is still seen whole (PEM keys are far smaller).
+const redactMargin = 64 << 10
+
+// RedactCap masks r's vault secrets, then RedactPatterns, and caps the result
+// at max like CapOutput. Output longer than two margin-widened halves is only
+// pattern-masked in its head and tail windows: the middle is dropped by the
+// cap anyway, so masking cost stays bounded however much a command prints.
+// The truncation marker counts bytes dropped from the vault-redacted output.
+func RedactCap(r *Redactor, s string, max int) (string, map[string]int) {
+	s = r.Redact(s)
+	w := max/2 + redactMargin
+	if len(s) <= 2*w {
+		out, c := RedactPatterns(s)
+		return CapOutput(out, max), c
+	}
+	head, c := RedactPatterns(s[:w])
+	tail, more := RedactPatterns(s[len(s)-w:])
+	for k, n := range more {
+		if c == nil {
+			c = map[string]int{}
+		}
+		c[k] += n
+	}
+	// An orphan END in the tail window can mask most of it, so clamp.
+	half := max / 2
+	if len(head) > half {
+		head = head[:half]
+	}
+	if len(tail) > half {
+		tail = tail[len(tail)-half:]
+	}
+	return head + fmt.Sprintf("\n… [truncated %d bytes] …\n", len(s)-max) + tail, c
+}
+
+// RedactCapStreams applies RedactCap to stdout and stderr and merges counts
+// (nil when none).
+func RedactCapStreams(r *Redactor, stdout, stderr string, max int) (string, string, map[string]int) {
+	stdout, counts := RedactCap(r, stdout, max)
+	stderr, more := RedactCap(r, stderr, max)
+	for k, n := range more {
+		if counts == nil {
+			counts = map[string]int{}
+		}
+		counts[k] += n
+	}
+	return stdout, stderr, counts
 }

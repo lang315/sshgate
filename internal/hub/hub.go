@@ -84,9 +84,10 @@ type ExecRequest struct {
 }
 
 type ExecResponse struct {
-	ExitCode int    `json:"exitCode"`
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
+	ExitCode int            `json:"exitCode"`
+	Stdout   string         `json:"stdout"`
+	Stderr   string         `json:"stderr"`
+	Redacted map[string]int `json:"redacted,omitempty"` // RedactPatterns counts by kind, both streams
 }
 
 type Hub struct {
@@ -582,8 +583,8 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 }
 
 // run executes cmd on name with dc, audits base (Outcome, exit code, sizes,
-// reason), and returns what the AI sees. It is the tail of both the approved
-// and the auto-allowed path.
+// reason, redacted counts), and returns what the AI sees. It is the tail of
+// both the approved and the auto-allowed path.
 func (h *Hub) run(ctx context.Context, name string, dc sshx.DialConfig, cmd string, sudo bool, timeout int, base broker.AuditRecord, red *config.Redactor) (ExecResponse, error) {
 	ex := h.executor(name, dc)
 
@@ -614,12 +615,12 @@ func (h *Hub) run(ctx context.Context, name string, dc sshx.DialConfig, cmd stri
 		}
 		return ExecResponse{}, errors.New(base.Reason)
 	}
+	// Patterns run before the cap, only over the parts the cap keeps: a cap
+	// through a PEM block or a password= line would leave a piece that no
+	// longer matches.
+	stdout, stderr, counts := config.RedactCapStreams(red, res.Stdout, res.Stderr, config.DefaultOutputCap)
 	code := res.ExitCode
-	base.Outcome, base.ExitCode = string(broker.Allowed), &code
+	base.Outcome, base.ExitCode, base.Redacted = string(broker.Allowed), &code, counts
 	h.record(base)
-	return ExecResponse{
-		ExitCode: res.ExitCode,
-		Stdout:   config.CapOutput(red.Redact(res.Stdout), config.DefaultOutputCap),
-		Stderr:   config.CapOutput(red.Redact(res.Stderr), config.DefaultOutputCap),
-	}, nil
+	return ExecResponse{ExitCode: res.ExitCode, Stdout: stdout, Stderr: stderr, Redacted: counts}, nil
 }

@@ -8,21 +8,22 @@ import (
 )
 
 type AuditRecord struct {
-	Time        time.Time `json:"time"`
-	Client      string    `json:"client"`
-	Server      string    `json:"server"`
-	Command     string    `json:"command"` // already redacted by caller
-	Description string    `json:"description,omitempty"`
-	Sudo        bool      `json:"sudo,omitempty"`
-	TimeoutSec  int       `json:"timeoutSec"`
-	Outcome     string    `json:"outcome"` // Outcome values plus "cancelled_running"
-	Reason      string    `json:"reason,omitempty"`
-	ExitCode    *int      `json:"exitCode,omitempty"`
-	DurationMs  int64     `json:"durationMs,omitempty"`
-	StdoutBytes int       `json:"stdoutBytes,omitempty"`
-	StderrBytes int       `json:"stderrBytes,omitempty"`
-	Approval    string    `json:"approval,omitempty"` // "auto" when a grant allowed it (spec 2026-09-28)
-	WaitMs      int64     `json:"waitMs,omitempty"`   // submit to the human's decision
+	Time        time.Time      `json:"time"`
+	Client      string         `json:"client"`
+	Server      string         `json:"server"`
+	Command     string         `json:"command"` // already redacted by caller
+	Description string         `json:"description,omitempty"`
+	Sudo        bool           `json:"sudo,omitempty"`
+	TimeoutSec  int            `json:"timeoutSec"`
+	Outcome     string         `json:"outcome"` // Outcome values plus "cancelled_running"
+	Reason      string         `json:"reason,omitempty"`
+	ExitCode    *int           `json:"exitCode,omitempty"`
+	DurationMs  int64          `json:"durationMs,omitempty"`
+	StdoutBytes int            `json:"stdoutBytes,omitempty"`
+	StderrBytes int            `json:"stderrBytes,omitempty"`
+	Redacted    map[string]int `json:"redacted,omitempty"` // RedactPatterns counts by kind, both streams; never a value
+	Approval    string         `json:"approval,omitempty"` // "auto" when a grant allowed it (spec 2026-09-28)
+	WaitMs      int64          `json:"waitMs,omitempty"`   // submit to the human's decision
 }
 
 // ConfigRecord is an audit line for a vault change made from the app. It
