@@ -12,6 +12,10 @@ var RedactKinds = []string{"private_key", "password", "secret", "auth_header", "
 var (
 	// A whole PEM private key block; with no END line it runs to the end.
 	pemRe = regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----.*?(?:-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|\z)`)
+	// An END line with no BEGIN of that kind before it: the tail of a key
+	// whose head fell outside a windowed capture. Masks from the very start
+	// of the text.
+	orphanEndRe = regexp.MustCompile(`(?s)\A.*?-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----`)
 	// A credential header's name and value: "Name: v", "\"Name\": \"v\"",
 	// or nginx's `Name "v"`. The value runs to a quote or the end of line.
 	headerRe = regexp.MustCompile(`(?i)(^|[^a-z0-9_-])(proxy-authorization|authorization|set-cookie|cookie|x-api-key)(["']?[ \t]*:[ \t]*["']?|[ \t]+["'])([^\r\n"'` + "`" + `]*[^\s"'` + "`" + `])`)
@@ -19,14 +23,27 @@ var (
 	urlRe = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://[^\s:/@"']*:)([^\s@/"']+)@`)
 	// A key that may name a secret, a separator, and a value. Which keys
 	// really count is decided in code (keyKind): RE2 cannot split words.
-	kvRe = regexp.MustCompile(`(?i)(["']?)(-{0,2}[a-z0-9_.-]*?(?:pass|pwd|secret|token|key|auth|credential)[a-z0-9_.-]*)(["']?)([ \t]*(?::=|==|=|:)[ \t]*|[ \t]+)("(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'|[^\s"'` + "`" + `]+)`)
+	// The value's unquoted form never starts with '>', so "=>" is never
+	// mistaken for "=" followed by a ">"-led value; nor with a bracket,
+	// brace or paren, so a nested block's opening "{"/"[" ("auth": {) is
+	// never captured as a value at all. A quote with no match on the same
+	// line ("*[^\r\n]*) is masked to the end of the line.
+	kvRe = regexp.MustCompile(`(?i)(["']?)(-{0,2}[a-z0-9_.-]*?(?:pass|pwd|secret|token|key|auth|credential)[a-z0-9_.-]*)(["']?)([ \t]*(?::=|==|=>|=|:)[ \t]*|[ \t]+)("(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'|"[^\r\n]*|'[^\r\n]*|[^\s"'` + "`" + `>(){}\[\]][^\s"'` + "`" + `]*)`)
 	// Bare tokens with a known prefix.
-	tokenRe = regexp.MustCompile(`\b(?:(?:AKIA|ASIA)[A-Z0-9]{16}\b|(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[abpr]-[A-Za-z0-9-]{10,}|(?:sk-|sk_live_|rk_live_)[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{10,})`)
+	tokenRe = regexp.MustCompile(`\b(?:(?:AKIA|ASIA)[A-Z0-9]{16}\b|(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[abpr]-[A-Za-z0-9-]{10,}|(?:sk-|sk_live_|sk_test_|rk_live_|rk_test_)[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{10,})`)
+	// A code expression: an identifier or dotted path immediately followed
+	// by '(' or '['. No digits, so a password like "x9(..." doesn't count.
+	exprPrefixRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z_.]*[(\[]`)
 )
 
 // nginxPass are nginx directives whose last word is "pass" but whose value
 // is an upstream address, not a password.
 var nginxPass = map[string]bool{"proxy_pass": true, "fastcgi_pass": true, "uwsgi_pass": true, "scgi_pass": true, "grpc_pass": true, "memcached_pass": true}
+
+// redisPasswordKeys are redis config keys that are whole words, not the
+// last word of a compound, so keyKind's word rules would otherwise miss
+// them.
+var redisPasswordKeys = map[string]bool{"requirepass": true, "masterauth": true}
 
 // RedactPatterns masks values that look like secrets, whether or not
 // sshgate knows them, and counts the masks by kind (nil when none). Each
@@ -34,8 +51,9 @@ var nginxPass = map[string]bool{"proxy_pass": true, "fastcgi_pass": true, "uwsgi
 // the key and separator stay. It is pure, and idempotent: a marker is a
 // placeholder, which every rule keeps.
 //
-// ponytail: five linear RE2 passes over the whole output, about 0.25 s per
-// MiB; pre-filter lines by trigger word if huge outputs make that matter.
+// ponytail: linear RE2 passes over the whole output, about 0.33 s per MiB
+// measured; pre-filter lines by trigger word if huge outputs make that
+// matter.
 func RedactPatterns(s string) (string, map[string]int) {
 	var counts map[string]int
 	mark := func(kind string) string {
@@ -49,6 +67,9 @@ func RedactPatterns(s string) (string, map[string]int) {
 	// before the key-value rule sees it, and the key-value rule before a
 	// bare token, so each secret is counted once.
 	s = pemRe.ReplaceAllStringFunc(s, func(string) string { return mark("private_key") })
+	if orphanEndRe.MatchString(s) {
+		s = orphanEndRe.ReplaceAllStringFunc(s, func(string) string { return mark("private_key") })
+	}
 	s = replaceSubmatch(headerRe, s, func(s string, m []int) string {
 		name, v := strings.ToLower(s[m[4]:m[5]]), s[m[8]:m[9]]
 		kept := ""
@@ -69,28 +90,41 @@ func RedactPatterns(s string) (string, map[string]int) {
 		}
 		return s[m[0]:m[4]] + mark("url_password") + "@"
 	})
-	s = replaceSubmatch(kvRe, s, func(s string, m []int) string {
-		whole := s[m[0]:m[1]]
-		key, sep := s[m[4]:m[5]], s[m[8]:m[9]]
-		kind := keyKind(key)
-		if kind == "" {
-			return whole
-		}
-		if strings.TrimSpace(sep) == "" && !spacedPair(s, m, key, kind) {
-			return whole
-		}
-		v := s[m[10]:m[11]]
-		open, closing := "", ""
-		if v[0] == '"' || v[0] == '\'' {
-			open, closing, v = v[:1], v[len(v)-1:], v[1:len(v)-1]
-		} else if t := strings.TrimRight(v, ",;"); t != "" {
-			closing, v = v[len(t):], t
-		}
-		if keepValue(v) {
-			return whole
-		}
-		return s[m[0]:m[10]] + open + mark(kind) + closing
-	})
+	// kvPass recurses into a rejected or kept value, so a real secret pair
+	// glued inside it (a query string, a connection string, ...) is still
+	// found. The value handed to the recursive call is always shorter than
+	// the match it came from, so it terminates.
+	var kvPass func(string) string
+	kvPass = func(str string) string {
+		return replaceSubmatch(kvRe, str, func(s string, m []int) string {
+			key, sep := s[m[4]:m[5]], s[m[8]:m[9]]
+			v := s[m[10]:m[11]]
+			open, closing := "", ""
+			switch {
+			case v[0] == '"' || v[0] == '\'':
+				q := v[0]
+				if len(v) >= 2 && v[len(v)-1] == q {
+					open, closing, v = v[:1], v[len(v)-1:], v[1:len(v)-1]
+				} else {
+					open, v = v[:1], v[1:] // unterminated: no closing quote
+				}
+			default:
+				if t := strings.TrimRight(v, ",;"); t != "" {
+					closing, v = v[len(t):], t
+				}
+			}
+			kind := keyKind(key)
+			switch {
+			case kind == "":
+			case strings.TrimSpace(sep) == "" && !spacedPair(s, m, key, kind):
+			case keepValue(v):
+			default:
+				return s[m[0]:m[10]] + open + mark(kind) + closing
+			}
+			return s[m[0]:m[10]] + open + kvPass(v) + closing
+		})
+	}
+	s = kvPass(s)
 	s = tokenRe.ReplaceAllStringFunc(s, func(t string) string {
 		if !strings.ContainsAny(t, "0123456789") {
 			return t // a hyphenated name, not a random token
@@ -135,6 +169,9 @@ func replaceSubmatch(re *regexp.Regexp, s string, fn func(s string, m []int) str
 // may be a secret: a long flag (`--token v`, the value not another flag),
 // or, for a password, a conf-file line holding only the key and one value
 // (`password v`). Prose ("Failed password for root") is neither.
+//
+// Both walks are O(the whitespace run next to the match), not O(line
+// length): a long line with no newline in it must stay cheap to check.
 func spacedPair(s string, m []int, key, kind string) bool {
 	v := s[m[10]:m[11]]
 	if strings.HasPrefix(key, "--") {
@@ -143,15 +180,18 @@ func spacedPair(s string, m []int, key, kind string) bool {
 	if kind != "password" {
 		return false
 	}
-	lineStart := strings.LastIndexByte(s[:m[0]], '\n') + 1
-	if strings.TrimLeft(s[lineStart:m[0]], " \t") != "" {
+	i := m[0] - 1
+	for i >= 0 && (s[i] == ' ' || s[i] == '\t') {
+		i--
+	}
+	if i >= 0 && s[i] != '\n' {
 		return false
 	}
-	rest := s[m[1]:]
-	if i := strings.IndexByte(rest, '\n'); i >= 0 {
-		rest = rest[:i]
+	j := m[1]
+	for j < len(s) && (s[j] == ' ' || s[j] == '\t' || s[j] == '\r') {
+		j++
 	}
-	return strings.TrimSpace(rest) == ""
+	return j >= len(s) || s[j] == '\n'
 }
 
 // keyKind says which kind of secret a key names: "password", "secret", or
@@ -160,9 +200,14 @@ func spacedPair(s string, m []int, key, kind string) bool {
 // and secret as any word, and pass, token, auth, apikey, credential(s),
 // and api/access/private/secret + key only as the last word(s), so
 // passFile, tokenTtlSeconds, SSH_AUTH_SOCK and credential.helper stay.
+// requirepass and masterauth (redis) are password keys even though they
+// are single fused words with no "pass"/"auth" word boundary.
 func keyKind(key string) string {
 	if key == "PWD" || nginxPass[strings.ToLower(key)] {
 		return "" // the shell's working directory; nginx upstreams
+	}
+	if redisPasswordKeys[strings.ToLower(key)] {
+		return "password"
 	}
 	w := splitWords(key)
 	if len(w) == 0 {
@@ -229,8 +274,8 @@ func isWord(s string) bool {
 	return true
 }
 
-// keepValue reports a value that is not a secret: empty, a placeholder
-// (a marker included), or an expression in code or a template.
+// keepValue reports a value that is not a secret: empty, a placeholder, a
+// filesystem path, or a code/template expression.
 func keepValue(v string) bool {
 	l := strings.ToLower(v)
 	switch {
@@ -238,10 +283,30 @@ func keepValue(v string) bool {
 		return true
 	case strings.HasPrefix(v, "<") && strings.HasSuffix(v, ">"):
 		return true
-	case l == "changeme", l == "replace_me", l == "null", l == "none", l == "true", l == "false":
+	case strings.HasPrefix(v, "[REDACTED:"):
+		return true // a marker is a placeholder, so redaction stays idempotent
+	case l == "changeme", l == "replace_me", l == "null", l == "none", l == "true", l == "false",
+		l == "yes", l == "no", l == "on", l == "off":
 		return true
-	case strings.ContainsAny(v, "([{"), strings.HasPrefix(v, "$"), strings.HasPrefix(v, "%"), strings.HasPrefix(l, "process.env"):
+	case exprPrefixRe.MatchString(v), strings.HasPrefix(v, "${"), strings.HasPrefix(v, "{{"),
+		len(v) >= 2 && v[0] == '$' && (isAlnum(v[1]) || v[1] == '_'),
+		len(v) >= 2 && v[0] == '%' && strings.ContainsRune("svdq", rune(v[1])),
+		strings.HasPrefix(l, "process.env."):
+		return true
+	case isPathValue(v):
 		return true
 	}
 	return false
+}
+
+// isPathValue reports an absolute or home-relative filesystem path: sshd
+// and TLS configs commonly name one where a secret-looking key lives.
+func isPathValue(v string) bool {
+	if !strings.HasPrefix(v, "/") && !strings.HasPrefix(v, "~/") {
+		return false
+	}
+	if strings.ContainsAny(v, " \t") {
+		return false
+	}
+	return strings.Count(v, "/") >= 2
 }

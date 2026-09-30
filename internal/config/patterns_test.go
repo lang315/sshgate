@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 var update = flag.Bool("update", false, "rewrite testdata/redact/*.want from the current output")
@@ -195,6 +196,35 @@ func TestRedactPatternsRules(t *testing.T) {
 		{"kv wins", "GITHUB_TOKEN=ghp_R8mK2vQx7LpT4nWz9YbC3dFh6JsA1uEo5GiN", "GITHUB_TOKEN=[REDACTED:secret]"},
 		{"sha", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  f", ""},
 		{"uuid", "id: 7c1e9a3f-5b2d-4f8a-9c6e-0b2d4f6a8c1e", ""},
+		// round-1 fixes: "=>" separator (I-2)
+		{"php arrow", "'password' => 'hunter2x',", "'password' => '[REDACTED:password]',"},
+		{"php arrow env default", "'password' => env('DB_PASSWORD', 'hunter2x'),", ""},
+		{"ruby hash arrow", `:password => "hunter2x"`, `:password => "[REDACTED:password]"`},
+		{"perl fat comma", "password => 'hunter2x'", "password => '[REDACTED:password]'"},
+		// round-1 fixes: nested pairs behind a rejected/kept match (I-3)
+		{"query string chain", "GET /api/items?sort_key=name&api_key=Zq8Wm4tLp2Rk7Xs HTTP/1.1", "GET /api/items?sort_key=name&api_key=[REDACTED:secret] HTTP/1.1"},
+		{"oauth callback chain", "GET /cb?code=x&auth_method=pkce&access_token=Zq8Wm4tLp2Rk7Xs", "GET /cb?code=x&auth_method=pkce&access_token=[REDACTED:secret]"},
+		{"ado net chain", "Server=db;Authentication=SqlPassword;Password=hunter2x;", "Server=db;Authentication=SqlPassword;Password=[REDACTED:password];"},
+		{"jdbc chain", "jdbc:postgresql://db/app?sslkey=/x&password=hunter2x", "jdbc:postgresql://db/app?sslkey=/x&password=[REDACTED:password]"},
+		{"keyfile chain", "keyfile=/etc/x,password=hunter2x", "keyfile=/etc/x,password=[REDACTED:password]"},
+		{"quoted chain", `"authDb": "Server=db;Password=hunter2x"`, `"authDb": "Server=db;Password=[REDACTED:password]"`},
+		// round-1 fixes: bracketed/symbol passwords are no longer kept as "expressions" (M-1)
+		{"bracket password", `DB_PASSWORD='x9(Kq2]mLp7Rw1s'`, `DB_PASSWORD='[REDACTED:password]'`},
+		{"brace password", `"password": "Hq9!fT3e{Vb6Ny1u"`, `"password": "[REDACTED:password]"`},
+		// round-1 fixes: sshd config placeholders and paths (M-3)
+		{"sshd password auth no", "PasswordAuthentication no", ""},
+		{"sshd -T passwordauth", "passwordauthentication yes", ""},
+		{"sshd permit empty", "permitemptypasswords no", ""},
+		{"private key path", "private_key: /etc/ssl/private/key.pem", ""},
+		// round-1 fixes: unterminated quote masked to end of line (M-5)
+		{"unterminated quote", `DB_PASSWORD="hunter2x`, `DB_PASSWORD="[REDACTED:password]`},
+		// round-1 cheap additions
+		{"sk_test", "sk_" + "test_Zq8Wm4tLp2Rk7XsHq9fT3eVb", "[REDACTED:token]"},
+		{"rk_test", "rk_" + "test_Zq8Wm4tLp2Rk7XsHq9fT3eVb", "[REDACTED:token]"},
+		{"redis requirepass", "requirepass supersecret123", "requirepass [REDACTED:password]"},
+		{"redis masterauth", "masterauth supersecret123", "masterauth [REDACTED:password]"},
+		// round-1: orphan END with no preceding BEGIN of that kind
+		{"pem orphan end", "a\n-----END PRIVATE KEY-----\nb", "[REDACTED:private_key]\nb"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -206,13 +236,45 @@ func TestRedactPatternsRules(t *testing.T) {
 			if got != want {
 				t.Fatalf("got  %q\nwant %q", got, want)
 			}
-			if again, _ := RedactPatterns(got); again != got {
+			again, moreCounts := RedactPatterns(got)
+			if again != got {
 				t.Fatalf("not idempotent: %q", again)
 			}
-			if c.out == "" && counts != nil {
-				t.Fatalf("unchanged but counted %v", counts)
+			if moreCounts != nil {
+				t.Fatalf("second pass counted %v", moreCounts)
+			}
+			if c.out == "" {
+				if counts != nil {
+					t.Fatalf("unchanged but counted %v", counts)
+				}
+			} else if counts == nil {
+				t.Fatalf("masked but counted nothing")
 			}
 		})
+	}
+}
+
+// TestSpacedPairScaling pins I-1's fix: spacedPair must cost O(the
+// whitespace next to a match), not O(line length), so a long line with no
+// newline stays cheap. 3x input should cost well under 3x time (quadratic
+// code would cost about 9x); take the min of 3 runs to avoid flakiness.
+func TestSpacedPairScaling(t *testing.T) {
+	timeFor := func(n int) time.Duration {
+		s := strings.Repeat("pass ", n/5)
+		best := time.Duration(1<<63 - 1)
+		for i := 0; i < 3; i++ {
+			start := time.Now()
+			RedactPatterns(s)
+			if d := time.Since(start); d < best {
+				best = d
+			}
+		}
+		return best
+	}
+	small := timeFor(256 * 1024)
+	large := timeFor(512 * 1024)
+	if large > small*3 {
+		t.Fatalf("looks quadratic: 256KiB took %v, 512KiB took %v", small, large)
 	}
 }
 

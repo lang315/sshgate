@@ -1,4 +1,4 @@
-# counts: password=2 secret=2 url_password=1
+# counts: password=3 secret=2 url_password=1
 {
   "server": {
     "host": "0.0.0.0",
@@ -25,3 +25,8 @@
     "apiKeyHeader": "X-Api-Key"
   }
 }
+<?php
+// same secret, dumped again from the legacy PHP admin panel's config
+return [
+    'password' => '[REDACTED:password]',
+];
