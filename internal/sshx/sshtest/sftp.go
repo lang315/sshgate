@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -44,6 +45,18 @@ func (h *rootFS) gate() chan struct{} {
 	h.srv.mu.Lock()
 	defer h.srv.mu.Unlock()
 	return h.srv.sftpGate
+}
+
+func (h *rootFS) denied(method string) bool {
+	h.srv.mu.Lock()
+	defer h.srv.mu.Unlock()
+	return slices.Contains(h.srv.sftpDeny, method)
+}
+
+func (h *rootFS) onOpen() func(string) {
+	h.srv.mu.Lock()
+	defer h.srv.mu.Unlock()
+	return h.srv.sftpOnOpen
 }
 
 func (h *rootFS) hostile() []string {
@@ -104,6 +117,9 @@ func (h *rootFS) Filewrite(r *sftp.Request) (io.WriterAt, error) {
 	if r.Pflags().Trunc {
 		fl |= os.O_TRUNC
 	}
+	if fn := h.onOpen(); fn != nil {
+		fn(rel(r.Filepath))
+	}
 	f, err := h.root.OpenFile(rel(r.Filepath), fl, 0o644)
 	if err != nil {
 		return nil, err
@@ -113,11 +129,14 @@ func (h *rootFS) Filewrite(r *sftp.Request) (io.WriterAt, error) {
 
 func (h *rootFS) Filecmd(r *sftp.Request) error {
 	p := rel(r.Filepath)
+	if h.denied(r.Method) {
+		return os.ErrPermission
+	}
 	switch r.Method {
 	case "Setstat":
 		a := r.Attributes()
 		if r.AttrFlags().Permissions {
-			if err := h.root.Chmod(p, a.FileMode()&fs.ModePerm); err != nil {
+			if err := h.root.Chmod(p, a.FileMode()&(fs.ModePerm|fs.ModeSetgid)); err != nil {
 				return err
 			}
 		}
@@ -133,7 +152,16 @@ func (h *rootFS) Filecmd(r *sftp.Request) error {
 	case "Rmdir", "Remove":
 		return h.root.Remove(p)
 	case "Mkdir":
-		return h.root.Mkdir(p, 0o755)
+		// Mode 0755 whatever the umask, and a setgid parent's bit inherited as
+		// Linux does, so tests see what a typical Linux sftp-server does.
+		if err := h.root.Mkdir(p, 0o755); err != nil {
+			return err
+		}
+		mode := fs.FileMode(0o755)
+		if fi, err := h.root.Stat(path.Dir(p)); err == nil {
+			mode |= fi.Mode() & fs.ModeSetgid
+		}
+		return h.root.Chmod(p, mode)
 	case "Link":
 		return h.root.Link(p, rel(r.Target))
 	case "Symlink": // Filepath is the link's target, Target the link itself

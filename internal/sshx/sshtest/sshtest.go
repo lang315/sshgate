@@ -31,12 +31,14 @@ type Server struct {
 	mu                 sync.Mutex
 	cfg                *ssh.ServerConfig
 	hostKey            ssh.PublicKey
-	sftpRoot           string        // "" refuses the sftp subsystem
-	sftpGate           chan struct{} // nil: ungated; else each SFTP ReadAt/WriteAt takes one value
-	sftpHostile        []string      // names listed in /hostile (see sftp.go)
-	sftpStall          bool          // accept the subsystem request but never serve it
-	refuseFwd          bool          // tcpip-forward always fails
-	stallDirect        bool          // direct-tcpip channel opens are never answered
+	sftpRoot           string         // "" refuses the sftp subsystem
+	sftpGate           chan struct{}  // nil: ungated; else each SFTP ReadAt/WriteAt takes one value
+	sftpHostile        []string       // names listed in /hostile (see sftp.go)
+	sftpStall          bool           // accept the subsystem request but never serve it
+	sftpDeny           []string       // FileCmd methods refused with permission denied (see DenySFTP)
+	sftpOnOpen         func(p string) // called with the root-relative path of each file opened for writing
+	refuseFwd          bool           // tcpip-forward always fails
+	stallDirect        bool           // direct-tcpip channel opens are never answered
 }
 
 // Listen starts a server without the testing package. stop closes it.
@@ -142,6 +144,14 @@ func (s *Server) ServeSFTP(root string) {
 
 // GateSFTP makes each SFTP ReadAt/WriteAt wait for one value from gate (nil: no gate).
 func (s *Server) GateSFTP(gate chan struct{}) { s.mu.Lock(); s.sftpGate = gate; s.mu.Unlock() }
+
+// DenySFTP makes the listed SFTP commands ("Mkdir", "Rmdir", ...) fail with
+// permission denied, like an sftp-server run with -P.
+func (s *Server) DenySFTP(methods ...string) { s.mu.Lock(); s.sftpDeny = methods; s.mu.Unlock() }
+
+// OnSFTPOpen calls fn with the root-relative path of each file the client
+// opens for writing, before the server opens it.
+func (s *Server) OnSFTPOpen(fn func(p string)) { s.mu.Lock(); s.sftpOnOpen = fn; s.mu.Unlock() }
 
 // HostileSFTP sets the names /hostile lists.
 func (s *Server) HostileSFTP(names ...string) { s.mu.Lock(); s.sftpHostile = names; s.mu.Unlock() }

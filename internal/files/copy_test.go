@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -12,6 +13,8 @@ import (
 	"time"
 
 	"github.com/pkg/sftp"
+
+	"github.com/lang315/sshgate/internal/sshx/sshtest"
 )
 
 func noParts(t *testing.T, dir string) {
@@ -415,11 +418,47 @@ func TestFailedMkdirSkipsItsContents(t *testing.T) {
 	noParts(t, dest)
 }
 
-// TestUploadPartFileIsNeverWorldReadable checks that no other user can open
-// the part file at any point. pkg/sftp cannot create a file with a mode, so
-// the server creates it at its own default mode; what keeps it private is
-// the 0700 staging directory around it, which must be in place before the
-// file exists (an fd opened in that window would outlive any later chmod).
+// opening records, for each file the server is asked to create, its
+// root-relative path and its folder's mode at that moment, before the server
+// opens it: what another user on the server could reach.
+type opening struct {
+	path string
+	dir  fs.FileMode
+}
+
+func recordOpens(t *testing.T, s *sshtest.Server, root string) *[]opening {
+	t.Helper()
+	var mu sync.Mutex
+	var got []opening
+	s.OnSFTPOpen(func(p string) {
+		fi, err := os.Stat(filepath.Join(root, filepath.Dir(p)))
+		if err != nil {
+			t.Errorf("stat %s: %v", filepath.Dir(p), err)
+			return
+		}
+		mu.Lock()
+		got = append(got, opening{p, fi.Mode()})
+		mu.Unlock()
+	})
+	return &got
+}
+
+func upload(t *testing.T, c *sftp.Client, src, dest string) Result {
+	t.Helper()
+	p, err := PlanUpload(context.Background(), c, []string{src}, dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	return p.Run(context.Background(), c, false, nil)
+}
+
+var stagedPart = regexp.MustCompile(`^home/\.big\.[0-9a-f]+\.sshgate-part/data$`)
+
+// TestUploadPartFileIsNeverWorldReadable: pkg/sftp cannot create a file with
+// a mode, so the server creates the part file at its own default (0644
+// here). No other user may open it before the chmod, since an fd opened then
+// outlives it: the file must be created inside a folder that is already 0700.
 func TestUploadPartFileIsNeverWorldReadable(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX permission bits")
@@ -427,47 +466,89 @@ func TestUploadPartFileIsNeverWorldReadable(t *testing.T) {
 	c, s, root := remote(t)
 	src := t.TempDir()
 	write(t, filepath.Join(src, "big"), strings.Repeat("z", 1<<16), 0o644)
-	p, err := PlanUpload(context.Background(), c, []string{filepath.Join(src, "big")}, "/home")
-	if err != nil {
-		t.Fatal(err)
-	}
-	gate := make(chan struct{})
-	var releaseOnce sync.Once
-	release := func() { releaseOnce.Do(func() { close(gate) }) }
-	t.Cleanup(release) // unblocks the run if an assertion below fails first
-	s.GateSFTP(gate)   // gates the server's ReadAt/WriteAt, not our own Chmod call
-	done := make(chan Result, 1)
-	go func() { done <- p.Run(context.Background(), c, false, nil) }()
-
-	var partPath string
-	deadline := time.Now().Add(2 * time.Second)
-	for partPath == "" {
-		if time.Now().After(deadline) {
-			t.Fatal("part file never appeared")
-		}
-		matches, _ := filepath.Glob(filepath.Join(root, "home", ".big.*.sshgate-part", "*"))
-		if len(matches) == 1 {
-			partPath = matches[0]
-		} else {
-			time.Sleep(5 * time.Millisecond)
-		}
-	}
-	// The first WriteAt is blocked on the gate, so the part file exists but
-	// holds no content yet. Its directory must already be private: the file
-	// is only created after the directory's chmod has returned.
-	fi, err := os.Stat(filepath.Dir(partPath))
-	if err != nil {
-		t.Fatal(err)
-	}
-	perm := fi.Mode().Perm()
-	release()
-	r := <-done
-	p.Close()
-	if perm != 0o700 {
-		t.Fatalf("part file's directory mode %v while the part file exists", perm)
-	}
-	if r.Copied != 1 || r.Errors.Count != 0 {
+	opens := recordOpens(t, s, root)
+	if r := upload(t, c, filepath.Join(src, "big"), "/home"); r.Copied != 1 || r.Errors.Count != 0 {
 		t.Fatalf("%+v", r)
+	}
+	if len(*opens) != 1 || !stagedPart.MatchString((*opens)[0].path) {
+		t.Fatalf("opens %+v, want one part file inside a staging folder", *opens)
+	}
+	if perm := (*opens)[0].dir.Perm(); perm != 0o700 {
+		t.Fatalf("staging folder mode %v when the part file was created", perm)
+	}
+	if read(t, filepath.Join(root, "home", "big")) != strings.Repeat("z", 1<<16) {
+		t.Fatal("content")
+	}
+	noParts(t, filepath.Join(root, "home"))
+}
+
+// A setgid destination's files must keep its group: the staging folder's
+// chmod keeps the setgid bit it inherited (Linux clears it on chmod).
+func TestUploadStagingKeepsSetgid(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits")
+	}
+	c, s, root := remote(t)
+	shared := filepath.Join(root, "home", "shared")
+	os.Mkdir(shared, 0o755)
+	if err := os.Chmod(shared, 0o775|fs.ModeSetgid); err != nil {
+		t.Skip("cannot set setgid here:", err)
+	}
+	src := t.TempDir()
+	write(t, filepath.Join(src, "big"), "g", 0o644)
+	opens := recordOpens(t, s, root)
+	if r := upload(t, c, filepath.Join(src, "big"), "/home/shared"); r.Copied != 1 || r.Errors.Count != 0 {
+		t.Fatalf("%+v", r)
+	}
+	if len(*opens) != 1 {
+		t.Fatalf("opens %+v", *opens)
+	}
+	if d := (*opens)[0].dir; d.Perm() != 0o700 || d&fs.ModeSetgid == 0 {
+		t.Fatalf("staging folder mode %v, want 0700 with setgid", d)
+	}
+	noParts(t, shared)
+}
+
+// A folder the run made stays 0700 until its files are in, so they are
+// written straight into it, without a staging folder each.
+func TestUploadIntoNewFolderIsNotStaged(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits")
+	}
+	c, s, root := remote(t)
+	src := filepath.Join(t.TempDir(), "d")
+	write(t, filepath.Join(src, "big"), "a", 0o644)
+	opens := recordOpens(t, s, root)
+	if r := upload(t, c, src, "/home"); r.Copied != 1 || r.Errors.Count != 0 {
+		t.Fatalf("%+v", r)
+	}
+	want := regexp.MustCompile(`^home/d/\.big\.[0-9a-f]+\.sshgate-part$`)
+	if len(*opens) != 1 || !want.MatchString((*opens)[0].path) {
+		t.Fatalf("opens %+v, want one part file directly in the new folder", *opens)
+	}
+	if perm := (*opens)[0].dir.Perm(); perm != 0o700 {
+		t.Fatalf("new folder mode %v while its file was created", perm)
+	}
+	noParts(t, filepath.Join(root, "home"))
+}
+
+// A server that refuses folders (sftp-server -P mkdir) still takes uploads:
+// the part file goes beside the destination, as before staging existed.
+func TestUploadWithoutMkdirFallsBack(t *testing.T) {
+	c, s, root := remote(t)
+	s.DenySFTP("Mkdir")
+	src := t.TempDir()
+	write(t, filepath.Join(src, "big"), "fallback", 0o644)
+	opens := recordOpens(t, s, root)
+	if r := upload(t, c, filepath.Join(src, "big"), "/home"); r.Copied != 1 || r.Errors.Count != 0 {
+		t.Fatalf("%+v", r)
+	}
+	want := regexp.MustCompile(`^home/\.big\.[0-9a-f]+\.sshgate-part$`)
+	if len(*opens) != 1 || !want.MatchString((*opens)[0].path) {
+		t.Fatalf("opens %+v, want the part file beside the destination", *opens)
+	}
+	if read(t, filepath.Join(root, "home", "big")) != "fallback" {
+		t.Fatal("content")
 	}
 	noParts(t, filepath.Join(root, "home"))
 }
