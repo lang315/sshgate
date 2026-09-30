@@ -4,12 +4,14 @@ package hub
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/lang315/sshgate/internal/broker"
@@ -113,11 +115,16 @@ type Hub struct {
 	autoSinkGen  uint64
 	done         chan struct{}
 	closeOnce    sync.Once
+	unlocked     atomic.Bool                                         // deps.MasterKey != nil, for auditAppended, which must not take h.mu
+	auditSink    atomic.Pointer[func(seq int, line json.RawMessage)] // see audit.go
 }
 
 // New loads the store if present; a missing store is not an error.
 func New(o Options) (*Hub, error) {
 	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit, files: newJobSet(), tunnels: newTunnelSet(), lastActivity: time.Now(), grants: map[string]*grant{}, done: make(chan struct{})}
+	if o.Audit != nil {
+		o.Audit.OnAppend(h.auditAppended)
+	}
 	h.deps = &mcpserver.Deps{Path: o.StorePath}
 	f, err := config.Load(o.StorePath)
 	if err != nil && !os.IsNotExist(err) {
@@ -230,6 +237,7 @@ func (h *Hub) Unlock(pw string) error {
 	}
 	clear(h.deps.MasterKey)
 	h.deps.MasterKey = mk
+	h.unlocked.Store(true)
 	h.lastActivity = time.Now()
 	return nil
 }
@@ -259,6 +267,7 @@ func (h *Hub) zeroKeyLocked() func(string) {
 	}
 	clear(h.deps.MasterKey)
 	h.deps.MasterKey = nil
+	h.unlocked.Store(false)
 	return h.lockSink
 }
 

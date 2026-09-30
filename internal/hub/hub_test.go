@@ -59,6 +59,7 @@ func testVault(t *testing.T) (*config.KDF, []byte) {
 func unlockForTest(h *Hub) {
 	h.mu.Lock()
 	h.deps.MasterKey = bytes.Clone(testMK)
+	h.unlocked.Store(true)
 	h.mu.Unlock()
 }
 

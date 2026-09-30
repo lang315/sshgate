@@ -92,6 +92,10 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 	defer releaseLock()
 	releaseAuto := h.setAutoSink(func(method string, params any) { s.Notify(method, params) })
 	defer releaseAuto()
+	releaseAudit := h.setAuditSink(func(seq int, line json.RawMessage) {
+		s.Notify("audit.appended", map[string]any{"seq": seq, "record": line})
+	})
+	defer releaseAudit()
 	// req registers a request that counts as UI activity for the idle
 	// auto-lock. status does not: the desktop app polls it.
 	req := func(name string, fn rpc.Handler) {
@@ -241,6 +245,13 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		json.Unmarshal(raw, &p)
 		h.Broker().DenyAll(p.Reason)
 		return empty, nil
+	})
+	req("audit.read", func(_ context.Context, raw json.RawMessage) (any, error) {
+		q, err := auditQuery(raw)
+		if err != nil {
+			return nil, err
+		}
+		return h.ReadAudit(q)
 	})
 	req("hello", func(context.Context, json.RawMessage) (any, error) {
 		return map[string]int{"protocol": ProtocolVersion}, nil
