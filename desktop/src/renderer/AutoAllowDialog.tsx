@@ -5,33 +5,36 @@ import { AUTO_MODES, dialogChangeKey, enableAllowed } from './autoallow'
 
 type Mode = Exclude<AutoAllowMode, 'off'>
 
-export function AutoAllowDialog({ server, remoteTunnels, check, onEnable, onCancel }: {
-  server: ServerInfo; remoteTunnels: string[]
+// Confirms the Host editor's Auto-allow choice before Save sends it (spec
+// Amendment 2026-09-29): the duration comes from the editor, not a radio here.
+export function AutoAllowDialog({ server, mode, typeName, rootNew, sudoNew, sudo, refused, remoteTunnels, check, onEnable, onCancel }: {
+  server: ServerInfo; mode: Mode; typeName: boolean; rootNew: boolean; sudoNew: boolean; sudo: boolean; refused?: string
+  remoteTunnels: string[]
   check: () => Promise<AutoAllowCheck>
-  onEnable: (mode: Mode) => Promise<void>; onCancel: () => void
+  onEnable: () => Promise<void>; onCancel: () => void
 }) {
-  const [mode, setMode] = useState<Mode>('15m')
   const [typed, setTyped] = useState('')
   const [checked, setChecked] = useState<AutoAllowCheck | 'error'>()
   const [openedAt] = useState(Date.now())
   const [now, setNow] = useState(openedAt)
   const [error, setError] = useState<string>()
-  const refused = server.autoAllowRefused
   useEffect(() => { if (!refused) check().then(setChecked, () => setChecked('error')) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 100); return () => clearInterval(t) }, [])
   // Content that moves under the cursor restarts the Enable delay. Computed
   // during render, like ApprovalPanel's ListChanges, not in a useEffect: an
   // effect runs after paint, so the check() resolving would leave one painted
   // frame where the buttons already shifted but Enable was still enabled.
-  const changeKey = dialogChangeKey(mode, checked, error, remoteTunnels)
+  const changeKey = dialogChangeKey(mode, rootNew, sudoNew, sudo, checked, error, remoteTunnels)
   const changes = useRef<ListChanges>(null)
   changes.current ??= new ListChanges(changeKey, openedAt)
   changes.current.setKey(changeKey, Date.now())
   const changedAt = changes.current.at
   const root = checked !== undefined && checked !== 'error' && (checked.uid === 0 || checked.passwordlessSudo)
-  const endsAt = new Date(now + (AUTO_MODES.find((m) => m.mode === mode)?.ms ?? 0)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  const ok = enableAllowed({ mode, typed, host: server.name, refused, openedAt, changedAt, now })
-  const enable = () => { if (ok) onEnable(mode).catch((e) => setError((e as Error).message)) }
+  const modeInfo = AUTO_MODES.find((m) => m.mode === mode)!
+  const endsAt = new Date(now + (modeInfo.ms ?? 0)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const chosen = mode === 'forever' ? 'Until turned off' : `For ${modeInfo.label} (ends at ${endsAt})`
+  const ok = enableAllowed({ typeName, typed, host: server.name, refused, openedAt, changedAt, now })
+  const enable = () => { if (ok) onEnable().catch((e) => setError((e as Error).message)) }
   return (
     <div className="modal" role="dialog" aria-modal="true" aria-label={`Auto-allow AI commands on ${server.name}`}>
       <form className="dialog" onSubmit={(e) => { e.preventDefault(); onCancel() }}>
@@ -40,7 +43,11 @@ export function AutoAllowDialog({ server, remoteTunnels, check, onEnable, onCanc
           <p className="error">{`Auto-allow is not available here: ${refused}`}</p>
         ) : (
           <>
-            <p>{`The AI runs any command this account can run on ${server.name} without asking, including commands planted by what it reads (prompt injection), and can leave things that run later (cron jobs, SSH keys, shell startup files). sudo-exec still asks.`}</p>
+            <p>{`The AI runs any command this account can run on ${server.name} without asking, including commands planted by what it reads (prompt injection), and can leave things that run later (cron jobs, SSH keys, shell startup files).`}</p>
+            {!sudo && <p>sudo-exec still asks.</p>}
+            {rootNew && <p className="error">Allowing root: the AI runs as root, and a command it plants can capture sudo or su passwords you type or store</p>}
+            {sudoNew && <p className="error">sudo-exec will run without asking: the AI has full root on this host</p>}
+            {sudo && !sudoNew && <p>sudo-exec also runs without asking on this host, the same as plain exec.</p>}
             {root && <p className="error">This is root access: the AI can do anything on this host.</p>}
             {checked === 'error' && <p className="muted">Could not check this host&apos;s sudo access.</p>}
             {remoteTunnels.length > 0 && (
@@ -49,16 +56,11 @@ export function AutoAllowDialog({ server, remoteTunnels, check, onEnable, onCanc
                 <ul className="files-sample mono">{remoteTunnels.map((t) => <li key={t}>{t}</li>)}</ul>
               </div>
             )}
-            <fieldset className="kinds">
-              <legend>For how long</legend>
-              {AUTO_MODES.map((m) => (
-                <label key={m.mode}><input type="radio" name="aa-mode" checked={mode === m.mode} onChange={() => setMode(m.mode)} />{m.label}</label>
-              ))}
-            </fieldset>
+            <p className="duration">{chosen}</p>
             <p className="muted">{mode === 'forever'
               ? 'Stays set after restart. After each unlock it waits for you to click Resume.'
               : `Ends at ${endsAt}, when you stop it, or when you lock the vault. The vault will not auto-lock before then.`}</p>
-            {mode === 'forever' && (
+            {typeName && (
               <label className="field">{`Type ${server.name} to confirm`}<input value={typed} onChange={(e) => setTyped(e.target.value)} /></label>
             )}
           </>

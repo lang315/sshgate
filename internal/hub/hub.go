@@ -520,11 +520,9 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 	req := broker.Request{Client: r.Client, Server: r.Server, Target: target(dc), Command: cmd, Description: r.Description, Sudo: r.Sudo, TimeoutSec: timeout}
 	base := broker.AuditRecord{Time: time.Now(), Client: r.Client, Server: r.Server, Command: red.Redact(cmd), Description: red.Redact(r.Description), Sudo: r.Sudo, TimeoutSec: timeout}
 
-	if !r.Sudo {
-		if ar := h.autoStart(ctx, r.Server); ar != nil {
-			defer ar.done()
-			return h.autoExec(ar, dc, r, cmd, timeout, base)
-		}
+	if ar := h.autoStart(ctx, r.Server, r.Sudo); ar != nil {
+		defer ar.done()
+		return h.autoExec(ar, dc, r, cmd, timeout, base)
 	}
 
 	submitted := time.Now()

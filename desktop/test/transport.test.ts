@@ -48,9 +48,11 @@ describe('transport', () => {
   it('host management calls', async () => {
     await hub.createVault('password1')
     expect(bridge.call).toHaveBeenLastCalledWith('vault.create', { password: 'password1' })
-    const s = { name: 'box', host: 'h', port: 22, user: 'u', auth: 'password', keyPath: '', aiVisible: false, password: '' }
+    const s = { name: 'box', host: 'h', port: 22, user: 'u', auth: 'password', keyPath: '', aiVisible: false, autoAllowRoot: false, autoAllowSudo: false, password: '' }
     await hub.saveServer(s, 'old')
     expect(bridge.call).toHaveBeenLastCalledWith('servers.save', { original: 'old', server: s })
+    await hub.saveServer(s, 'old', '15m')
+    expect(bridge.call).toHaveBeenLastCalledWith('servers.save', { original: 'old', server: s, autoAllow: '15m' })
     await hub.deleteServer('box')
     expect(bridge.call).toHaveBeenLastCalledWith('servers.delete', { name: 'box' })
     await hub.forgetHostKey('box')

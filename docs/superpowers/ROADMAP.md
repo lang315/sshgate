@@ -18,10 +18,10 @@ plan note.
 - The MCP door is a Unix socket or named pipe with a same-user check. Never
   HTTP or SSE on localhost.
 - Every AI command is approved by a human by default. The human may put one
-  host on auto-allow (plain exec only, never sudo-exec, never on
-  root-equivalent hosts) for a set time, or until turned off with a Resume
-  after each unlock; it is visible while on, audited, and stoppable at any
-  time (`specs/2026-09-28-auto-allow-design.md`).
+  host on auto-allow (plain exec by default; root hosts and sudo-exec only
+  when the human opts in per host) for a set time, or until turned off with a
+  Resume after each unlock; it is visible while on, audited, and stoppable at
+  any time (`specs/2026-09-28-auto-allow-design.md`).
 - The AI never sees a host the user did not mark `AIVisible`, and never
   connects first to a host whose key is not pinned.
 - Vault format: argon2id, AES-GCM per field with AAD, whole-file MAC. Any

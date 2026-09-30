@@ -1,5 +1,7 @@
 import { useId, useState, type FormEvent, type KeyboardEvent } from 'react'
-import type { SecretField, ServerInfo, ServerInput } from '../shared/protocol'
+import type { AutoAllowCheck, AutoAllowMode, SecretField, ServerInfo, ServerInput } from '../shared/protocol'
+import { AUTO_MODES, draftRefusal, saveConfirm, timedNote } from './autoallow'
+import { AutoAllowDialog } from './AutoAllowDialog'
 import { arrowStep, closesTabs, closeWarning, draftFrom, endpointChanged, labelHint, SECRET_FIELDS, secretPlaceholder, toInput, type HostDraft } from './hostForm'
 import { CloseIcon, WarningIcon } from './icons'
 
@@ -21,9 +23,10 @@ const ESCALATION: SecretField[] = ['suPassword', 'sudoPassword']
 // server undefined = a new host. Only what a plain host needs is open:
 // address, user, password. Key/agent auth, su/sudo and AI access are folded.
 // Secrets are never shown: an empty field keeps the saved value, Clear removes it.
-export function HostEditor({ server, openTabs, transfers, focusForget, onSave, onForget, onClose }: {
+export function HostEditor({ server, openTabs, transfers, focusForget, remoteTunnels, autoAllowCheck, onSave, onForget, onClose }: {
   server?: ServerInfo; openTabs: number; transfers: number; focusForget?: boolean
-  onSave: (input: ServerInput, original?: string) => Promise<void>
+  remoteTunnels: string[]; autoAllowCheck: (name: string) => Promise<AutoAllowCheck>
+  onSave: (input: ServerInput, original: string | undefined, autoAllow: AutoAllowMode) => Promise<void>
   onForget: (name: string) => Promise<void>
   onClose: () => void
 }) {
@@ -32,6 +35,7 @@ export function HostEditor({ server, openTabs, transfers, focusForget, onSave, o
   const [showAuth, setShowAuth] = useState(() => draftFrom(server).auth !== 'password')
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
+  const [confirm, setConfirm] = useState(false)
   const set = (patch: Partial<HostDraft>) => setDraft((d) => ({ ...d, ...patch }))
   const setSecret = (field: SecretField, value: string, cleared = false) =>
     setDraft((d) => ({ ...d, secrets: { ...d.secrets, [field]: { value, cleared } } }))
@@ -39,7 +43,12 @@ export function HostEditor({ server, openTabs, transfers, focusForget, onSave, o
     setBusy(true); setError(undefined)
     try { await p() } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
-  const save = (e: FormEvent) => { e.preventDefault(); run(() => onSave(toInput(draft), server?.name)) }
+  const doSave = () => onSave(toInput(draft), server?.name, draft.autoAllow)
+  const save = (e: FormEvent) => {
+    e.preventDefault()
+    if (saveConfirm(server, draft).needed) setConfirm(true)
+    else run(doSave)
+  }
   const escape = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) { e.preventDefault(); onClose() } }
   const authKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const next = arrowStep(AUTHS, draft.auth as (typeof AUTHS)[number], e.key)
@@ -54,6 +63,8 @@ export function HostEditor({ server, openTabs, transfers, focusForget, onSave, o
   const saved = (f: SecretField) => !!server && SECRET_FIELDS.find((s) => s.field === f)!.has(server)
   const anySaved = SECRET_FIELDS.some(({ field: f }) => saved(f))
   const hint = labelHint(draft)
+  const timedNoteText = timedNote(server, Date.now())
+  const refusalHint = draftRefusal(server, draft)
 
   const secret = (f: SecretField) => {
     const { label } = SECRET_FIELDS.find((s) => s.field === f)!
@@ -69,6 +80,7 @@ export function HostEditor({ server, openTabs, transfers, focusForget, onSave, o
   }
 
   return (
+    <>
     <div className="sheet-layer">
       <form className="sheet" role="dialog" aria-label="Host editor" onSubmit={save} onKeyDown={escape}>
         <header className="sheet-head">
@@ -135,7 +147,7 @@ export function HostEditor({ server, openTabs, transfers, focusForget, onSave, o
           </details>
 
           <details className="fold">
-            <summary>{`AI access · ${draft.aiVisible ? 'On' : 'Off'}`}</summary>
+            <summary>{`AI access · ${draft.aiVisible ? 'On' : 'Off'}${draft.autoAllow !== 'off' ? ' · auto' : ''}`}</summary>
             <div className="fold-body">
               <div className="switch">
                 <label htmlFor={field('ai')} className="switch-title">Visible to AI</label>
@@ -143,6 +155,30 @@ export function HostEditor({ server, openTabs, transfers, focusForget, onSave, o
               </div>
               <p className="muted">AI clients can see this server and ask to run commands. Each command still waits for your approval.</p>
               {!server?.hostKey && <p className="muted">Needs a pinned host key.</p>}
+
+              <div className="field">
+                <label htmlFor={field('autoallow')}>Auto-allow</label>
+                <select id={field('autoallow')} value={draft.autoAllow} disabled={!server}
+                  onChange={(e) => set({ autoAllow: e.target.value as AutoAllowMode })}>
+                  <option value="off">Off</option>
+                  {AUTO_MODES.map((m) => <option key={m.mode} value={m.mode}>{m.label}</option>)}
+                </select>
+                {!server && <span className="muted">Save the host and trust its key first</span>}
+              </div>
+              {timedNoteText && <p className="muted">{timedNoteText}</p>}
+              <label className="check">
+                <input type="checkbox" checked={draft.autoAllowRoot} disabled={draft.autoAllow === 'off'}
+                  onChange={(e) => set({ autoAllowRoot: e.target.checked })} />
+                Allow on root hosts
+              </label>
+              <p className="muted">Lets a grant run on a root login, or a host with a stored su or sudo password.</p>
+              <label className="check">
+                <input type="checkbox" checked={draft.autoAllowSudo} disabled={draft.autoAllow === 'off'}
+                  onChange={(e) => set({ autoAllowSudo: e.target.checked })} />
+                Also auto-allow sudo-exec
+              </label>
+              <p className="muted">sudo-exec runs without asking on a granted host, the same as plain exec.</p>
+              {draft.autoAllow !== 'off' && refusalHint && <p className="muted">{refusalHint}</p>}
             </div>
           </details>
 
@@ -171,5 +207,15 @@ export function HostEditor({ server, openTabs, transfers, focusForget, onSave, o
         </footer>
       </form>
     </div>
+    {confirm && server && (() => {
+      const sc = saveConfirm(server, draft)
+      return (
+        <AutoAllowDialog server={server} mode={draft.autoAllow as Exclude<AutoAllowMode, 'off'>}
+          typeName={sc.typeName} rootNew={sc.rootNew} sudoNew={sc.sudoNew} sudo={draft.autoAllowSudo} refused={refusalHint}
+          remoteTunnels={remoteTunnels} check={() => autoAllowCheck(server.name)}
+          onEnable={doSave} onCancel={() => setConfirm(false)} />
+      )
+    })()}
+    </>
   )
 }

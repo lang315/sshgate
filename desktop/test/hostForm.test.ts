@@ -8,8 +8,10 @@ import type { ServerInfo } from '../src/shared/protocol'
 const box: ServerInfo = {
   name: 'box', host: 'h', port: 22, user: 'u', auth: 'password', keyPath: '', hostKey: 'SHA256:x', hostKeyAlgo: 'ssh-ed25519',
   aiVisible: false, locked: false, hasPassword: true, hasSuPassword: false, hasSudoPassword: false, hasKeyPassphrase: false,
+  autoAllowRoot: false, autoAllowSudo: false,
 }
 const noop = async () => {}
+const check = async () => ({ uid: 1000, passwordlessSudo: false })
 
 describe('host editor secrets', () => {
   it('omits untouched secrets, sends "" for cleared ones and the value for typed ones', () => {
@@ -17,7 +19,7 @@ describe('host editor secrets', () => {
     d.secrets.password = { value: '', cleared: true }
     d.secrets.suPassword = { value: 'su!', cleared: false }
     const input = toInput(d)
-    expect(input).toEqual({ name: 'box', host: 'h', port: 22, user: 'u', auth: 'password', keyPath: '', aiVisible: false, password: '', suPassword: 'su!' })
+    expect(input).toEqual({ name: 'box', host: 'h', port: 22, user: 'u', auth: 'password', keyPath: '', aiVisible: false, autoAllowRoot: false, autoAllowSudo: false, password: '', suPassword: 'su!' })
     expect('sudoPassword' in input).toBe(false)
     expect('keyPassphrase' in input).toBe(false)
   })
@@ -25,7 +27,7 @@ describe('host editor secrets', () => {
     expect(secretPlaceholder(true, { value: '', cleared: false })).toBe('saved')
     expect(secretPlaceholder(false, { value: '', cleared: false })).toBe('')
     expect(secretPlaceholder(true, { value: '', cleared: true })).toBe('will be cleared')
-    const html = renderToStaticMarkup(createElement(HostEditor, { server: box, openTabs: 0, transfers: 0, onSave: noop, onForget: noop, onClose: () => {} }))
+    const html = renderToStaticMarkup(createElement(HostEditor, { server: box, openTabs: 0, transfers: 0, remoteTunnels: [], autoAllowCheck: check, onSave: noop, onForget: noop, onClose: () => {} }))
     expect(html.match(/placeholder="saved"/g)).toHaveLength(1)
     expect(html.match(/>Clear</g)).toHaveLength(1)
     expect(html).toContain('SHA256:x')
@@ -38,7 +40,7 @@ describe('host editor secrets', () => {
     expect(arrowStep(auths, 'password', 'ArrowLeft')).toBe('agent')
     expect(arrowStep(auths, 'key', 'ArrowUp')).toBe('password')
     expect(arrowStep(auths, 'key', 'Enter')).toBeUndefined()
-    const html = renderToStaticMarkup(createElement(HostEditor, { server: { ...box, auth: 'key' }, openTabs: 0, transfers: 0, onSave: noop, onForget: noop, onClose: () => {} }))
+    const html = renderToStaticMarkup(createElement(HostEditor, { server: { ...box, auth: 'key' }, openTabs: 0, transfers: 0, remoteTunnels: [], autoAllowCheck: check, onSave: noop, onForget: noop, onClose: () => {} }))
     expect(html.match(/role="radio"[^>]*tabindex="0"/g)).toHaveLength(1)
     expect(html).toMatch(/aria-checked="true" data-auth="key" tabindex="0"/)
   })
@@ -48,14 +50,14 @@ describe('host editor secrets', () => {
     expect(secretPlaceholder(true, { value: 'new', cleared: false }, true)).toBe('saved')
   })
   it('renders an existing host with the full fingerprint, a unique Close, and the saved-secrets note', () => {
-    const html = renderToStaticMarkup(createElement(HostEditor, { server: box, openTabs: 0, transfers: 0, onSave: noop, onForget: noop, onClose: () => {} }))
+    const html = renderToStaticMarkup(createElement(HostEditor, { server: box, openTabs: 0, transfers: 0, remoteTunnels: [], autoAllowCheck: check, onSave: noop, onForget: noop, onClose: () => {} }))
     expect(html).toContain('ssh-ed25519 SHA256:x')
     expect(html).toContain('aria-label="Close host editor"')
     expect(html.match(/>Close</g)).toHaveLength(1)
     expect(html).toContain('Saved secrets are never shown. Leave a field empty to keep it.')
   })
   it('opens a new host at Address, with only user and password, AI off, and extras folded', () => {
-    const html = renderToStaticMarkup(createElement(HostEditor, { openTabs: 0, transfers: 0, onSave: noop, onForget: noop, onClose: () => {} }))
+    const html = renderToStaticMarkup(createElement(HostEditor, { openTabs: 0, transfers: 0, remoteTunnels: [], autoAllowCheck: check, onSave: noop, onForget: noop, onClose: () => {} }))
     expect(html.indexOf('>Address<')).toBeGreaterThan(-1)
     expect(html.indexOf('>Address<')).toBeLessThan(html.indexOf('>Label<'))
     expect(html).toContain('+ Key or agent')
@@ -64,6 +66,38 @@ describe('host editor secrets', () => {
     expect(html).toContain('AI access · Off')
     expect(html).not.toMatch(/role="switch"[^>]*checked/)
     expect(html).toMatch(/<details[^>]*class="fold"[^>]*>\s*<summary[^>]*>Privilege escalation/)
+  })
+})
+
+describe('draftFrom auto-allow', () => {
+  it('is "forever" for a forever host, paused or not, and "off" for a timed or off host', () => {
+    expect(draftFrom({ ...box, autoAllow: { forever: true } }).autoAllow).toBe('forever')
+    expect(draftFrom({ ...box, autoAllow: { forever: true, paused: true } }).autoAllow).toBe('forever')
+    expect(draftFrom({ ...box, autoAllow: { until: '2026-01-01T00:00:00Z' } }).autoAllow).toBe('off')
+    expect(draftFrom(box).autoAllow).toBe('off')
+    expect(draftFrom().autoAllow).toBe('off')
+  })
+  it('takes autoAllowRoot/autoAllowSudo from the server, false for a new host', () => {
+    expect(draftFrom({ ...box, autoAllowRoot: true, autoAllowSudo: true })).toMatchObject({ autoAllowRoot: true, autoAllowSudo: true })
+    expect(draftFrom()).toMatchObject({ autoAllowRoot: false, autoAllowSudo: false })
+  })
+  it('toInput carries autoAllowRoot/autoAllowSudo', () => {
+    const d = { ...draftFrom(box), autoAllowRoot: true, autoAllowSudo: true }
+    expect(toInput(d)).toMatchObject({ autoAllowRoot: true, autoAllowSudo: true })
+  })
+  it('disables the opt-in checkboxes while auto-allow mode is Off', () => {
+    // The opt-in checkboxes carry no name/id; find them by DOM order (root,
+    // then sudo — the only two `<input type="checkbox">` with no id).
+    const htmlOff = renderToStaticMarkup(createElement(HostEditor, { server: box, openTabs: 0, transfers: 0, remoteTunnels: [], autoAllowCheck: check, onSave: noop, onForget: noop, onClose: () => {} }))
+    const offBoxes = htmlOff.match(/<input type="checkbox"[^>]*>/g) ?? []
+    expect(offBoxes).toHaveLength(2)
+    expect(offBoxes[0]).toMatch(/disabled/)
+    expect(offBoxes[1]).toMatch(/disabled/)
+    const htmlForever = renderToStaticMarkup(createElement(HostEditor, { server: { ...box, autoAllow: { forever: true } }, openTabs: 0, transfers: 0, remoteTunnels: [], autoAllowCheck: check, onSave: noop, onForget: noop, onClose: () => {} }))
+    const foreverBoxes = htmlForever.match(/<input type="checkbox"[^>]*>/g) ?? []
+    expect(foreverBoxes).toHaveLength(2)
+    expect(foreverBoxes[0]).not.toMatch(/disabled/)
+    expect(foreverBoxes[1]).not.toMatch(/disabled/)
   })
 })
 

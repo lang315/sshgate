@@ -47,13 +47,17 @@ func snapOf(dc sshx.DialConfig) grantSnap {
 // autoRefusal says why s can never be on auto-allow, or "". A root login, or a
 // stored su or sudo password, is root access: a command planted during a
 // grant could capture a sudo password the next time the human approves a
-// sudo-exec.
+// sudo-exec. Amendment 2026-09-29: AutoAllowRoot opts a host out of that
+// refusal; the human has accepted the risk. Not AI-visible and no pinned
+// host key are refused regardless.
 func autoRefusal(s config.Server) string {
 	switch {
 	case !s.AIVisible:
 		return "not visible to AI"
 	case s.HostKey == "":
 		return "no pinned host key"
+	case s.AutoAllowRoot:
+		return "" // opted in: root logins and stored su/sudo passwords allowed
 	case s.User == "root":
 		return "root login"
 	case s.EncSuPassword != "":
@@ -99,53 +103,45 @@ func (h *Hub) autoEligibleLocked(name string) (config.Server, sshx.DialConfig, e
 // seam.
 var errAutoAllowRace = errors.New("server changed; try again")
 
-// SetAutoAllow turns name's auto-allow on (a timed mode, or forever) or off.
+// endedNote is a grant-end notification armLocked couldn't send itself
+// (notifyAuto takes h.mu, which the caller still holds): the caller sends it
+// after unlocking.
+type endedNote struct{ name, reason string }
+
+// armLocked turns name's auto-allow on (a timed mode, or forever); h.mu must
+// be held and mode must not be "off" (SetAutoAllow handles that itself).
 // forever on a server whose vault flag is already set and paused (no live
 // grant) only arms it (Resume); forever on an already-armed forever grant is
-// a no-op. Everything but off runs in this function's own one-h.mu section;
-// off instead delegates to autoAllowOff below, which holds its own single
-// h.mu section (write, reload, grant-end, audit) — the same pattern, just a
-// separate function. The pattern itself is the one CreateVault uses (lock
-// order h.mu → config.Update is safe: no path takes h.mu from inside an
-// Update). SaveServer, DeleteServer and ForgetHostKey also hold h.mu across
-// their own write, reload and grant-end (hosts.go), so none of them — nor
-// autoAllowOff — can land inside this section: only something outside the
-// hub entirely (another process editing the store file) can. The section
-// starts with its own reload, so a stale in-memory copy from before this
-// call never causes a spurious refusal; a flag write is then followed by
-// another reload and a fresh eligibility check before a grant is armed, so
-// such an outside change is caught against the reloaded state instead of
-// arming on stale data.
-//
-// Every early return unlocks h.mu itself instead of a blanket defer: ending
-// a grant this call is abandoning still needs to notify the app, and
-// notifyAuto takes h.mu itself, so it can only run after this section's own
-// unlock.
-func (h *Hub) SetAutoAllow(name, mode string) error {
-	if mode == "off" {
-		return h.autoAllowOff(name, "turned off")
-	}
+// a no-op. It is also called by SaveServerWithAutoAllow, right after that
+// call's own write and reload, in the same h.mu section — the pattern is the
+// one CreateVault uses (lock order h.mu → config.Update is safe: no path
+// takes h.mu from inside an Update). SaveServer, DeleteServer and
+// ForgetHostKey also hold h.mu across their own write, reload and grant-end
+// (hosts.go), and SetAutoAllow's caller reloads before calling this, so none
+// of them can land inside this section any more: only something outside the
+// hub entirely (another process editing the store file) can. A flag write
+// here is followed by another reload and a fresh eligibility check before a
+// grant is armed, so such an outside change is caught against the reloaded
+// state instead of arming on stale data.
+func (h *Hub) armLocked(name, mode string) ([]endedNote, error) {
 	d, timed := autoModes[mode]
-
-	h.mu.Lock()
-	if err := h.reloadLocked(); err != nil {
-		h.mu.Unlock()
-		return err
+	if !timed && mode != "forever" {
+		return nil, fmt.Errorf("unknown auto-allow mode %q", mode)
 	}
+
 	s, dc, err := h.autoEligibleLocked(name)
 	if err != nil {
-		h.mu.Unlock()
 		if errors.Is(err, errAutoResolve) {
-			return ErrConnFailed
+			return nil, ErrConnFailed
 		}
-		return err
+		return nil, err
 	}
 	resume := !timed && s.AutoAllow && h.grants[name] == nil
 	if !timed && s.AutoAllow && h.grants[name] != nil {
-		h.mu.Unlock()
-		return nil // already armed forever: nothing changed, nothing to audit
+		return nil, nil // already armed forever: nothing changed, nothing to audit
 	}
 
+	var notes []endedNote
 	if timed == s.AutoAllow { // timed over forever clears the flag; a new forever sets it
 		key := bytes.Clone(h.deps.MasterKey) // non-nil: autoEligibleLocked's checkLocked just passed
 		defer clear(key)
@@ -158,8 +154,7 @@ func (h *Hub) SetAutoAllow(name, mode string) error {
 			}
 			return serverNotFound(name)
 		}); err != nil {
-			h.mu.Unlock()
-			return err
+			return nil, err
 		}
 		// The write stands from here on; every remaining failure must audit
 		// the flag change it leaves behind instead of arming a grant.
@@ -179,14 +174,12 @@ func (h *Hub) SetAutoAllow(name, mode string) error {
 			// confirm the result — end it too, instead of leaving it armed
 			// with the flag now false. auditFlagChange already wrote this
 			// off's audit line, so end the grant directly (not via
-			// grantEnded, which would write a second one) and notify once
-			// h.mu is released.
-			ended := timed && h.endGrantLocked(name)
-			h.mu.Unlock()
-			if ended {
-				h.notifyGrantEnded(name, "turned off")
+			// grantEnded, which would write a second one) and note it for
+			// the caller to notify once h.mu is released.
+			if timed && h.endGrantLocked(name) {
+				notes = append(notes, endedNote{name, "turned off"})
 			}
-			return err
+			return notes, err
 		}
 		// The file may have changed on disk beyond our own write (the same
 		// concurrent write landing between it and this reload instead of
@@ -197,19 +190,16 @@ func (h *Hub) SetAutoAllow(name, mode string) error {
 		switch {
 		case err != nil:
 			auditFlagChange()
-			ended := timed && h.endGrantLocked(name)
-			h.mu.Unlock()
-			if ended {
-				h.notifyGrantEnded(name, "turned off")
+			if timed && h.endGrantLocked(name) {
+				notes = append(notes, endedNote{name, "turned off"})
 			}
 			if errors.Is(err, errAutoResolve) {
-				return ErrConnFailed
+				return notes, ErrConnFailed
 			}
-			return err
+			return notes, err
 		case !timed && !s.AutoAllow:
 			auditFlagChange()
-			h.mu.Unlock()
-			return errAutoAllowRace
+			return notes, errAutoAllowRace
 		}
 	}
 
@@ -232,8 +222,30 @@ func (h *Hub) SetAutoAllow(name, mode string) error {
 		r.Forever = true
 	}
 	h.auditConfig(r)
+	return notes, nil
+}
+
+// SetAutoAllow turns name's auto-allow on (a timed mode, or forever) or off.
+// Everything but off runs in armLocked, in this function's own one-h.mu
+// section, started with its own reload so a stale in-memory copy from before
+// this call never causes a spurious refusal; off instead delegates to
+// autoAllowOff below, which holds its own single h.mu section (write,
+// reload, grant-end, audit) — the same pattern, just a separate function.
+func (h *Hub) SetAutoAllow(name, mode string) error {
+	if mode == "off" {
+		return h.autoAllowOff(name, "turned off")
+	}
+	h.mu.Lock()
+	if err := h.reloadLocked(); err != nil {
+		h.mu.Unlock()
+		return err
+	}
+	notes, err := h.armLocked(name, mode)
 	h.mu.Unlock()
-	return nil
+	for _, n := range notes {
+		h.notifyGrantEnded(n.name, n.reason)
+	}
+	return err
 }
 
 // autoAllowOff ends name's grant and clears its flag, all in one h.mu
@@ -375,8 +387,11 @@ type autoRun struct {
 // autoStart decides, in one h.mu section, whether name's exec runs under its
 // grant, and registers the run. It resolves the server itself and compares
 // it with the grant's snapshot, so the run uses exactly what it checked; any
-// mismatch ends the grant and the request goes to approval. nil: approval.
-func (h *Hub) autoStart(ctx context.Context, name string) *autoRun {
+// mismatch ends the grant and the request goes to approval. nil: approval. A
+// sudo request needs its own opt-in (AutoAllowSudo); that check runs after
+// everything that can end the grant, so a changed or expired server still
+// ends it even when the request is sudo.
+func (h *Hub) autoStart(ctx context.Context, name string, sudo bool) *autoRun {
 	h.mu.Lock()
 	g := h.grants[name]
 	if g == nil {
@@ -422,6 +437,10 @@ func (h *Hub) autoStart(ctx context.Context, name string) *autoRun {
 		h.notifyGrantEnded(name, reason)
 		return nil
 	}
+	if sudo && !s.AutoAllowSudo { // sudo-exec needs its own opt-in; the grant stays
+		h.mu.Unlock()
+		return nil
+	}
 	h.grantSeq++
 	id := h.grantSeq
 	rctx, cancel := context.WithCancel(ctx)
@@ -446,12 +465,15 @@ func (h *Hub) autoExec(ar *autoRun, dc sshx.DialConfig, r ExecRequest, cmd strin
 	red := redactorFor(dc, ar.dc)
 	base.Approval = "auto"
 	base.Command, base.Description = red.Redact(cmd), red.Redact(r.Description)
-	resp, err := h.run(ar.ctx, r.Server, ar.dc, cmd, false, timeout, base, red)
+	resp, err := h.run(ar.ctx, r.Server, ar.dc, cmd, r.Sudo, timeout, base, red)
 	shown, cut := cutBytes(base.Command, autoCmdCap)
 	ran := map[string]any{"server": r.Server, "command": shown, "description": base.Description,
 		"time": time.Now().UTC().Format(time.RFC3339)}
 	if cut > 0 {
 		ran["truncated"] = cut
+	}
+	if r.Sudo {
+		ran["sudo"] = true
 	}
 	if err != nil {
 		ran["error"] = err.Error()

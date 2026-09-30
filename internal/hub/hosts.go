@@ -20,7 +20,7 @@ var errNoVault = errors.New("create a vault first")
 var newKDF = config.NewKDF
 
 // CreateVault gives a store with no master password (or no file yet) one.
-// Kept servers lose aiVisible, autoAllow and their pins: a KDF-less file was never
+// Kept servers lose aiVisible, autoAllow (and its two opt-ins) and their pins: a KDF-less file was never
 // MAC'd, so its flags and pins are unauthenticated, and a pin must come
 // through the fingerprint prompt. The key is derived once, here, and installed in the
 // same h.mu section that saves and reloads, so nothing sees a vault that
@@ -53,6 +53,7 @@ func (h *Hub) CreateVault(pw string) error {
 			}
 			s.AIVisible = false
 			s.AutoAllow = false
+			s.AutoAllowRoot, s.AutoAllowSudo = false, false
 			s.HostKey, s.HostKeyAlgo = "", ""
 			kept = append(kept, s.Name)
 		}
@@ -91,7 +92,8 @@ func changes(a, b config.Server, in config.ServerInput) []string {
 	}{
 		{"name", a.Name, b.Name}, {"host", a.Host, b.Host}, {"port", a.Port, b.Port}, {"user", a.User, b.User},
 		{"auth", a.Auth, b.Auth}, {"keyPath", a.KeyPath, b.KeyPath}, {"aiVisible", a.AIVisible, b.AIVisible},
-		{"autoAllow", a.AutoAllow, b.AutoAllow}, {"hostKey", a.HostKey, b.HostKey},
+		{"autoAllow", a.AutoAllow, b.AutoAllow}, {"autoAllowRoot", a.AutoAllowRoot, b.AutoAllowRoot},
+		{"autoAllowSudo", a.AutoAllowSudo, b.AutoAllowSudo}, {"hostKey", a.HostKey, b.HostKey},
 	} {
 		if f.x != f.y {
 			out = append(out, fmt.Sprintf("%s: %v → %v", f.name, f.x, f.y))
@@ -144,27 +146,43 @@ func (h *Hub) denyPending(name string) {
 	}
 }
 
-// dialChanged: every field but AIVisible, AutoAllow and Tunnels feeds the
-// dial config or the name the connection is registered under.
+// dialChanged: every field but AIVisible, AutoAllow, the two opt-ins and
+// Tunnels feeds the dial config or the name the connection is registered
+// under.
 func dialChanged(a, b config.Server) bool {
-	a.AIVisible, a.AutoAllow, a.Tunnels = b.AIVisible, b.AutoAllow, nil
+	a.AIVisible, a.AutoAllow, a.AutoAllowRoot, a.AutoAllowSudo, a.Tunnels = b.AIVisible, b.AutoAllow, b.AutoAllowRoot, b.AutoAllowSudo, nil
 	b.Tunnels = nil
 	return !reflect.DeepEqual(a, b)
 }
 
-// SaveServer creates (original == "") or updates a server. Its connection is
-// closed only if something that feeds the dial changed, never for an
-// aiVisible toggle; its pending AI requests are denied either way.
-//
-// The write, the reload that follows, and ending the server's auto-allow
-// grant all run in one h.mu section — the CreateVault/SetAutoAllow pattern
-// (lock order h.mu → config.Update is safe: no config.Update fn takes h.mu).
-// That serializes this call with servers.setAutoAllow, so any grant present
-// when this section runs provably predates this save: it is ended
-// unconditionally, no revision bookkeeping needed. A rename ends the grant
-// under both the old name and, if different, the new one, so it can't leave
-// one behind or inherit a leftover one.
+// errSavedButPrefix marks a SaveServerWithAutoAllow error whose write stood
+// but whose requested auto-allow mode could not be armed: the app shows
+// "Saved, but auto-allow was not turned on: <reason>".
+const errSavedButPrefix = "saved, but auto-allow was not turned on: "
+
+// SaveServer creates (original == "") or updates a server, with auto-allow
+// left off (Amendment 2026-09-29: servers.save's default when no mode is
+// given).
 func (h *Hub) SaveServer(original string, in config.ServerInput) error {
+	return h.SaveServerWithAutoAllow(original, in, "off")
+}
+
+// SaveServerWithAutoAllow is SaveServer plus an optional auto-allow mode
+// (Amendment 2026-09-29), off or "" behaving exactly like SaveServer did
+// before this. Its connection is closed only if something that feeds the
+// dial changed, never for an aiVisible toggle; its pending AI requests are
+// denied either way.
+//
+// The write, the reload that follows, ending the server's auto-allow grant,
+// and — for a mode other than off — arming a new one all run in one h.mu
+// section — the CreateVault/SetAutoAllow pattern (lock order h.mu →
+// config.Update is safe: no config.Update fn takes h.mu). That serializes
+// this call with servers.setAutoAllow, so any grant present when this
+// section runs provably predates this save: it is ended unconditionally, no
+// revision bookkeeping needed. A rename ends the grant under both the old
+// name and, if different, the new one, so it can't leave one behind or
+// inherit a leftover one; arming (armLocked) runs under the new name.
+func (h *Hub) SaveServerWithAutoAllow(original string, in config.ServerInput, mode string) error {
 	h.mu.Lock()
 	key, err := h.writeKeyLocked()
 	if err != nil {
@@ -202,6 +220,11 @@ func (h *Hub) SaveServer(original string, in config.ServerInput) error {
 			h.auditGrantEnded(after.Name, "saved")
 		}
 	}
+	var armNotes []endedNote
+	var armErr error
+	if mode != "" && mode != "off" && reloadErr == nil {
+		armNotes, armErr = h.armLocked(after.Name, mode)
+	}
 	h.mu.Unlock()
 
 	// Notified before the dialChanged/denyPending cleanup below, not after:
@@ -222,6 +245,9 @@ func (h *Hub) SaveServer(original string, in config.ServerInput) error {
 	if endedNew {
 		h.notifyGrantEnded(after.Name, "saved")
 	}
+	for _, n := range armNotes {
+		h.notifyGrantEnded(n.name, n.reason)
+	}
 
 	if dialChanged(before, after) {
 		h.endServerTunnels(name, "server changed")
@@ -230,7 +256,17 @@ func (h *Hub) SaveServer(original string, in config.ServerInput) error {
 	}
 	h.denyPending(name)
 	h.auditConfig(broker.ConfigRecord{Action: "save", Server: after.Name, Changed: changes(before, after, in)})
-	return reloadErr // the write itself succeeded
+
+	switch {
+	case reloadErr != nil:
+		if mode != "" && mode != "off" {
+			return fmt.Errorf("%s%w", errSavedButPrefix, reloadErr)
+		}
+		return reloadErr
+	case armErr != nil:
+		return fmt.Errorf("%s%w", errSavedButPrefix, armErr)
+	}
+	return nil
 }
 
 // DeleteServer removes name, in the same one-h.mu-section pattern as

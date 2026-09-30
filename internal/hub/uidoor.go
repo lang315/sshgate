@@ -31,6 +31,8 @@ type uiServer struct {
 	HasKeyPassphrase bool         `json:"hasKeyPassphrase"`
 	AutoAllow        *uiAutoAllow `json:"autoAllow,omitempty"`
 	AutoAllowRefused string       `json:"autoAllowRefused,omitempty"`
+	AutoAllowRoot    bool         `json:"autoAllowRoot"`
+	AutoAllowSudo    bool         `json:"autoAllowSudo"`
 }
 
 // hasStore reports whether a store file was loaded, under h.mu.
@@ -64,6 +66,7 @@ func (h *Hub) serversForUI() []uiServer {
 			HasPassword: s.EncPassword != "", HasSuPassword: s.EncSuPassword != "",
 			HasSudoPassword: s.EncSudoPassword != "", HasKeyPassphrase: s.EncKeyPassphrase != "",
 			AutoAllow: h.autoStateLocked(s, now), AutoAllowRefused: autoRefusal(s),
+			AutoAllowRoot: s.AutoAllowRoot, AutoAllowSudo: s.AutoAllowSudo,
 		})
 	}
 	return out
@@ -135,8 +138,9 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 	})
 	req("servers.save", func(_ context.Context, raw json.RawMessage) (any, error) {
 		var p struct {
-			Original string             `json:"original"`
-			Server   config.ServerInput `json:"server"`
+			Original  string             `json:"original"`
+			Server    config.ServerInput `json:"server"`
+			AutoAllow string             `json:"autoAllow"`
 		}
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return nil, &rpc.Error{Code: -32602, Message: "invalid params"}
@@ -144,7 +148,10 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		if err := p.Server.Validate(); err != nil {
 			return nil, &rpc.Error{Code: -32602, Message: err.Error()}
 		}
-		return empty, h.SaveServer(p.Original, p.Server)
+		if p.AutoAllow != "" && p.AutoAllow != "off" && p.AutoAllow != "forever" && autoModes[p.AutoAllow] == 0 {
+			return nil, &rpc.Error{Code: -32602, Message: "autoAllow must be off, 15m, 30m, 60m, 2h, 4h, or forever"}
+		}
+		return empty, h.SaveServerWithAutoAllow(p.Original, p.Server, p.AutoAllow)
 	})
 	req("servers.delete", func(_ context.Context, raw json.RawMessage) (any, error) {
 		var p struct {

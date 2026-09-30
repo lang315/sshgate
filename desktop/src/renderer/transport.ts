@@ -52,7 +52,7 @@ export const hub = {
   },
   denyAll: async (reason = '') => { await call('denyAll', { reason }) },
   createVault: async (password: string) => { await call('vault.create', { password }) },
-  saveServer: async (server: ServerInput, original?: string) => { await call('servers.save', { original, server }) },
+  saveServer: async (server: ServerInput, original?: string, autoAllow?: AutoAllowMode) => { await call('servers.save', { original, server, autoAllow }) },
   deleteServer: async (name: string) => { await call('servers.delete', { name }) },
   forgetHostKey: async (name: string) => { await call('servers.forgetHostKey', { name }) },
   importScan: () => call<ImportScan>('import.scan'),

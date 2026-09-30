@@ -18,12 +18,12 @@ export interface ServerInfo {
   name: string; host: string; port: number; user: string; auth: string; keyPath: string
   hostKey: string; hostKeyAlgo: string; aiVisible: boolean; locked: boolean
   hasPassword: boolean; hasSuPassword: boolean; hasSudoPassword: boolean; hasKeyPassphrase: boolean
-  autoAllow?: AutoAllowState; autoAllowRefused?: string
+  autoAllow?: AutoAllowState; autoAllowRefused?: string; autoAllowRoot: boolean; autoAllowSudo: boolean
 }
 
 export interface AutoAllowRan {
   server: string; command: string; truncated?: number; description: string
-  exitCode?: number; error?: string; time: string
+  exitCode?: number; error?: string; time: string; sudo?: boolean
 }
 export interface AutoAllowCheck { uid: number; passwordlessSudo: boolean }
 
@@ -32,6 +32,7 @@ export type SecretField = 'password' | 'suPassword' | 'sudoPassword' | 'keyPassp
 // Secrets are write-only: an omitted one is kept, '' clears it.
 export interface ServerInput {
   name: string; host: string; port: number; user: string; auth: string; keyPath: string; aiVisible: boolean
+  autoAllowRoot: boolean; autoAllowSudo: boolean
   password?: string; suPassword?: string; sudoPassword?: string; keyPassphrase?: string
 }
 
@@ -110,4 +111,4 @@ export type RequestMethod = (typeof REQUEST_METHODS)[number]
 export const FILES_RELAYED = ['files.plan', 'files.run'] as const
 export const NOTIFY_METHODS = ['term.write', 'term.ack', 'term.resize', 'files.cancel', 'tunnels.stop'] as const
 export type NotifyMethod = (typeof NOTIFY_METHODS)[number]
-export const PROTOCOL_VERSION = 6
+export const PROTOCOL_VERSION = 7

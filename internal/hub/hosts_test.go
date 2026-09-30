@@ -188,6 +188,34 @@ func TestDialChangedIgnoresAutoAllow(t *testing.T) {
 	}
 }
 
+func TestDialChangedIgnoresAutoAllowOptIns(t *testing.T) {
+	a := config.Server{Name: "a", Host: "h", Port: 22, User: "u", Auth: "agent"}
+	b := a
+	b.AutoAllowRoot, b.AutoAllowSudo = true, true
+	if dialChanged(a, b) {
+		t.Fatal("autoAllow opt-ins counted as a dial change")
+	}
+}
+
+// changes() lists both opt-ins by name, before → after.
+func TestChangesListsAutoAllowOptIns(t *testing.T) {
+	a := config.Server{Name: "a", Host: "h", Port: 22, User: "u", Auth: "agent"}
+	b := a
+	b.AutoAllowRoot, b.AutoAllowSudo = true, true
+	out := changes(a, b, config.ServerInput{})
+	for _, want := range []string{"autoAllowRoot: false → true", "autoAllowSudo: false → true"} {
+		found := false
+		for _, c := range out {
+			if c == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("changes() = %v, missing %q", out, want)
+		}
+	}
+}
+
 // A KDF-less file was never MAC'd: its auto-allow flag is unauthenticated,
 // same as aiVisible and the pin.
 func TestCreateVaultClearsAutoAllow(t *testing.T) {
@@ -199,6 +227,18 @@ func TestCreateVaultClearsAutoAllow(t *testing.T) {
 	f, _ := config.Load(path)
 	if len(f.Servers) != 1 || f.Servers[0].AutoAllow {
 		t.Fatalf("autoAllow survived vault creation: %+v", f.Servers)
+	}
+}
+
+func TestCreateVaultClearsAutoAllowOptIns(t *testing.T) {
+	h, path := newHubAt(t, &config.File{Version: 1, Servers: []config.Server{
+		{Name: "a", Host: "h", Port: 22, User: "u", Auth: "agent", AutoAllowRoot: true, AutoAllowSudo: true}}}, nil)
+	if err := h.CreateVault("longenough"); err != nil {
+		t.Fatal(err)
+	}
+	f, _ := config.Load(path)
+	if len(f.Servers) != 1 || f.Servers[0].AutoAllowRoot || f.Servers[0].AutoAllowSudo {
+		t.Fatalf("autoAllow opt-ins survived vault creation: %+v", f.Servers)
 	}
 }
 

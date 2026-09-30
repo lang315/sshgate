@@ -171,6 +171,21 @@ func TestApplyServerDropsAutoAllow(t *testing.T) {
 	}
 }
 
+// Unlike AutoAllow (the forever vault flag), the two opt-ins are ordinary
+// editor fields: ApplyServer copies them straight from the input.
+func TestApplyServerCopiesAutoAllowOptIns(t *testing.T) {
+	_, mk, _ := NewKDF("pw")
+	f := &File{Version: 1}
+	in := ServerInput{Name: "a", Host: "h", Port: 22, User: "u", Auth: "agent", AutoAllowRoot: true, AutoAllowSudo: true}
+	_, after, err := ApplyServer(f, "", in, mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.AutoAllowRoot || !after.AutoAllowSudo {
+		t.Fatalf("opt-ins not copied: %+v", after)
+	}
+}
+
 func TestApplyServerNamesKeyPathAndKeylessSecrets(t *testing.T) {
 	_, mk, _ := NewKDF("pw")
 	f := &File{Version: 1}
