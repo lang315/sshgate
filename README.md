@@ -33,7 +33,7 @@ Claude Code ──stdio──▶ sshgate (bridge) ──per-user socket──▶
 ```
 
 1. The AI calls `exec` through the bridge. The bridge holds no secrets and makes no decisions; it forwards the call to the hub over a socket only your user can open.
-2. The hub checks that the server exists, is visible to AI, has a pinned host key, and that the vault is unlocked. Then it queues the request.
+2. The hub checks that the server exists, is visible to AI, has a pinned host key, and that the vault is unlocked. Then it queues the request, unless the host is on [auto-allow](#auto-allow), in which case it runs at once.
 3. The app shows the request: server, `user@host:port`, the exact command, and the AI's description (marked unverified). You **Deny**, **Allow**, or **Send to tab**.
 4. On Allow, the hub runs the command over its cached SSH connection, masks every saved secret in the output, caps each stream at 64 KiB, writes an audit record, and returns the result to the AI.
 
@@ -48,7 +48,7 @@ Claude Code ──stdio──▶ sshgate (bridge) ──per-user socket──▶
 
    Put a copy of `sshgate` on your `PATH` too (for example `cp sshgate ~/go/bin/`), so your MCP client can start the bridge.
 
-   On macOS you can instead build an app bundle with `cd desktop && npm ci && ./scripts/package-mac.sh` and copy `desktop/out/sshgate.app` to `/Applications`. It carries its own `sshgate` binary (`sshgate.app/Contents/Resources/sshgate`), which the bridge can use too. The bundle is ad-hoc signed for your own machine only; it is not notarized.
+   On macOS you can instead build an app bundle with `cd desktop && npm ci && ./scripts/package-mac.sh` and copy `desktop/out/sshgate.app` to `/Applications` (quit sshgate first when replacing an installed copy). `sshgate --version` prints the version it was built with. It carries its own `sshgate` binary (`sshgate.app/Contents/Resources/sshgate`), which the bridge can use too. The bundle is ad-hoc signed for your own machine only; it is not notarized.
 
 2. **Create your vault.** The first launch asks for a master password (at least 8 characters). It cannot be recovered; lose it and the vault cannot be opened.
 
@@ -70,15 +70,17 @@ Keep the app open while the AI works. When the app is closed, every tool call fa
 
 ## The desktop app
 
-- **Hosts** is the first tab: a searchable grid of host cards. An **AI** chip marks servers visible to AI, and **New key** marks servers without a pinned host key. The footer shows the vault file's path; copying that file is your backup.
+- **Hosts** is the first tab: a searchable grid of host cards. Click a card to open a terminal. Chips along the bottom of a card mark servers visible to **AI**, servers with a **New key** (not pinned yet), running tunnels, and an auto-allow grant (**Auto 42m**, **Auto ∞**, **Auto paused**); the Files, Tunnels, Edit and Delete buttons appear beside them on hover, without moving anything. The footer shows the vault file's path; copying that file is your backup.
 - **Terminal tabs** open from a host card. They keep their SSH sessions when the vault locks, and offer **Reconnect** if the hub restarts.
 - **Files** opens an SFTP browser tab from a host card: list, upload and download files or whole folders (or drop them from Finder), make folders, rename, and recursive delete. Everything runs as the host's login user, and every change and transfer is audited.
+- **Tunnels** opens a tab per host for SSH port forwards, saved with the host in the vault: **Local** (a port on this machine reaches a host and port as seen from the server), **Remote** (a port on the server reaches one on this machine), and **Dynamic** (a SOCKS5 proxy here; connections leave from the server). Local listeners bind to loopback only. Tunnels keep running while the vault is locked, stop when the connection drops or the host is edited, and every start and stop is audited. Tunnels are yours alone: the AI cannot see or start them.
 - **AI requests** is a column on the right. It opens itself when a request arrives and closes only when you close it; closing it never denies or drops a request, and the **AI** button in the tab bar turns amber while requests wait.
   - **Deny** is the default: Enter in the reason field denies, and the reason goes back to the AI.
   - **Allow** and **Send to tab** need a mouse click and stay disabled for 500 ms after anything in the list changes or scrolls, so nothing is clickable the instant it moves under your cursor.
   - **Send to tab** pastes the command into your own terminal for that server instead of running it.
   - Sudo requests have a red edge. Non-ASCII characters in a command are highlighted with their code points (`U+0456`), so a look-alike `gіthub.com` stands out.
   - From a terminal, `Ctrl+Shift+A` (`Cmd+Shift+A` on macOS) jumps to the oldest request's reason field; `Esc` returns to the terminal.
+  - Below the requests, **Auto-allowed** lists the last 50 commands that ran on auto-allow: server, a **SUDO** tag for sudo-exec, exit status, time, the full command, and the AI's description. **Stop all auto-allow** ends every grant.
 - **Host editor.** It never shows a saved password: leave a field empty to keep it, or click **Clear** to remove it. Changing the address or port forgets the pinned key and every password you don't re-enter, closes that server's tabs, and denies its waiting requests.
 - **Host key changed.** A server that presents a different key is refused, and the app shows both fingerprints. If the change was expected, click **Forget host key** in the editor and connect again.
 - **Themes.** Dark, light, or **Auto** (follows the OS), from the ☾ / ☀ / Auto control.
@@ -87,14 +89,14 @@ Keep the app open while the AI works. When the app is closed, every tool call fa
 
 ### Auto-allow
 
-In a host's editor, open **AI access** and pick a duration in the **Auto-allow** select: 15 min, 30 min, 60 min, 2 h, 4 h, or "Until turned off" (which needs the host name typed to confirm in the confirm dialog Save shows you), then Save. Plain `exec` calls run without a click for that long. **Stop** on the host card, **Stop all auto-allow** in the AI column, locking the vault, or the timer running out all end it. Every run still shows in the AI column's Auto-allowed feed and in the audit log.
+In a host's editor, open **AI access** (the host must be visible to AI and have a pinned key) and pick a duration in the **Auto-allow** select: 15 min, 30 min, 60 min, 2 h, 4 h, or "Until turned off" (which needs the host name typed to confirm in the confirm dialog Save shows you), then Save. Plain `exec` calls run without a click for that long; the confirm dialog's **Enable** is mouse-only and waits 500 ms, like **Allow**. **Stop** on the host card (always shown while a grant is on), **Stop all auto-allow** in the AI column, locking the vault, or the timer running out all end it. Every run still shows in the AI column's Auto-allowed feed and in the audit log.
 
 Two opt-ins in the same section, off by default and independent of each other, widen what a grant covers:
 
 - **Allow on root hosts** lets a grant run on a `root` login, or a host with a stored su or sudo password. Honest risk: the AI runs as root, and a command it plants can capture the su or sudo password you type or store.
 - **Also auto-allow sudo-exec** lets `sudo-exec` run without asking on a granted host, the same as plain exec. Honest risk: the AI has full root on that host for as long as the grant runs.
 
-A grant "Until turned off" is paused after every unlock until you click **Resume**.
+A grant "Until turned off" is paused after every unlock until you click **Resume**. If the hub refuses a grant when you save (for example a `root` host without **Allow on root hosts**), the host edits are still saved and the app tells you auto-allow was not turned on.
 
 Closing the window quits the app and stops the hub. There is no Reload; if the renderer crashes, the app locks the vault and reloads at the unlock screen.
 
@@ -114,8 +116,8 @@ Closing the window quits the app and stops the hub. There is no Reload; if the r
 | Tool | Arguments | Notes |
 |---|---|---|
 | `list-servers` | none | Servers visible to AI, one per line; `[locked: unlock the app]` while the vault is locked. No approval needed. |
-| `exec` | `server` (required, a name from `list-servers`), `command`, `description` (optional, at most 500 bytes), `timeoutSec` (1–600, default 60) | Waits for your decision for up to 5 minutes, then fails as expired. |
-| `sudo-exec` | same as `exec` | Runs `sudo -S` with the saved sudo password, or `sudo -n` if none is saved. |
+| `exec` | `server` (required, a name from `list-servers`), `command`, `description` (optional, at most 500 bytes), `timeoutSec` (1–600, default 60) | Waits for your decision for up to 5 minutes, then fails as expired. Runs at once on a host with an auto-allow grant. |
+| `sudo-exec` | same as `exec` | Runs `sudo -S` with the saved sudo password, or `sudo -n` if none is saved. Always waits for you, unless the host has a grant and **Also auto-allow sudo-exec** is ticked. |
 
 - Each command runs in a fresh non-interactive shell, so `cd` and environment variables do not carry over between calls; combine steps into one command. The exception is a server with a saved **su** password: its commands run inside one persistent root shell.
 - The result is `exit code: N`, then `stdout:` and `stderr:` sections. A non-zero exit code is a normal result, not a tool error.
@@ -134,7 +136,7 @@ On a machine without a display, run the hub in a terminal and approve from there
 
 `hub --cli` cannot create a vault or edit hosts. Create and fill the vault in the desktop app on any machine, then copy `servers.json` to the headless one: the file is portable and opens with the same master password (hosts that use a key file need it at the same path).
 
-`sshgate hub` also accepts `--store=<path>` (a vault other than the default) and `--idleLock=<duration>` (a Go duration of at least `1s`, replacing the 15-minute default). It refuses `--insecureIgnoreHostKey`.
+`sshgate hub` also accepts `--store=<path>` (a vault other than the default), `--sshConfig=<path>` (the SSH config to import from), and `--idleLock=<duration>` (a Go duration of at least `1s`, replacing the 15-minute default). It refuses `--insecureIgnoreHostKey`.
 
 ## Standalone mode: `--host`
 
@@ -176,15 +178,18 @@ The same flags work in any MCP client's JSON config:
 | Path | What |
 |---|---|
 | `~/.config/sshgate/servers.json` | The vault (mode 0600). Copy it to back up. |
-| `~/.config/sshgate/audit.jsonl` | Audit log of requests, decisions, and host edits. |
+| `~/.config/sshgate/audit.jsonl` | Audit log, one JSON record per line: every request and its outcome (`waitMs` is how long it waited for you; auto-allowed runs carry `approval: "auto"`), host and auto-allow changes, file transfers, and tunnels. Never command output. |
 | `$SSHGATE_RUNTIME_DIR/sshgate/hub.sock`, else `/run/user/<uid>/sshgate/hub.sock` (Linux), else `/tmp/sshgate-<uid>/hub.sock` | Bridge-to-hub socket. On Windows, the named pipe `\\.\pipe\sshgate-hub-<SID>`. |
 
 | Variable | Read by | Effect |
 |---|---|---|
 | `SSHGATE_RUNTIME_DIR` | hub and bridge | Where the socket lives. Set the same value for both, including in the MCP client's environment. `TMPDIR` and `XDG_RUNTIME_DIR` are ignored on purpose. |
-| `SSHGATE_BIN` | desktop app | The `sshgate` binary to run as the hub. Default: `sshgate` one directory above `desktop/`, then `PATH`. |
+| `SSHGATE_BIN` | desktop app | The `sshgate` binary to run as the hub. Default: `sshgate` one directory above `desktop/` (or inside the macOS bundle), then `PATH`. |
 | `SSHGATE_STORE` | desktop app | Passed to the hub as `--store=`. |
+| `SSHGATE_SSH_CONFIG` | desktop app | Passed to the hub as `--sshConfig=`: the SSH config **Import from SSH config** reads (default `~/.ssh/config`). |
 | `SSHGATE_IDLE_LOCK` | desktop app | Passed to the hub as `--idleLock=`, for testing. |
+
+The installed macOS app ignores every `SSHGATE_*` variable above and removes them from the hub's environment, so whoever can set your environment cannot swap the hub that receives your master password.
 
 ## Moving from the `ssh-mcp` name
 
