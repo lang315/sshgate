@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -12,7 +13,9 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/lang315/sshgate/internal/config"
 	"github.com/lang315/sshgate/internal/rpc"
+	"github.com/lang315/sshgate/internal/sshx"
 )
 
 // TestLiveImportConnect imports your real ~/.ssh/config into a throwaway vault
@@ -63,11 +66,9 @@ func TestLiveImportConnect(t *testing.T) {
 }
 
 // TestLiveVaultConnect opens a terminal on every server in a copy of your real
-// vault (SSHGATE_STORE, else ~/.config/sshgate/servers.json), so it uses what
-// you saved in the app: passwords, passphrases, pins. The master password is
-// read from the terminal without echo; the real vault is never written. It
-// runs only when SSHGATE_LIVE_VAULT is set: "1" for every server, or a
-// comma-separated list of names.
+// vault (see openLiveVault), so it uses what you saved in the app:
+// passwords, passphrases, pins. It runs only when SSHGATE_LIVE_VAULT is set:
+// "1" for every server, or a comma-separated list of names.
 //
 //	SSHGATE_LIVE_VAULT=1 go test ./internal/hub -run TestLiveVaultConnect -v -count=1
 func TestLiveVaultConnect(t *testing.T) {
@@ -75,6 +76,27 @@ func TestLiveVaultConnect(t *testing.T) {
 	if only == "" {
 		t.Skip("set SSHGATE_LIVE_VAULT=1 (or a list of server names) to dial the servers in your vault")
 	}
+	_, c, names := openLiveVault(t)
+	n := 0
+	for _, name := range names {
+		if only != "1" && !slices.Contains(strings.Split(only, ","), name) {
+			continue
+		}
+		n++
+		t.Run(name, func(t *testing.T) { liveOpen(t, c, name) })
+	}
+	if n == 0 {
+		t.Fatal("no matching server in the vault")
+	}
+}
+
+// openLiveVault copies your real vault (SSHGATE_STORE, else
+// ~/.config/sshgate/servers.json) to a temp dir, reads its master password
+// from the terminal without echo, and unlocks a hub on the copy; the real
+// vault is never written. It returns the hub, a UI-door client, and every
+// server name in the vault.
+func openLiveVault(t *testing.T) (*Hub, *rpc.Client, []string) {
+	t.Helper()
 	src := os.Getenv("SSHGATE_STORE")
 	if src == "" {
 		home, _ := os.UserHomeDir()
@@ -117,16 +139,166 @@ func TestLiveVaultConnect(t *testing.T) {
 	if err := c.Call(ctx, "servers", nil, &servers); err != nil {
 		t.Fatal(err)
 	}
+	names := make([]string, len(servers))
+	for i, s := range servers {
+		names[i] = s.Name
+	}
+	return h, c, names
+}
+
+// TestLiveRedact runs a fixed list of read-only commands on every POSIX
+// server in a copy of your real vault (see openLiveVault) and masks the
+// output exactly as run does before it reaches the AI
+// (config.RedactCapStreams with the host's redactorFor). It prints bytes read
+// and mask counts, never output, and fails if masked output still trips a
+// tripwire. It runs only when SSHGATE_LIVE_REDACT is set: "1" for every
+// server, or a comma-separated list of names.
+//
+//	SSHGATE_LIVE_REDACT=1 go test ./internal/hub -run TestLiveRedact -v -count=1
+func TestLiveRedact(t *testing.T) {
+	only := os.Getenv("SSHGATE_LIVE_REDACT")
+	if only == "" {
+		t.Skip("set SSHGATE_LIVE_REDACT=1 (or a list of server names) to check redaction on the servers in your vault")
+	}
+	h, _, names := openLiveVault(t)
 	n := 0
-	for _, s := range servers {
-		if only != "1" && !slices.Contains(strings.Split(only, ","), s.Name) {
+	for _, name := range names {
+		if only != "1" && !slices.Contains(strings.Split(only, ","), name) {
 			continue
 		}
 		n++
-		t.Run(s.Name, func(t *testing.T) { liveOpen(t, c, s.Name) })
+		t.Run(name, func(t *testing.T) { liveRedact(t, h, name) })
 	}
 	if n == 0 {
 		t.Fatal("no matching server in the vault")
+	}
+}
+
+// liveRedactCmds are read-only. /etc/*.env runs on its own so its counts
+// show alone (the exit gate: /etc/mwtn.env on fviainboxes-db yields at
+// least 2 password masks).
+var liveRedactCmds = []string{
+	"env",
+	"cat /etc/*.env 2>/dev/null",
+	"cat ~/.env ~/*/.env ~/.aws/credentials ~/.npmrc ~/.my.cnf ~/.pgpass 2>/dev/null",
+	"git config --global --list 2>/dev/null",
+	"command -v docker >/dev/null 2>&1 && docker inspect $(docker ps -q) 2>/dev/null",
+}
+
+// liveRedact checks one server. Everything it logs is a fixed command
+// string, a byte count, or counts by kind.
+func liveRedact(t *testing.T, h *Hub, name string) {
+	dc, err := h.Resolve(name)
+	if err != nil {
+		t.Skip("cannot resolve this server; open it in the app first")
+	}
+	if dc.HostKey == "" {
+		t.Skip("no pinned host key; open a terminal on it in the app first")
+	}
+	red := redactorFor(dc)
+	mgr := h.Registry().Get(name, dc)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if res, err := mgr.Exec(ctx, "uname -s"); err != nil || res.ExitCode != 0 || strings.TrimSpace(res.Stdout) == "" {
+		t.Skip("not a POSIX host (uname -s failed)")
+	}
+	total := map[string]int{}
+	read := 0
+	for i, cmd := range liveRedactCmds {
+		res, err := mgr.Exec(ctx, cmd)
+		if err != nil {
+			t.Errorf("command %d (%q) failed: %s", i, cmd, red.Redact(err.Error()))
+			continue
+		}
+		out, errOut, counts := config.RedactCapStreams(red, res.Stdout, res.Stderr, config.DefaultOutputCap)
+		n := len(res.Stdout) + len(res.Stderr)
+		read += n
+		for k, c := range counts {
+			total[k] += c
+		}
+		t.Logf("%q: %d bytes, masked %s", cmd, n, countsText(counts))
+		for _, trip := range tripwires(out+errOut, dc) {
+			t.Errorf("command %d (%q): tripwire %q hit in masked output", i, cmd, trip)
+		}
+	}
+	t.Logf("%s: %d bytes read, masked %s", name, read, countsText(total))
+}
+
+var (
+	pemTrip    = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY`)
+	bearerTrip = regexp.MustCompile(`(?i)authorization:[ \t]*bearer[ \t]+(\S*)`)
+	tokenTrip  = regexp.MustCompile(`AKIA[A-Z0-9]{16}|ghp_[A-Za-z0-9]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[abpr]-[A-Za-z0-9-]{10,}`)
+)
+
+// tripwires names what masked output still shows that masking should have
+// removed. It never returns the matched text.
+func tripwires(masked string, dc sshx.DialConfig) []string {
+	var hit []string
+	if pemTrip.MatchString(masked) {
+		hit = append(hit, "unmasked private key")
+	}
+	for _, m := range bearerTrip.FindAllStringSubmatch(masked, -1) {
+		if !strings.HasPrefix(m[1], "[REDACTED:") {
+			hit = append(hit, "bearer token")
+			break
+		}
+	}
+	if tokenTrip.MatchString(masked) {
+		hit = append(hit, "known token prefix")
+	}
+	for _, s := range []string{dc.Password, dc.SuPassword, dc.SudoPassword, dc.Passphrase} {
+		if s != "" && strings.Contains(masked, s) {
+			hit = append(hit, "vault secret")
+			break
+		}
+	}
+	return hit
+}
+
+// countsText renders counts in config.RedactKinds order, or "nothing".
+func countsText(counts map[string]int) string {
+	var parts []string
+	for _, k := range config.RedactKinds {
+		if n := counts[k]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%s=%d", k, n))
+		}
+	}
+	if parts == nil {
+		return "nothing"
+	}
+	return strings.Join(parts, " ")
+}
+
+func TestLiveRedactTripwires(t *testing.T) {
+	dc := sshx.DialConfig{Password: "vault-pw-1"}
+	cases := []struct {
+		masked string
+		want   []string
+	}{
+		{"DB_PASSWORD=[REDACTED:password]\nAuthorization: Bearer [REDACTED:auth_header]\n[REDACTED:private_key]\n", nil},
+		{"-----BEGIN OPENSSH PRIVATE KEY-----\nb3Bl", []string{"unmasked private key"}},
+		{"> authorization: Bearer abc123", []string{"bearer token"}},
+		{"id AKIAIOSFODNN7EXAMPLE", []string{"known token prefix"}},
+		{"ghp_abcdefghijklmnopqrstuvwxyz", []string{"known token prefix"}},
+		{"echo vault-pw-1", []string{"vault secret"}},
+	}
+	for _, c := range cases {
+		if got := tripwires(c.masked, dc); !slices.Equal(got, c.want) {
+			t.Errorf("tripwires(%q) = %v, want %v", c.masked, got, c.want)
+		}
+	}
+	// Real-shaped output, masked the way run masks it, trips nothing.
+	out, errOut, counts := config.RedactCapStreams(redactorFor(dc),
+		"-----BEGIN RSA PRIVATE KEY-----\nMIIEow\n-----END RSA PRIVATE KEY-----\nPASS=vault-pw-1\nGITHUB_TOKEN=ghp_R8mK2vQx7LpT4nWz9YbC3dFh6JsA1uEo5GiN\n",
+		"> Authorization: Bearer abc123\n", config.DefaultOutputCap)
+	if hit := tripwires(out+errOut, dc); hit != nil {
+		t.Fatalf("masked output tripped %v", hit)
+	}
+	if got := countsText(counts); got != "private_key=1 secret=1 auth_header=1" {
+		t.Fatalf("countsText = %q", got)
+	}
+	if got := countsText(nil); got != "nothing" {
+		t.Fatalf("countsText(nil) = %q", got)
 	}
 }
 
