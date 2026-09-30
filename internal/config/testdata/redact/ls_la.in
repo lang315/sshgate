@@ -1,0 +1,16 @@
+# redact-test: negative
+total 64
+drwxr-x--- 6 deploy deploy 4096 Sep 29 14:02 .
+drwxr-xr-x 4 root   root   4096 Aug  3 09:11 ..
+-rw------- 1 deploy deploy  812 Sep 28 22:40 .bash_history
+-rw-r--r-- 1 deploy deploy  220 Aug  3 09:11 .bash_logout
+-rw-r--r-- 1 deploy deploy 3771 Aug  3 09:11 .bashrc
+drwx------ 3 deploy deploy 4096 Aug  3 09:15 .cache
+-rw------- 1 deploy deploy  118 Sep  2 11:20 .env
+-rw------- 1 deploy deploy   64 Sep  2 11:21 .pgpass
+-rw-r--r-- 1 deploy deploy  807 Aug  3 09:11 .profile
+drwx------ 2 deploy deploy 4096 Sep  2 11:18 .ssh
+drwxr-xr-x 8 deploy deploy 4096 Sep 29 14:02 app
+-rw-r--r-- 1 deploy deploy 1543 Sep 12 08:14 docker-compose.yml
+-rw------- 1 deploy deploy  402 Sep 12 08:14 secrets.yaml
+-rw-r--r-- 1 deploy deploy   91 Sep 20 17:03 token-rotation.log

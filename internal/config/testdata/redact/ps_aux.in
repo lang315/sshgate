@@ -1,0 +1,12 @@
+# redact-test: negative
+USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root           1  0.0  0.1 167740 11800 ?        Ss   Sep28   0:04 /sbin/init
+root         412  0.0  0.2  48232 17240 ?        S<s  Sep28   0:01 /lib/systemd/systemd-journald
+root         688  0.0  0.1  15432  9120 ?        Ss   Sep28   0:00 sshd: /usr/sbin/sshd -D [listener] 0 of 10-100 startups
+root         702  0.1  0.6 1428776 51220 ?       Ssl  Sep28   1:12 /usr/bin/containerd
+root         915  0.2  1.1 2064272 90112 ?       Ssl  Sep28   2:40 /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+999         2231  0.0  0.3 216744 28812 ?        Ss   Sep28   0:03 postgres
+999         2310  0.0  0.1 216876  8104 ?        Ss   Sep28   0:00 postgres: checkpointer
+deploy      3120  1.3  2.4 1152340 198452 ?      Ssl  Sep28  18:22 node /home/deploy/app/dist/server.js --port 8080
+root        4401  0.0  0.1  17180 10840 ?        Ss   14:01   0:00 sshd: deploy [priv]
+deploy      4455  0.0  0.0   8968  3920 pts/0    R+   14:02   0:00 ps aux

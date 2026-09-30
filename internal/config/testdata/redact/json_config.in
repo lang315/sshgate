@@ -1,0 +1,27 @@
+# redact-test: secrets Wm4tQz8vLp2Rk7Xs b7d5a3f1c8e9a7c1e5b2d8f4a6c0e9b7 Gq7Wz2Xv9Lp4Rk8Tn3Yb Hq9fT3eVb6Ny1uZk
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080
+  },
+  "database": {
+    "url": "postgres://mwtn_app:Wm4tQz8vLp2Rk7Xs@10.0.3.12:5432/mwtn?sslmode=require",
+    "pool": 10
+  },
+  "auth": {
+    "jwtSecret": "b7d5a3f1c8e9a7c1e5b2d8f4a6c0e9b7",
+    "tokenTtlSeconds": 3600,
+    "oauth": {
+      "clientId": "mwtn-web",
+      "clientSecret": "Gq7Wz2Xv9Lp4Rk8Tn3Yb"
+    }
+  },
+  "mail": {
+    "smtpPassword": "Hq9fT3eVb6Ny1uZk",
+    "passwordResetUrl": "https://mwtn.example.com/reset"
+  },
+  "features": {
+    "passwordLogin": true,
+    "apiKeyHeader": "X-Api-Key"
+  }
+}

@@ -1,0 +1,40 @@
+# counts: password=2 secret=1
+[
+    {
+        "Id": "4f2a9c1e7b3d5f8a0c6e2b9d4f7a1c3e5b8d0f2a4c6e9b1d3f5a7c9e0b2d4f6a",
+        "Created": "2026-09-12T08:14:22.918273645Z",
+        "Path": "docker-entrypoint.sh",
+        "Args": [
+            "postgres"
+        ],
+        "State": {
+            "Status": "running",
+            "Running": true,
+            "Pid": 2231,
+            "ExitCode": 0
+        },
+        "Image": "sha256:9b1f3e5a7c9d2b4f6a8c0e1d3f5b7a9c2e4d6f8b0a1c3e5d7f9b2a4c6e8d0f1b",
+        "Name": "/mwtn-db-1",
+        "Config": {
+            "Hostname": "4f2a9c1e7b3d",
+            "Env": [
+                "POSTGRES_USER=mwtn",
+                "POSTGRES_PASSWORD=[REDACTED:password]",
+                "POSTGRES_DB=mwtn",
+                "JWT_SECRET=[REDACTED:secret]",
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "PG_MAJOR=16",
+                "PGDATA=/var/lib/postgresql/data"
+            ],
+            "Cmd": [
+                "postgres"
+            ],
+            "Image": "postgres:16",
+            "Labels": {
+                "com.docker.compose.project": "mwtn",
+                "com.docker.compose.service": "db",
+                "com.example.backup.password": "[REDACTED:password]"
+            }
+        }
+    }
+]

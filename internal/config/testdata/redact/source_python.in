@@ -1,0 +1,23 @@
+# redact-test: negative
+import os
+
+import bcrypt
+from flask import Flask, request
+
+app = Flask(__name__)
+DB_PASSWORD = os.environ["DB_PASSWORD"]
+API_TOKEN = os.getenv("API_TOKEN", "")
+
+
+def check_password(username, password):
+    hashed = get_hash(username)
+    return bcrypt.checkpw(password.encode(), hashed)
+
+
+@app.route("/login", methods=["POST"])
+def login():
+    username = request.form["username"]
+    password = request.form['password']
+    if not check_password(username, password):
+        return "invalid credentials", 401
+    return "ok"

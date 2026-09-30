@@ -1,0 +1,20 @@
+# counts: password=2 secret=3 token=1
+# /etc/mwtn.env - managed by ansible, do not edit
+APP_ENV=production
+APP_PORT=8080
+DB_HOST=10.0.3.12
+DB_PORT=5432
+DB_NAME=mwtn
+DB_USER=mwtn_app
+DB_PASSWORD=[REDACTED:password]
+REDIS_URL=redis://10.0.3.20:6379/0
+SMTP_HOST=smtp.mailgun.org
+SMTP_USER=postmaster@mg.example.com
+SMTP_PASS='[REDACTED:password]'
+SESSION_SECRET=[REDACTED:secret]
+STRIPE_SECRET_KEY=[REDACTED:secret]
+AWS_ACCESS_KEY_ID=[REDACTED:token]
+AWS_SECRET_ACCESS_KEY=[REDACTED:secret]
+LOG_LEVEL=info
+FEATURE_PASSWORD_RESET=true
+BACKUP_PASSWORD=

@@ -1,0 +1,10 @@
+# redact-test: negative
+Filesystem      Size  Used Avail Use% Mounted on
+udev            3.9G     0  3.9G   0% /dev
+tmpfs           796M  1.2M  795M   1% /run
+/dev/sda1        78G   41G   34G  55% /
+tmpfs           3.9G     0  3.9G   0% /dev/shm
+tmpfs           5.0M     0  5.0M   0% /run/lock
+/dev/sda15      105M  6.1M   99M   6% /boot/efi
+overlay          78G   41G   34G  55% /var/lib/docker/overlay2/4f2a9c1e7b3d5f8a0c6e2b9d4f7a1c3e/merged
+tmpfs           796M  4.0K  796M   1% /run/user/1000

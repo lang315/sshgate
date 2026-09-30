@@ -1,0 +1,25 @@
+# redact-test: negative
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "mwtn.fullname" . }}-env
+type: Opaque
+stringData:
+  DB_PASSWORD: {{ .Values.db.password | quote }}
+  API_TOKEN: {{ required "apiToken is required" .Values.apiToken | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mwtn.fullname" . }}-env
+                  key: DB_PASSWORD
+            - name: SESSION_SECRET
+              value: "{{ .Values.sessionSecret }}"

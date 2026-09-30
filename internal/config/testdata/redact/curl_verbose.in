@@ -1,0 +1,22 @@
+# redact-test: secrets eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkZXBsb3kiLCJpYXQiOjE3OTAwMDAwMDB9.Qm9ndXNTaWduYXR1cmVGb3JUZXN0c09ubHkxMjM 9c4e1a7f3b5d2e8c6a0f4b9d1e7c3a5f s%3Aq8Zk2WmXv7Lp4Rt9.Yb3Cd6Fh1Js5
+*   Trying 10.0.3.30:443...
+* Connected to api.internal.example.com (10.0.3.30) port 443
+* ALPN: curl offers h2,http/1.1
+* SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384 / X25519 / RSASSA-PSS
+* Server certificate:
+*  subject: CN=api.internal.example.com
+*  expire date: Mar 14 23:59:59 2027 GMT
+> GET /v1/jobs?limit=10 HTTP/1.1
+> Host: api.internal.example.com
+> User-Agent: curl/8.5.0
+> Accept: */*
+> Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkZXBsb3kiLCJpYXQiOjE3OTAwMDAwMDB9.Qm9ndXNTaWduYXR1cmVGb3JUZXN0c09ubHkxMjM
+> X-Api-Key: 9c4e1a7f3b5d2e8c6a0f4b9d1e7c3a5f
+>
+< HTTP/1.1 200 OK
+< Content-Type: application/json
+< Content-Length: 23
+< Set-Cookie: connect.sid=s%3Aq8Zk2WmXv7Lp4Rt9.Yb3Cd6Fh1Js5; Path=/; HttpOnly; Secure
+<
+{"jobs":[],"next":null}
+* Connection #0 to host api.internal.example.com left intact
