@@ -415,10 +415,11 @@ func TestFailedMkdirSkipsItsContents(t *testing.T) {
 	noParts(t, dest)
 }
 
-// TestUploadPartFileIsNeverWorldReadable catches the window between the
-// server creating the part file at its own default mode and pkg/sftp's
-// concurrent writer sending its first byte: the part file must already be
-// chmod 0600 before that, not just after the last byte lands.
+// TestUploadPartFileIsNeverWorldReadable checks that no other user can open
+// the part file at any point. pkg/sftp cannot create a file with a mode, so
+// the server creates it at its own default mode; what keeps it private is
+// the 0700 staging directory around it, which must be in place before the
+// file exists (an fd opened in that window would outlive any later chmod).
 func TestUploadPartFileIsNeverWorldReadable(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX permission bits")
@@ -444,7 +445,7 @@ func TestUploadPartFileIsNeverWorldReadable(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatal("part file never appeared")
 		}
-		matches, _ := filepath.Glob(filepath.Join(root, "home", ".big.*.sshgate-part"))
+		matches, _ := filepath.Glob(filepath.Join(root, "home", ".big.*.sshgate-part", "*"))
 		if len(matches) == 1 {
 			partPath = matches[0]
 		} else {
@@ -452,9 +453,9 @@ func TestUploadPartFileIsNeverWorldReadable(t *testing.T) {
 		}
 	}
 	// The first WriteAt is blocked on the gate, so the part file exists but
-	// holds no content yet: any mode here came from creation, not from the
-	// final post-write Chmod.
-	fi, err := os.Stat(partPath)
+	// holds no content yet. Its directory must already be private: the file
+	// is only created after the directory's chmod has returned.
+	fi, err := os.Stat(filepath.Dir(partPath))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,8 +463,8 @@ func TestUploadPartFileIsNeverWorldReadable(t *testing.T) {
 	release()
 	r := <-done
 	p.Close()
-	if perm != 0o600 {
-		t.Fatalf("part file mode %v before any content was written", perm)
+	if perm != 0o700 {
+		t.Fatalf("part file's directory mode %v while the part file exists", perm)
 	}
 	if r.Copied != 1 || r.Errors.Count != 0 {
 		t.Fatalf("%+v", r)

@@ -250,7 +250,15 @@ func commitLocal(root *os.Root, part, final string, replace bool) error {
 
 func (p *Plan) upload(ctx context.Context, c *sftp.Client, it item, replace bool, prog func(int64)) (int64, error) {
 	final := path.Join(p.dest, it.rel)
-	part := path.Join(path.Dir(final), partName(path.Base(final)))
+	// pkg/sftp v1.13.11 has no create-with-attributes open: the server creates
+	// the part file at its own default mode, and chmod cannot revoke an fd
+	// another user opens in that window. So the file lives in a staging
+	// directory made private before the file exists; it sits beside final,
+	// so the commit's link or rename never crosses a filesystem.
+	// ponytail: one staging dir per file (3 extra round trips); share one
+	// per parent directory if uploads of many tiny files measurably hurt.
+	partDir := path.Join(path.Dir(final), partName(path.Base(final)))
+	part := path.Join(partDir, "data")
 	// it.root.Open follows an in-root symlink; a source swapped for one after
 	// the plan must not be read as if it were still the original file.
 	lfi, err := it.root.Lstat(it.src)
@@ -268,15 +276,22 @@ func (p *Plan) upload(ctx context.Context, c *sftp.Client, it item, replace bool
 	if st, err := src.Stat(); err != nil || !st.Mode().IsRegular() || !os.SameFile(lfi, st) {
 		return 0, errNotRegular
 	}
-	dst, err := c.OpenFile(part, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
-	if err != nil {
+	if err := c.Mkdir(partDir); err != nil { // fails if the name exists, like O_EXCL
 		return 0, err
 	}
-	// pkg/sftp v1.13.11 has no create-with-attributes open, so the empty part
-	// file exists at the server's default mode for one round trip.
+	if err := c.Chmod(partDir, 0o700); err != nil {
+		c.RemoveDirectory(partDir)
+		return 0, err
+	}
+	dst, err := c.OpenFile(part, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
+	if err != nil {
+		c.RemoveDirectory(partDir)
+		return 0, err
+	}
 	if err := dst.Chmod(0o600); err != nil {
 		dst.Close()
 		c.Remove(part)
+		c.RemoveDirectory(partDir)
 		return 0, err
 	}
 	r := &ctxReader{ctx: ctx, r: src, prog: prog}
@@ -295,6 +310,9 @@ func (p *Plan) upload(ctx context.Context, c *sftp.Client, it item, replace bool
 	}
 	if err != nil {
 		c.Remove(part)
+	}
+	c.RemoveDirectory(partDir)
+	if err != nil {
 		return r.n, bare(err)
 	}
 	return r.n, nil
