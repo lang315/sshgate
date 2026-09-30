@@ -28,6 +28,7 @@ export const RefreshIcon = icon(<><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="
 export const UploadIcon = icon(<><path d="M12 16V4M7 9l5-5 5 5" /><path d="M4 20h16" /></>)
 export const DownloadIcon = icon(<><path d="M12 4v12M7 11l5 5 5-5" /><path d="M4 20h16" /></>)
 export const TunnelIcon = icon(<><path d="M4 8h13l-3-3" /><path d="M20 16H7l3 3" /></>)
+export const ChevronDownIcon = icon(<path d="M6 9l6 6 6-6" />)
 export const StopIcon = icon(<rect x="5" y="5" width="14" height="14" rx="2" />)
 
 // The app's only mark: a terminal glyph on the accent tile, then the name. No logo.
