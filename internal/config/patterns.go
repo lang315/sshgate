@@ -27,11 +27,14 @@ var (
 	// A key that may name a secret, a separator, and a value. Which keys
 	// really count is decided in code (keyKind): RE2 cannot split words.
 	// The value's unquoted form never starts with '>', so "=>" is never
-	// mistaken for "=" followed by a ">"-led value. A bracket-led value
-	// ("auth": {) is captured; keepValue keeps one made only of brackets. A
-	// quote with no match on the same line ("*[^\r\n]*) is masked to the
-	// end of the line.
-	kvRe = regexp.MustCompile(`(?i)(["']?)(-{0,2}[a-z0-9_.-]*?(?:pass|pwd|secret|token|key|auth|credential)[a-z0-9_.-]*)(["']?)([ \t]*(?::=|==|=>|=|:)[ \t]*|[ \t]+)("(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'|"[^\r\n]*|'[^\r\n]*|[^\s"'` + "`" + `>][^\s"'` + "`" + `]*)`)
+	// mistaken for "=" followed by a ">"-led value; nor with a bracket, so a
+	// flow map's opening "{" ("auth: {password: x}") is not the parent key's
+	// value and the pair inside is found. A quote with no match on the same
+	// line ("*[^\r\n]*) is masked to the end of the line. Bracket-led
+	// values are a second pass (kvBracketRe).
+	kvHead      = `(?i)(["']?)(-{0,2}[a-z0-9_.-]*?(?:pass|pwd|secret|token|key|auth|credential)[a-z0-9_.-]*)(["']?)([ \t]*(?::=|==|=>|=|:)[ \t]*|[ \t]+)`
+	kvRe        = regexp.MustCompile(kvHead + `("(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'|"[^\r\n]*|'[^\r\n]*|[^\s"'` + "`" + `>(){}\[\]][^\s"'` + "`" + `]*)`)
+	kvBracketRe = regexp.MustCompile(kvHead + `([(){}\[\]][^\s"'` + "`" + `]*)`)
 	// Bare tokens with a known prefix.
 	tokenRe = regexp.MustCompile(`\b(?:(?:AKIA|ASIA)[A-Z0-9]{16}\b|(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[abpr]-[A-Za-z0-9-]{10,}|(?:sk-|sk_live_|sk_test_|rk_live_|rk_test_)[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{10,})`)
 	// A code expression: an identifier or dotted path immediately followed
@@ -54,7 +57,7 @@ var redisPasswordKeys = map[string]bool{"requirepass": true, "masterauth": true}
 // the key and separator stay. It is pure, and idempotent: a marker is a
 // placeholder, which every rule keeps.
 //
-// ponytail: RE2 passes over the whole output, about 0.4 s per MiB measured,
+// ponytail: RE2 passes over the whole output, about 0.6 s per MiB measured,
 // linear as long as kvPass's nesting is capped: uncapped, a whitespace-free
 // chain like "key=" repeated cost 20 s at 64 KiB (quadratic). Capped at depth
 // 4 it costs 39 ms at 64 KiB and 373 ms at 1 MiB, so a secret behind a 5th
@@ -105,9 +108,9 @@ func RedactPatterns(s string) (string, map[string]int) {
 	// found. The value handed to the recursive call is always shorter than
 	// the match it came from, and the depth is capped (see the ponytail note
 	// above: each level re-scans the rest of a whitespace-free value).
-	var kvPass func(string, int) string
-	kvPass = func(str string, depth int) string {
-		return replaceSubmatch(kvRe, str, func(s string, m []int) string {
+	var kvPass func(*regexp.Regexp, string, int) string
+	kvPass = func(re *regexp.Regexp, str string, depth int) string {
+		return replaceSubmatch(re, str, func(s string, m []int) string {
 			key, sep := s[m[4]:m[5]], s[m[8]:m[9]]
 			v := s[m[10]:m[11]]
 			open, closing := "", ""
@@ -132,17 +135,19 @@ func RedactPatterns(s string) (string, map[string]int) {
 			switch {
 			case kind == "", stray:
 			case strings.TrimSpace(sep) == "" && !spacedPair(s, m, key, kind, depth > 0):
-			case keepValue(v):
+			case keepValue(v), strings.ContainsRune("{[(", rune(v[0])) && (strings.HasSuffix(v, ":") || strings.HasSuffix(v, "=>")):
+				// a flow map's first key is not a value
 			default:
 				return s[m[0]:m[10]] + open + mark(kind) + closing
 			}
 			if depth >= 4 {
 				return s[m[0]:m[1]]
 			}
-			return s[m[0]:m[10]] + open + kvPass(v, depth+1) + closing
+			return s[m[0]:m[10]] + open + kvPass(re, v, depth+1) + closing
 		})
 	}
-	s = kvPass(s, 0)
+	s = kvPass(kvRe, s, 0)
+	s = kvPass(kvBracketRe, s, 0)
 	s = tokenRe.ReplaceAllStringFunc(s, func(t string) string {
 		if !strings.ContainsAny(t, "0123456789") {
 			return t // a hyphenated name, not a random token
@@ -306,7 +311,8 @@ func keepValue(v string) bool {
 	case strings.HasPrefix(v, "[REDACTED:"):
 		return true // a marker is a placeholder, so redaction stays idempotent
 	case l == "changeme", l == "replace_me", l == "null", l == "none", l == "true", l == "false",
-		l == "yes", l == "no", l == "on", l == "off":
+		l == "yes", l == "no", l == "on", l == "off",
+		l == "(none)", l == "(null)", l == "[filtered]", l == "[redacted]":
 		return true
 	case strings.Trim(v, "{}[]()") == "":
 		return true // a nested block's opening bracket, not a value

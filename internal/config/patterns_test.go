@@ -232,6 +232,16 @@ func TestRedactPatternsRules(t *testing.T) {
 		{"bracket-led password", "DB_PASSWORD=[Kq2mLp7Rw1s9", "DB_PASSWORD=[REDACTED:password]"},
 		{"brace-led password", "DB_PASSWORD={Kq2mLp7Rw1s9", "DB_PASSWORD=[REDACTED:password]"},
 		{"yaml brace-led password", "password: {Kq2mLp7Rw1s9", "password: [REDACTED:password]"},
+		// round 3: flow maps and bracketed placeholders
+		{"flow map", "auth: {password: hunter2x}", "auth: {password: [REDACTED:password]"},
+		{"flow map quoted", `auth: {password: "hunter2x"}`, `auth: {password: "[REDACTED:password]"}`},
+		{"flow map ruby", `auth: {:password=>"hunter2x"}`, `auth: {:password=>"[REDACTED:password]"}`},
+		{"flow list", "auth: [password: hunter2x]", "auth: [password: [REDACTED:password]"},
+		{"flow map benign", "auth: {enabled: true}", ""},
+		{"placeholder none", "Password: (none)", ""},
+		{"placeholder filtered", "password: [FILTERED]", ""},
+		{"placeholder redacted", "password: [REDACTED]", ""},
+		{"placeholder angle", "password: <NONE>", ""},
 		{"json nested block", `"auth": {`, ""},
 		{"yaml empty map", "auth: {}", ""},
 		{"nested spaced prose", `"authMessage": "Password expired"`, ""},
@@ -279,7 +289,7 @@ func TestRedactPatternsRules(t *testing.T) {
 // Doubling the input should cost well under 3x time (quadratic code would cost
 // about 4x); take the min of 3 runs to avoid flakiness.
 func TestRedactScaling(t *testing.T) {
-	for _, unit := range []string{"pass ", "key=", "password=${x}"} {
+	for _, unit := range []string{"pass ", "key=", "password=${x}", "auth: {"} {
 		timeFor := func(n int) time.Duration {
 			s := strings.Repeat(unit, n/len(unit))
 			best := time.Duration(1<<63 - 1)
