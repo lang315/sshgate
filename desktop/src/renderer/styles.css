@@ -10,6 +10,7 @@
   --auto: #8FA7F0; --auto-tint: #1F2744;
   --term-bg: #0E1012; --term-fg: #D8D4CC; --code-bg: #0E1012;
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.5);
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -22,6 +23,7 @@
   --auto: #3B53A8; --auto-tint: #e3e8fb;
   --term-bg: #ffffff; --term-fg: #1b1f2e; --code-bg: #eef0f6;
   --shadow: 0 8px 24px rgba(27, 31, 46, 0.12);
+  --shadow-sm: 0 2px 8px rgba(27, 31, 46, 0.08);
 }
 
 /* == base == */
@@ -78,16 +80,22 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 .hosts-head input { flex: 1; }
 .section-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .hostgrid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
-.hostcard { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--divider); border-radius: 10px; transition: border-color 120ms ease-out, box-shadow 160ms ease-out; }
-.hostcard:hover, .hostcard:focus-within { border-color: var(--line); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); }
+.hostcard { position: relative; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--divider); border-radius: 10px; transition: border-color 120ms ease-out, box-shadow 160ms ease-out; }
+.hostcard:hover, .hostcard:focus-within { border-color: var(--line); box-shadow: var(--shadow-sm); }
 .hostcard-open { min-width: 0; display: flex; gap: 12px; align-items: center; padding: 16px 16px 10px; background: none; border: 0; text-align: left; border-radius: 10px 10px 0 0; }
+/* Stretched over the whole card, so the footer's chip area opens the host too;
+   the footer's buttons sit above it. */
+.hostcard-open::after { content: ""; position: absolute; inset: 0; border-radius: 10px; }
 .tile { width: 40px; height: 40px; flex: none; border-radius: 9px; display: grid; place-items: center; background: var(--accent-tint); color: var(--accent); font-weight: 600; font-size: 16px; }
 .hostcard-text { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .hostcard-name { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hostcard-addr { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Status chips left, actions right, in one fixed-height row that is always laid out. */
-.hostcard-foot { height: 40px; display: flex; align-items: center; gap: 4px; padding: 0 8px 6px 16px; }
-.hostcard-chips { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; }
+.hostcard-foot { min-height: 40px; display: flex; align-items: center; gap: 4px; padding: 0 8px 6px 16px; }
+/* Chips wrap rather than clip: a cut "Auto 14m" would misstate the grant. The
+   actions' width is reserved whether or not they show, so hover never reflows. */
+.hostcard-chips { flex: 1; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
+.hostcard-actions, .icon.stop-auto { position: relative; z-index: 1; }
 .hostcard-actions { display: flex; align-items: center; gap: 2px; opacity: 0; transition: opacity 120ms ease-out; }
 .hostcard:hover .hostcard-actions, .hostcard:focus-within .hostcard-actions { opacity: 1; }
 .icon.stop-auto { color: var(--auto); }
@@ -180,7 +188,8 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 .autorun-status.ok { color: var(--ok); }
 .autorun-status.nonzero { color: var(--wait); }
 .autorun-status.fail { color: var(--danger); }
-.autorun .cmd { background: var(--code-bg); font-size: 12px; padding: 6px 8px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+/* Never clamped: this is the only record of what ran without a decision. */
+.autorun .cmd { background: var(--code-bg); font-size: 12px; padding: 6px 8px; }
 .autorun-desc { font-size: 12px; color: var(--label); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .autorun-error { font-size: 12px; color: var(--danger); overflow-wrap: anywhere; }
 .btn.sm { height: 28px; padding: 0 10px; font-size: 12px; }
@@ -217,7 +226,6 @@ input.address { height: 40px; font-size: 14px; }
 .fold summary::before { content: "▸"; color: var(--muted); }
 .fold[open] summary::before { content: "▾"; }
 .fold-body { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 10px; }
-.check { display: flex; align-items: center; gap: 6px; }
 /* A styled native select: keyboard, type-ahead and the OS menu stay native. */
 .select { position: relative; display: block; }
 .select select { appearance: none; width: 100%; height: 34px; padding: 0 34px 0 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--text); cursor: pointer; transition: border-color 120ms ease-out; }

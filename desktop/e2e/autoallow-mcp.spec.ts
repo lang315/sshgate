@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Dialog, type Page } from '@playwright/test'
 import { spawn, type ChildProcess } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -28,19 +28,31 @@ test.afterAll(async () => { mcp?.close(); await l?.close() })
 class Mcp {
   private p: ChildProcess
   private id = 0
-  private waiting = new Map<number, (m: any) => void>()
+  private waiting = new Map<number, { resolve: (m: any) => void; reject: (e: Error) => void }>()
+  private dead?: Error
   constructor(bin: string, runtimeDir: string) {
     this.p = spawn(bin, [], { env: { ...process.env, SSHGATE_RUNTIME_DIR: runtimeDir }, stdio: ['pipe', 'pipe', 'inherit'] })
     readline.createInterface({ input: this.p.stdout! }).on('line', (line) => {
-      const m = JSON.parse(line)
-      this.waiting.get(m.id)?.(m)
+      let m: any
+      try { m = JSON.parse(line) } catch { return this.fail(new Error(`bridge wrote a non-JSON line: ${line}`)) }
+      this.waiting.get(m.id)?.resolve(m)
       this.waiting.delete(m.id)
     })
+    // A bridge that dies or cannot start fails every waiting call at once,
+    // instead of leaving it to the test timeout.
+    this.p.on('error', (e) => this.fail(e))
+    this.p.on('exit', (code, sig) => this.fail(new Error(`bridge exited (code ${code}, signal ${sig})`)))
+  }
+  private fail(e: Error) {
+    this.dead ??= e
+    for (const w of this.waiting.values()) w.reject(e)
+    this.waiting.clear()
   }
   call(method: string, params: unknown): Promise<any> {
+    if (this.dead) return Promise.reject(this.dead)
     const id = ++this.id
     return new Promise((resolve, reject) => {
-      this.waiting.set(id, (m) => (m.error ? reject(new Error(m.error.message)) : resolve(m.result)))
+      this.waiting.set(id, { resolve: (m) => (m.error ? reject(new Error(m.error.message)) : resolve(m.result)), reject })
       this.p.stdin!.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n')
     })
   }
@@ -62,6 +74,12 @@ type Rec = Record<string, any>
 const audit = (): Rec[] => fs.readFileSync(path.join(l.tmp, 'store', 'audit.jsonl'), 'utf8').trim().split('\n').map((s) => JSON.parse(s))
 const execRec = (command: string): Rec | undefined => audit().filter((r) => r.command === command).pop()
 const configRecs = (action: string, server: string): Rec[] => audit().filter((r) => r.kind === 'config' && r.action === action && r.server === server)
+
+// unlockDone waits until the unlock has landed: an AI exec sent before it is refused as locked.
+async function unlockDone(win: Page) {
+  await unlock(win)
+  await expect(win.getByLabel('Master password')).toBeHidden()
+}
 
 async function home(win: Page) { await win.locator('.tabbar .hometab').click() }
 
@@ -99,7 +117,7 @@ const card = (win: Page, server: string) => win.locator('.hostcard').filter({ ha
 
 test('baseline: an MCP exec waits for a human decision', async () => {
   const win = await l.app.firstWindow()
-  await unlock(win)
+  await unlockDone(win)
   const out = exec('box', 'echo base')
   await waitThenDecide(win, 'echo base', 'allow')
   expect(await out).toContain('echo base')
@@ -143,7 +161,8 @@ test('sudo-exec opt-in: sudo-exec runs with no decision and is tagged', async ()
 
   expect(await sudoExec('box', 'echo sudo-auto')).toContain('echo sudo-auto')
   expect(execRec('echo sudo-auto')).toMatchObject({ outcome: 'allowed', approval: 'auto', sudo: true })
-  await expect(win.getByRole('region', { name: 'Auto-allowed' }).locator('li', { hasText: 'echo sudo-auto' })).toContainText('sudo')
+  // The tag, not the text: the command itself contains "sudo".
+  await expect(win.getByRole('region', { name: 'Auto-allowed' }).locator('li', { hasText: 'echo sudo-auto' }).locator('.chip.danger')).toHaveText('sudo')
 })
 
 test('Stop on the card ends the grant', async () => {
@@ -183,7 +202,8 @@ test('root host: refused until "Allow on root hosts" is ticked, then auto', asyn
   // "not visible to AI", so the app can't foresee the root refusal: the hub
   // refuses, the save stands, and the app says so.
   const alerts: string[] = []
-  win.on('dialog', (a) => { alerts.push(a.message()); void a.accept() })
+  const onDialog = (a: Dialog) => { alerts.push(a.message()); void a.accept() }
+  win.on('dialog', onDialog)
   await editAuto(win, 'rootbox', '15m', { visible: true, root: false })
   const d = win.getByRole('dialog', { name: 'Auto-allow AI commands on rootbox' })
   await enable(win, 'rootbox')
@@ -191,6 +211,7 @@ test('root host: refused until "Allow on root hosts" is ticked, then auto', asyn
   expect(configRecs('autoAllowOn', 'rootbox')).toHaveLength(0)
   expect(configRecs('save', 'rootbox').pop()!.changed.join(' ')).toContain('aiVisible: false → true')
   await expect(card(win, 'rootbox').locator('.chip.auto')).toHaveCount(0)
+  win.off('dialog', onDialog)
 
   // Now visible, the app knows the refusal up front and Enable stays disabled.
   await editAuto(win, 'rootbox', '15m', { root: false })
@@ -217,7 +238,7 @@ test('lock ends a timed grant', async () => {
   await enable(win, 'box')
   await expect(card(win, 'box').locator('.chip.auto')).toHaveCount(1)
   await win.getByRole('button', { name: 'Lock' }).click()
-  await unlock(win)
+  await unlockDone(win)
   await expect(card(win, 'box').locator('.chip.auto')).toHaveCount(0)
   expect(configRecs('autoAllowOff', 'box').pop()!.reason).toBe('locked')
   const out = exec('box', 'echo after-lock')
@@ -237,7 +258,7 @@ test('forever grant is paused after unlock until Resume', async () => {
   expect(configRecs('autoAllowOn', 'box').pop()!.forever).toBe(true)
 
   await win.getByRole('button', { name: 'Lock' }).click()
-  await unlock(win)
+  await unlockDone(win)
   await expect(win.getByText('Auto-allow is paused on box.').first()).toBeVisible()
   const out = exec('box', 'echo paused-asks')
   out.catch(() => {})

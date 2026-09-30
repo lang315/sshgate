@@ -23,6 +23,11 @@ const ESCALATION: SecretField[] = ['suPassword', 'sudoPassword']
 // server undefined = a new host. Only what a plain host needs is open:
 // address, user, password. Key/agent auth, su/sudo and AI access are folded.
 // Secrets are never shown: an empty field keeps the saved value, Clear removes it.
+const OPT_INS: { key: 'autoAllowRoot' | 'autoAllowSudo'; label: string; hint: string }[] = [
+  { key: 'autoAllowRoot', label: 'Allow on root hosts', hint: 'Lets a grant run on a root login, or a host with a stored su or sudo password.' },
+  { key: 'autoAllowSudo', label: 'Also auto-allow sudo-exec', hint: 'sudo-exec runs without asking on a granted host, the same as plain exec.' },
+]
+
 export function HostEditor({ server, openTabs, transfers, focusForget, remoteTunnels, autoAllowCheck, onSave, onForget, onClose }: {
   server?: ServerInfo; openTabs: number; transfers: number; focusForget?: boolean
   remoteTunnels: string[]; autoAllowCheck: (name: string) => Promise<AutoAllowCheck>
@@ -171,22 +176,16 @@ export function HostEditor({ server, openTabs, transfers, focusForget, remoteTun
               {timedNoteText && <p className="muted">{timedNoteText}</p>}
               {/* The hint is the checkbox's description, not part of its name. */}
               <div className="optins">
-                <div className={'optin' + (draft.autoAllow === 'off' ? ' off' : '')}>
-                  <input type="checkbox" id={field('autoroot')} aria-describedby={field('autoroot-hint')} checked={draft.autoAllowRoot} disabled={draft.autoAllow === 'off'}
-                    onChange={(e) => set({ autoAllowRoot: e.target.checked })} />
-                  <div className="optin-text">
-                    <label htmlFor={field('autoroot')}>Allow on root hosts</label>
-                    <p id={field('autoroot-hint')}>Lets a grant run on a root login, or a host with a stored su or sudo password.</p>
+                {OPT_INS.map((o) => (
+                  <div key={o.key} className={'optin' + (draft.autoAllow === 'off' ? ' off' : '')}>
+                    <input type="checkbox" id={field(o.key)} aria-describedby={field(`${o.key}-hint`)} checked={draft[o.key]} disabled={draft.autoAllow === 'off'}
+                      onChange={(e) => set({ [o.key]: e.target.checked })} />
+                    <div className="optin-text">
+                      <label htmlFor={field(o.key)}>{o.label}</label>
+                      <p id={field(`${o.key}-hint`)}>{o.hint}</p>
+                    </div>
                   </div>
-                </div>
-                <div className={'optin' + (draft.autoAllow === 'off' ? ' off' : '')}>
-                  <input type="checkbox" id={field('autosudo')} aria-describedby={field('autosudo-hint')} checked={draft.autoAllowSudo} disabled={draft.autoAllow === 'off'}
-                    onChange={(e) => set({ autoAllowSudo: e.target.checked })} />
-                  <div className="optin-text">
-                    <label htmlFor={field('autosudo')}>Also auto-allow sudo-exec</label>
-                    <p id={field('autosudo-hint')}>sudo-exec runs without asking on a granted host, the same as plain exec.</p>
-                  </div>
-                </div>
+                ))}
               </div>
               {draft.autoAllow !== 'off' && refusalHint && <p className="hint-warn"><WarningIcon />{refusalHint}</p>}
             </div>

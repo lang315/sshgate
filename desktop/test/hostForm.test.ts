@@ -86,18 +86,14 @@ describe('draftFrom auto-allow', () => {
     expect(toInput(d)).toMatchObject({ autoAllowRoot: true, autoAllowSudo: true })
   })
   it('disables the opt-in checkboxes while auto-allow mode is Off', () => {
-    // The opt-in checkboxes carry no name/id; find them by DOM order (root,
-    // then sudo — the only two `<input type="checkbox">` with no id).
-    const htmlOff = renderToStaticMarkup(createElement(HostEditor, { server: box, openTabs: 0, transfers: 0, remoteTunnels: [], autoAllowCheck: check, onSave: noop, onForget: noop, onClose: () => {} }))
-    const offBoxes = htmlOff.match(/<input type="checkbox"[^>]*>/g) ?? []
-    expect(offBoxes).toHaveLength(2)
-    expect(offBoxes[0]).toMatch(/disabled/)
-    expect(offBoxes[1]).toMatch(/disabled/)
-    const htmlForever = renderToStaticMarkup(createElement(HostEditor, { server: { ...box, autoAllow: { forever: true } }, openTabs: 0, transfers: 0, remoteTunnels: [], autoAllowCheck: check, onSave: noop, onForget: noop, onClose: () => {} }))
-    const foreverBoxes = htmlForever.match(/<input type="checkbox"[^>]*>/g) ?? []
-    expect(foreverBoxes).toHaveLength(2)
-    expect(foreverBoxes[0]).not.toMatch(/disabled/)
-    expect(foreverBoxes[1]).not.toMatch(/disabled/)
+    const optIns = (server: ServerInfo) => {
+      const html = renderToStaticMarkup(createElement(HostEditor, { server, openTabs: 0, transfers: 0, remoteTunnels: [], autoAllowCheck: check, onSave: noop, onForget: noop, onClose: () => {} }))
+      return ['autoAllowRoot', 'autoAllowSudo'].map((k) => html.match(new RegExp(`<input[^>]*id="[^"]*-${k}"[^>]*>`))?.[0] ?? '')
+    }
+    const off = optIns(box)
+    expect(off.every((i) => i.includes('disabled'))).toBe(true)
+    const forever = optIns({ ...box, autoAllow: { forever: true } })
+    expect(forever.every((i) => i !== '' && !i.includes('disabled'))).toBe(true)
   })
 })
 
