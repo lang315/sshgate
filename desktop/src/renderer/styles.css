@@ -8,8 +8,9 @@
   --wait: #E9A23B; --wait-tint: #3A2C14; --ok: #6CC58F; --on-wait: #1A1407;
   --on-danger: #ffffff;
   --auto: #8FA7F0; --auto-tint: #1F2744;
-  --term-bg: #0E1012; --term-fg: #D8D4CC;
+  --term-bg: #0E1012; --term-fg: #D8D4CC; --code-bg: #0E1012;
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.5);
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -20,8 +21,9 @@
   --wait: #8B6123; --wait-tint: #fcefdc; --ok: #3F7A57; --on-wait: #ffffff;
   --on-danger: #ffffff;
   --auto: #3B53A8; --auto-tint: #e3e8fb;
-  --term-bg: #ffffff; --term-fg: #1b1f2e;
+  --term-bg: #ffffff; --term-fg: #1b1f2e; --code-bg: #eef0f6;
   --shadow: 0 8px 24px rgba(27, 31, 46, 0.12);
+  --shadow-sm: 0 2px 8px rgba(27, 31, 46, 0.08);
 }
 
 /* == base == */
@@ -77,20 +79,27 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 .hosts-head { display: flex; gap: 8px; max-width: 720px; }
 .hosts-head input { flex: 1; }
 .section-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-.hostgrid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
-.hostcard { position: relative; display: flex; background: var(--surface); border: 1px solid var(--divider); border-radius: 8px; }
-.hostcard:hover, .hostcard:focus-within { border-color: var(--line); }
-.hostcard-open { flex: 1; min-width: 0; display: flex; gap: 12px; align-items: center; padding: 12px; background: none; border: 0; text-align: left; border-radius: 8px; }
-.tile { width: 36px; height: 36px; flex: none; border-radius: 8px; display: grid; place-items: center; background: var(--accent-tint); color: var(--accent); font-weight: 600; font-size: 15px; }
-.hostcard-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.hostcard-name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-/* The 5-icon actions row (152px) overlays the top-right of the card on hover;
-   without this, a name with enough chips (AI + New key/tunnels/auto) would
-   sit wide enough to be hidden under it instead of wrapping below. */
-.hostcard:hover .hostcard-text, .hostcard:focus-within .hostcard-text { max-width: calc(100% - 160px); }
+.hostgrid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+.hostcard { position: relative; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--divider); border-radius: 10px; transition: border-color 120ms ease-out, box-shadow 160ms ease-out; }
+.hostcard:hover, .hostcard:focus-within { border-color: var(--line); box-shadow: var(--shadow-sm); }
+.hostcard-open { min-width: 0; display: flex; gap: 12px; align-items: center; padding: 16px 16px 10px; background: none; border: 0; text-align: left; border-radius: 10px 10px 0 0; }
+/* Stretched over the whole card, so the footer's chip area opens the host too;
+   the footer's buttons sit above it. */
+.hostcard-open::after { content: ""; position: absolute; inset: 0; border-radius: 10px; }
+.tile { width: 40px; height: 40px; flex: none; border-radius: 9px; display: grid; place-items: center; background: var(--accent-tint); color: var(--accent); font-weight: 600; font-size: 16px; }
+.hostcard-text { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.hostcard-name { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hostcard-addr { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hostcard-actions { position: absolute; top: 6px; right: 6px; background: var(--surface); border-radius: 6px; display: flex; align-items: center; gap: 2px; padding: 2px; opacity: 0; }
+/* Status chips left, actions right, in one fixed-height row that is always laid out. */
+.hostcard-foot { min-height: 40px; display: flex; align-items: center; gap: 4px; padding: 0 8px 6px 16px; }
+/* Chips wrap rather than clip: a cut "Auto 14m" would misstate the grant. The
+   actions' width is reserved whether or not they show, so hover never reflows. */
+.hostcard-chips { flex: 1; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
+.hostcard-actions, .icon.stop-auto { position: relative; z-index: 1; }
+.hostcard-actions { display: flex; align-items: center; gap: 2px; opacity: 0; transition: opacity 120ms ease-out; }
 .hostcard:hover .hostcard-actions, .hostcard:focus-within .hostcard-actions { opacity: 1; }
+.icon.stop-auto { color: var(--auto); }
+.icon.stop-auto:hover:not(:disabled) { background: var(--auto-tint); color: var(--auto); }
 .empty { color: var(--muted); padding: 24px 0; }
 .hosts footer { margin-top: auto; padding-top: 12px; word-break: break-all; }
 
@@ -166,9 +175,24 @@ kbd { font-size: 11px; padding: 0 4px; border-radius: 4px; background: color-mix
 .aibtn.waiting { border-color: var(--wait); color: var(--wait); animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 3px var(--wait-tint); } }
 .banner.auto { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-radius: 6px; background: var(--auto-tint); color: var(--auto); }
-.autofeed { flex: none; max-height: 40%; overflow: auto; }
-.autofeed ul { list-style: none; margin: 0; padding: 0; }
-.autorun { display: grid; gap: 2px; padding: 6px 0; border-top: 1px solid var(--line); }
+.autofeed { flex: none; max-height: 45%; min-height: 0; display: flex; flex-direction: column; background: var(--bg); border-top: 1px solid var(--divider); }
+.autofeed .approvals-head { padding: 12px 16px 10px; }
+.autofeed .banner.auto { margin: 0 16px 10px; }
+.autofeed .empty { padding: 4px 16px 16px; }
+.autolist { list-style: none; margin: 0; padding: 0 12px 12px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.autorun { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px; background: var(--surface); border: 1px solid var(--divider); }
+.autorun-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.autorun-head strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.autorun-head .when { margin-left: auto; flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.autorun-status { flex: none; font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.autorun-status.ok { color: var(--ok); }
+.autorun-status.nonzero { color: var(--wait); }
+.autorun-status.fail { color: var(--danger); }
+/* Never clamped: this is the only record of what ran without a decision. */
+.autorun .cmd { background: var(--code-bg); font-size: 12px; padding: 6px 8px; }
+.autorun-desc { font-size: 12px; color: var(--label); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.autorun-error { font-size: 12px; color: var(--danger); overflow-wrap: anywhere; }
+.btn.sm { height: 28px; padding: 0 10px; font-size: 12px; }
 .approval .who { display: flex; align-items: center; gap: 8px; }
 .approval .who strong { font-size: 14px; }
 .approval .when { margin-left: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -202,7 +226,26 @@ input.address { height: 40px; font-size: 14px; }
 .fold summary::before { content: "▸"; color: var(--muted); }
 .fold[open] summary::before { content: "▾"; }
 .fold-body { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 10px; }
-.check { display: flex; align-items: center; gap: 6px; }
+/* A styled native select: keyboard, type-ahead and the OS menu stay native. */
+.select { position: relative; display: block; }
+.select select { appearance: none; width: 100%; height: 34px; padding: 0 34px 0 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--text); cursor: pointer; transition: border-color 120ms ease-out; }
+.select select:hover:not(:disabled) { border-color: var(--muted); }
+.select select:disabled { opacity: 0.45; cursor: default; }
+.select .ico { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.select:has(select:disabled) .ico { opacity: 0.45; }
+.optins { display: flex; flex-direction: column; gap: 10px; }
+.optin { display: grid; grid-template-columns: 16px 1fr; column-gap: 10px; align-items: start; }
+.optin input { appearance: none; width: 16px; height: 16px; margin: 2px 0 0; border-radius: 4px; border: 1.5px solid var(--line); background: var(--surface); display: grid; place-items: center; cursor: pointer; transition: background-color 120ms ease-out, border-color 120ms ease-out; }
+.optin input:hover:not(:disabled) { border-color: var(--muted); }
+.optin input:checked { background: var(--accent); border-color: var(--accent); }
+.optin input:checked::after { content: ""; width: 4px; height: 8px; margin-top: -2px; border: solid var(--surface); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.optin input:disabled { opacity: 0.45; cursor: default; }
+.optin-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.optin-text label { font-weight: 500; color: var(--text); cursor: pointer; }
+.optin-text p { font-size: 12px; color: var(--muted); }
+.optin.off .optin-text label { color: var(--muted); cursor: default; }
+.hint-warn { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; color: var(--wait); }
+.hint-warn .ico { margin-top: 1px; }
 .sheet-foot { display: flex; align-items: center; gap: 8px; padding: 14px 24px; border-top: 1px solid var(--divider); }
 .sheet-foot .spacer { flex: 1; }
 .importlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }

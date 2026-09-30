@@ -38,25 +38,30 @@ export function HostList({ servers, storePath, tunnels, now, onOpen, onFiles, on
               <button type="button" className="hostcard-open" aria-label={s.name} onClick={() => onOpen(s.name)}>
                 <span className="tile" aria-hidden="true">{s.name.slice(0, 1).toUpperCase()}</span>
                 <span className="hostcard-text">
-                  <span className="hostcard-name">
-                    {s.name}
-                    {s.aiVisible && <span className="chip ai">AI</span>}
-                    {!s.hostKey && <span className="chip wait">New key</span>}
-                    {runningCount(tunnels, s.name) > 0 && <span className="chip tunnels" title="Running tunnels">{`${runningCount(tunnels, s.name)} ⇄`}</span>}
-                    {chipLabel(s.autoAllow, now) && <span className="chip auto" aria-hidden="true">{chipLabel(s.autoAllow, now)}</span>}
-                  </span>
+                  <span className="hostcard-name" title={s.name}>{s.name}</span>
                   <span className="hostcard-addr mono">{`${s.user}@${s.host}:${s.port}`}</span>
                 </span>
               </button>
-              <span className="hostcard-actions">
+              {/* A row of its own, always laid out: showing the actions on hover
+                  never reflows the card, so nothing jumps under the cursor. */}
+              <div className="hostcard-foot">
+                <span className="hostcard-chips">
+                  {s.aiVisible && <span className="chip ai">AI</span>}
+                  {!s.hostKey && <span className="chip wait">New key</span>}
+                  {runningCount(tunnels, s.name) > 0 && <span className="chip tunnels" title="Running tunnels">{`${runningCount(tunnels, s.name)} ⇄`}</span>}
+                  {chipLabel(s.autoAllow, now) && <span className="chip auto" aria-hidden="true">{chipLabel(s.autoAllow, now)}</span>}
+                </span>
+                {/* Stop stays visible while a grant is on or paused: it must be stoppable at a glance. */}
                 {(isActive(s.autoAllow, now) || s.autoAllow?.paused) && (
-                  <button type="button" className="icon" aria-label={`Stop auto-allow ${s.name}`} title="Stop auto-allow" onClick={() => onStopAutoAllow(s.name)}><StopIcon /></button>
+                  <button type="button" className="icon stop-auto" aria-label={`Stop auto-allow ${s.name}`} title="Stop auto-allow" onClick={() => onStopAutoAllow(s.name)}><StopIcon /></button>
                 )}
-                <button type="button" className="icon" aria-label={`Files ${s.name}`} title="Files" onClick={() => onFiles(s.name)}><FolderIcon /></button>
-                <button type="button" className="icon" aria-label={`Tunnels ${s.name}`} title="Tunnels" onClick={() => onTunnels(s.name)}><TunnelIcon /></button>
-                <button type="button" className="icon" aria-label={`Edit ${s.name}`} title="Edit" onClick={() => onEdit(s.name)}><EditIcon /></button>
-                <button type="button" className="icon" aria-label={`Delete ${s.name}`} title="Delete" onClick={() => onDelete(s.name)}><TrashIcon /></button>
-              </span>
+                <span className="hostcard-actions">
+                  <button type="button" className="icon" aria-label={`Files ${s.name}`} title="Files" onClick={() => onFiles(s.name)}><FolderIcon /></button>
+                  <button type="button" className="icon" aria-label={`Tunnels ${s.name}`} title="Tunnels" onClick={() => onTunnels(s.name)}><TunnelIcon /></button>
+                  <button type="button" className="icon" aria-label={`Edit ${s.name}`} title="Edit" onClick={() => onEdit(s.name)}><EditIcon /></button>
+                  <button type="button" className="icon" aria-label={`Delete ${s.name}`} title="Delete" onClick={() => onDelete(s.name)}><TrashIcon /></button>
+                </span>
+              </div>
             </li>
           ))}
         </ul>
