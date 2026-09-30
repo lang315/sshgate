@@ -234,7 +234,11 @@ func liveRedact(t *testing.T, h *Hub, name string) (checked bool) {
 			t.Errorf("command %d (%q): tripwire %q hit in masked output", i, cmd, trip)
 		}
 	}
-	t.Logf("host %s: bytes=%d counts: %s", name, read, countsText(total))
+	line := fmt.Sprintf("host %s: bytes=%d", name, read)
+	for _, k := range config.RedactKinds {
+		line += fmt.Sprintf(" %s=%d", k, total[k])
+	}
+	t.Log(line)
 	return true
 }
 
