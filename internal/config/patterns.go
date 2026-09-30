@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 )
@@ -356,8 +355,16 @@ func RedactCap(r *Redactor, s string, max int) (string, map[string]int) {
 		out, c := RedactPatterns(s)
 		return CapOutput(out, max), c
 	}
-	head, c := RedactPatterns(s[:w])
-	tail, more := RedactPatterns(s[len(s)-w:])
+	// Align windows to line boundaries to avoid splitting secrets at cut edges.
+	hw, tw := s[:w], s[len(s)-w:]
+	if i := strings.LastIndexByte(hw, '\n'); i >= 0 {
+		hw = hw[:i+1]
+	}
+	if i := strings.IndexByte(tw, '\n'); i >= 0 {
+		tw = tw[i+1:]
+	}
+	head, c := RedactPatterns(hw)
+	tail, more := RedactPatterns(tw)
 	for k, n := range more {
 		if c == nil {
 			c = map[string]int{}
@@ -372,7 +379,7 @@ func RedactCap(r *Redactor, s string, max int) (string, map[string]int) {
 	if len(tail) > half {
 		tail = tail[len(tail)-half:]
 	}
-	return head + fmt.Sprintf("\n… [truncated %d bytes] …\n", len(s)-max) + tail, c
+	return head + truncMarker(len(s)-max) + tail, c
 }
 
 // RedactCapStreams applies RedactCap to stdout and stderr and merges counts

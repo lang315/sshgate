@@ -21,7 +21,7 @@ type AuditRecord struct {
 	DurationMs  int64          `json:"durationMs,omitempty"`
 	StdoutBytes int            `json:"stdoutBytes,omitempty"`
 	StderrBytes int            `json:"stderrBytes,omitempty"`
-	Redacted    map[string]int `json:"redacted,omitempty"` // RedactPatterns counts by kind, both streams; never a value
+	Redacted    map[string]int `json:"redacted,omitempty"` // RedactPatterns counts by kind, both streams, including parts of long output the cap drops; never a value
 	Approval    string         `json:"approval,omitempty"` // "auto" when a grant allowed it (spec 2026-09-28)
 	WaitMs      int64          `json:"waitMs,omitempty"`   // submit to the human's decision
 }

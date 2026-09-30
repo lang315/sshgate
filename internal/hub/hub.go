@@ -87,7 +87,7 @@ type ExecResponse struct {
 	ExitCode int            `json:"exitCode"`
 	Stdout   string         `json:"stdout"`
 	Stderr   string         `json:"stderr"`
-	Redacted map[string]int `json:"redacted,omitempty"` // RedactPatterns counts by kind, both streams
+	Redacted map[string]int `json:"redacted,omitempty"` // RedactPatterns counts by kind, both streams; includes values masked in parts of long output the cap drops
 }
 
 type Hub struct {

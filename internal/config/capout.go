@@ -13,5 +13,10 @@ func CapOutput(s string, max int) string {
 	}
 	half := max / 2
 	dropped := len(s) - max
-	return s[:half] + fmt.Sprintf("\n… [truncated %d bytes] …\n", dropped) + s[len(s)-half:]
+	return s[:half] + truncMarker(dropped) + s[len(s)-half:]
+}
+
+// truncMarker is the text CapOutput and RedactCap put where bytes were dropped.
+func truncMarker(dropped int) string {
+	return fmt.Sprintf("\n… [truncated %d bytes] …\n", dropped)
 }

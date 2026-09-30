@@ -1,7 +1,7 @@
 package config
 
 import (
-	"fmt"
+	"maps"
 	"strings"
 	"testing"
 )
@@ -25,10 +25,10 @@ func TestRedactCapBigOutput(t *testing.T) {
 			t.Errorf("%q leaked", s)
 		}
 	}
-	if counts["password"] != 1 || counts["private_key"] != 1 || counts["auth_header"] != 0 {
+	if !maps.Equal(counts, map[string]int{"password": 1, "private_key": 1}) {
 		t.Errorf("counts = %v", counts)
 	}
-	marker := fmt.Sprintf("\n… [truncated %d bytes] …\n", len(in)-capMax)
+	marker := truncMarker(len(in) - capMax)
 	if !strings.Contains(out, marker) {
 		t.Errorf("marker %q missing", marker)
 	}
@@ -41,22 +41,68 @@ func TestRedactCapShortIsRedactPatterns(t *testing.T) {
 	in := "a\nDB_PASSWORD=Wm4tQz8vLp2Rk7Xs\n"
 	want, wc := RedactPatterns(in)
 	got, gc := RedactCap(NewRedactor(), in, capMax)
-	if got != want || fmt.Sprint(gc) != fmt.Sprint(wc) {
+	if got != want || !maps.Equal(gc, wc) {
 		t.Errorf("got %q %v, want %q %v", got, gc, want, wc)
 	}
 }
 
-// BEGIN before the tail window, END inside it: the window starts mid-body and
-// no body line may survive in the kept tail.
+// BEGIN before the tail window, END inside the kept tail (last max/2 bytes):
+// the window starts mid-body, and no body line may survive in the result.
 func TestRedactCapPEMStraddlesTailWindow(t *testing.T) {
-	line := "MIIEowIBAAKCAQEAu1SU1LfVLPHCozMxH2Mo4lgOEePzNm0tRgeLezV6ffAt0gun\n"
-	end := "-----END RSA PRIVATE KEY-----\n"
-	w := capMax/2 + redactMargin
-	// 20 body lines, the window starting ~10 lines before END.
-	in := filler(3<<20) + "-----BEGIN RSA PRIVATE KEY-----\n" + strings.Repeat(line, 10) +
-		strings.Repeat(line, 10) + end + filler(w-len(end)-10*len(line)-13)
+	const line = "MIIEowIBAAKCAQEAu1SU1LfVLPHCozMxH2Mo4lgOEePzNm0tRgeLezV6ffAt0gun\n"
+	// END sits 10 KiB from the end; the body (~91 KiB) starts before the
+	// 96 KiB window.
+	in := filler(3<<20) + "-----BEGIN RSA PRIVATE KEY-----\n" + strings.Repeat(line, 1400) +
+		"-----END RSA PRIVATE KEY-----\n" + filler(10<<10)
+	if !strings.Contains(CapOutput(in, capMax), line[:24]) {
+		t.Fatal("setup: plain CapOutput should keep body lines")
+	}
 	out, _ := RedactCap(NewRedactor(), in, capMax)
-	if strings.Contains(out, "MIIEowIBAAKCAQEAu1SU1LfV") {
+	if strings.Contains(out, line[:24]) {
 		t.Errorf("PEM body leaked")
+	}
+}
+
+// pemBlocks is n fake ~4 KiB private keys; masked, each shrinks to a tag.
+func pemBlocks(n int) string {
+	b := "-----BEGIN RSA PRIVATE KEY-----\n" + strings.Repeat("MIIEowIBAAKCAQEAu1SU1LfVLPHCozMxH2Mo4lgOEePzNm0tRgeLezV6ffAt0gun\n", 60) + "-----END RSA PRIVATE KEY-----\n"
+	return strings.Repeat(b, n)
+}
+
+// When masking shrinks a window below max/2 the whole masked window is kept,
+// so a line the window boundary cuts through must not be in it.
+func TestRedactCapWindowCutLeaks(t *testing.T) {
+	w := capMax/2 + redactMargin
+	for _, c := range []struct {
+		line, leak string
+		keep       int
+	}{
+		{"DATABASE_URL=postgres://user:Zq7Lm2Kp9Xw4@h/db\n", "Zq7Lm2", 6 + len("DATABASE_URL=postgres://user:")},
+		{"GH=ghp_Ab3dE6gH9jK2mN5pQ8sT1vW4yZ7bC0eF3hJ6\n", "ghp_Ab3dE6gH", 15},
+	} {
+		// head: the window boundary falls c.keep bytes into the line.
+		blocks := pemBlocks((w - c.keep - 10) / len(pemBlocks(1)))
+		pad := strings.Repeat("x", w-c.keep-len(blocks)-1) + "\n"
+		in := blocks + pad + c.line + filler(150<<10)
+		out, _ := RedactCap(NewRedactor(), in, capMax)
+		if strings.Contains(out, c.leak) {
+			t.Errorf("head cut leaked %q", c.leak)
+		}
+	}
+	for _, c := range []struct {
+		line, leak string
+		rem        int
+	}{
+		{"DB_PASSWORD=Wm4tQz8vLp2Rk7Xs\n", "Wm4tQz8vLp2Rk7Xs", len("ORD=Wm4tQz8vLp2Rk7Xs\n")},
+		{"> Authorization: Bearer 9f8e7d6c5b4a39281706f5e4d3c2b1a0\n", "5b4a39281706f5e4d3c2b1a0", 26},
+	} {
+		// tail: the window starts c.rem bytes before the line's end.
+		blocks := pemBlocks((w - c.rem - 10) / len(pemBlocks(1)))
+		pad := strings.Repeat("x", w-c.rem-len(blocks)-1) + "\n"
+		in := filler(150<<10) + c.line + pad + blocks
+		out, _ := RedactCap(NewRedactor(), in, capMax)
+		if strings.Contains(out, c.leak) {
+			t.Errorf("tail cut leaked %q", c.leak)
+		}
 	}
 }
