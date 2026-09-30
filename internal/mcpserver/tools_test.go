@@ -61,3 +61,38 @@ func TestFormatExec(t *testing.T) {
 		t.Fatalf("stderr was not capped: total len %d", len(got2))
 	}
 }
+
+func TestLayoutExecNote(t *testing.T) {
+	got := layoutExec(0, "a\n", "b", map[string]int{"token": 1, "private_key": 1, "password": 2})
+	want := "exit code: 0\nstdout:\na\nstderr:\nb\nnote: sshgate redacted 4 values (private_key ×1, password ×2, token ×1); the values are withheld from AI clients\n"
+	if got != want {
+		t.Fatalf("got  %q\nwant %q", got, want)
+	}
+	if got := layoutExec(0, "", "", map[string]int{"secret": 1}); got != "exit code: 0\nnote: sshgate redacted 1 value (secret ×1); the value is withheld from AI clients\n" {
+		t.Fatalf("singular: %q", got)
+	}
+	for _, none := range []map[string]int{nil, {}} {
+		if got := layoutExec(0, "a\n", "", none); got != "exit code: 0\nstdout:\na\n" {
+			t.Fatalf("no note expected: %q", got)
+		}
+	}
+}
+
+// The cap keeps the first and last 32 KiB. A private key whose BEGIN line
+// falls in the dropped middle while its body lands in the kept tail would
+// no longer match after the cap, so FormatExec must mask first.
+func TestFormatExecMasksBeforeCap(t *testing.T) {
+	body := "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKj"
+	rest := body + "\n-----END PRIVATE KEY-----\n"
+	stdout := strings.Repeat("a", 40000) + "\n-----BEGIN PRIVATE KEY-----\n" + rest + strings.Repeat("b", config.DefaultOutputCap/2-len(rest))
+	if capped := config.CapOutput(stdout, config.DefaultOutputCap); !strings.Contains(capped, body) || strings.Contains(capped, "BEGIN") {
+		t.Fatal("test premise broken: the cap no longer splits the key from its BEGIN line")
+	}
+	got := FormatExec(sshx.ExecResult{Stdout: stdout}, config.NewRedactor())
+	if strings.Contains(got, body) {
+		t.Fatal("key body reached the AI")
+	}
+	if !strings.HasSuffix(got, "note: sshgate redacted 1 value (private_key ×1); the value is withheld from AI clients\n") {
+		t.Fatalf("note missing: ...%q", got[len(got)-200:])
+	}
+}

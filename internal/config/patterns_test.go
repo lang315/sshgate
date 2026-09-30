@@ -309,17 +309,3 @@ func TestRedactScaling(t *testing.T) {
 		}
 	}
 }
-
-func TestRedactStreams(t *testing.T) {
-	red := NewRedactor("vaultpw1")
-	out, errOut, counts := RedactStreams(red, "DB_PASSWORD=vaultpw1\nTOKEN=abc123def\n", "password=hunter2x\n")
-	if out != "DB_PASSWORD=***\nTOKEN=[REDACTED:secret]\n" || errOut != "password=[REDACTED:password]\n" {
-		t.Fatalf("got %q %q", out, errOut)
-	}
-	if len(counts) != 2 || counts["secret"] != 1 || counts["password"] != 1 {
-		t.Fatalf("counts %v", counts)
-	}
-	if _, _, c := RedactStreams(red, "hello\n", ""); c != nil {
-		t.Fatalf("nothing masked, counts %v", c)
-	}
-}

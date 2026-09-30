@@ -157,20 +157,6 @@ func RedactPatterns(s string) (string, map[string]int) {
 	return s, counts
 }
 
-// RedactStreams masks r's vault secrets, then RedactPatterns, in stdout and
-// stderr, and returns the two streams' counts merged (nil when none).
-func RedactStreams(r *Redactor, stdout, stderr string) (string, string, map[string]int) {
-	stdout, counts := RedactPatterns(r.Redact(stdout))
-	stderr, more := RedactPatterns(r.Redact(stderr))
-	for k, n := range more {
-		if counts == nil {
-			counts = map[string]int{}
-		}
-		counts[k] += n
-	}
-	return stdout, stderr, counts
-}
-
 // replaceSubmatch is ReplaceAllStringFunc with the submatch indexes, which
 // the standard library does not offer.
 func replaceSubmatch(re *regexp.Regexp, s string, fn func(s string, m []int) string) string {
