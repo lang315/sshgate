@@ -177,3 +177,9 @@ This section wins over the sections above.
 - **Added to the password and token rules:** `requirepass` and `masterauth` (redis) as password keys; `sk_test_` and `rk_test_` as token prefixes.
 - **Cost.** Masking is linear in the output size. Only windows of the raw output around what the cap keeps are masked: the head and tail, each widened by 64 KiB. The truncation marker still counts the bytes dropped from the raw output.
 - **Still not covered (Limits):** WordPress `define('DB_PASSWORD', …)`, XML `<password>`, `curl -u user:pw`, `mysql -pPW`, a one-line `.netrc`, `/etc/shadow` hashes, and an unencoded `@` inside a URL password.
+
+## Amendment 2026-09-30 (final review)
+
+- **Password key word.** `passphrase` is now a password key word.
+- **Secret key names.** These whole-key names are now secret keys: `app_key`, `encryption_key`, `signing_key`, `master_key`, `session_key` and `hmac_key`, with the same word splitting as the other `*_key` pairs. Generic `*_KEY` names such as `PUBLIC_KEY` and `SORT_KEY` stay unmasked.
+- **Long lines at a window edge.** A line cut at a window edge is dropped only when the cut piece is shorter than 64 KiB. Longer lines keep the byte boundary, so one-line output (minified JSON, `base64 -w0`) is not emptied. What remains uncovered: a line of 64 KiB or more that shrinks by 32 KiB or more when masked can still keep a cut piece.
