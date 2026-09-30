@@ -20,7 +20,7 @@ go vet ./...
 go run ./cmd/sshgate hub --cli           # terminal approver; the bridge (no --host) needs a hub running to do anything
 docker compose up                        # local openssh-server (test/secret on :2222) + sshgate against it
 cd desktop && npm ci && npm run typecheck && npm test   # desktop app: typecheck + vitest unit tests
-(cd desktop && npm run e2e)              # Playwright e2e (smoke, idle, throughput, import, files, tunnels, autoallow); builds sshgate + sshtestd itself; needs a display (xvfb-run -a on Linux)
+(cd desktop && npm run e2e)              # Playwright e2e (smoke, idle, throughput, import, files, tunnels, autoallow, and autoallow-mcp, which drives auto-allow through the real MCP bridge and checks every step against the hub's audit log); builds sshgate + sshtestd itself; needs a display (xvfb-run -a on Linux)
 (cd desktop && ./scripts/package-mac.sh)   # macOS: desktop/out/sshgate.app, ad-hoc signed, with the sshgate binary in Contents/Resources (version from desktop/package.json via -X internal/mcpserver.Version); `sshgate --version` prints it
 (cd desktop && npm run build && SSHGATE_LIVE_HOST=<server> npx playwright test e2e/live-files.spec.ts)   # opt-in: slice 3a checklist against a real host from a copy of your vault (Windows OpenSSH hosts too, all through the Files tab); you type the master password into the app; remote writes only in <home>/sshgate-e2e-<ms>
 (cd desktop && npm run build && SSHGATE_LIVE_HOST=<server> [SSHGATE_LIVE_TUNNEL_TARGET=127.0.0.1:<sshd port>] npx playwright test e2e/live-tunnels.spec.ts)   # opt-in: slice 3b exit gate from a copy of your vault; a local and a SOCKS5 tunnel must carry the target's "SSH-" banner (default 127.0.0.1:22 as seen from the server), across a lock; you unlock twice
