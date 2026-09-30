@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -207,7 +208,7 @@ func liveRedact(t *testing.T, h *Hub, name string) {
 	for i, cmd := range liveRedactCmds {
 		res, err := mgr.Exec(ctx, cmd)
 		if err != nil {
-			t.Errorf("command %d (%q) failed: %s", i, cmd, red.Redact(err.Error()))
+			t.Errorf("command %d (%q) failed: %s", i, cmd, execErrClass(err))
 			continue
 		}
 		out, errOut, counts := config.RedactCapStreams(red, res.Stdout, res.Stderr, config.DefaultOutputCap)
@@ -222,6 +223,22 @@ func liveRedact(t *testing.T, h *Hub, name string) {
 		}
 	}
 	t.Logf("%s: %d bytes read, masked %s", name, read, countsText(total))
+}
+
+// execErrClass names why an exec failed in fixed text. It never uses
+// err.Error(): sshx errors can carry remote su-shell output.
+func execErrClass(err error) string {
+	var unknown *sshx.HostKeyUnknownError
+	var mismatch *sshx.HostKeyMismatchError
+	switch {
+	case errors.Is(err, sshx.ErrTimeout):
+		return "timed out"
+	case errors.Is(err, sshx.ErrCancelled):
+		return "cancelled"
+	case errors.As(err, &unknown), errors.As(err, &mismatch):
+		return "host key failed"
+	}
+	return "exec failed"
 }
 
 var (
@@ -267,6 +284,23 @@ func countsText(counts map[string]int) string {
 		return "nothing"
 	}
 	return strings.Join(parts, " ")
+}
+
+func TestExecErrClass(t *testing.T) {
+	const secret = "s3cr3t-shell-tail"
+	for _, c := range []struct {
+		err  error
+		want string
+	}{
+		{fmt.Errorf("%w: %s", sshx.ErrTimeout, secret), "timed out"},
+		{fmt.Errorf("%w: %s", sshx.ErrCancelled, secret), "cancelled"},
+		{fmt.Errorf("shell output tail: %s", secret), "exec failed"},
+	} {
+		got := execErrClass(c.err)
+		if got != c.want || strings.Contains(got, secret) {
+			t.Errorf("execErrClass(%v) = %q, want %q", c.err, got, c.want)
+		}
+	}
 }
 
 func TestLiveRedactTripwires(t *testing.T) {
