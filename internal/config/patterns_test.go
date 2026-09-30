@@ -225,6 +225,20 @@ func TestRedactPatternsRules(t *testing.T) {
 		{"redis masterauth", "masterauth supersecret123", "masterauth [REDACTED:password]"},
 		// round-1: orphan END with no preceding BEGIN of that kind
 		{"pem orphan end", "a\n-----END PRIVATE KEY-----\nb", "[REDACTED:private_key]\nb"},
+		// round 2
+		{"pem extra end", "x\n-----BEGIN RSA PRIVATE KEY-----\nk\n-----END RSA PRIVATE KEY-----\ny\n-----END RSA PRIVATE KEY-----\nz", "x\n[REDACTED:private_key]\ny\n-----END RSA PRIVATE KEY-----\nz"},
+		{"pem end before begin", "a\n-----END PRIVATE KEY-----\nb\n-----BEGIN PRIVATE KEY-----\nk\n-----END PRIVATE KEY-----\nc", "[REDACTED:private_key]\nb\n[REDACTED:private_key]\nc"},
+		{"paren-led password", "DB_PASSWORD=(Kq2]mLp7Rw1s9", "DB_PASSWORD=[REDACTED:password]"},
+		{"bracket-led password", "DB_PASSWORD=[Kq2mLp7Rw1s9", "DB_PASSWORD=[REDACTED:password]"},
+		{"brace-led password", "DB_PASSWORD={Kq2mLp7Rw1s9", "DB_PASSWORD=[REDACTED:password]"},
+		{"yaml brace-led password", "password: {Kq2mLp7Rw1s9", "password: [REDACTED:password]"},
+		{"json nested block", `"auth": {`, ""},
+		{"yaml empty map", "auth: {}", ""},
+		{"nested spaced prose", `"authMessage": "Password expired"`, ""},
+		{"nested spaced prose 2", `"auth_error": "password incorrect"`, ""},
+		{"string concat", `log("password: " + pw)`, ""},
+		{"string concat single", `echo 'token: ' + x`, ""},
+		{"command substitution", "export DB_PASSWORD=$(cat /run/secrets/db)", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -247,34 +261,42 @@ func TestRedactPatternsRules(t *testing.T) {
 				if counts != nil {
 					t.Fatalf("unchanged but counted %v", counts)
 				}
-			} else if counts == nil {
-				t.Fatalf("masked but counted nothing")
+			} else {
+				sum := 0
+				for _, n := range counts {
+					sum += n
+				}
+				if want := strings.Count(got, "[REDACTED:") - strings.Count(c.in, "[REDACTED:"); sum != want {
+					t.Fatalf("counts %v sum to %d, %d new markers", counts, sum, want)
+				}
 			}
 		})
 	}
 }
 
-// TestSpacedPairScaling pins I-1's fix: spacedPair must cost O(the
-// whitespace next to a match), not O(line length), so a long line with no
-// newline stays cheap. 3x input should cost well under 3x time (quadratic
-// code would cost about 9x); take the min of 3 runs to avoid flakiness.
-func TestSpacedPairScaling(t *testing.T) {
-	timeFor := func(n int) time.Duration {
-		s := strings.Repeat("pass ", n/5)
-		best := time.Duration(1<<63 - 1)
-		for i := 0; i < 3; i++ {
-			start := time.Now()
-			RedactPatterns(s)
-			if d := time.Since(start); d < best {
-				best = d
+// TestRedactScaling pins the linear cost: a long line with no newline (I-1)
+// and a whitespace-free chain of rejected or kept keys (N-1) must stay cheap.
+// Doubling the input should cost well under 3x time (quadratic code would cost
+// about 4x); take the min of 3 runs to avoid flakiness.
+func TestRedactScaling(t *testing.T) {
+	for _, unit := range []string{"pass ", "key=", "password=${x}"} {
+		timeFor := func(n int) time.Duration {
+			s := strings.Repeat(unit, n/len(unit))
+			best := time.Duration(1<<63 - 1)
+			for i := 0; i < 3; i++ {
+				start := time.Now()
+				RedactPatterns(s)
+				if d := time.Since(start); d < best {
+					best = d
+				}
 			}
+			return best
 		}
-		return best
-	}
-	small := timeFor(256 * 1024)
-	large := timeFor(512 * 1024)
-	if large > small*3 {
-		t.Fatalf("looks quadratic: 256KiB took %v, 512KiB took %v", small, large)
+		small := timeFor(64 * 1024)
+		large := timeFor(128 * 1024)
+		if large > small*3 {
+			t.Fatalf("%q looks quadratic: 64KiB took %v, 128KiB took %v", unit, small, large)
+		}
 	}
 }
 

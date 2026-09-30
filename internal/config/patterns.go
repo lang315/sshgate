@@ -14,8 +14,11 @@ var (
 	pemRe = regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----.*?(?:-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|\z)`)
 	// An END line with no BEGIN of that kind before it: the tail of a key
 	// whose head fell outside a windowed capture. Masks from the very start
-	// of the text.
+	// of the text through the first END.
 	orphanEndRe = regexp.MustCompile(`(?s)\A.*?-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----`)
+	// A masked block's marker counts as a BEGIN, so a second pass leaves an
+	// END that follows one alone.
+	pemBeginRe = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|\[REDACTED:private_key\]`)
 	// A credential header's name and value: "Name: v", "\"Name\": \"v\"",
 	// or nginx's `Name "v"`. The value runs to a quote or the end of line.
 	headerRe = regexp.MustCompile(`(?i)(^|[^a-z0-9_-])(proxy-authorization|authorization|set-cookie|cookie|x-api-key)(["']?[ \t]*:[ \t]*["']?|[ \t]+["'])([^\r\n"'` + "`" + `]*[^\s"'` + "`" + `])`)
@@ -24,11 +27,11 @@ var (
 	// A key that may name a secret, a separator, and a value. Which keys
 	// really count is decided in code (keyKind): RE2 cannot split words.
 	// The value's unquoted form never starts with '>', so "=>" is never
-	// mistaken for "=" followed by a ">"-led value; nor with a bracket,
-	// brace or paren, so a nested block's opening "{"/"[" ("auth": {) is
-	// never captured as a value at all. A quote with no match on the same
-	// line ("*[^\r\n]*) is masked to the end of the line.
-	kvRe = regexp.MustCompile(`(?i)(["']?)(-{0,2}[a-z0-9_.-]*?(?:pass|pwd|secret|token|key|auth|credential)[a-z0-9_.-]*)(["']?)([ \t]*(?::=|==|=>|=|:)[ \t]*|[ \t]+)("(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'|"[^\r\n]*|'[^\r\n]*|[^\s"'` + "`" + `>(){}\[\]][^\s"'` + "`" + `]*)`)
+	// mistaken for "=" followed by a ">"-led value. A bracket-led value
+	// ("auth": {) is captured; keepValue keeps one made only of brackets. A
+	// quote with no match on the same line ("*[^\r\n]*) is masked to the
+	// end of the line.
+	kvRe = regexp.MustCompile(`(?i)(["']?)(-{0,2}[a-z0-9_.-]*?(?:pass|pwd|secret|token|key|auth|credential)[a-z0-9_.-]*)(["']?)([ \t]*(?::=|==|=>|=|:)[ \t]*|[ \t]+)("(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'|"[^\r\n]*|'[^\r\n]*|[^\s"'` + "`" + `>][^\s"'` + "`" + `]*)`)
 	// Bare tokens with a known prefix.
 	tokenRe = regexp.MustCompile(`\b(?:(?:AKIA|ASIA)[A-Z0-9]{16}\b|(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[abpr]-[A-Za-z0-9-]{10,}|(?:sk-|sk_live_|sk_test_|rk_live_|rk_test_)[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{10,})`)
 	// A code expression: an identifier or dotted path immediately followed
@@ -51,9 +54,12 @@ var redisPasswordKeys = map[string]bool{"requirepass": true, "masterauth": true}
 // the key and separator stay. It is pure, and idempotent: a marker is a
 // placeholder, which every rule keeps.
 //
-// ponytail: linear RE2 passes over the whole output, about 0.33 s per MiB
-// measured; pre-filter lines by trigger word if huge outputs make that
-// matter.
+// ponytail: RE2 passes over the whole output, about 0.4 s per MiB measured,
+// linear as long as kvPass's nesting is capped: uncapped, a whitespace-free
+// chain like "key=" repeated cost 20 s at 64 KiB (quadratic). Capped at depth
+// 4 it costs 39 ms at 64 KiB and 373 ms at 1 MiB, so a secret behind a 5th
+// nested rejected key is not found. Pre-filter lines by trigger word if huge
+// outputs make the linear cost matter.
 func RedactPatterns(s string) (string, map[string]int) {
 	var counts map[string]int
 	mark := func(kind string) string {
@@ -66,10 +72,14 @@ func RedactPatterns(s string) (string, map[string]int) {
 	// Order matters: a PEM block, a header, or a URL password is masked
 	// before the key-value rule sees it, and the key-value rule before a
 	// bare token, so each secret is counted once.
-	s = pemRe.ReplaceAllStringFunc(s, func(string) string { return mark("private_key") })
-	if orphanEndRe.MatchString(s) {
-		s = orphanEndRe.ReplaceAllStringFunc(s, func(string) string { return mark("private_key") })
+	// An END is an orphan only when it precedes every BEGIN; an END after a
+	// BEGIN is just the far end of a block (or a stray literal) and stays.
+	if end := orphanEndRe.FindStringIndex(s); end != nil {
+		if begin := pemBeginRe.FindStringIndex(s); begin == nil || end[1] <= begin[0] {
+			s = mark("private_key") + s[end[1]:]
+		}
 	}
+	s = pemRe.ReplaceAllStringFunc(s, func(string) string { return mark("private_key") })
 	s = replaceSubmatch(headerRe, s, func(s string, m []int) string {
 		name, v := strings.ToLower(s[m[4]:m[5]]), s[m[8]:m[9]]
 		kept := ""
@@ -93,13 +103,15 @@ func RedactPatterns(s string) (string, map[string]int) {
 	// kvPass recurses into a rejected or kept value, so a real secret pair
 	// glued inside it (a query string, a connection string, ...) is still
 	// found. The value handed to the recursive call is always shorter than
-	// the match it came from, so it terminates.
-	var kvPass func(string) string
-	kvPass = func(str string) string {
+	// the match it came from, and the depth is capped (see the ponytail note
+	// above: each level re-scans the rest of a whitespace-free value).
+	var kvPass func(string, int) string
+	kvPass = func(str string, depth int) string {
 		return replaceSubmatch(kvRe, str, func(s string, m []int) string {
 			key, sep := s[m[4]:m[5]], s[m[8]:m[9]]
 			v := s[m[10]:m[11]]
 			open, closing := "", ""
+			stray := false
 			switch {
 			case v[0] == '"' || v[0] == '\'':
 				q := v[0]
@@ -107,6 +119,9 @@ func RedactPatterns(s string) (string, map[string]int) {
 					open, closing, v = v[:1], v[len(v)-1:], v[1:len(v)-1]
 				} else {
 					open, v = v[:1], v[1:] // unterminated: no closing quote
+					// `"password: " + pw`: the quote closes a string the key
+					// sits inside, it does not open a value.
+					stray = s[m[2]:m[3]] == string(q) && m[6] == m[7]
 				}
 			default:
 				if t := strings.TrimRight(v, ",;"); t != "" {
@@ -115,16 +130,19 @@ func RedactPatterns(s string) (string, map[string]int) {
 			}
 			kind := keyKind(key)
 			switch {
-			case kind == "":
-			case strings.TrimSpace(sep) == "" && !spacedPair(s, m, key, kind):
+			case kind == "", stray:
+			case strings.TrimSpace(sep) == "" && !spacedPair(s, m, key, kind, depth > 0):
 			case keepValue(v):
 			default:
 				return s[m[0]:m[10]] + open + mark(kind) + closing
 			}
-			return s[m[0]:m[10]] + open + kvPass(v) + closing
+			if depth >= 4 {
+				return s[m[0]:m[1]]
+			}
+			return s[m[0]:m[10]] + open + kvPass(v, depth+1) + closing
 		})
 	}
-	s = kvPass(s)
+	s = kvPass(s, 0)
 	s = tokenRe.ReplaceAllStringFunc(s, func(t string) string {
 		if !strings.ContainsAny(t, "0123456789") {
 			return t // a hyphenated name, not a random token
@@ -168,16 +186,18 @@ func replaceSubmatch(re *regexp.Regexp, s string, fn func(s string, m []int) str
 // spacedPair reports whether a key and value separated only by whitespace
 // may be a secret: a long flag (`--token v`, the value not another flag),
 // or, for a password, a conf-file line holding only the key and one value
-// (`password v`). Prose ("Failed password for root") is neither.
+// (`password v`). Prose ("Failed password for root") is neither. A nested
+// call (inside a rejected value, where its edges are not line edges) takes
+// only the long-flag form.
 //
 // Both walks are O(the whitespace run next to the match), not O(line
 // length): a long line with no newline in it must stay cheap to check.
-func spacedPair(s string, m []int, key, kind string) bool {
+func spacedPair(s string, m []int, key, kind string, nested bool) bool {
 	v := s[m[10]:m[11]]
 	if strings.HasPrefix(key, "--") {
 		return v[0] != '-'
 	}
-	if kind != "password" {
+	if kind != "password" || nested {
 		return false
 	}
 	i := m[0] - 1
@@ -288,8 +308,10 @@ func keepValue(v string) bool {
 	case l == "changeme", l == "replace_me", l == "null", l == "none", l == "true", l == "false",
 		l == "yes", l == "no", l == "on", l == "off":
 		return true
+	case strings.Trim(v, "{}[]()") == "":
+		return true // a nested block's opening bracket, not a value
 	case exprPrefixRe.MatchString(v), strings.HasPrefix(v, "${"), strings.HasPrefix(v, "{{"),
-		len(v) >= 2 && v[0] == '$' && (isAlnum(v[1]) || v[1] == '_'),
+		len(v) >= 2 && v[0] == '$' && (isAlnum(v[1]) || v[1] == '_' || v[1] == '('),
 		len(v) >= 2 && v[0] == '%' && strings.ContainsRune("svdq", rune(v[1])),
 		strings.HasPrefix(l, "process.env."):
 		return true
