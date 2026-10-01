@@ -1,0 +1,26 @@
+# redact-test: negative
+package main
+
+import (
+	"net/http"
+	"os"
+)
+
+type Config struct {
+	DBPassword string `json:"db_password"`
+	APIToken   string `json:"api_token"`
+}
+
+func load() Config {
+	return Config{
+		DBPassword: os.Getenv("DB_PASSWORD"),
+		APIToken:   os.Getenv("API_TOKEN"),
+	}
+}
+
+func login(w http.ResponseWriter, r *http.Request) {
+	password := r.FormValue("password")
+	if !checkPassword(r.FormValue("user"), password) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}
+}

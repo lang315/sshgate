@@ -13,6 +13,9 @@ export interface Tab {
   sawOutput: boolean
 }
 
+// The fixed Audit tab's value of TabSet.active; terminal ids start with "t-".
+export const AUDIT_TAB = 'audit'
+
 export class TabSet {
   tabs: Tab[] = []
   active?: string
@@ -38,6 +41,8 @@ export class TabSet {
   }
   // No terminal active: the Hosts home tab shows.
   showHome() { this.active = undefined }
+  // The fixed Audit tab: like Hosts, never closed and never in the activation order.
+  showAudit() { this.active = AUDIT_TAB }
   close(id: string) {
     this.tabs = this.tabs.filter((t) => t.id !== id)
     this.order = this.order.filter((x) => x !== id)

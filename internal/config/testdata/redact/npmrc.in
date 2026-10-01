@@ -1,0 +1,6 @@
+# redact-test: secrets ghp_Z3nY8bC1dF6hJ0sA5uE9iG2oK7tWq4Xm8LpR npm_Fk3x9QvW2mLp8RtY6nBc4ZsH1jDa7eUo5Kg
+registry=https://registry.npmjs.org/
+@example:registry=https://npm.pkg.github.com/
+//npm.pkg.github.com/:_authToken=ghp_Z3nY8bC1dF6hJ0sA5uE9iG2oK7tWq4Xm8LpR
+//registry.npmjs.org/:_authToken=npm_Fk3x9QvW2mLp8RtY6nBc4ZsH1jDa7eUo5Kg
+always-auth=true

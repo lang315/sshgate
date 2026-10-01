@@ -85,6 +85,27 @@ export type TunnelStatus = 'stopped' | 'starting' | 'running' | 'error'
 export interface TunnelState { server: string; id: string; status: TunnelStatus; error?: string; conns: number }
 export type TunnelView = Tunnel & TunnelState
 
+// Audit log (slice 4b). A record is one audit.jsonl line as stored; exec
+// records have no kind. Every field but time is optional per kind, and the
+// renderer must not trust field types (the file can be edited by hand).
+export type AuditKind = 'exec' | 'config' | 'file' | 'tunnel'
+export type AuditOutcome = 'allowed' | 'auto' | 'denied' | 'expired' | 'cancelled' | 'error'
+export interface AuditQuery { before?: number; limit?: number; server?: string; kinds?: AuditKind[]; outcomes?: AuditOutcome[]; text?: string }
+export interface AuditRecord {
+  time: string; kind?: 'config' | 'file' | 'tunnel'; server?: string; reason?: string
+  // exec
+  client?: string; command?: string; description?: string; sudo?: boolean; timeoutSec?: number; outcome?: string
+  exitCode?: number; durationMs?: number; approval?: string; waitMs?: number; redacted?: Record<string, number>
+  // config
+  action?: string; changed?: string[]; until?: string; forever?: boolean; fingerprint?: string; oldFingerprint?: string
+  // file (action too)
+  phase?: string; remote?: string[]; from?: string; to?: string
+  // tunnel (phase and to too)
+  listen?: string; tunnelKind?: string; target?: string; id?: string
+}
+export interface AuditEntry { seq: number; record: AuditRecord }
+export interface AuditPage { records: AuditEntry[]; next?: number; skipped: number; path: string }
+
 export type HubEvent =
   | { method: 'pending'; params: { request: ApprovalRequest } }
   | { method: 'decided'; params: { request: ApprovalRequest; decision: { outcome: Outcome; reason: string } } }
@@ -98,17 +119,18 @@ export type HubEvent =
   | { method: 'tunnels.state'; params: TunnelState }
   | { method: 'autoAllow.ran'; params: AutoAllowRan }
   | { method: 'autoAllow.off'; params: { server: string; reason: string } }
+  | { method: 'audit.appended'; params: AuditEntry }
 
 export const REQUEST_METHODS = ['hello', 'status', 'unlock', 'lock', 'servers', 'pending',
   'decide', 'denyAll', 'term.open', 'term.close',
   'vault.create', 'servers.save', 'servers.delete', 'servers.forgetHostKey',
   'import.scan', 'import.apply', 'files.list', 'files.mkdir', 'files.rename',
   'tunnels.list', 'tunnels.save', 'tunnels.delete', 'tunnels.start',
-  'servers.setAutoAllow', 'servers.autoAllowCheck'] as const
+  'servers.setAutoAllow', 'servers.autoAllowCheck', 'audit.read'] as const
 export type RequestMethod = (typeof REQUEST_METHODS)[number]
 // Relayed through Electron main's FilesRelay (tokens → paths, native download
 // conflicts), never straight through relayCall.
 export const FILES_RELAYED = ['files.plan', 'files.run'] as const
 export const NOTIFY_METHODS = ['term.write', 'term.ack', 'term.resize', 'files.cancel', 'tunnels.stop'] as const
 export type NotifyMethod = (typeof NOTIFY_METHODS)[number]
-export const PROTOCOL_VERSION = 7
+export const PROTOCOL_VERSION = 8

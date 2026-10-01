@@ -1,0 +1,15 @@
+# redact-test: negative
+commit 3f9c2e1a7b5d8f0c4e6a2b9d1f3e5c7a9b0d2f4e
+Author: Jane Doe <jane@example.com>
+Date:   Mon Sep 29 13:40:02 2026 +0200
+
+    Rotate the session key on every deploy
+
+    The old key lived for 90 days. Keys now come from Vault at
+    start-up; see docs/secrets.md for the passthrough setup.
+
+commit 9b1f3e5a7c9d2b4f6a8c0e1d3f5b7a9c2e4d6f8b
+Author: Sam Lee <sam@example.com>
+Date:   Fri Sep 26 17:05:44 2026 +0200
+
+    Add token bucket rate limiting to the login endpoint

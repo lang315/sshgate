@@ -1,0 +1,12 @@
+# redact-test: secrets Tr0ub4dor&3xQ Zx9Lm2Qv7Rt4Wp
+[client]
+user = backup
+password = "Tr0ub4dor&3xQ"
+host = 10.0.3.12
+socket = /var/run/mysqld/mysqld.sock
+
+[mysqldump]
+quick
+max_allowed_packet = 64M
+user = backup
+password=Zx9Lm2Qv7Rt4Wp

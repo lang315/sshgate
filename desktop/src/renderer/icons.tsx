@@ -30,6 +30,7 @@ export const DownloadIcon = icon(<><path d="M12 4v12M7 11l5 5 5-5" /><path d="M4
 export const TunnelIcon = icon(<><path d="M4 8h13l-3-3" /><path d="M20 16H7l3 3" /></>)
 export const ChevronDownIcon = icon(<path d="M6 9l6 6 6-6" />)
 export const StopIcon = icon(<rect x="5" y="5" width="14" height="14" rx="2" />)
+export const ListIcon = icon(<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01" />)
 
 // The app's only mark: a terminal glyph on the accent tile, then the name. No logo.
 export function Mark() {

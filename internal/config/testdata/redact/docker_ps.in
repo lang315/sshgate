@@ -1,0 +1,5 @@
+# redact-test: negative
+CONTAINER ID   IMAGE                            COMMAND                  CREATED       STATUS                  PORTS                                       NAMES
+4f2a9c1e7b3d   postgres:16                      "docker-entrypoint.s…"   2 weeks ago   Up 29 hours             5432/tcp                                    mwtn-db-1
+a1c3e5b8d0f2   redis:7-alpine                   "docker-entrypoint.s…"   2 weeks ago   Up 29 hours             6379/tcp                                    mwtn-redis-1
+7b9d1f3e5c7a   ghcr.io/example/mwtn-api:1.8.2   "node dist/server.js"    3 days ago    Up 29 hours (healthy)   0.0.0.0:8080->8080/tcp, :::8080->8080/tcp   mwtn-api-1

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/lang315/sshgate/internal/broker"
@@ -86,12 +87,51 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		}
 	})
 	defer release()
+	// sendMu orders audit.appended against locked: the drain checks
+	// h.unlocked and notifies under it, the lock sink notifies under it. The
+	// key is gone and h.unlocked false before the sink runs, so a record sent
+	// under sendMu with unlocked true precedes locked, and one checked after
+	// the lock is dropped. Neither runs under h.mu.
+	var sendMu sync.Mutex
 	releaseLock := h.setLockSink(func(reason string) {
+		sendMu.Lock()
+		defer sendMu.Unlock()
 		s.Notify("locked", map[string]string{"reason": reason})
 	})
 	defer releaseLock()
 	releaseAuto := h.setAutoSink(func(method string, params any) { s.Notify(method, params) })
 	defer releaseAuto()
+	// audit.appended goes through a queue with one drain goroutine, so a
+	// writer holding h.mu never waits on the pipe (see auditAppended). The
+	// channel is never closed: a sender may still hold the sink after release.
+	type auditMsg struct {
+		seq  int
+		line json.RawMessage
+	}
+	auditQ := make(chan auditMsg, 256)
+	qctx, stopAudit := context.WithCancel(ctx)
+	defer stopAudit()
+	go func() {
+		for {
+			select {
+			case m := <-auditQ:
+				sendMu.Lock()
+				if h.unlocked.Load() { // a backlog must not go out after a lock
+					s.Notify("audit.appended", map[string]any{"seq": m.seq, "record": m.line})
+				}
+				sendMu.Unlock()
+			case <-qctx.Done():
+				return
+			}
+		}
+	}()
+	releaseAudit := h.setAuditSink(func(seq int, line json.RawMessage) {
+		select {
+		case auditQ <- auditMsg{seq, line}:
+		default: // 256 behind: drop; the renderer dedupes by seq and can Refresh
+		}
+	})
+	defer releaseAudit()
 	// req registers a request that counts as UI activity for the idle
 	// auto-lock. status does not: the desktop app polls it.
 	req := func(name string, fn rpc.Handler) {
@@ -241,6 +281,13 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		json.Unmarshal(raw, &p)
 		h.Broker().DenyAll(p.Reason)
 		return empty, nil
+	})
+	req("audit.read", func(_ context.Context, raw json.RawMessage) (any, error) {
+		q, err := auditQuery(raw)
+		if err != nil {
+			return nil, err
+		}
+		return h.ReadAudit(q)
 	})
 	req("hello", func(context.Context, json.RawMessage) (any, error) {
 		return map[string]int{"protocol": ProtocolVersion}, nil

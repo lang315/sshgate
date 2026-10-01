@@ -1,0 +1,32 @@
+# counts: password=3 secret=2 url_password=1
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080
+  },
+  "database": {
+    "url": "postgres://mwtn_app:[REDACTED:url_password]@10.0.3.12:5432/mwtn?sslmode=require",
+    "pool": 10
+  },
+  "auth": {
+    "jwtSecret": "[REDACTED:secret]",
+    "tokenTtlSeconds": 3600,
+    "oauth": {
+      "clientId": "mwtn-web",
+      "clientSecret": "[REDACTED:secret]"
+    }
+  },
+  "mail": {
+    "smtpPassword": "[REDACTED:password]",
+    "passwordResetUrl": "[REDACTED:password]"
+  },
+  "features": {
+    "passwordLogin": true,
+    "apiKeyHeader": "X-Api-Key"
+  }
+}
+<?php
+// same secret, dumped again from the legacy PHP admin panel's config
+return [
+    'password' => '[REDACTED:password]',
+];

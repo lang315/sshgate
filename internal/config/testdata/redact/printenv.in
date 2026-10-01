@@ -1,0 +1,16 @@
+# redact-test: secrets ghp_R8mK2vQx7LpT4nWz9YbC3dFh6JsA1uEo5GiN npm_Fk3x9QvW2mLp8RtY6nBc4ZsH1jDa7eUo5Kg Pg7vLx2Qm9Rt4Wz
+SHELL=/bin/bash
+PWD=/home/deploy/app
+LOGNAME=deploy
+HOME=/home/deploy
+LANG=en_US.UTF-8
+TERM=xterm-256color
+USER=deploy
+SHLVL=1
+SSH_AUTH_SOCK=/tmp/ssh-k2JdQ8vW/agent.4391
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+GITHUB_TOKEN=ghp_R8mK2vQx7LpT4nWz9YbC3dFh6JsA1uEo5GiN
+NPM_TOKEN=npm_Fk3x9QvW2mLp8RtY6nBc4ZsH1jDa7eUo5Kg
+PGPASSWORD=Pg7vLx2Qm9Rt4Wz
+OLDPWD=/home/deploy
+_=/usr/bin/printenv

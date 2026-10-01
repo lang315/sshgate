@@ -1,0 +1,6 @@
+# counts: secret=2
+registry=https://registry.npmjs.org/
+@example:registry=https://npm.pkg.github.com/
+//npm.pkg.github.com/:_authToken=[REDACTED:secret]
+//registry.npmjs.org/:_authToken=[REDACTED:secret]
+always-auth=true

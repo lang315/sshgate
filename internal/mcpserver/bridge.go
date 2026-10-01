@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/lang315/sshgate/internal/rpc"
-	"github.com/lang315/sshgate/internal/sshx"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -113,7 +112,12 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 					close(done)
 				}
 
-				var out sshx.ExecResult
+				var out struct {
+					ExitCode int            `json:"exitCode"`
+					Stdout   string         `json:"stdout"`
+					Stderr   string         `json:"stderr"`
+					Redacted map[string]int `json:"redacted"`
+				}
 				callErr := c.Call(ctx, method, params, &out)
 				notifying.Store(false)
 				close(stop)
@@ -130,10 +134,11 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 				if callErr != nil {
 					return hubCallErr(callErr), nil
 				}
-				// The hub already redacted and capped each stream; lay out
-				// the text as-is, no reprocessing (double-capping would
-				// corrupt an in-flight "[truncated N bytes]" marker).
-				return textOK(layoutExec(out.ExitCode, out.Stdout, out.Stderr)), nil
+				// The hub already redacted and capped each stream and
+				// counted what it masked; lay out the text as-is, no
+				// reprocessing (double-capping would corrupt an in-flight
+				// "[truncated N bytes]" marker).
+				return textOK(layoutExec(out.ExitCode, out.Stdout, out.Stderr, out.Redacted)), nil
 			})
 			return res, nil, err
 		}
@@ -143,7 +148,7 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 		"Each call waits until a human approves or denies it in the app; after 5 minutes without a decision it fails as expired, so combine related steps into one command. " +
 		"Each call runs in a fresh non-interactive shell: the working directory, environment variables and activated virtualenvs do not carry over, and ~/.bashrc is usually not read, so write `cd /app && ./run.sh` as one command. " +
 		"(On a server configured with a su password, commands run as root inside one persistent root shell instead.) " +
-		"The result is `exit code:` followed by `stdout:` and `stderr:` sections; a non-zero exit code is a normal result, not a tool error. Each stream is capped at 64 KiB (the middle is cut) and saved secrets are masked. " +
+		"The result is `exit code:` followed by `stdout:` and `stderr:` sections; a non-zero exit code is a normal result, not a tool error. Each stream is capped at 64 KiB (the middle is cut). Saved secrets are masked, and values that look like secrets (keys, passwords, tokens) are masked too, as `[REDACTED:<kind>]`, with a final `note:` line saying how many; there is no way to get them unmasked. " +
 		"The call fails if the app is closed, no vault exists yet, the vault is locked, the server is not visible to AI or has no pinned host key, the human denies it, or 5 requests are already waiting."}, execTool("exec"))
 	mcp.AddTool(s, &mcp.Tool{Name: "sudo-exec", Description: "Run a shell command with sudo on a saved SSH server through the sshgate desktop app. " +
 		"The command runs as `sudo -S` with the server's saved sudo password, or as `sudo -n` when none is saved (which fails if sudo asks for a password). " +

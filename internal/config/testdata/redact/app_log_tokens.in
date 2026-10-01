@@ -1,0 +1,7 @@
+# redact-test: secrets ghp_R8mK2vQx7LpT4nWz9YbC3dFh6JsA1uEo5GiN eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTQyIiwiZXhwIjoxNzkwMDAzNjAwfQ.c2lnbmF0dXJlLWZvci10ZXN0cy1vbmx5LTEyMzQ xoxb-289471038-771028465-Zq8Wm4tLp2Rk7XsHq9fT3eVb
+2026-09-29T14:02:11.482Z INFO  deploy: cloning https://github.com/example/mwtn.git
+2026-09-29T14:02:11.913Z DEBUG git: using token ghp_R8mK2vQx7LpT4nWz9YbC3dFh6JsA1uEo5GiN for github.com
+2026-09-29T14:02:14.207Z INFO  deploy: checked out 3f9c2e1 (main)
+2026-09-29T14:02:15.001Z DEBUG api: POST /v1/session 200 12ms session=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTQyIiwiZXhwIjoxNzkwMDAzNjAwfQ.c2lnbmF0dXJlLWZvci10ZXN0cy1vbmx5LTEyMzQ
+2026-09-29T14:02:15.377Z WARN  worker: slack webhook failed, token xoxb-289471038-771028465-Zq8Wm4tLp2Rk7XsHq9fT3eVb
+2026-09-29T14:02:16.020Z INFO  deploy: done in 4.5s

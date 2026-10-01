@@ -35,7 +35,7 @@ Claude Code ──stdio──▶ sshgate (bridge) ──per-user socket──▶
 1. The AI calls `exec` through the bridge. The bridge holds no secrets and makes no decisions; it forwards the call to the hub over a socket only your user can open.
 2. The hub checks that the server exists, is visible to AI, has a pinned host key, and that the vault is unlocked. Then it queues the request, unless the host is on [auto-allow](#auto-allow), in which case it runs at once.
 3. The app shows the request: server, `user@host:port`, the exact command, and the AI's description (marked unverified). You **Deny**, **Allow**, or **Send to tab**.
-4. On Allow, the hub runs the command over its cached SSH connection, masks every saved secret in the output, caps each stream at 64 KiB, writes an audit record, and returns the result to the AI.
+4. On Allow, the hub runs the command over its cached SSH connection, masks every saved secret and every value that looks like a secret (private keys, passwords, tokens) in the output, caps each stream at 64 KiB, writes an audit record, and returns the result to the AI.
 
 ## Quick start
 
@@ -74,6 +74,7 @@ Keep the app open while the AI works. When the app is closed, every tool call fa
 - **Terminal tabs** open from a host card. They keep their SSH sessions when the vault locks, and offer **Reconnect** if the hub restarts.
 - **Files** opens an SFTP browser tab from a host card: list, upload and download files or whole folders (or drop them from Finder), make folders, rename, and recursive delete. Everything runs as the host's login user, and every change and transfer is audited.
 - **Tunnels** opens a tab per host for SSH port forwards, saved with the host in the vault: **Local** (a port on this machine reaches a host and port as seen from the server), **Remote** (a port on the server reaches one on this machine), and **Dynamic** (a SOCKS5 proxy here; connections leave from the server). Local listeners bind to loopback only. Tunnels keep running while the vault is locked, stop when the connection drops or the host is edited, and every start and stop is audited. Tunnels are yours alone: the AI cannot see or start them.
+- **Audit** is the second fixed tab, after Hosts: the audit log (`audit.jsonl`) newest first, with every AI request and its outcome, auto-allowed runs, host and auto-allow changes, file operations, and tunnels. Filter by host, by the **Exec**, **Auto**, **Denied**, **Config**, **Files** and **Tunnels** chips (several on shows all of them), or by text; click a row for the full command, the AI's description, and the raw record. New records appear while the tab is open. It needs an unlocked vault, forgets what it showed when the vault locks, and changes nothing; the footer shows the file's path.
 - **AI requests** is a column on the right. It opens itself when a request arrives and closes only when you close it; closing it never denies or drops a request, and the **AI** button in the tab bar turns amber while requests wait.
   - **Deny** is the default: Enter in the reason field denies, and the reason goes back to the AI.
   - **Allow** and **Send to tab** need a mouse click and stay disabled for 500 ms after anything in the list changes or scrolls, so nothing is clickable the instant it moves under your cursor.
@@ -108,7 +109,24 @@ Closing the window quits the app and stops the hub. There is no Reload; if the r
 - An approval is bound to the `user@host:port` and key you saw. If the server is edited while a request waits, the request fails with "server changed".
 - The vault uses Argon2id for the master key, AES-GCM with per-field authenticated data for each secret, and an HMAC over the whole file. A tampered or corrupt vault file is refused, never overwritten.
 - The master password is never read from a file or environment variable, only typed into the app (or `hub --cli`).
-- Saved secrets are masked in all command output. The audit log (`audit.jsonl`, next to the vault) records every request and decision, never command output.
+- Saved secrets are masked in all command output. The audit log (`audit.jsonl`, next to the vault) records every request and decision, never command output; an allowed run's record counts what was redacted, by kind.
+- Redaction is a seatbelt, not a boundary, and it is always on with no opt-out. Before output reaches the AI, sshgate also masks:
+  - private key blocks;
+  - the value after a key whose name has a password word (`password`, `passwd`, `pwd`, `passphrase`, or `pass` last) or a secret word (`secret`, or `token`, `auth`, `apikey`, `credential(s)`, `api_key`, `access_key`, `private_key`, `secret_key`, `app_key`, `encryption_key`, `signing_key`, `master_key`, `session_key`, `hmac_key` last), plus redis `requirepass` and `masterauth`; other `*_KEY` names (`JWT_KEY`, `LICENSE_KEY`, `PIN`) are not covered. A key whose last word names a setting about a secret, not the secret, is kept (`secretName`, `secret_ref`, `password_file`, `password_min_length`, `PASSWORD_MAX_AGE`, and similar `name`, `ref`, `file`, `path`, `length`, `min`, `max`, `age`, `days`, `count`, `attempts`, `retries`, `policy`, `timeout`), and so is an nsswitch `passwd: files systemd` line. The same rules apply to JSON escaped inside a string (`{\"password\":\"x\"}`, as in `kubectl` annotations and docker logs) and to the quoted elements of a one-line array under a secret key, plain or escaped (`{"Authorization":["Bearer x"]}`);
+  - credential headers (`Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`; `Authorization` also as `HTTP_AUTHORIZATION=…`, `REDIRECT_HTTP_AUTHORIZATION=…`, `Authorization="…"` or `Authorization => …`), URL passwords, and well-known token families: AWS (`AKIA`, `ASIA`), GitHub (`ghp_`… and `github_pat_`), GitLab (`glpat-`), Slack (`xox…`), `sk-`, Stripe secret and restricted keys (`sk_live_`, `sk_test_`, `rk_live_`, `rk_test_`), and JWTs. Stripe `whsec_` and `pk_` and any other prefix are not handled.
+
+  It misses:
+  - a secret with no key and no known prefix (a password alone on a line), `.pgpass` lines, secrets split across lines (except PEM blocks), and anything encoded (`base64`, `xxd`, `rev`, `gzip`);
+  - WordPress `define('DB_PASSWORD', …)`, XML `<password>`, `curl -u user:pw`, `mysql -pPW`, short `-p value` flags (`sshpass -p`), a one-line `.netrc`, `/etc/shadow` hashes, and an unencoded `@` inside a URL password;
+  - a value the keep rules leave alone: one starting with `$` and an identifier or with `%s`/`%d`/`%v`/`%q`, letters followed by `(` or `[`, an absolute or `~/` path (not one holding `+` or ending in `=`, which is base64), or a placeholder such as `changeme`, `none` or `yes`, so a real password like `$ecr3t!` or `Hunter[2x9` is not masked;
+  - an unquoted value with spaces, masked only up to the first space;
+  - a value that merely looks like a path, such as `/x9Kq2/aBcdEfGh/Ij` (no `+`, no trailing `=`);
+  - double-escaped JSON (`\\\"password\\\"`) and PHP `print_r` output (`[password] => x`, `[HTTP_AUTHORIZATION] => Bearer x`);
+  - a lone `-----END … PRIVATE KEY-----` whose BEGIN the output cap cut off: the text from the start of the kept tail through it is masked, which can hide ordinary text before it. On output the cap does not cut, a lone END (a `grep` hit, source code) is left alone;
+  - arrays that span lines or nest;
+  - `auth: {password hunter2x}` (a flow map holding a space-separated pair): the value stays in clear while a mask is counted.
+
+  A prompt-injected AI can encode output to get it past redaction; the auto-allow warnings above still apply. To see a real value yourself, use **Send to tab**: the command then runs in your terminal and its output never reaches the AI.
 - The socket between bridge and hub is per-user and checked both ways (UID on Unix, SID on Windows). The AI's side can list servers and submit commands; it cannot unlock, approve, or read secrets.
 
 ## Tools the AI gets
@@ -121,6 +139,7 @@ Closing the window quits the app and stops the hub. There is no Reload; if the r
 
 - Each command runs in a fresh non-interactive shell, so `cd` and environment variables do not carry over between calls; combine steps into one command. The exception is a server with a saved **su** password: its commands run inside one persistent root shell.
 - The result is `exit code: N`, then `stdout:` and `stderr:` sections. A non-zero exit code is a normal result, not a tool error.
+- Values that look like secrets are replaced by `[REDACTED:<kind>]`, where the kind is `private_key`, `password`, `secret`, `auth_header`, `url_password` or `token`; a key and its separator stay (`DB_PASSWORD=[REDACTED:password]`). The result then ends with one line such as `note: sshgate redacted 3 values (private_key ×1, password ×2); the values are withheld from AI clients`. Saved secrets show as `***` and are not counted. The same applies in standalone `--host` mode.
 - The `description` is shown to you and written to the audit log. It is never executed.
 
 **Client timeouts.** Claude Code does not give up before the 5-minute approval window: its hard per-call limit (`MCP_TOOL_TIMEOUT`) defaults to about 28 hours, and its idle limit for stdio servers is 30 minutes. Other clients may use shorter timeouts; raise them above 5 minutes if calls fail while a request is still waiting.

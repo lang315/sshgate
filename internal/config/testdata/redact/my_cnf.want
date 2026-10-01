@@ -1,0 +1,12 @@
+# counts: password=2
+[client]
+user = backup
+password = "[REDACTED:password]"
+host = 10.0.3.12
+socket = /var/run/mysqld/mysqld.sock
+
+[mysqldump]
+quick
+max_allowed_packet = 64M
+user = backup
+password=[REDACTED:password]

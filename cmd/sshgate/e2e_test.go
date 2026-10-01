@@ -311,4 +311,23 @@ func TestEndToEndAutoAllow(t *testing.T) {
 	if n := len(h.Broker().Pending()); n != 0 {
 		t.Fatalf("request reached the broker: %d pending", n)
 	}
+
+	// Pattern redaction end to end (bridge → MCP door → hub → sshtest):
+	// sshtest echoes the command, so the output is one line holding a PEM
+	// block, a password= pair and a bearer header. The audit's command
+	// field keeps them (it is vault-redacted only), so it is not checked.
+	res, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "exec", Arguments: map[string]any{"server": "box",
+		"command": "echo -----BEGIN RSA PRIVATE KEY----- MIIEowIBAAKCAQEAu1SU1LfV -----END RSA PRIVATE KEY-----; echo password=hunter2x; echo Authorization: Bearer abc123def"}})
+	if err != nil || res.IsError {
+		t.Fatalf("exec: %v %+v", err, res)
+	}
+	txt = res.Content[0].(*mcp.TextContent).Text
+	for _, s := range []string{"MIIEowIBAAKCAQEAu1SU1LfV", "hunter2x", "abc123def"} {
+		if strings.Contains(txt, s) {
+			t.Fatalf("%q reached the AI: %q", s, txt)
+		}
+	}
+	if !strings.HasSuffix(txt, "note: sshgate redacted 3 values (private_key ×1, password ×1, auth_header ×1); the values are withheld from AI clients\n") {
+		t.Fatalf("note missing: %q", txt)
+	}
 }

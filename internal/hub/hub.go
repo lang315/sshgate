@@ -4,12 +4,14 @@ package hub
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/lang315/sshgate/internal/broker"
@@ -84,9 +86,10 @@ type ExecRequest struct {
 }
 
 type ExecResponse struct {
-	ExitCode int    `json:"exitCode"`
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
+	ExitCode int            `json:"exitCode"`
+	Stdout   string         `json:"stdout"`
+	Stderr   string         `json:"stderr"`
+	Redacted map[string]int `json:"redacted,omitempty"` // RedactPatterns counts by kind, both streams; includes values masked in parts of long output the cap drops
 }
 
 type Hub struct {
@@ -112,11 +115,16 @@ type Hub struct {
 	autoSinkGen  uint64
 	done         chan struct{}
 	closeOnce    sync.Once
+	unlocked     atomic.Bool                                         // deps.MasterKey != nil, for auditAppended, which must not take h.mu
+	auditSink    atomic.Pointer[func(seq int, line json.RawMessage)] // see audit.go
 }
 
 // New loads the store if present; a missing store is not an error.
 func New(o Options) (*Hub, error) {
 	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit, files: newJobSet(), tunnels: newTunnelSet(), lastActivity: time.Now(), grants: map[string]*grant{}, done: make(chan struct{})}
+	if o.Audit != nil {
+		o.Audit.OnAppend(h.auditAppended)
+	}
 	h.deps = &mcpserver.Deps{Path: o.StorePath}
 	f, err := config.Load(o.StorePath)
 	if err != nil && !os.IsNotExist(err) {
@@ -229,6 +237,7 @@ func (h *Hub) Unlock(pw string) error {
 	}
 	clear(h.deps.MasterKey)
 	h.deps.MasterKey = mk
+	h.unlocked.Store(true)
 	h.lastActivity = time.Now()
 	return nil
 }
@@ -258,6 +267,7 @@ func (h *Hub) zeroKeyLocked() func(string) {
 	}
 	clear(h.deps.MasterKey)
 	h.deps.MasterKey = nil
+	h.unlocked.Store(false)
 	return h.lockSink
 }
 
@@ -582,8 +592,8 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 }
 
 // run executes cmd on name with dc, audits base (Outcome, exit code, sizes,
-// reason), and returns what the AI sees. It is the tail of both the approved
-// and the auto-allowed path.
+// reason, redacted counts), and returns what the AI sees. It is the tail of
+// both the approved and the auto-allowed path.
 func (h *Hub) run(ctx context.Context, name string, dc sshx.DialConfig, cmd string, sudo bool, timeout int, base broker.AuditRecord, red *config.Redactor) (ExecResponse, error) {
 	ex := h.executor(name, dc)
 
@@ -614,12 +624,12 @@ func (h *Hub) run(ctx context.Context, name string, dc sshx.DialConfig, cmd stri
 		}
 		return ExecResponse{}, errors.New(base.Reason)
 	}
+	// Patterns run before the cap, only over the parts the cap keeps: a cap
+	// through a PEM block or a password= line would leave a piece that no
+	// longer matches.
+	stdout, stderr, counts := config.RedactCapStreams(red, res.Stdout, res.Stderr, config.DefaultOutputCap)
 	code := res.ExitCode
-	base.Outcome, base.ExitCode = string(broker.Allowed), &code
+	base.Outcome, base.ExitCode, base.Redacted = string(broker.Allowed), &code, counts
 	h.record(base)
-	return ExecResponse{
-		ExitCode: res.ExitCode,
-		Stdout:   config.CapOutput(red.Redact(res.Stdout), config.DefaultOutputCap),
-		Stderr:   config.CapOutput(red.Redact(res.Stderr), config.DefaultOutputCap),
-	}, nil
+	return ExecResponse{ExitCode: res.ExitCode, Stdout: stdout, Stderr: stderr, Redacted: counts}, nil
 }

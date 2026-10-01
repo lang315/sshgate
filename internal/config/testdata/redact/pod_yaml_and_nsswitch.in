@@ -1,0 +1,25 @@
+# redact-test: negative
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: app
+    env:
+    - name: DB_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: db-creds
+          key: password
+    volumeMounts:
+    - name: certs
+      mountPath: /etc/certs
+  volumes:
+  - name: certs
+    secret:
+      secretName: tls-certs
+passwd:         files systemd
+group:          files systemd
+shadow:         files systemd
+hosts:          files dns
+password_min_length: 8
+PASSWORD_MAX_AGE=90

@@ -3,8 +3,12 @@ package broker
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -119,5 +123,448 @@ func TestAuditConfigRecordShape(t *testing.T) {
 	}
 	if _, has := m["command"]; has {
 		t.Fatal("a config record carries exec fields")
+	}
+}
+
+func openTestAudit(t *testing.T) (*Audit, string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	a, err := OpenAudit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { a.Close() })
+	return a, path
+}
+
+func seqsOf(r ReadResult) []int {
+	out := []int{}
+	for _, e := range r.Records {
+		out = append(out, e.Seq)
+	}
+	return out
+}
+
+func TestAuditSeqCountsLinesAcrossReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	a, err := OpenAudit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if err := a.Write(AuditRecord{Command: "ls", Outcome: "allowed"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.Close()
+	a, err = OpenAudit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	var got []int
+	a.OnAppend(func(seq int, _ json.RawMessage) { got = append(got, seq) })
+	if err := a.WriteConfig(ConfigRecord{Action: "save"}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got, []int{4}) {
+		t.Fatalf("seqs after reopen = %v, want [4]", got)
+	}
+}
+
+// A line cut short by a crash is ended at open: it stays one malformed line,
+// and the next record starts on its own line.
+func TestOpenAuditEndsACutLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	if err := os.WriteFile(path, []byte(`{"command":"ok","outcome":"allowed"}`+"\n"+`{"comm`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a, err := OpenAudit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	var seq int
+	a.OnAppend(func(s int, _ json.RawMessage) { seq = s })
+	if err := a.Write(AuditRecord{Command: "after", Outcome: "allowed"}); err != nil {
+		t.Fatal(err)
+	}
+	if seq != 3 {
+		t.Fatalf("seq = %d, want 3", seq)
+	}
+	res, err := a.Read(ReadQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Skipped != 1 || !slices.Equal(seqsOf(res), []int{3, 1}) {
+		t.Fatalf("skipped %d, seqs %v; want 1, [3 1]", res.Skipped, seqsOf(res))
+	}
+}
+
+func TestAuditOnAppendOncePerRecord(t *testing.T) {
+	a, _ := openTestAudit(t)
+	type call struct {
+		seq  int
+		line string
+	}
+	var calls []call
+	a.OnAppend(func(seq int, line json.RawMessage) { calls = append(calls, call{seq, string(line)}) })
+	a.Write(AuditRecord{Command: "ls", Outcome: "allowed"})
+	a.WriteConfig(ConfigRecord{Action: "save"})
+	a.WriteFile(FileRecord{Action: "mkdir", Server: "s"})
+	a.WriteTunnel(TunnelRecord{Phase: "start", Server: "s"})
+	if len(calls) != 4 {
+		t.Fatalf("%d calls, want 4", len(calls))
+	}
+	for i, c := range calls {
+		if c.seq != i+1 || !json.Valid([]byte(c.line)) || strings.HasSuffix(c.line, "\n") {
+			t.Fatalf("call %d = %+v", i, c)
+		}
+	}
+	if !strings.Contains(calls[3].line, `"kind":"tunnel"`) {
+		t.Fatalf("tunnel line %s", calls[3].line)
+	}
+}
+
+// The callback runs with a.mu released: it may read the log itself.
+func TestAuditOnAppendRunsUnlocked(t *testing.T) {
+	a, _ := openTestAudit(t)
+	a.OnAppend(func(int, json.RawMessage) {
+		if _, err := a.Read(ReadQuery{}); err != nil {
+			t.Error(err)
+		}
+	})
+	done := make(chan struct{})
+	go func() {
+		a.Write(AuditRecord{Command: "ls", Outcome: "allowed"})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnAppend ran with a.mu held")
+	}
+}
+
+// readFixture writes ten lines, oldest first:
+//
+//	1 exec vis "ls" allowed           6 exec box "tail 2>&1" cancelled_running
+//	2 exec vis "rm x" denied          7 file box upload
+//	3 exec box "uptime" allowed auto  8 exec vis "sleep 9" approved_but_cancelled
+//	4 config vis save                 9 tunnel box start
+//	5 "not json"                      10 exec vis "false" error auto
+func readFixture(t *testing.T) *Audit {
+	t.Helper()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	a, err := OpenAudit(path)
+	must(err)
+	must(a.Write(AuditRecord{Server: "vis", Command: "ls", Outcome: "allowed"}))
+	must(a.Write(AuditRecord{Server: "vis", Command: "rm x", Outcome: "denied"}))
+	must(a.Write(AuditRecord{Server: "box", Command: "uptime", Outcome: "allowed", Approval: "auto"}))
+	must(a.WriteConfig(ConfigRecord{Server: "vis", Action: "save"}))
+	a.Close()
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	must(err)
+	_, err = f.WriteString("not json\n")
+	must(err)
+	f.Close()
+	a, err = OpenAudit(path)
+	must(err)
+	t.Cleanup(func() { a.Close() })
+	must(a.Write(AuditRecord{Server: "box", Command: "tail 2>&1", Outcome: "cancelled_running"}))
+	must(a.WriteFile(FileRecord{Server: "box", Action: "upload"}))
+	must(a.Write(AuditRecord{Server: "vis", Command: "sleep 9", Outcome: "approved_but_cancelled"}))
+	must(a.WriteTunnel(TunnelRecord{Server: "box", Phase: "start"}))
+	must(a.Write(AuditRecord{Server: "vis", Command: "false", Outcome: "error", Approval: "auto"}))
+	return a
+}
+
+func TestAuditReadFilters(t *testing.T) {
+	a := readFixture(t)
+	for _, c := range []struct {
+		name string
+		q    ReadQuery
+		want []int
+	}{
+		{"all", ReadQuery{}, []int{10, 9, 8, 7, 6, 4, 3, 2, 1}},
+		{"server", ReadQuery{Server: "box"}, []int{9, 7, 6, 3}},
+		{"server is exact", ReadQuery{Server: "bo"}, []int{}},
+		{"kind exec", ReadQuery{Kinds: []string{"exec"}}, []int{10, 8, 6, 3, 2, 1}},
+		{"kind config", ReadQuery{Kinds: []string{"config"}}, []int{4}},
+		{"kinds file and tunnel", ReadQuery{Kinds: []string{"file", "tunnel"}}, []int{9, 7}},
+		{"auto", ReadQuery{Outcomes: []string{"auto"}}, []int{10, 3}},
+		{"allowed is not auto", ReadQuery{Outcomes: []string{"allowed"}}, []int{1}},
+		{"denied", ReadQuery{Outcomes: []string{"denied"}}, []int{2}},
+		{"cancelled", ReadQuery{Outcomes: []string{"cancelled"}}, []int{8, 6}},
+		{"error", ReadQuery{Outcomes: []string{"error"}}, []int{10}},
+		{"expired", ReadQuery{Outcomes: []string{"expired"}}, []int{}},
+		{"text is case-insensitive", ReadQuery{Text: "UPTIME"}, []int{3}},
+		{"text matches what json escaped", ReadQuery{Text: "2>&1"}, []int{6}},
+		{"kinds and outcomes are a union", ReadQuery{Kinds: []string{"config"}, Outcomes: []string{"denied"}}, []int{4, 2}},
+		{"server narrows the union", ReadQuery{Server: "box", Kinds: []string{"config"}, Outcomes: []string{"auto"}}, []int{3}},
+		{"text narrows too", ReadQuery{Server: "vis", Text: "save"}, []int{4}},
+	} {
+		res, err := a.Read(c.q)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got := seqsOf(res); !slices.Equal(got, c.want) {
+			t.Errorf("%s: seqs %v, want %v", c.name, got, c.want)
+		}
+		if res.Skipped != 1 {
+			t.Errorf("%s: skipped %d, want 1 (whole file)", c.name, res.Skipped)
+		}
+		if res.Next != 0 {
+			t.Errorf("%s: next %d with nothing older", c.name, res.Next)
+		}
+	}
+}
+
+func TestAuditReadPaging(t *testing.T) {
+	a := readFixture(t)
+	res, err := a.Read(ReadQuery{Limit: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(seqsOf(res), []int{10, 9, 8, 7}) || res.Next != 7 {
+		t.Fatalf("page 1: %v next %d", seqsOf(res), res.Next)
+	}
+	if !strings.Contains(string(res.Records[0].Record), `"command":"false"`) || filepath.Base(res.Path) != "audit.jsonl" {
+		t.Fatalf("record %s, path %q", res.Records[0].Record, res.Path)
+	}
+	res, _ = a.Read(ReadQuery{Limit: 4, Before: res.Next})
+	if !slices.Equal(seqsOf(res), []int{6, 4, 3, 2}) || res.Next != 2 {
+		t.Fatalf("page 2: %v next %d", seqsOf(res), res.Next)
+	}
+	res, _ = a.Read(ReadQuery{Limit: 4, Before: res.Next})
+	if !slices.Equal(seqsOf(res), []int{1}) || res.Next != 0 {
+		t.Fatalf("page 3: %v next %d", seqsOf(res), res.Next)
+	}
+	// Paging keeps the filter.
+	res, _ = a.Read(ReadQuery{Limit: 1, Kinds: []string{"exec"}, Before: 8})
+	if !slices.Equal(seqsOf(res), []int{6}) || res.Next != 6 {
+		t.Fatalf("filtered page: %v next %d", seqsOf(res), res.Next)
+	}
+}
+
+func TestAuditReadLimitBounds(t *testing.T) {
+	a, _ := openTestAudit(t)
+	for i := range 505 {
+		if err := a.Write(AuditRecord{Command: fmt.Sprint("c", i), Outcome: "allowed"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []struct{ limit, n, next int }{
+		{0, DefaultReadLimit, 306}, {1, 1, 505}, {MaxReadLimit, 500, 6}, {10000, 500, 6},
+	} {
+		res, err := a.Read(ReadQuery{Limit: c.limit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Records) != c.n || res.Next != c.next {
+			t.Errorf("limit %d: %d records, next %d; want %d, %d", c.limit, len(res.Records), res.Next, c.n, c.next)
+		}
+	}
+}
+
+func TestAuditReadSkipsNonObjects(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	if err := os.WriteFile(path, []byte("null\n[]\n"+`{"command":"x","outcome":"allowed"}`+"\n"+`{"server":5}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a, err := OpenAudit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	res, err := a.Read(ReadQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(seqsOf(res), []int{3}) || res.Skipped != 3 {
+		t.Fatalf("seqs %v skipped %d; want [3], 3", seqsOf(res), res.Skipped)
+	}
+}
+
+func TestAuditReadEmptyIsAnEmptyList(t *testing.T) {
+	a, path := openTestAudit(t)
+	res, err := a.Read(ReadQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(res)
+	pj, _ := json.Marshal(path)
+	if want := `{"records":[],"skipped":0,"path":` + string(pj) + `}`; string(b) != want {
+		t.Fatalf("got %s, want %s", b, want)
+	}
+}
+
+// Read holds a.mu while it reads, so it never sees a half-written line, and
+// seqs stay contiguous under concurrent appends.
+func TestAuditReadDuringAppends(t *testing.T) {
+	a, _ := openTestAudit(t)
+	var wg sync.WaitGroup
+	for w := range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range 100 {
+				a.Write(AuditRecord{Command: fmt.Sprintf("w%d-%d", w, i), Outcome: "allowed"})
+			}
+		}()
+	}
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	for reading := true; reading; {
+		select {
+		case <-done:
+			reading = false
+		default:
+		}
+		res, err := a.Read(ReadQuery{Limit: MaxReadLimit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Skipped != 0 {
+			t.Fatalf("read saw %d half-written lines", res.Skipped)
+		}
+		for i, e := range res.Records {
+			if e.Seq != len(res.Records)-i {
+				t.Fatalf("seq %d at index %d of %d", e.Seq, i, len(res.Records))
+			}
+		}
+	}
+	res, _ := a.Read(ReadQuery{Limit: MaxReadLimit})
+	if len(res.Records) != 400 {
+		t.Fatalf("%d records, want 400", len(res.Records))
+	}
+}
+
+// Text matches a record's decoded string and number values, not its raw
+// line: quotes, backslashes and tabs match as typed, key names never do.
+func TestAuditReadTextMatchesDecodedValues(t *testing.T) {
+	a, _ := openTestAudit(t)
+	for _, c := range []string{`echo "hi"`, `dir C:\Users`, "a\tb", "plain"} {
+		if err := a.Write(AuditRecord{Server: "box", Command: c, Outcome: "allowed", TimeoutSec: 30}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []struct {
+		text string
+		want []int
+	}{
+		{`echo "hi"`, []int{1}},
+		{`C:\Users`, []int{2}},
+		{"a\tb", []int{3}},
+		{"30", []int{4, 3, 2, 1}}, // a number value
+		{"command", []int{}},      // a key name
+		{"server", []int{}},
+		{"box", []int{4, 3, 2, 1}},
+	} {
+		res, err := a.Read(ReadQuery{Text: c.text})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := seqsOf(res); !slices.Equal(got, c.want) {
+			t.Errorf("text %q: seqs %v, want %v", c.text, got, c.want)
+		}
+	}
+}
+
+// A change to the file that bypasses Audit (an appended line, a truncation)
+// must not leave the live seq different from the line number Read reports.
+func TestAuditSeqSurvivesExternalEdits(t *testing.T) {
+	a, path := openTestAudit(t)
+	var seqs []int
+	a.OnAppend(func(seq int, _ json.RawMessage) { seqs = append(seqs, seq) })
+	write := func(c string) {
+		t.Helper()
+		if err := a.Write(AuditRecord{Command: c, Outcome: "allowed"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	edit := func(flag int, data string) {
+		t.Helper()
+		f, err := os.OpenFile(path, flag, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.WriteString(data); err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+	check := func(cmd string, want int) {
+		t.Helper()
+		res, err := a.Read(ReadQuery{Text: cmd})
+		if err != nil || len(res.Records) != 1 {
+			t.Fatalf("read %q: %v %v", cmd, res, err)
+		}
+		if got := seqs[len(seqs)-1]; got != want || res.Records[0].Seq != want {
+			t.Fatalf("%s: live seq %d, Read seq %d, want %d", cmd, got, res.Records[0].Seq, want)
+		}
+	}
+	write("one")
+	edit(os.O_APPEND|os.O_WRONLY, "{\"command\":\"hand\"}\ntorn")
+	write("two")
+	check("two", 4) // 1 one, 2 hand, 3 torn (ended), 4 two
+	edit(os.O_TRUNC|os.O_WRONLY, "{\"a\":1}\n")
+	write("three")
+	check("three", 2) // 1 a, 2 three
+}
+
+// The line count streams the file in chunks: a file far larger than the
+// buffer, ending mid-line, counts right and its torn line is ended.
+func TestOpenAuditCountsALargeFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	line := `{"command":"` + strings.Repeat("x", 1000) + `"}` + "\n"
+	if err := os.WriteFile(path, []byte(strings.Repeat(line, 300)+"torn"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a, err := OpenAudit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if err := a.Write(AuditRecord{Command: "next", Outcome: "allowed"}); err != nil {
+		t.Fatal(err)
+	}
+	res, _ := a.Read(ReadQuery{Limit: 1})
+	if got := seqsOf(res); !slices.Equal(got, []int{302}) {
+		t.Fatalf("seqs %v, want [302]", got)
+	}
+}
+
+// A file record's local paths never leave the broker: Read and OnAppend omit
+// them and a text search cannot find them; the file on disk keeps them.
+func TestAuditFileLocalPathsStayInTheBroker(t *testing.T) {
+	a, path := openTestAudit(t)
+	var appended json.RawMessage
+	a.OnAppend(func(_ int, line json.RawMessage) { appended = line })
+	if err := a.WriteFile(FileRecord{Server: "box", Action: "upload", Remote: []string{"/r/a"}, Local: []string{"/Users/me/secret/a"}}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(appended), "local") || !strings.Contains(string(appended), "/r/a") {
+		t.Fatalf("appended: %s", appended)
+	}
+	for text, want := range map[string]int{"me/secret": 0, "/r/a": 1} {
+		res, err := a.Read(ReadQuery{Text: text})
+		if err != nil || len(res.Records) != want {
+			t.Fatalf("text %q: %d records, %v; want %d", text, len(res.Records), err, want)
+		}
+		for _, e := range res.Records {
+			if strings.Contains(string(e.Record), "local") {
+				t.Fatalf("Read returned %s", e.Record)
+			}
+		}
+	}
+	if disk, _ := os.ReadFile(path); !strings.Contains(string(disk), "/Users/me/secret/a") {
+		t.Fatalf("disk lost local: %s", disk)
 	}
 }

@@ -67,6 +67,13 @@ describe('transport', () => {
     expect(bridge.call).toHaveBeenLastCalledWith('servers.autoAllowCheck', { server: 'box' })
   })
 
+  it('audit.read passes the query as is', async () => {
+    const page = { records: [{ seq: 3, record: { time: 't', command: 'ls' } }], next: 3, skipped: 0, path: '/p/audit.jsonl' }
+    bridge.call.mockResolvedValueOnce(page)
+    expect(await hub.auditRead({ before: 9, kinds: ['exec'], text: 'ls' })).toEqual(page)
+    expect(bridge.call).toHaveBeenLastCalledWith('audit.read', { before: 9, kinds: ['exec'], text: 'ls' })
+  })
+
   it('cleanError strips the electron invoke prefix, with or without the inner "Error: "', () => {
     expect(cleanError(new Error("Error invoking remote method 'hub:call': Error: boom")).message).toBe('boom')
     expect(cleanError(new Error("Error invoking remote method 'hub:call': boom")).message).toBe('boom')

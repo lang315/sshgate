@@ -1,0 +1,5 @@
+# redact-test: secrets hunter2x abc123opaque Zq8Wm4tLp2Rk7Xs
+{"log":"POST /login body={\"user\":\"ann\",\"password\":\"hunter2x\"}\n","stream":"stdout","time":"2026-09-30T10:02:11.000000001Z"}
+{"log":"outgoing headers {\"Authorization\":[\"Bearer abc123opaque\"],\"Accept\":[\"*/*\"]}\n","stream":"stderr","time":"2026-09-30T10:02:11.100000001Z"}
+{"log":"connecting with {\"host\":\"db\",\"api_key\":\"Zq8Wm4tLp2Rk7Xs\"}\n","stream":"stdout","time":"2026-09-30T10:02:12.000000001Z"}
+{"log":"healthcheck ok\n","stream":"stdout","time":"2026-09-30T10:02:13.000000001Z"}

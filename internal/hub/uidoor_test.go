@@ -18,7 +18,14 @@ func startUI(t *testing.T, h *Hub) (*rpc.Client, chan string) {
 	hubR, uiW := io.Pipe()
 	go ServeUIDoor(context.Background(), h, hubR, hubW)
 	notes := make(chan string, 16)
-	c := rpc.NewClient(uiR, uiW, func(m string, _ json.RawMessage) { notes <- m })
+	// audit.appended is dropped: it races pending/decided/locked, which these
+	// tests read in order, and would fill the channel. Audit tests use
+	// startTermDoor, which keeps every notification.
+	c := rpc.NewClient(uiR, uiW, func(m string, _ json.RawMessage) {
+		if m != "audit.appended" {
+			notes <- m
+		}
+	})
 	t.Cleanup(func() { uiW.Close(); hubW.Close() })
 	return c, notes
 }
@@ -198,8 +205,8 @@ func TestUIDoorHelloAndLockedNotification(t *testing.T) {
 	if err := c.Call(context.Background(), "hello", nil, &hello); err != nil || hello.Protocol != ProtocolVersion {
 		t.Fatalf("hello: %v %+v", err, hello)
 	}
-	if hello.Protocol != 7 {
-		t.Fatalf("protocol = %d, want 7", hello.Protocol)
+	if hello.Protocol != 8 {
+		t.Fatalf("protocol = %d, want 8", hello.Protocol)
 	}
 	if err := c.Call(context.Background(), "unlock", map[string]string{"password": "pw"}, nil); err != nil {
 		t.Fatal(err)
@@ -263,7 +270,12 @@ func startUIRaw(t *testing.T, h *Hub) (*rpc.Client, chan uiNote) {
 	hubR, uiW := io.Pipe()
 	go ServeUIDoor(context.Background(), h, hubR, hubW)
 	notes := make(chan uiNote, 16)
-	c := rpc.NewClient(uiR, uiW, func(m string, p json.RawMessage) { notes <- uiNote{m, p} })
+	// audit.appended is dropped, as in startUI.
+	c := rpc.NewClient(uiR, uiW, func(m string, p json.RawMessage) {
+		if m != "audit.appended" {
+			notes <- uiNote{m, p}
+		}
+	})
 	t.Cleanup(func() { uiW.Close(); hubW.Close() })
 	return c, notes
 }

@@ -69,6 +69,7 @@ func (h *Hub) CreateVault(pw string) error {
 	}
 	clear(h.deps.MasterKey)
 	h.deps.MasterKey = mk
+	h.unlocked.Store(true)
 	h.lastActivity = time.Now()
 	h.auditConfig(broker.ConfigRecord{Action: "vaultCreate", KeptServers: kept})
 	return nil

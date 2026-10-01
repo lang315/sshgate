@@ -1,0 +1,7 @@
+# counts: token=3
+2026-09-29T14:02:11.482Z INFO  deploy: cloning https://github.com/example/mwtn.git
+2026-09-29T14:02:11.913Z DEBUG git: using token [REDACTED:token] for github.com
+2026-09-29T14:02:14.207Z INFO  deploy: checked out 3f9c2e1 (main)
+2026-09-29T14:02:15.001Z DEBUG api: POST /v1/session 200 12ms session=[REDACTED:token]
+2026-09-29T14:02:15.377Z WARN  worker: slack webhook failed, token [REDACTED:token]
+2026-09-29T14:02:16.020Z INFO  deploy: done in 4.5s

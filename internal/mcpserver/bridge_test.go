@@ -222,3 +222,19 @@ func TestBridgeExecNoDoubleCap(t *testing.T) {
 		t.Fatalf("hub output was re-capped by the bridge: got %d bytes, want the full %d-byte stdout verbatim", len(text(res)), len(stdout))
 	}
 }
+
+// The hub already masked and counted; the bridge only lays the counts out
+// as the final note line, and adds none when the hub sent none.
+func TestBridgeExecRedactedNote(t *testing.T) {
+	srv := BuildBridgeServer(fakeHub(t, map[string]any{"exitCode": 0, "stdout": "DB_PASSWORD=[REDACTED:password]\n", "stderr": "",
+		"redacted": map[string]int{"password": 1, "private_key": 2}}, ""))
+	res := callTool(t, srv, "exec", map[string]any{"server": "vis", "command": "cat .env"})
+	want := "exit code: 0\nstdout:\nDB_PASSWORD=[REDACTED:password]\nnote: sshgate redacted 3 values (private_key ×2, password ×1); the values are withheld from AI clients\n"
+	if res.IsError || text(res) != want {
+		t.Fatalf("got %q", text(res))
+	}
+	srv = BuildBridgeServer(fakeHub(t, map[string]any{"exitCode": 0, "stdout": "hi\n", "stderr": ""}, ""))
+	if res := callTool(t, srv, "exec", map[string]any{"server": "vis", "command": "echo hi"}); strings.Contains(text(res), "note:") {
+		t.Fatalf("note without redacted: %q", text(res))
+	}
+}
