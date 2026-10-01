@@ -4,7 +4,9 @@
 # app.getAppPath()/../sshgate; Claude Code can use the same binary as the
 # bridge). Ad-hoc signed only: for the author's own machine, per the roadmap
 # (no signing or notarization before slice 5).
-# ponytail: this Mac's arch only, no icon; electron-builder when slice 5 needs installers.
+# ponytail: this Mac's arch only; electron-builder when slice 5 needs installers.
+# The icon is build/icon.icns (scripts/make-icon.sh rebuilds it from
+# build/icon-source.png), copied over Electron's own electron.icns.
 # The version is desktop/package.json's: bump it before tagging a release, or
 # the bundle and the release binaries (publish.yml stamps the tag) disagree.
 # Quit the app before re-running; out/sshgate.app is replaced in place. Run
@@ -21,6 +23,7 @@ mkdir -p out
 cp -R node_modules/electron/dist/Electron.app "$out"
 mkdir "$out/Contents/Resources/app"
 cp -R dist package.json "$out/Contents/Resources/app/"
+cp build/icon.icns "$out/Contents/Resources/electron.icns"
 (cd .. && CGO_ENABLED=0 go build -trimpath \
   -ldflags "-s -w -X github.com/lang315/sshgate/internal/mcpserver.Version=$version" \
   -o "desktop/$out/Contents/Resources/sshgate" ./cmd/sshgate)
