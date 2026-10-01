@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"bytes"
 	"encoding/json"
 	"slices"
 	"strconv"
@@ -21,8 +22,30 @@ func (h *Hub) auditAppended(seq int, line json.RawMessage) {
 		return
 	}
 	if f := h.auditSink.Load(); f != nil {
-		(*f)(seq, line)
+		(*f)(seq, stripLocal(line))
 	}
+}
+
+// stripLocal drops a file record's local paths: they exist only in the
+// desktop app's main process, never in the renderer. Every other line is
+// returned untouched; the file on disk keeps the field.
+func stripLocal(line json.RawMessage) json.RawMessage {
+	if !bytes.Contains(line, []byte(`"local"`)) {
+		return line
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(line, &m) != nil || string(m["kind"]) != `"file"` {
+		return line
+	}
+	if _, ok := m["local"]; !ok {
+		return line
+	}
+	delete(m, "local")
+	out, err := json.Marshal(m)
+	if err != nil {
+		return line
+	}
+	return out
 }
 
 // setAuditSink installs f for audit.appended; release clears it only while
@@ -72,5 +95,9 @@ func (h *Hub) ReadAudit(q broker.ReadQuery) (broker.ReadResult, error) {
 	if h.audit == nil {
 		return broker.ReadResult{Records: []broker.Entry{}}, nil
 	}
-	return h.audit.Read(q)
+	res, err := h.audit.Read(q)
+	for i := range res.Records {
+		res.Records[i].Record = stripLocal(res.Records[i].Record)
+	}
+	return res, err
 }

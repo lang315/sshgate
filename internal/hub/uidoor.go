@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/lang315/sshgate/internal/broker"
@@ -86,7 +87,15 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		}
 	})
 	defer release()
+	// sendMu orders audit.appended against locked: the drain checks
+	// h.unlocked and notifies under it, the lock sink notifies under it. The
+	// key is gone and h.unlocked false before the sink runs, so a record sent
+	// under sendMu with unlocked true precedes locked, and one checked after
+	// the lock is dropped. Neither runs under h.mu.
+	var sendMu sync.Mutex
 	releaseLock := h.setLockSink(func(reason string) {
+		sendMu.Lock()
+		defer sendMu.Unlock()
 		s.Notify("locked", map[string]string{"reason": reason})
 	})
 	defer releaseLock()
@@ -106,10 +115,11 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		for {
 			select {
 			case m := <-auditQ:
-				if !h.unlocked.Load() {
-					continue // a backlog must not go out after a lock
+				sendMu.Lock()
+				if h.unlocked.Load() { // a backlog must not go out after a lock
+					s.Notify("audit.appended", map[string]any{"seq": m.seq, "record": m.line})
 				}
-				s.Notify("audit.appended", map[string]any{"seq": m.seq, "record": m.line})
+				sendMu.Unlock()
 			case <-qctx.Done():
 				return
 			}

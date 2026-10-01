@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -248,5 +250,96 @@ func TestAuditAfterVaultCreate(t *testing.T) {
 	var page auditPage
 	if err := c.Call(ctx, "audit.read", map[string]any{}, &page); err != nil || len(page.Records) != 1 {
 		t.Fatalf("%v %+v", err, page)
+	}
+}
+
+// A file record's local paths stay in the hub: audit.read and audit.appended
+// both drop them, and the file on disk keeps them. Other records are
+// returned as written.
+func TestAuditFileRecordsLoseLocalPaths(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	c, _, notes := startTermDoor(t, h)
+	waitAuditSink(t, h)
+	h.auditFile(broker.FileRecord{Kind: "file", Action: "upload", Server: "vis", Remote: []string{"/r/a"}, Local: []string{"/Users/me/secret/a"}})
+	h.auditConfig(broker.ConfigRecord{Action: "save", Server: "vis", Reason: `{"local":"/kept"}`})
+	_, rec := waitAudit(t, notes, "file")
+	if _, ok := rec["local"]; ok || rec["action"] != "upload" || rec["remote"] == nil {
+		t.Fatalf("audit.appended: %v", rec)
+	}
+	var page auditPage
+	if err := c.Call(context.Background(), "audit.read", map[string]any{}, &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Records) != 2 {
+		t.Fatalf("%+v", page)
+	}
+	if _, ok := page.Records[1].Record["local"]; ok || page.Records[1].Record["action"] != "upload" {
+		t.Fatalf("audit.read file record: %v", page.Records[1].Record)
+	}
+	if page.Records[0].Record["reason"] != `{"local":"/kept"}` {
+		t.Fatalf("audit.read config record: %v", page.Records[0].Record)
+	}
+	disk, err := os.ReadFile(page.Path)
+	if err != nil || !strings.Contains(string(disk), "/Users/me/secret/a") {
+		t.Fatalf("the file on disk must keep local: %v %s", err, disk)
+	}
+}
+
+// Nothing follows locked: records written while a lock lands are either sent
+// before the locked notification or not at all.
+func TestAuditAppendedNeverFollowsLocked(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	_, _, notes := startTermDoor(t, h)
+	waitAuditSink(t, h)
+	for i := 0; i < 200; i++ {
+		unlockForTest(h)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for j := 0; j < 50; j++ {
+				h.auditConfig(broker.ConfigRecord{Action: "race"})
+			}
+		}()
+		h.Lock()
+		<-done
+		// Drain notes up to locked, then probe: a later write while locked and
+		// a fresh unlock must show nothing stale in between.
+		locked := false
+		for !locked {
+			select {
+			case n := <-notes:
+				locked = n.method == "locked"
+			case <-time.After(10 * time.Second):
+				t.Fatal("no locked notification")
+			}
+		}
+		h.auditConfig(broker.ConfigRecord{Action: "marker"}) // locked: dropped
+		unlockForTest(h)
+		h.auditConfig(broker.ConfigRecord{Action: "marker"})
+		for {
+			select {
+			case n := <-notes:
+				if n.method != "audit.appended" {
+					continue
+				}
+				var p struct {
+					Record map[string]any `json:"record"`
+				}
+				json.Unmarshal(n.params, &p)
+				if p.Record["action"] == "race" {
+					t.Fatalf("iteration %d: a record written before the lock came after locked", i)
+				}
+				goto next
+			case <-time.After(10 * time.Second):
+				t.Fatal("no marker")
+			}
+		}
+	next:
+		h.Lock()
+		for { // drain through this round's locked
+			if n := <-notes; n.method == "locked" {
+				break
+			}
+		}
 	}
 }

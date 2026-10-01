@@ -445,3 +445,98 @@ func TestAuditReadDuringAppends(t *testing.T) {
 		t.Fatalf("%d records, want 400", len(res.Records))
 	}
 }
+
+// Text matches a record's decoded string and number values, not its raw
+// line: quotes, backslashes and tabs match as typed, key names never do.
+func TestAuditReadTextMatchesDecodedValues(t *testing.T) {
+	a, _ := openTestAudit(t)
+	for _, c := range []string{`echo "hi"`, `dir C:\Users`, "a\tb", "plain"} {
+		if err := a.Write(AuditRecord{Server: "box", Command: c, Outcome: "allowed", TimeoutSec: 30}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []struct {
+		text string
+		want []int
+	}{
+		{`echo "hi"`, []int{1}},
+		{`C:\Users`, []int{2}},
+		{"a\tb", []int{3}},
+		{"30", []int{4, 3, 2, 1}}, // a number value
+		{"command", []int{}},      // a key name
+		{"server", []int{}},
+		{"box", []int{4, 3, 2, 1}},
+	} {
+		res, err := a.Read(ReadQuery{Text: c.text})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := seqsOf(res); !slices.Equal(got, c.want) {
+			t.Errorf("text %q: seqs %v, want %v", c.text, got, c.want)
+		}
+	}
+}
+
+// A change to the file that bypasses Audit (an appended line, a truncation)
+// must not leave the live seq different from the line number Read reports.
+func TestAuditSeqSurvivesExternalEdits(t *testing.T) {
+	a, path := openTestAudit(t)
+	var seqs []int
+	a.OnAppend(func(seq int, _ json.RawMessage) { seqs = append(seqs, seq) })
+	write := func(c string) {
+		t.Helper()
+		if err := a.Write(AuditRecord{Command: c, Outcome: "allowed"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	edit := func(flag int, data string) {
+		t.Helper()
+		f, err := os.OpenFile(path, flag, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.WriteString(data); err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+	check := func(cmd string, want int) {
+		t.Helper()
+		res, err := a.Read(ReadQuery{Text: cmd})
+		if err != nil || len(res.Records) != 1 {
+			t.Fatalf("read %q: %v %v", cmd, res, err)
+		}
+		if got := seqs[len(seqs)-1]; got != want || res.Records[0].Seq != want {
+			t.Fatalf("%s: live seq %d, Read seq %d, want %d", cmd, got, res.Records[0].Seq, want)
+		}
+	}
+	write("one")
+	edit(os.O_APPEND|os.O_WRONLY, "{\"command\":\"hand\"}\ntorn")
+	write("two")
+	check("two", 4) // 1 one, 2 hand, 3 torn (ended), 4 two
+	edit(os.O_TRUNC|os.O_WRONLY, "{\"a\":1}\n")
+	write("three")
+	check("three", 2) // 1 a, 2 three
+}
+
+// The line count streams the file in chunks: a file far larger than the
+// buffer, ending mid-line, counts right and its torn line is ended.
+func TestOpenAuditCountsALargeFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	line := `{"command":"` + strings.Repeat("x", 1000) + `"}` + "\n"
+	if err := os.WriteFile(path, []byte(strings.Repeat(line, 300)+"torn"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a, err := OpenAudit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if err := a.Write(AuditRecord{Command: "next", Outcome: "allowed"}); err != nil {
+		t.Fatal(err)
+	}
+	res, _ := a.Read(ReadQuery{Limit: 1})
+	if got := seqsOf(res); !slices.Equal(got, []int{302}) {
+		t.Fatalf("seqs %v, want [302]", got)
+	}
+}

@@ -5,7 +5,6 @@ import (
 	"cmp"
 	"encoding/json"
 	"io"
-	"math"
 	"os"
 	"slices"
 	"strings"
@@ -95,7 +94,8 @@ type Audit struct {
 	mu       sync.Mutex
 	f        *os.File
 	path     string
-	n        int // lines in the file: the last record's seq
+	n        int   // lines in the file: the last record's seq
+	size     int64 // bytes in the file as of the last write through a; every byte below it is a whole line
 	onAppend func(seq int, line json.RawMessage)
 }
 
@@ -112,22 +112,48 @@ func OpenAudit(path string) (*Audit, error) {
 		return nil, err
 	}
 	a := &Audit{f: f, path: path}
-	data, err := a.readAll()
-	if err != nil {
+	if err := a.recountLocked(); err != nil {
 		f.Close()
 		return nil, err
 	}
-	a.n = bytes.Count(data, []byte{'\n'})
-	// A line cut short (a crash mid-write) is ended here: it stays one
-	// malformed line, and the next record starts on its own line.
-	if len(data) > 0 && data[len(data)-1] != '\n' {
-		if _, err := f.Write([]byte{'\n'}); err != nil {
-			f.Close()
-			return nil, err
-		}
-		a.n++
-	}
 	return a, nil
+}
+
+// recountLocked re-derives n and size from the file, with a.mu held (or
+// before a is shared). It streams the file with a fixed buffer. A line cut
+// short (a crash mid-write) is ended here: it stays one malformed line, and
+// the next record starts on its own line.
+func (a *Audit) recountLocked() error {
+	st, err := a.f.Stat()
+	if err != nil {
+		return err
+	}
+	size := st.Size()
+	n := 0
+	buf := make([]byte, 64<<10)
+	for off := int64(0); off < size; {
+		m, err := a.f.ReadAt(buf[:min(int64(len(buf)), size-off)], off)
+		n += bytes.Count(buf[:m], []byte{'\n'})
+		off += int64(m)
+		if err != nil && !(err == io.EOF && off == size) {
+			return err
+		}
+	}
+	if size > 0 {
+		var last [1]byte
+		if _, err := a.f.ReadAt(last[:], size-1); err != nil {
+			return err
+		}
+		if last[0] != '\n' {
+			if _, err := a.f.Write([]byte{'\n'}); err != nil {
+				return err
+			}
+			n++
+			size++
+		}
+	}
+	a.n, a.size = n, size
+	return nil
 }
 
 // OnAppend sets fn to be called after each record is written, with its seq
@@ -162,9 +188,20 @@ func (a *Audit) append(v any) error {
 		return err
 	}
 	a.mu.Lock()
-	_, err = a.f.Write(append(line, '\n'))
+	// The file can change under us (a hand edit, a second hub): seq must stay
+	// the line number Read reports, so recount when its size is not ours.
+	if st, serr := a.f.Stat(); serr != nil {
+		err = serr
+	} else if st.Size() != a.size {
+		err = a.recountLocked()
+	}
 	if err == nil {
-		a.n++
+		// On a failed write size stays put, so a partial line is seen as a
+		// size mismatch and ended by the next append's recount.
+		if _, err = a.f.Write(append(line, '\n')); err == nil {
+			a.n++
+			a.size += int64(len(line)) + 1
+		}
 	}
 	seq, fn := a.n, a.onAppend
 	a.mu.Unlock()
@@ -172,11 +209,6 @@ func (a *Audit) append(v any) error {
 		fn(seq, line)
 	}
 	return err
-}
-
-// readAll reads the whole file through a.f, the file being written to.
-func (a *Audit) readAll() ([]byte, error) {
-	return io.ReadAll(io.NewSectionReader(a.f, 0, math.MaxInt64))
 }
 
 const (
@@ -194,7 +226,7 @@ type ReadQuery struct {
 	Server   string   `json:"server"`   // an exact server name
 	Kinds    []string `json:"kinds"`    // exec, config, file, tunnel
 	Outcomes []string `json:"outcomes"` // allowed, auto, denied, expired, cancelled, error
-	Text     string   `json:"text"`     // case-insensitive substring of the line
+	Text     string   `json:"text"`     // case-insensitive substring of the record's string and number values
 }
 
 type Entry struct {
@@ -229,15 +261,46 @@ func (f fields) outcomeIs(o string) bool {
 	return f.Outcome == o
 }
 
-// json.Marshal writes <, > and & as \u003c, \u003e and \u0026; Text matches what a person would type.
-var unescapeHTML = strings.NewReplacer(`\u003c`, "<", `\u003e`, ">", `\u0026`, "&")
+// leaves joins, with "\n", every string and number value of a decoded JSON
+// value, walked recursively: what a row shows, never a key name or an escape.
+func leaves(v any, sb *strings.Builder) {
+	switch v := v.(type) {
+	case string:
+		sb.WriteString(v)
+		sb.WriteByte('\n')
+	case json.Number:
+		sb.WriteString(v.String())
+		sb.WriteByte('\n')
+	case []any:
+		for _, x := range v {
+			leaves(x, sb)
+		}
+	case map[string]any:
+		for _, x := range v {
+			leaves(x, sb)
+		}
+	}
+}
+
+// hasText reports whether text (lowercased) is in line's decoded leaf values.
+func hasText(line []byte, text string) bool {
+	var v any
+	dec := json.NewDecoder(bytes.NewReader(line))
+	dec.UseNumber()
+	if dec.Decode(&v) != nil {
+		return false
+	}
+	var sb strings.Builder
+	leaves(v, &sb)
+	return strings.Contains(strings.ToLower(sb.String()), text)
+}
 
 // match reports whether a parsed line passes q; text is q.Text lowercased.
 func (q ReadQuery) match(f fields, line []byte, text string) bool {
 	if q.Server != "" && f.Server != q.Server {
 		return false
 	}
-	if text != "" && !strings.Contains(strings.ToLower(unescapeHTML.Replace(string(line))), text) {
+	if text != "" && !hasText(line, text) {
 		return false
 	}
 	if len(q.Kinds) == 0 && len(q.Outcomes) == 0 {
@@ -251,8 +314,8 @@ func (q ReadQuery) match(f fields, line []byte, text string) bool {
 }
 
 // Read returns up to q.Limit records matching q, newest first, before
-// q.Before. It holds a.mu only while reading, so it never sees a
-// half-written line.
+// q.Before. It reads only the bytes below the size recorded under a.mu, so
+// it never sees a half-written line and never holds a.mu while reading.
 // ponytail: whole-file scan on every call. Switch to a backwards reader from
 // EOF when the file is large; that is also when rotation is needed.
 func (a *Audit) Read(q ReadQuery) (ReadResult, error) {
@@ -261,9 +324,12 @@ func (a *Audit) Read(q ReadQuery) (ReadResult, error) {
 		limit = DefaultReadLimit
 	}
 	limit = min(limit, MaxReadLimit)
+	// Bytes below a.size are whole lines and the file only grows through a,
+	// so the read needs no lock: a slow read never holds up a writer.
 	a.mu.Lock()
-	data, err := a.readAll()
+	size := a.size
 	a.mu.Unlock()
+	data, err := io.ReadAll(io.NewSectionReader(a.f, 0, size))
 	if err != nil {
 		return ReadResult{}, err
 	}
