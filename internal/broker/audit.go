@@ -156,8 +156,31 @@ func (a *Audit) recountLocked() error {
 	return nil
 }
 
+// stripLocal drops a file record's local paths: they exist only in the
+// desktop app's main process, so they never leave the broker (Read, OnAppend)
+// and a text search never sees them. The file on disk keeps the field. Every
+// other line is returned untouched.
+func stripLocal(line []byte) []byte {
+	if !bytes.Contains(line, []byte(`"local"`)) {
+		return line
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(line, &m) != nil || string(m["kind"]) != `"file"` {
+		return line
+	}
+	if _, ok := m["local"]; !ok {
+		return line
+	}
+	delete(m, "local")
+	out, err := json.Marshal(m)
+	if err != nil {
+		return line
+	}
+	return out
+}
+
 // OnAppend sets fn to be called after each record is written, with its seq
-// and the line without its newline. It runs on the writer's goroutine with
+// and the line without its newline (a file record without its `local`). It runs on the writer's goroutine with
 // a.mu released, and must not block. The hub sets it once.
 func (a *Audit) OnAppend(fn func(seq int, line json.RawMessage)) {
 	a.mu.Lock()
@@ -206,7 +229,7 @@ func (a *Audit) append(v any) error {
 	seq, fn := a.n, a.onAppend
 	a.mu.Unlock()
 	if err == nil && fn != nil {
-		fn(seq, line)
+		fn(seq, stripLocal(line))
 	}
 	return err
 }
@@ -339,7 +362,7 @@ func (a *Audit) Read(q ReadQuery) (ReadResult, error) {
 	lines = lines[:len(lines)-1] // what follows the last '\n' is not a line yet
 	more := false
 	for i := len(lines) - 1; i >= 0; i-- {
-		line := lines[i]
+		line := stripLocal(lines[i]) // strip before ANY use: matching, unmarshaling, returning
 		var f fields
 		if len(line) == 0 || line[0] != '{' || json.Unmarshal(line, &f) != nil {
 			res.Skipped++

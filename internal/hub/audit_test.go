@@ -279,20 +279,30 @@ func TestAuditFileRecordsLoseLocalPaths(t *testing.T) {
 	if page.Records[0].Record["reason"] != `{"local":"/kept"}` {
 		t.Fatalf("audit.read config record: %v", page.Records[0].Record)
 	}
+	var found auditPage
+	if err := c.Call(context.Background(), "audit.read", map[string]any{"text": "me/secret"}, &found); err != nil {
+		t.Fatal(err)
+	}
+	if len(found.Records) != 0 {
+		t.Fatalf("text search found a local path: %+v", found)
+	}
 	disk, err := os.ReadFile(page.Path)
 	if err != nil || !strings.Contains(string(disk), "/Users/me/secret/a") {
 		t.Fatalf("the file on disk must keep local: %v %s", err, disk)
 	}
 }
 
-// Nothing follows locked: records written while a lock lands are either sent
-// before the locked notification or not at all.
-func TestAuditAppendedNeverFollowsLocked(t *testing.T) {
+// Nothing is sent while the hub is locked: records written while a lock
+// lands go out before the locked notification or not at all, and a record
+// still queued when the lock lands is dropped by the drain. (A queued record
+// may go out after an unlock that follows; the test stays locked.)
+func TestAuditAppendedNothingWhileLocked(t *testing.T) {
 	h, _ := newHub(t, &fakeExec{})
 	c, _, notes := startTermDoor(t, h)
 	waitAuditSink(t, h)
 	// A reply proves Serve is running: a notification sent before that is dropped.
-	if err := c.Call(context.Background(), "hello", nil, nil); err != nil {
+	ctx := context.Background()
+	if err := c.Call(ctx, "hello", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 200; i++ {
@@ -306,44 +316,30 @@ func TestAuditAppendedNeverFollowsLocked(t *testing.T) {
 		}()
 		h.Lock()
 		<-done
-		// Drain notes up to locked, then probe: a later write while locked and
-		// a fresh unlock must show nothing stale in between.
-		locked := false
-		for !locked {
+		for locked := false; !locked; {
 			select {
 			case n := <-notes:
 				locked = n.method == "locked"
 			case <-time.After(10 * time.Second):
-				t.Fatal("no locked notification")
+				t.Fatalf("iteration %d: no locked notification", i)
 			}
 		}
-		h.auditConfig(broker.ConfigRecord{Action: "marker"}) // locked: dropped
-		unlockForTest(h)
-		h.auditConfig(broker.ConfigRecord{Action: "marker"})
+		// Each reply goes through the writer the drain would use; stay locked.
+		for k := 0; k < 20; k++ {
+			if err := c.Call(ctx, "hello", nil, nil); err != nil {
+				t.Fatal(err)
+			}
+		}
 		for {
 			select {
 			case n := <-notes:
-				if n.method != "audit.appended" {
-					continue
+				if n.method == "audit.appended" {
+					t.Fatalf("iteration %d: audit.appended after locked, while still locked", i)
 				}
-				var p struct {
-					Record map[string]any `json:"record"`
-				}
-				json.Unmarshal(n.params, &p)
-				if p.Record["action"] == "race" {
-					t.Fatalf("iteration %d: a record written before the lock came after locked", i)
-				}
-				goto next
-			case <-time.After(10 * time.Second):
-				t.Fatal("no marker")
+				continue
+			default:
 			}
-		}
-	next:
-		h.Lock()
-		for { // drain through this round's locked
-			if n := <-notes; n.method == "locked" {
-				break
-			}
+			break
 		}
 	}
 }

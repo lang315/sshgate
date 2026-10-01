@@ -540,3 +540,31 @@ func TestOpenAuditCountsALargeFile(t *testing.T) {
 		t.Fatalf("seqs %v, want [302]", got)
 	}
 }
+
+// A file record's local paths never leave the broker: Read and OnAppend omit
+// them and a text search cannot find them; the file on disk keeps them.
+func TestAuditFileLocalPathsStayInTheBroker(t *testing.T) {
+	a, path := openTestAudit(t)
+	var appended json.RawMessage
+	a.OnAppend(func(_ int, line json.RawMessage) { appended = line })
+	if err := a.WriteFile(FileRecord{Server: "box", Action: "upload", Remote: []string{"/r/a"}, Local: []string{"/Users/me/secret/a"}}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(appended), "local") || !strings.Contains(string(appended), "/r/a") {
+		t.Fatalf("appended: %s", appended)
+	}
+	for text, want := range map[string]int{"me/secret": 0, "/r/a": 1} {
+		res, err := a.Read(ReadQuery{Text: text})
+		if err != nil || len(res.Records) != want {
+			t.Fatalf("text %q: %d records, %v; want %d", text, len(res.Records), err, want)
+		}
+		for _, e := range res.Records {
+			if strings.Contains(string(e.Record), "local") {
+				t.Fatalf("Read returned %s", e.Record)
+			}
+		}
+	}
+	if disk, _ := os.ReadFile(path); !strings.Contains(string(disk), "/Users/me/secret/a") {
+		t.Fatalf("disk lost local: %s", disk)
+	}
+}
