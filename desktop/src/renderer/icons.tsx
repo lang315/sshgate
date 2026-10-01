@@ -32,7 +32,9 @@ export const ChevronDownIcon = icon(<path d="M6 9l6 6 6-6" />)
 export const StopIcon = icon(<rect x="5" y="5" width="14" height="14" rx="2" />)
 export const ListIcon = icon(<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01" />)
 
-// The app's only mark: a terminal glyph on the accent tile, then the name. No logo.
+// The in-app mark: a terminal glyph on the accent tile, then the name. The app
+// icon (desktop/build/icon.png, a shield) is a different drawing, used only for
+// the bundle.
 export function Mark() {
   return (
     <div className="mark">
