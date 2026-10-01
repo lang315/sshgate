@@ -1,0 +1,5 @@
+# counts: password=1 secret=1 auth_header=1
+{"log":"POST /login body={\"user\":\"ann\",\"password\":\"[REDACTED:password]\"}\n","stream":"stdout","time":"2026-09-30T10:02:11.000000001Z"}
+{"log":"outgoing headers {\"Authorization\":[\"Bearer [REDACTED:auth_header]\"],\"Accept\":[\"*/*\"]}\n","stream":"stderr","time":"2026-09-30T10:02:11.100000001Z"}
+{"log":"connecting with {\"host\":\"db\",\"api_key\":\"[REDACTED:secret]\"}\n","stream":"stdout","time":"2026-09-30T10:02:12.000000001Z"}
+{"log":"healthcheck ok\n","stream":"stdout","time":"2026-09-30T10:02:13.000000001Z"}

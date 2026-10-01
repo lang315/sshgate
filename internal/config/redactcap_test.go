@@ -2,8 +2,10 @@ package config
 
 import (
 	"maps"
+	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 const capMax = 64 << 10
@@ -125,6 +127,49 @@ func TestRedactCapLongLines(t *testing.T) {
 		head, tail, ok := strings.Cut(out, truncMarker(len(in)-capMax))
 		if !ok || len(head) != capMax/2 || len(tail) != capMax/2 {
 			t.Errorf("%s: head %d tail %d, want %d each", name, len(head), len(tail), capMax/2)
+		}
+	}
+}
+
+// A7: a lone END is masked from the start only in a tail window whose head the
+// cap cut off, never on whole output or in the head window.
+func TestRedactCapOrphanEnd(t *testing.T) {
+	const end = "-----END RSA PRIVATE KEY-----\n"
+	whole := "src/a.go:1: first\n" + end + "src/b.go:2: last\n"
+	if out, c := RedactCap(NewRedactor(), whole, capMax); out != whole || c != nil {
+		t.Errorf("whole output changed: %q %v", out, c)
+	}
+	if out, c := redactPatterns(whole, true); !strings.HasPrefix(out, "[REDACTED:private_key]\n") || c["private_key"] != 1 {
+		t.Errorf("tail window: %q %v", out, c)
+	}
+	// Head window of a windowed capture: an END near the start stays.
+	in := "head-line-kept\n" + end + filler(3<<20)
+	if out, _ := RedactCap(NewRedactor(), in, capMax); !strings.HasPrefix(out, "head-line-kept\n"+end) {
+		t.Errorf("head window masked a lone END: %.80q", out)
+	}
+}
+
+var wholeMarker = regexp.MustCompile(`\[REDACTED:[a-z_]+\]`)
+
+// A8: the clamps never leave a piece of a marker or a split rune.
+func TestRedactCapCutIsMarkerAndRuneSafe(t *testing.T) {
+	const line = "DB_PASSWORD=Wm4tQz8vLp2Rk7Xs é\n" // masked: 33 bytes, one 2-byte rune
+	for pad := 0; pad < 40; pad++ {
+		for _, in := range []string{
+			strings.Repeat(line, 12000), // windowed
+			strings.Repeat(line, 1500),  // short path, masked output over max
+		} {
+			in = strings.Repeat("é", pad) + in
+			out, _ := RedactCap(NewRedactor(), in, capMax)
+			if !utf8.ValidString(out) {
+				t.Fatalf("pad %d: invalid UTF-8 at the cut", pad)
+			}
+			if rest := wholeMarker.ReplaceAllString(out, ""); strings.Contains(rest, "REDACTED") || strings.Contains(rest, "password]") || strings.Contains(rest, "ACTED:") {
+				t.Fatalf("pad %d: split marker in output", pad)
+			}
+			if len(out) > capMax+len(truncMarker(len(in))) {
+				t.Fatalf("pad %d: output %d bytes exceeds max", pad, len(out))
+			}
 		}
 	}
 }

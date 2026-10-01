@@ -3,6 +3,7 @@ package config
 import (
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // RedactKinds is every kind RedactPatterns reports, in the fixed order the
@@ -20,8 +21,10 @@ var (
 	// END that follows one alone.
 	pemBeginRe = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|\[REDACTED:private_key\]`)
 	// A credential header's name and value: "Name: v", "\"Name\": \"v\"",
-	// or nginx's `Name "v"`. The value runs to a quote or the end of line.
-	headerRe = regexp.MustCompile(`(?i)(^|[^a-z0-9_-])(proxy-authorization|authorization|set-cookie|cookie|x-api-key)(["']?[ \t]*:[ \t]*["']?|[ \t]+["'])([^\r\n"'` + "`" + `]*[^\s"'` + "`" + `])`)
+	// nginx's `Name "v"`, or for authorization alone an env or config pair
+	// (`HTTP_AUTHORIZATION=v`, decided in code). A quote may be escaped, as in
+	// JSON inside a string. The value runs to a quote or the end of line.
+	headerRe = regexp.MustCompile(`(?i)(^|[^a-z0-9_-])((?:http_)?(?:proxy[-_])?authorization|set-cookie|cookie|x-api-key)(\\?["']?[ \t]*[:=][ \t]*(?:\\?["'])?|[ \t]+\\?["'])([^\r\n"'` + "`" + `]*[^\s"'` + "`" + `\\])`)
 	// scheme://user:password@host
 	urlRe = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://[^\s:/@"']*:)([^\s@/"']+)@`)
 	// A key that may name a secret, a separator, and a value. Which keys
@@ -32,9 +35,15 @@ var (
 	// value and the pair inside is found. A quote with no match on the same
 	// line ("*[^\r\n]*) is masked to the end of the line. Bracket-led
 	// values are a second pass (kvBracketRe).
-	kvHead      = `(?i)(["']?)(-{0,2}[a-z0-9_.-]*?(?:pass|pwd|secret|token|key|auth|credential)[a-z0-9_.-]*)(["']?)([ \t]*(?::=|==|=>|=|:)[ \t]*|[ \t]+)`
-	kvRe        = regexp.MustCompile(kvHead + `("(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'|"[^\r\n]*|'[^\r\n]*|[^\s"'` + "`" + `>(){}\[\]][^\s"'` + "`" + `]*)`)
+	// A quote may be escaped (`\"password\":\"x\"`, JSON inside a string); an
+	// escaped-quoted value ends at the next `\"`. The text stays as it was.
+	kvHead      = `(?i)(\\?["']?)(-{0,2}[a-z0-9_.-]*?(?:pass|pwd|secret|token|key|auth|credential)[a-z0-9_.-]*)(\\?["']?)([ \t]*(?::=|==|=>|=|:)[ \t]*|[ \t]+)`
+	kvRe        = regexp.MustCompile(kvHead + `("(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'|"[^\r\n]*|'[^\r\n]*|\\"(?:[^\\\r\n]|\\[^"\r\n])*\\"|[^\s"'` + "`" + `>(){}\[\]][^\s"'` + "`" + `]*)`)
 	kvBracketRe = regexp.MustCompile(kvHead + `([(){}\[\]][^\s"'` + "`" + `]*)`)
+	// A key whose value is a one-line array; its quoted elements are masked
+	// (kvArrayPass). Elements may hold a "]".
+	kvArrayRe = regexp.MustCompile(kvHead + `(\[(?:\\"(?:[^\\\r\n]|\\[^"\r\n])*\\"|"(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'|[^\]\r\n"'])*\]?)`)
+	elemRe    = regexp.MustCompile(`\\"(?:[^\\\r\n]|\\[^"\r\n])*\\"|"(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'`)
 	// Bare tokens with a known prefix.
 	tokenRe = regexp.MustCompile(`\b(?:(?:AKIA|ASIA)[A-Z0-9]{16}\b|(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[abpr]-[A-Za-z0-9-]{10,}|(?:sk-|sk_live_|sk_test_|rk_live_|rk_test_)[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{10,})`)
 	// A code expression: an identifier or dotted path immediately followed
@@ -45,6 +54,12 @@ var (
 // nginxPass are nginx directives whose last word is "pass" but whose value
 // is an upstream address, not a password.
 var nginxPass = map[string]bool{"proxy_pass": true, "fastcgi_pass": true, "uwsgi_pass": true, "scgi_pass": true, "grpc_pass": true, "memcached_pass": true}
+
+// metaWords, as the last word of a key, say it holds a name, a limit, or a
+// setting about a secret, not the secret: secretName, secret_ref,
+// password_min_length, PASSWORD_MAX_AGE.
+var metaWords = map[string]bool{"name": true, "ref": true, "file": true, "path": true, "length": true, "min": true,
+	"max": true, "age": true, "days": true, "count": true, "attempts": true, "retries": true, "policy": true, "timeout": true}
 
 // redisPasswordKeys are redis config keys that are whole words, not the
 // last word of a compound, so keyKind's word rules would otherwise miss
@@ -64,6 +79,14 @@ var redisPasswordKeys = map[string]bool{"requirepass": true, "masterauth": true}
 // nested rejected key is not found. RedactCap windows (max/2 + 64 KiB each)
 // bound the input, so pre-filtering is not needed.
 func RedactPatterns(s string) (string, map[string]int) {
+	return redactPatterns(s, false)
+}
+
+// redactPatterns is RedactPatterns; orphanEnd also masks a lone END line (and
+// everything before it), which is right only for a tail window whose BEGIN the
+// cap cut off. On whole output or a head window a lone END is just text, such
+// as a grep hit or source code, and must not swallow what precedes it.
+func redactPatterns(s string, orphanEnd bool) (string, map[string]int) {
 	var counts map[string]int
 	mark := func(kind string) string {
 		if counts == nil {
@@ -77,20 +100,23 @@ func RedactPatterns(s string) (string, map[string]int) {
 	// bare token, so each secret is counted once.
 	// An END is an orphan only when it precedes every BEGIN; an END after a
 	// BEGIN is just the far end of a block (or a stray literal) and stays.
-	if end := orphanEndRe.FindStringIndex(s); end != nil {
-		if begin := pemBeginRe.FindStringIndex(s); begin == nil || end[1] <= begin[0] {
-			s = mark("private_key") + s[end[1]:]
+	if orphanEnd {
+		if end := orphanEndRe.FindStringIndex(s); end != nil {
+			if begin := pemBeginRe.FindStringIndex(s); begin == nil || end[1] <= begin[0] {
+				s = mark("private_key") + s[end[1]:]
+			}
 		}
 	}
 	s = pemRe.ReplaceAllStringFunc(s, func(string) string { return mark("private_key") })
 	s = replaceSubmatch(headerRe, s, func(s string, m []int) string {
-		name, v := strings.ToLower(s[m[4]:m[5]]), s[m[8]:m[9]]
+		name, sep, v := strings.ToLower(s[m[4]:m[5]]), s[m[6]:m[7]], s[m[8]:m[9]]
+		auth := strings.HasSuffix(name, "authorization")
+		if strings.Contains(sep, "=") && (!auth || v[0] == '>') {
+			return s[m[0]:m[1]] // only authorization takes "="; "=>" is not it
+		}
 		kept := ""
-		if name == "authorization" || name == "proxy-authorization" {
-			if scheme, rest, ok := strings.Cut(v, " "); ok && isWord(scheme) {
-				rest = strings.TrimLeft(rest, " ")
-				kept, v = v[:len(v)-len(rest)], rest
-			}
+		if auth {
+			kept, v = splitScheme(v)
 		}
 		if keepValue(v) {
 			return s[m[0]:m[1]]
@@ -126,6 +152,8 @@ func RedactPatterns(s string) (string, map[string]int) {
 					// sits inside, it does not open a value.
 					stray = s[m[2]:m[3]] == string(q) && m[6] == m[7]
 				}
+			case len(v) >= 4 && strings.HasPrefix(v, `\"`) && strings.HasSuffix(v, `\"`):
+				open, closing, v = v[:2], v[len(v)-2:], v[2:len(v)-2]
 			default:
 				if t := strings.TrimRight(v, ",;"); t != "" {
 					closing, v = v[len(t):], t
@@ -133,7 +161,9 @@ func RedactPatterns(s string) (string, map[string]int) {
 			}
 			kind := keyKind(key)
 			switch {
-			case kind == "", stray:
+			case kind == "", stray, kind == "auth_header" && open == "":
+				// an unquoted authorization value is headerRe's: its scheme word is not a secret
+			case key == "passwd" && nssLine(s, m[10]):
 			case strings.TrimSpace(sep) == "" && !spacedPair(s, m, key, kind, depth > 0):
 			case keepValue(v), strings.ContainsRune("{[(", rune(v[0])) && (strings.HasSuffix(v, ":") || strings.HasSuffix(v, "=>")):
 				// a flow map's first key is not a value
@@ -147,6 +177,7 @@ func RedactPatterns(s string) (string, map[string]int) {
 		})
 	}
 	s = kvPass(kvRe, s, 0)
+	s = kvArrayPass(s, mark)
 	s = kvPass(kvBracketRe, s, 0)
 	s = tokenRe.ReplaceAllStringFunc(s, func(t string) string {
 		if !strings.ContainsAny(t, "0123456789") {
@@ -172,6 +203,79 @@ func replaceSubmatch(re *regexp.Regexp, s string, fn func(s string, m []int) str
 	}
 	b.WriteString(s[last:])
 	return b.String()
+}
+
+// splitScheme splits an authorization value's scheme word and its trailing
+// space ("Bearer ") from the credential.
+func splitScheme(v string) (kept, rest string) {
+	if scheme, rest, ok := strings.Cut(v, " "); ok && isWord(scheme) {
+		rest = strings.TrimLeft(rest, " ")
+		return v[:len(v)-len(rest)], rest
+	}
+	return "", v
+}
+
+// kvArrayPass masks the quoted elements of a one-line array that a secret key
+// holds ("password":["x"], the shape of Go's json.Marshal(r.Header)). Each
+// masked element counts once.
+func kvArrayPass(s string, mark func(string) string) string {
+	return replaceSubmatch(kvArrayRe, s, func(s string, m []int) string {
+		key, sep := s[m[4]:m[5]], s[m[8]:m[9]]
+		kind := keyKind(key)
+		if kind == "" || strings.TrimSpace(sep) == "" {
+			return s[m[0]:m[1]]
+		}
+		body := elemRe.ReplaceAllStringFunc(s[m[10]:m[11]], func(e string) string {
+			q := 1
+			if e[0] == '\\' {
+				q = 2 // an escaped quote, as in JSON inside a string
+			}
+			v := e[q : len(e)-q]
+			kept := ""
+			if kind == "auth_header" {
+				kept, v = splitScheme(v)
+			}
+			if keepValue(v) {
+				return e
+			}
+			return e[:q] + kept + mark(kind) + e[len(e)-q:]
+		})
+		return s[m[0]:m[10]] + body
+	})
+}
+
+// nssWords are the sources an nsswitch.conf line lists.
+var nssWords = map[string]bool{"files": true, "systemd": true, "ldap": true, "sss": true, "nis": true, "nisplus": true,
+	"compat": true, "db": true, "winbind": true, "dns": true, "usrfiles": true, "altfiles": true}
+
+// nssLine reports that the line holding the value at s[i:] lists only
+// nsswitch sources and "[...]" actions, as `passwd: files systemd` does. A
+// longer line is not one, which also keeps the check O(1).
+func nssLine(s string, i int) bool {
+	rest := s[i:min(len(s), i+256)]
+	if end := strings.IndexByte(rest, '\n'); end >= 0 {
+		rest = rest[:end]
+	} else if len(s) > i+256 {
+		return false
+	}
+	for {
+		open := strings.IndexByte(rest, '[')
+		if open < 0 {
+			break
+		}
+		closing := strings.IndexByte(rest[open:], ']')
+		if closing < 0 {
+			return false
+		}
+		rest = rest[:open] + " " + rest[open+closing+1:]
+	}
+	f := strings.Fields(rest)
+	for _, w := range f {
+		if !nssWords[w] {
+			return false
+		}
+	}
+	return len(f) > 0
 }
 
 // spacedPair reports whether a key and value separated only by whitespace
@@ -221,7 +325,7 @@ func keyKind(key string) string {
 		return "password"
 	}
 	w := splitWords(key)
-	if len(w) == 0 {
+	if len(w) == 0 || metaWords[w[len(w)-1]] {
 		return ""
 	}
 	for _, x := range w {
@@ -239,6 +343,8 @@ func keyKind(key string) string {
 		prev = w[len(w)-2]
 	}
 	switch {
+	case last == "authorization":
+		return "auth_header"
 	case last == "pass":
 		return "password"
 	case last == "token", last == "auth", last == "apikey", last == "credential", last == "credentials":
@@ -295,8 +401,8 @@ func keepValue(v string) bool {
 		return true
 	case strings.HasPrefix(v, "<") && strings.HasSuffix(v, ">"):
 		return true
-	case strings.HasPrefix(v, "[REDACTED:"):
-		return true // a marker is a placeholder, so redaction stays idempotent
+	case strings.Contains(v, "[REDACTED:"):
+		return true // a marker is a placeholder, so redaction stays idempotent; a value holding one had its secret part masked by another rule
 	case l == "changeme", l == "replace_me", l == "null", l == "none", l == "true", l == "false",
 		l == "yes", l == "no", l == "on", l == "off",
 		l == "(none)", l == "(null)", l == "[filtered]", l == "[redacted]":
@@ -320,8 +426,8 @@ func isPathValue(v string) bool {
 	if !strings.HasPrefix(v, "/") && !strings.HasPrefix(v, "~/") {
 		return false
 	}
-	if strings.ContainsAny(v, " \t") {
-		return false
+	if strings.ContainsAny(v, " \t+") || strings.HasSuffix(v, "=") {
+		return false // base64 ("+", "=" padding) that happens to start with "/"
 	}
 	return strings.Count(v, "/") >= 2
 }
@@ -347,10 +453,14 @@ func RedactCap(r *Redactor, s string, max int) (string, map[string]int) {
 	w := max/2 + redactMargin
 	if len(s) <= 2*w {
 		out, c := RedactPatterns(s)
-		return CapOutput(out, max), c
+		if len(out) <= max {
+			return out, c
+		}
+		head, tail := cutHead(out, max/2), cutTail(out, max/2)
+		return head + truncMarker(len(out)-len(head)-len(tail)) + tail, c
 	}
 	// Align windows to line boundaries to avoid splitting secrets at cut edges.
-	hw, tw := s[:w], s[len(s)-w:]
+	hw, tw := cutHead(s, w), cutTail(s, w)
 	if i := strings.LastIndexByte(hw, '\n'); i >= 0 && len(hw)-i <= redactMargin {
 		hw = hw[:i+1]
 	}
@@ -358,7 +468,7 @@ func RedactCap(r *Redactor, s string, max int) (string, map[string]int) {
 		tw = tw[i+1:]
 	}
 	head, c := RedactPatterns(hw)
-	tail, more := RedactPatterns(tw)
+	tail, more := redactPatterns(tw, true)
 	for k, n := range more {
 		if c == nil {
 			c = map[string]int{}
@@ -367,13 +477,58 @@ func RedactCap(r *Redactor, s string, max int) (string, map[string]int) {
 	}
 	// An orphan END in the tail window can mask most of it, so clamp.
 	half := max / 2
-	if len(head) > half {
-		head = head[:half]
-	}
-	if len(tail) > half {
-		tail = tail[len(tail)-half:]
-	}
+	head, tail = cutHead(head, half), cutTail(tail, half)
 	return head + truncMarker(len(s)-max) + tail, c
+}
+
+// markerAround reports a "[REDACTED:…]" marker that starts before offset i of
+// s and ends after it, so a cut at i would split it.
+func markerAround(s string, i int) (start, end int, ok bool) {
+	const prefix, longest = "[REDACTED:", 40
+	lo, hi := max(0, i-longest), min(len(s), i+len(prefix))
+	for off := lo; ; {
+		j := strings.Index(s[off:hi], prefix)
+		if j < 0 {
+			return 0, 0, false
+		}
+		b := off + j
+		if b < i {
+			if c := strings.IndexByte(s[b:min(len(s), b+longest)], ']'); c >= 0 && b+c+1 > i {
+				return b, b + c + 1, true
+			}
+		}
+		off = b + 1
+	}
+}
+
+// cutHead is s[:n] moved inward so it ends before a marker or a multibyte
+// rune the cut would split.
+func cutHead(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	if b, _, ok := markerAround(s, n); ok {
+		return s[:b]
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
+// cutTail is the last n bytes of s, moved inward like cutHead.
+func cutTail(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	i := len(s) - n
+	if _, e, ok := markerAround(s, i); ok {
+		i = e
+	}
+	for i < len(s) && !utf8.RuneStart(s[i]) {
+		i++
+	}
+	return s[i:]
 }
 
 // RedactCapStreams applies RedactCap to stdout and stderr and merges counts

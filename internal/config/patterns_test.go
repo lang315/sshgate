@@ -151,7 +151,6 @@ func TestRedactPatternsRules(t *testing.T) {
 		{"long flag token", "run --token abc123def", "run --token [REDACTED:secret]"},
 		{"token not last", "tokenTtlSeconds: 3600", ""},
 		{"secret anywhere", "SECRET_KEY_BASE=abc123def", "SECRET_KEY_BASE=[REDACTED:secret]"},
-		{"secretName accepted", "secretName: mwtn-env", "secretName: [REDACTED:secret]"},
 		{"private_key_id", "private_key_id: 4f2a9c1e", ""},
 		{"credential.helper", "credential.helper=store", ""},
 		{"auth not last", "SSH_AUTH_SOCK=/tmp/agent.1", ""},
@@ -235,10 +234,11 @@ func TestRedactPatternsRules(t *testing.T) {
 		{"redis requirepass", "requirepass supersecret123", "requirepass [REDACTED:password]"},
 		{"redis masterauth", "masterauth supersecret123", "masterauth [REDACTED:password]"},
 		// round-1: orphan END with no preceding BEGIN of that kind
-		{"pem orphan end", "a\n-----END PRIVATE KEY-----\nb", "[REDACTED:private_key]\nb"},
+		{"pem lone end kept", "a\n-----END PRIVATE KEY-----\nb", ""},
+		{"grep end literal", "src/k.go:12:\tif !strings.Contains(s, \"-----END RSA PRIVATE KEY-----\") {", ""},
 		// round 2
 		{"pem extra end", "x\n-----BEGIN RSA PRIVATE KEY-----\nk\n-----END RSA PRIVATE KEY-----\ny\n-----END RSA PRIVATE KEY-----\nz", "x\n[REDACTED:private_key]\ny\n-----END RSA PRIVATE KEY-----\nz"},
-		{"pem end before begin", "a\n-----END PRIVATE KEY-----\nb\n-----BEGIN PRIVATE KEY-----\nk\n-----END PRIVATE KEY-----\nc", "[REDACTED:private_key]\nb\n[REDACTED:private_key]\nc"},
+		{"pem end before begin", "a\n-----END PRIVATE KEY-----\nb\n-----BEGIN PRIVATE KEY-----\nk\n-----END PRIVATE KEY-----\nc", "a\n-----END PRIVATE KEY-----\nb\n[REDACTED:private_key]\nc"},
 		{"paren-led password", "DB_PASSWORD=(Kq2]mLp7Rw1s9", "DB_PASSWORD=[REDACTED:password]"},
 		{"bracket-led password", "DB_PASSWORD=[Kq2mLp7Rw1s9", "DB_PASSWORD=[REDACTED:password]"},
 		{"brace-led password", "DB_PASSWORD={Kq2mLp7Rw1s9", "DB_PASSWORD=[REDACTED:password]"},
@@ -259,6 +259,47 @@ func TestRedactPatternsRules(t *testing.T) {
 		{"nested spaced prose 2", `"auth_error": "password incorrect"`, ""},
 		{"string concat", `log("password: " + pw)`, ""},
 		{"string concat single", `echo 'token: ' + x`, ""},
+		// PR #11 review (A1): escaped JSON inside a string
+		{"escaped json", `{"body":"{\"password\":\"hunter2x\"}"}`, `{"body":"{\"password\":\"[REDACTED:password]\"}"}`},
+		{"escaped json annotation", `"last-applied": "{\"data\":{\"DB_PASSWORD\":\"V200dFF6OHZMcDJSazdYcw==\"},\"kind\":\"Secret\"}"`, `"last-applied": "{\"data\":{\"DB_PASSWORD\":\"[REDACTED:password]\"},\"kind\":\"Secret\"}"`},
+		{"escaped json header", `{"log":"curl -H {\"Authorization\":\"Bearer abc123opaque\"}"}`, `{"log":"curl -H {\"Authorization\":\"Bearer [REDACTED:auth_header]\"}"}`},
+		// A2: a base64 secret starting with "/" is not a path
+		{"base64 slash plus", "aws_secret_access_key = /K7MDENG/bPxRfiCYEXAMPLEKEY+wJalrXUtnFEMI", "aws_secret_access_key = [REDACTED:secret]"},
+		{"base64 slash pad", "DB_PASSWORD: /x9Kq2/aBcdEfGh+Ij==", "DB_PASSWORD: [REDACTED:password]"},
+		{"base64 slash pad only", "DB_PASSWORD: /x9Kq2/aBcdEfGhIj==", "DB_PASSWORD: [REDACTED:password]"},
+		{"home path kept", "ssh_key: ~/.ssh/id_ed25519", ""},
+		{"etc path kept", "ssl_key: /etc/ssl/private/key.pem", ""},
+		// A3: values inside an array
+		{"array json", `{"password":["hunter2x"]}`, `{"password":["[REDACTED:password]"]}`},
+		{"array yaml flow", `password: ["hunter2x"]`, `password: ["[REDACTED:password]"]`},
+		{"array header", `{"Authorization":["Bearer abc123opaque"]}`, `{"Authorization":["Bearer [REDACTED:auth_header]"]}`},
+		{"array two", `{"api_key":["abc123def","ghi456jkl"]}`, `{"api_key":["[REDACTED:secret]","[REDACTED:secret]"]}`},
+		{"array escaped", `{"log":"h {\"Authorization\":[\"Bearer abc123opaque\"],\"Accept\":[\"*/*\"]}"}`, `{"log":"h {\"Authorization\":[\"Bearer [REDACTED:auth_header]\"],\"Accept\":[\"*/*\"]}"}`},
+		{"array empty", `{"password":[]}`, ""},
+		{"array placeholder", `{"password":["${DB_PASS}"]}`, ""},
+		{"array metadata key", `{"password_min_length":["8"]}`, ""},
+		// A4: a value already holding another rule's marker is counted once
+		{"secret url", "SECRET_URL=https://user:pw123@host/x", "SECRET_URL=https://user:[REDACTED:url_password]@host/x"},
+		{"password url", "password=postgres://u:pw@h/db", "password=postgres://u:[REDACTED:url_password]@h/db"},
+		{"auth url", `"auth": "https://u:pw@h"`, `"auth": "https://u:[REDACTED:url_password]@h"`},
+		// A5: Authorization as a key=value pair
+		{"http_authorization env", "HTTP_AUTHORIZATION=Bearer abc123opaque", "HTTP_AUTHORIZATION=Bearer [REDACTED:auth_header]"},
+		{"authorization quoted eq", `Authorization="Bearer abc"`, `Authorization="Bearer [REDACTED:auth_header]"`},
+		{"proxy-authorization eq", "Proxy-Authorization=Basic dXNlcjpwYXNz", "Proxy-Authorization=Basic [REDACTED:auth_header]"},
+		{"authorization arrow", `'Authorization' => 'Bearer abc123opaque'`, `'Authorization' => '[REDACTED:auth_header]'`},
+		{"authorization eq var", "HTTP_AUTHORIZATION=$TOKEN", ""},
+		{"fastcgi authorization", "fastcgi_param HTTP_AUTHORIZATION $http_authorization;", ""},
+		{"cookie eq stays", "cookie=enabled", ""},
+		// A6: metadata words and nsswitch
+		{"secretName kept", "secretName: mwtn-env", ""},
+		{"secret_ref kept", "secret_ref: db-creds", ""},
+		{"password_file kept", "password_file: db-pass", ""},
+		{"password_min_length", "password_min_length: 8", ""},
+		{"PASSWORD_MAX_AGE", "PASSWORD_MAX_AGE=90", ""},
+		{"password retries", "password_retries: 3", ""},
+		{"nsswitch passwd", "passwd:         files systemd", ""},
+		{"nsswitch passwd action", "passwd: files [NOTFOUND=return] sss", ""},
+		{"nsswitch passwd real", "passwd: hunter2x", "passwd: [REDACTED:password]"},
 		{"command substitution", "export DB_PASSWORD=$(cat /run/secrets/db)", ""},
 	}
 	for _, c := range cases {
@@ -300,7 +341,7 @@ func TestRedactPatternsRules(t *testing.T) {
 // Doubling the input should cost well under 3x time (quadratic code would cost
 // about 4x); take the min of 3 runs to avoid flakiness.
 func TestRedactScaling(t *testing.T) {
-	for _, unit := range []string{"pass ", "key=", "password=${x}", "auth: {"} {
+	for _, unit := range []string{"pass ", "key=", "password=${x}", "auth: {", "password:[", `\"key\":[\"`, `\"key\":\"`} {
 		timeFor := func(n int) time.Duration {
 			s := strings.Repeat(unit, n/len(unit))
 			best := time.Duration(1<<63 - 1)
