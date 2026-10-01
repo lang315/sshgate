@@ -279,14 +279,14 @@ func TestRedactPatternsRules(t *testing.T) {
 		{"array placeholder", `{"password":["${DB_PASS}"]}`, ""},
 		{"array metadata key", `{"password_min_length":["8"]}`, ""},
 		// A4: a value already holding another rule's marker is counted once
-		{"secret url", "SECRET_URL=https://user:pw123@host/x", "SECRET_URL=https://user:[REDACTED:url_password]@host/x"},
-		{"password url", "password=postgres://u:pw@h/db", "password=postgres://u:[REDACTED:url_password]@h/db"},
-		{"auth url", `"auth": "https://u:pw@h"`, `"auth": "https://u:[REDACTED:url_password]@h"`},
+		{"secret url", "SECRET_URL=https://user:pw123@host/x", "SECRET_URL=[REDACTED:secret]"},
+		{"password url", "password=postgres://u:pw@h/db", "password=[REDACTED:password]"},
+		{"auth url", `"auth": "https://u:pw@h"`, `"auth": "[REDACTED:secret]"`},
 		// A5: Authorization as a key=value pair
 		{"http_authorization env", "HTTP_AUTHORIZATION=Bearer abc123opaque", "HTTP_AUTHORIZATION=Bearer [REDACTED:auth_header]"},
 		{"authorization quoted eq", `Authorization="Bearer abc"`, `Authorization="Bearer [REDACTED:auth_header]"`},
 		{"proxy-authorization eq", "Proxy-Authorization=Basic dXNlcjpwYXNz", "Proxy-Authorization=Basic [REDACTED:auth_header]"},
-		{"authorization arrow", `'Authorization' => 'Bearer abc123opaque'`, `'Authorization' => '[REDACTED:auth_header]'`},
+		{"authorization arrow", `'Authorization' => 'Bearer abc123opaque'`, `'Authorization' => 'Bearer [REDACTED:auth_header]'`},
 		{"authorization eq var", "HTTP_AUTHORIZATION=$TOKEN", ""},
 		{"fastcgi authorization", "fastcgi_param HTTP_AUTHORIZATION $http_authorization;", ""},
 		{"cookie eq stays", "cookie=enabled", ""},
@@ -300,6 +300,17 @@ func TestRedactPatternsRules(t *testing.T) {
 		{"nsswitch passwd", "passwd:         files systemd", ""},
 		{"nsswitch passwd action", "passwd: files [NOTFOUND=return] sss", ""},
 		{"nsswitch passwd real", "passwd: hunter2x", "passwd: [REDACTED:password]"},
+		// round 1 review: prefixed authorization names, "=>", escaped arrays and strings
+		{"redirect_http_authorization", "REDIRECT_HTTP_AUTHORIZATION=Bearer abc123opaque", "REDIRECT_HTTP_AUTHORIZATION=Bearer [REDACTED:auth_header]"},
+		{"x_authorization", "X_AUTHORIZATION=Bearer abc", "X_AUTHORIZATION=Bearer [REDACTED:auth_header]"},
+		{"authorization fat arrow", "Authorization => Bearer xyz123", "Authorization => Bearer [REDACTED:auth_header]"},
+		{"redirect quoted", `REDIRECT_HTTP_AUTHORIZATION="Bearer abc"`, `REDIRECT_HTTP_AUTHORIZATION="Bearer [REDACTED:auth_header]"`},
+		{"authorization_mode", "authorization_mode=pam", ""},
+		{"authorization-mode flag", "kube-apiserver --authorization-mode=RBAC", ""},
+		{"array escaped token", `{\"token\":[\"x1\",\"y2\"]}`, `{\"token\":[\"[REDACTED:secret]\",\"[REDACTED:secret]\"]}`},
+		{"escaped unterminated", `{\"password\":\"hunter2x`, `{\"password\":\"[REDACTED:password]`},
+		{"escaped inner quote", `{\"password\":\"a\\\"b\"}`, `{\"password\":\"[REDACTED:password]\"}`},
+		{"go source escaped key", `if strings.HasPrefix(line, "\"password\": ") {`, ""},
 		{"command substitution", "export DB_PASSWORD=$(cat /run/secrets/db)", ""},
 	}
 	for _, c := range cases {
@@ -341,7 +352,7 @@ func TestRedactPatternsRules(t *testing.T) {
 // Doubling the input should cost well under 3x time (quadratic code would cost
 // about 4x); take the min of 3 runs to avoid flakiness.
 func TestRedactScaling(t *testing.T) {
-	for _, unit := range []string{"pass ", "key=", "password=${x}", "auth: {", "password:[", `\"key\":[\"`, `\"key\":\"`} {
+	for _, unit := range []string{"pass ", "key=", "password=${x}", "auth: {", "password:[", `\"key\":[\"`, `\"key\":\"`, `\"key\":\"x[REDACTED:secret]`, "A_B_AUTHORIZATION=", "a_b_c_"} {
 		timeFor := func(n int) time.Duration {
 			s := strings.Repeat(unit, n/len(unit))
 			best := time.Duration(1<<63 - 1)
@@ -359,5 +370,31 @@ func TestRedactScaling(t *testing.T) {
 		if large > small*3 {
 			t.Fatalf("%q looks quadratic: 64KiB took %v, 128KiB took %v", unit, small, large)
 		}
+	}
+}
+
+// A value that holds a marker is masked whole, never kept for it: a forged or
+// leftover marker cannot shield the secret around it, and counts stay honest.
+func TestRedactForgedMarkers(t *testing.T) {
+	for _, c := range []struct{ in, secret string }{
+		{"password=hunter2x[REDACTED:password]", "hunter2x"},
+		{"password=[REDACTED:password]hunter2x", "hunter2x"},
+		{`password="hunter2x [REDACTED:token]"`, "hunter2x"},
+		{"Authorization: Bearer abc123opaque[REDACTED:x]", "abc123opaque"},
+		{`{"password":["[REDACTED:x]hunter2x"]}`, "hunter2x"},
+		{`{"password":["hunter2x[REDACTED:x]"]}`, "hunter2x"},
+	} {
+		got, _ := RedactPatterns(c.in)
+		if strings.Contains(got, c.secret) {
+			t.Errorf("%q: %q leaked in %q", c.in, c.secret, got)
+		}
+		if again, more := RedactPatterns(got); again != got || more != nil {
+			t.Errorf("%q: not idempotent: %q %v", c.in, again, more)
+		}
+	}
+	// A value masked by one rule and then whole by another counts once.
+	_, counts := RedactPatterns("SECRET_URL=https://user:pw123@host/x")
+	if total(counts) != 1 || counts["secret"] != 1 {
+		t.Errorf("counts = %v, want secret=1 only", counts)
 	}
 }

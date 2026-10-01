@@ -10,6 +10,10 @@ import (
 // AI's note line lists them.
 var RedactKinds = []string{"private_key", "password", "secret", "auth_header", "url_password", "token"}
 
+// escQuoted is a `\"…\"` value, a string inside a string: it ends at the first
+// `\"` that is not part of `\\\"` (an escaped quote of the inner string).
+const escQuoted = `\\"(?:[^\\\r\n]|\\{3}"|\\{2}|\\[^"\\\r\n])*\\"`
+
 var (
 	// A whole PEM private key block; with no END line it runs to the end.
 	pemRe = regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----.*?(?:-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|\z)`)
@@ -22,9 +26,9 @@ var (
 	pemBeginRe = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|\[REDACTED:private_key\]`)
 	// A credential header's name and value: "Name: v", "\"Name\": \"v\"",
 	// nginx's `Name "v"`, or for authorization alone an env or config pair
-	// (`HTTP_AUTHORIZATION=v`, decided in code). A quote may be escaped, as in
+	// (`HTTP_AUTHORIZATION=v`, `Authorization => v`; decided in code). A quote may be escaped, as in
 	// JSON inside a string. The value runs to a quote or the end of line.
-	headerRe = regexp.MustCompile(`(?i)(^|[^a-z0-9_-])((?:http_)?(?:proxy[-_])?authorization|set-cookie|cookie|x-api-key)(\\?["']?[ \t]*[:=][ \t]*(?:\\?["'])?|[ \t]+\\?["'])([^\r\n"'` + "`" + `]*[^\s"'` + "`" + `\\])`)
+	headerRe = regexp.MustCompile(`(?i)(^|[^a-z0-9_-])((?:[a-z0-9]+_)*(?:proxy[-_])?authorization|set-cookie|cookie|x-api-key)(\\?["']?[ \t]*(?:=>|[:=])[ \t]*(?:\\?["'])?|[ \t]+\\?["'])([^\r\n"'` + "`" + `]*[^\s"'` + "`" + `\\])`)
 	// scheme://user:password@host
 	urlRe = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://[^\s:/@"']*:)([^\s@/"']+)@`)
 	// A key that may name a secret, a separator, and a value. Which keys
@@ -38,12 +42,14 @@ var (
 	// A quote may be escaped (`\"password\":\"x\"`, JSON inside a string); an
 	// escaped-quoted value ends at the next `\"`. The text stays as it was.
 	kvHead      = `(?i)(\\?["']?)(-{0,2}[a-z0-9_.-]*?(?:pass|pwd|secret|token|key|auth|credential)[a-z0-9_.-]*)(\\?["']?)([ \t]*(?::=|==|=>|=|:)[ \t]*|[ \t]+)`
-	kvRe        = regexp.MustCompile(kvHead + `("(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'|"[^\r\n]*|'[^\r\n]*|\\"(?:[^\\\r\n]|\\[^"\r\n])*\\"|[^\s"'` + "`" + `>(){}\[\]][^\s"'` + "`" + `]*)`)
-	kvBracketRe = regexp.MustCompile(kvHead + `([(){}\[\]][^\s"'` + "`" + `]*)`)
+	kvRe        = regexp.MustCompile(kvHead + `("(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'|"[^\r\n]*|'[^\r\n]*|` + escQuoted + `|\\"[^\r\n]*|(?:[^\s"'` + "`" + `>(){}\[\]\\]|\\[^\s"'` + "`" + `])(?:[^\s"'` + "`" + `\\]|\\[^\s"'` + "`" + `])*)`)
+	kvBracketRe = regexp.MustCompile(kvHead + `([(){}\[\]](?:[^\s"'` + "`" + `\\]|\\[^\s"'` + "`" + `])*)`)
 	// A key whose value is a one-line array; its quoted elements are masked
 	// (kvArrayPass). Elements may hold a "]".
-	kvArrayRe = regexp.MustCompile(kvHead + `(\[(?:\\"(?:[^\\\r\n]|\\[^"\r\n])*\\"|"(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'|[^\]\r\n"'])*\]?)`)
-	elemRe    = regexp.MustCompile(`\\"(?:[^\\\r\n]|\\[^"\r\n])*\\"|"(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'`)
+	kvArrayRe     = regexp.MustCompile(kvHead + `(\[(?:` + escQuoted + `|"(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'|[^\]\r\n"'])*\]?)`)
+	elemRe        = regexp.MustCompile(escQuoted + `|"(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'`)
+	markerRe      = regexp.MustCompile(`\[REDACTED:([a-z_]+)\]`)
+	onlyMarkersRe = regexp.MustCompile(`^(?:\[REDACTED:[a-z_]+\](?:[\s,;]|\\[nrt])*)+$`)
 	// Bare tokens with a known prefix.
 	tokenRe = regexp.MustCompile(`\b(?:(?:AKIA|ASIA)[A-Z0-9]{16}\b|(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[abpr]-[A-Za-z0-9-]{10,}|(?:sk-|sk_live_|sk_test_|rk_live_|rk_test_)[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{10,})`)
 	// A code expression: an identifier or dotted path immediately followed
@@ -95,6 +101,19 @@ func redactPatterns(s string, orphanEnd bool) (string, map[string]int) {
 		counts[kind]++
 		return "[REDACTED:" + kind + "]"
 	}
+	// markVal masks a value whose inner markers (another rule masked part of
+	// it) are given back, so the value counts once. A forged marker inside a
+	// value can only cost an undercount, never keep the value.
+	markVal := func(kind, v string) string {
+		for _, m := range markerRe.FindAllStringSubmatch(v, -1) {
+			if counts[m[1]] > 0 {
+				if counts[m[1]]--; counts[m[1]] == 0 {
+					delete(counts, m[1])
+				}
+			}
+		}
+		return mark(kind)
+	}
 	// Order matters: a PEM block, a header, or a URL password is masked
 	// before the key-value rule sees it, and the key-value rule before a
 	// bare token, so each secret is counted once.
@@ -111,8 +130,8 @@ func redactPatterns(s string, orphanEnd bool) (string, map[string]int) {
 	s = replaceSubmatch(headerRe, s, func(s string, m []int) string {
 		name, sep, v := strings.ToLower(s[m[4]:m[5]]), s[m[6]:m[7]], s[m[8]:m[9]]
 		auth := strings.HasSuffix(name, "authorization")
-		if strings.Contains(sep, "=") && (!auth || v[0] == '>') {
-			return s[m[0]:m[1]] // only authorization takes "="; "=>" is not it
+		if strings.Contains(sep, "=") && !auth {
+			return s[m[0]:m[1]] // only authorization takes "=" and "=>"
 		}
 		kept := ""
 		if auth {
@@ -121,13 +140,13 @@ func redactPatterns(s string, orphanEnd bool) (string, map[string]int) {
 		if keepValue(v) {
 			return s[m[0]:m[1]]
 		}
-		return s[m[0]:m[8]] + kept + mark("auth_header")
+		return s[m[0]:m[8]] + kept + markVal("auth_header", v)
 	})
 	s = replaceSubmatch(urlRe, s, func(s string, m []int) string {
 		if keepValue(s[m[4]:m[5]]) {
 			return s[m[0]:m[1]]
 		}
-		return s[m[0]:m[4]] + mark("url_password") + "@"
+		return s[m[0]:m[4]] + markVal("url_password", s[m[4]:m[5]]) + "@"
 	})
 	// kvPass recurses into a rejected or kept value, so a real secret pair
 	// glued inside it (a query string, a connection string, ...) is still
@@ -151,9 +170,16 @@ func redactPatterns(s string, orphanEnd bool) (string, map[string]int) {
 					// `"password: " + pw`: the quote closes a string the key
 					// sits inside, it does not open a value.
 					stray = s[m[2]:m[3]] == string(q) && m[6] == m[7]
+					// `"\"password\": "` in source: an escaped key quote, then
+					// a plain quote that closes the enclosing string.
+					stray = stray || strings.HasPrefix(s[m[2]:m[3]], `\`)
 				}
-			case len(v) >= 4 && strings.HasPrefix(v, `\"`) && strings.HasSuffix(v, `\"`):
-				open, closing, v = v[:2], v[len(v)-2:], v[2:len(v)-2]
+			case strings.HasPrefix(v, `\"`):
+				if len(v) >= 4 && strings.HasSuffix(v, `\"`) {
+					open, closing, v = v[:2], v[len(v)-2:], v[2:len(v)-2]
+				} else {
+					open, v = v[:2], v[2:] // unterminated, e.g. a docker line split at 16 KiB
+				}
 			default:
 				if t := strings.TrimRight(v, ",;"); t != "" {
 					closing, v = v[len(t):], t
@@ -165,10 +191,10 @@ func redactPatterns(s string, orphanEnd bool) (string, map[string]int) {
 				// an unquoted authorization value is headerRe's: its scheme word is not a secret
 			case key == "passwd" && nssLine(s, m[10]):
 			case strings.TrimSpace(sep) == "" && !spacedPair(s, m, key, kind, depth > 0):
-			case keepValue(v), strings.ContainsRune("{[(", rune(v[0])) && (strings.HasSuffix(v, ":") || strings.HasSuffix(v, "=>")):
+			case keepValue(v), kind == "auth_header" && keepAuthRest(v), strings.ContainsRune("{[(", rune(v[0])) && (strings.HasSuffix(v, ":") || strings.HasSuffix(v, "=>")):
 				// a flow map's first key is not a value
 			default:
-				return s[m[0]:m[10]] + open + mark(kind) + closing
+				return s[m[0]:m[10]] + open + markVal(kind, v) + closing
 			}
 			if depth >= 4 {
 				return s[m[0]:m[1]]
@@ -177,7 +203,7 @@ func redactPatterns(s string, orphanEnd bool) (string, map[string]int) {
 		})
 	}
 	s = kvPass(kvRe, s, 0)
-	s = kvArrayPass(s, mark)
+	s = kvArrayPass(s, markVal)
 	s = kvPass(kvBracketRe, s, 0)
 	s = tokenRe.ReplaceAllStringFunc(s, func(t string) string {
 		if !strings.ContainsAny(t, "0123456789") {
@@ -185,6 +211,9 @@ func redactPatterns(s string, orphanEnd bool) (string, map[string]int) {
 		}
 		return mark("token")
 	})
+	if len(counts) == 0 {
+		counts = nil
+	}
 	return s, counts
 }
 
@@ -215,10 +244,17 @@ func splitScheme(v string) (kept, rest string) {
 	return "", v
 }
 
+// keepAuthRest reports an authorization value whose credential, after the
+// scheme word, is already masked ("Bearer [REDACTED:auth_header]").
+func keepAuthRest(v string) bool {
+	_, rest := splitScheme(v)
+	return keepValue(rest)
+}
+
 // kvArrayPass masks the quoted elements of a one-line array that a secret key
 // holds ("password":["x"], the shape of Go's json.Marshal(r.Header)). Each
 // masked element counts once.
-func kvArrayPass(s string, mark func(string) string) string {
+func kvArrayPass(s string, mark func(kind, v string) string) string {
 	return replaceSubmatch(kvArrayRe, s, func(s string, m []int) string {
 		key, sep := s[m[4]:m[5]], s[m[8]:m[9]]
 		kind := keyKind(key)
@@ -238,7 +274,7 @@ func kvArrayPass(s string, mark func(string) string) string {
 			if keepValue(v) {
 				return e
 			}
-			return e[:q] + kept + mark(kind) + e[len(e)-q:]
+			return e[:q] + kept + mark(kind, v) + e[len(e)-q:]
 		})
 		return s[m[0]:m[10]] + body
 	})
@@ -401,8 +437,8 @@ func keepValue(v string) bool {
 		return true
 	case strings.HasPrefix(v, "<") && strings.HasSuffix(v, ">"):
 		return true
-	case strings.Contains(v, "[REDACTED:"):
-		return true // a marker is a placeholder, so redaction stays idempotent; a value holding one had its secret part masked by another rule
+	case onlyMarkersRe.MatchString(v):
+		return true // markers are placeholders, so redaction stays idempotent; a value that merely holds one is masked whole (markVal)
 	case l == "changeme", l == "replace_me", l == "null", l == "none", l == "true", l == "false",
 		l == "yes", l == "no", l == "on", l == "off",
 		l == "(none)", l == "(null)", l == "[filtered]", l == "[redacted]":
@@ -440,7 +476,8 @@ const redactMargin = 64 << 10
 // at max like CapOutput. Output longer than two margin-widened halves is only
 // pattern-masked in its head and tail windows: the middle is dropped by the
 // cap anyway, so masking cost stays bounded however much a command prints.
-// The truncation marker counts bytes dropped from the vault-redacted output.
+// The truncation marker counts bytes dropped from the vault-redacted output
+// (from the pattern-masked output when the output is not windowed).
 //
 // Windows are aligned to line boundaries so a cut never splits a secret: the
 // fragment cut off at each edge is dropped when it is shorter than
