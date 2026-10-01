@@ -1,3 +1,5 @@
+<p align="center"><img src="desktop/build/icon.png" width="128" height="128" alt="sshgate app icon: a shield holding a terminal prompt above a keyhole"></p>
+
 # sshgate
 
 **sshgate** lets an AI agent (Claude Code or any MCP client) run shell commands on your SSH servers, but only after you approve each command in a desktop app by default (see [Auto-allow](#auto-allow) for the one opt-in exception). It is one Go binary plus an Electron app:
@@ -48,7 +50,7 @@ Claude Code ──stdio──▶ sshgate (bridge) ──per-user socket──▶
 
    Put a copy of `sshgate` on your `PATH` too (for example `cp sshgate ~/go/bin/`), so your MCP client can start the bridge.
 
-   On macOS you can instead build an app bundle with `cd desktop && npm ci && ./scripts/package-mac.sh` and copy `desktop/out/sshgate.app` to `/Applications` (quit sshgate first when replacing an installed copy). `sshgate --version` prints the version it was built with. It carries its own `sshgate` binary (`sshgate.app/Contents/Resources/sshgate`), which the bridge can use too. The bundle is ad-hoc signed for your own machine only; it is not notarized.
+   On macOS you can instead build an app bundle with `cd desktop && npm ci && ./scripts/package-mac.sh` and copy `desktop/out/sshgate.app` to `/Applications` (quit sshgate first when replacing an installed copy). `sshgate --version` prints the version it was built with. It carries its own `sshgate` binary (`sshgate.app/Contents/Resources/sshgate`), which the bridge can use too. The bundle's icon is `desktop/build/icon.icns`; `desktop/scripts/make-icon.sh` rebuilds it from `desktop/build/icon-source.png` (needs python3 with Pillow; only after changing the image). The bundle is ad-hoc signed for your own machine only; it is not notarized.
 
 2. **Create your vault.** The first launch asks for a master password (at least 8 characters). It cannot be recovered; lose it and the vault cannot be opened.
 
