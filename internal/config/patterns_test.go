@@ -310,6 +310,11 @@ func TestRedactPatternsRules(t *testing.T) {
 		{"array escaped token", `{\"token\":[\"x1\",\"y2\"]}`, `{\"token\":[\"[REDACTED:secret]\",\"[REDACTED:secret]\"]}`},
 		{"escaped unterminated", `{\"password\":\"hunter2x`, `{\"password\":\"[REDACTED:password]`},
 		{"escaped inner quote", `{\"password\":\"a\\\"b\"}`, `{\"password\":\"[REDACTED:password]\"}`},
+		{"auth quoted path", `{"Authorization":"Bearer /x9Kq2/aBcdEfGh"}`, `{"Authorization":"[REDACTED:auth_header]"}`},
+		{"auth quoted call", `{"Authorization":"Basic abc(x)"}`, `{"Authorization":"[REDACTED:auth_header]"}`},
+		{"auth eq quoted call", `Authorization="Bearer abc(x)"`, `Authorization="[REDACTED:auth_header]"`},
+		{"escaped trailing backslash", `{\"password\":\"abc\\\\\",\"user\":\"bob\"}`, `{\"password\":\"[REDACTED:password]\",\"user\":\"bob\"}`},
+		{"escaped windows path", `{\"password\":\"C:\\\\x\\\\\"}`, `{\"password\":\"[REDACTED:password]\"}`},
 		{"go source escaped key", `if strings.HasPrefix(line, "\"password\": ") {`, ""},
 		{"command substitution", "export DB_PASSWORD=$(cat /run/secrets/db)", ""},
 	}
@@ -352,6 +357,9 @@ func TestRedactPatternsRules(t *testing.T) {
 // Doubling the input should cost well under 3x time (quadratic code would cost
 // about 4x); take the min of 3 runs to avoid flakiness.
 func TestRedactScaling(t *testing.T) {
+	if raceOn {
+		t.Skip("timing ratios are noise under the race detector; CI runs this without -race")
+	}
 	for _, unit := range []string{"pass ", "key=", "password=${x}", "auth: {", "password:[", `\"key\":[\"`, `\"key\":\"`, `\"key\":\"x[REDACTED:secret]`, "A_B_AUTHORIZATION=", "a_b_c_"} {
 		timeFor := func(n int) time.Duration {
 			s := strings.Repeat(unit, n/len(unit))
@@ -381,6 +389,10 @@ func TestRedactForgedMarkers(t *testing.T) {
 		{"password=[REDACTED:password]hunter2x", "hunter2x"},
 		{`password="hunter2x [REDACTED:token]"`, "hunter2x"},
 		{"Authorization: Bearer abc123opaque[REDACTED:x]", "abc123opaque"},
+		{"Authorization: Bearer abc[REDACTED:x]", "abc["},
+		{`{"Authorization":"Bearer abc[REDACTED:x]"}`, "abc["},
+		{"password=abcdef[REDACTED:x]", "abcdef"},
+		{"secret=foo[REDACTED:password]bar", "foo"},
 		{`{"password":["[REDACTED:x]hunter2x"]}`, "hunter2x"},
 		{`{"password":["hunter2x[REDACTED:x]"]}`, "hunter2x"},
 	} {

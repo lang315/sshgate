@@ -17,6 +17,8 @@ jobs:
       - run: go vet ./...
       # Integration tests in internal/sshx start their own sshd via testcontainers (Docker is available on ubuntu-latest).
       - run: go test -race ./...
+      # The redaction sweeps sample under -race (24x slower, nothing to find); run them in full here.
+      - run: go test -count=1 ./internal/config
 
   desktop:
     runs-on: ubuntu-latest

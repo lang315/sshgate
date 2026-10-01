@@ -11,8 +11,9 @@ import (
 var RedactKinds = []string{"private_key", "password", "secret", "auth_header", "url_password", "token"}
 
 // escQuoted is a `\"…\"` value, a string inside a string: it ends at the first
-// `\"` that is not part of `\\\"` (an escaped quote of the inner string).
-const escQuoted = `\\"(?:[^\\\r\n]|\\{3}"|\\{2}|\\[^"\\\r\n])*\\"`
+// `\"` that is not part of `\\\"` (an escaped quote of the inner string); `\\\\`
+// pairs are consumed first, so a value ending in an escaped backslash closes.
+const escQuoted = `\\"(?:\\{4}|\\{3}"|\\{2}[^"\\\r\n]|\\[^"\\\r\n]|[^\\\r\n])*\\"`
 
 var (
 	// A whole PEM private key block; with no END line it runs to the end.
@@ -78,12 +79,13 @@ var redisPasswordKeys = map[string]bool{"requirepass": true, "masterauth": true}
 // the key and separator stay. It is pure, and idempotent: a marker is a
 // placeholder, which every rule keeps.
 //
-// ponytail: RE2 passes over the whole output, about 0.6–0.75 s per MiB measured,
-// linear as long as kvPass's nesting is capped: uncapped, a whitespace-free
-// chain like "key=" repeated cost 20 s at 64 KiB (quadratic). Capped at depth
-// 4 it costs 39 ms at 64 KiB and ~600 ms at 1 MiB, so a secret behind a 5th
-// nested rejected key is not found. RedactCap windows (max/2 + 64 KiB each)
-// bound the input, so pre-filtering is not needed.
+// ponytail: RE2 passes over the whole output, about 0.78 s per MiB measured on
+// mixed output and up to about 1.0 s per MiB on adversarial input, linear as
+// long as kvPass's nesting is capped: uncapped, a whitespace-free chain like
+// "key=" repeated cost 20 s at 64 KiB (quadratic). Capped at depth 4 it costs
+// about 1 s per MiB, so a secret behind a 5th nested rejected key is not
+// found. RedactCap windows (max/2 + 64 KiB each, about 190 KiB) bound the
+// input to about 150 ms per capped stream, so pre-filtering is not needed.
 func RedactPatterns(s string) (string, map[string]int) {
 	return redactPatterns(s, false)
 }
@@ -248,7 +250,7 @@ func splitScheme(v string) (kept, rest string) {
 // scheme word, is already masked ("Bearer [REDACTED:auth_header]").
 func keepAuthRest(v string) bool {
 	_, rest := splitScheme(v)
-	return keepValue(rest)
+	return onlyMarkersRe.MatchString(rest)
 }
 
 // kvArrayPass masks the quoted elements of a one-line array that a secret key
@@ -445,6 +447,8 @@ func keepValue(v string) bool {
 		return true
 	case strings.Trim(v, "{}[]()") == "":
 		return true // a nested block's opening bracket, not a value
+	case markerRe.MatchString(v):
+		return false // a marker beside other text: not a placeholder, and "abc[REDACTED:x]" is not an expression
 	case exprPrefixRe.MatchString(v), strings.HasPrefix(v, "${"), strings.HasPrefix(v, "{{"),
 		len(v) >= 2 && v[0] == '$' && (isAlnum(v[1]) || v[1] == '_' || v[1] == '('),
 		len(v) >= 2 && v[0] == '%' && strings.ContainsRune("svdq", rune(v[1])),

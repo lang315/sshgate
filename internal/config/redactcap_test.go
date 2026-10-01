@@ -154,7 +154,11 @@ var wholeMarker = regexp.MustCompile(`\[REDACTED:[a-z_]+\]`)
 // A8: the clamps never leave a piece of a marker or a split rune.
 func TestRedactCapCutIsMarkerAndRuneSafe(t *testing.T) {
 	const line = "DB_PASSWORD=Wm4tQz8vLp2Rk7Xs é\n" // masked: 33 bytes, one 2-byte rune
-	for pad := 0; pad < 40; pad++ {
+	step := 1                                       // 33 pads cover every byte phase of the 33-byte line
+	if raceOn {
+		step = 8
+	}
+	for pad := 0; pad <= 32; pad += step {
 		for _, in := range []string{
 			strings.Repeat(line, 12000), // windowed
 			strings.Repeat(line, 1500),  // short path, masked output over max
