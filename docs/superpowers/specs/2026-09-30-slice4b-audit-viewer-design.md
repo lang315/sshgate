@@ -134,3 +134,11 @@ The plan (`plans/2026-09-30-slice4b-audit-viewer.md`) settled these points. Wher
 - **Torn last line.** A last line with no trailing newline is closed with one when the file is opened.
 - **Callback.** The `audit.appended` callback reads only atomics: an unlocked flag and the sink. Some audit writes happen while `h.mu` is held, so the callback must not take it.
 - **Tab class.** The Audit tab uses class `.audittab`, so the existing `.hometab` locators still match one element.
+
+## Amendment 2026-10-01 (PR #11 code review)
+
+- **Read does not hold the lock (B1).** `Audit` tracks the file's byte size under its mutex; `Read` takes the size, releases the lock, and reads `[0, size)`. Every byte below the size is a whole line, so a slow read never stalls a writer that holds `h.mu`.
+- **Seq follows the file (B2, B3).** Before each append, `Audit` stats the file; if its size is not the tracked one (a hand edit, truncation, a second hub), it recounts newlines with a fixed buffer, reads the last byte, and ends a torn last line, so the live `seq` is the line number `Read` reports. Opening the file uses the same streaming count instead of reading it all.
+- **Nothing follows `locked` (B4).** The door's drain checks `h.unlocked` and notifies under a door-local mutex that the `locked` notification also takes.
+- **Text search (B5).** `text` matches the record's decoded string and number values, joined with newlines, case-insensitively, in the hub and in the renderer's `matches`. Quotes, backslashes and tabs match as shown; key names no longer match. This replaces the `<`/`>`/`&` decoding above.
+- **Local paths stay in the hub (B6).** `local` is removed from `kind: "file"` records in `audit.read` results and `audit.appended`; the file on disk keeps it.

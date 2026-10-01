@@ -43,11 +43,20 @@ function outcomeIs(r: AuditRecord, o: AuditOutcome): boolean {
   }
 }
 
+// What a text search sees: every string and number value of the record,
+// walked recursively and joined with "\n", like the hub's leaves(). Never a
+// key name or an escape.
+function leaves(v: unknown, out: string[]): string[] {
+  if (typeof v === 'string' || typeof v === 'number') out.push(String(v))
+  else if (Array.isArray(v)) v.forEach((x) => leaves(x, out))
+  else if (v && typeof v === 'object') Object.values(v).forEach((x) => leaves(x, out))
+  return out
+}
+
 // Whether r belongs in a list read with q: broker's ReadQuery.match, mirrored.
-// JSON.stringify writes <, > and & as themselves, like the hub's decoded line.
 export function matches(r: AuditRecord, q: AuditQuery): boolean {
   if (q.server && r.server !== q.server) return false
-  if (q.text && !JSON.stringify(r).toLowerCase().includes(q.text.toLowerCase())) return false
+  if (q.text && !leaves(r, []).join('\n').toLowerCase().includes(q.text.toLowerCase())) return false
   if (!q.kinds?.length && !q.outcomes?.length) return true
   const kind: AuditKind = r.kind || 'exec'
   if (q.kinds?.includes(kind)) return true
@@ -166,8 +175,12 @@ export const failLoad = (l: AuditList, message: string): AuditList => ({ ...l, s
 export function appendLive(l: AuditList, e: AuditEntry, q: AuditQuery, atTop: boolean): AuditList {
   if (l.status !== 'loading' && l.status !== 'loaded') return l
   if (!matches(e.record, q)) return l
-  if (l.entries.some((x) => x.seq === e.seq) || l.held.some((x) => x.seq === e.seq)) return l
-  return atTop ? { ...l, entries: mergeEntries(l.entries, [e]) } : { ...l, held: mergeEntries(l.held, [e]) }
+  // The normal case is a seq above everything held: prepend, no sort. Out of
+  // order falls back to the merge, which also dedupes.
+  const fresh = e.seq > Math.max(l.entries[0]?.seq ?? 0, l.held[0]?.seq ?? 0)
+  if (!fresh && (l.entries.some((x) => x.seq === e.seq) || l.held.some((x) => x.seq === e.seq))) return l
+  const add = (list: AuditEntry[]) => (fresh ? [e, ...list] : mergeEntries(list, [e]))
+  return atTop ? { ...l, entries: add(l.entries) } : { ...l, held: add(l.held) }
 }
 
 export const releaseHeld = (l: AuditList): AuditList =>

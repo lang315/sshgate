@@ -289,8 +289,12 @@ func TestAuditFileRecordsLoseLocalPaths(t *testing.T) {
 // before the locked notification or not at all.
 func TestAuditAppendedNeverFollowsLocked(t *testing.T) {
 	h, _ := newHub(t, &fakeExec{})
-	_, _, notes := startTermDoor(t, h)
+	c, _, notes := startTermDoor(t, h)
 	waitAuditSink(t, h)
+	// A reply proves Serve is running: a notification sent before that is dropped.
+	if err := c.Call(context.Background(), "hello", nil, nil); err != nil {
+		t.Fatal(err)
+	}
 	for i := 0; i < 200; i++ {
 		unlockForTest(h)
 		done := make(chan struct{})

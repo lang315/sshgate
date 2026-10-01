@@ -96,6 +96,13 @@ describe('matches', () => {
     expect(all.map((r) => matches(r, { outcomes: ['allowed'] }))).toEqual([false, false, false])
     expect(all.map((r) => matches(r, { server: 'vis' }))).toEqual([false, true, true])
     expect(all.map((r) => matches(r, { text: 'TAIL 2>&1' }))).toEqual([true, false, false])
+    // decoded values: quotes, backslashes and numbers match as shown; key names do not
+    const q: AuditRecord = { time: 't', server: 'box', command: 'echo "hi" C:\\Users', timeoutSec: 30, outcome: 'allowed' }
+    expect(matches(q, { text: 'echo "hi"' })).toBe(true)
+    expect(matches(q, { text: 'C:\\Users' })).toBe(true)
+    expect(matches(q, { text: '30' })).toBe(true)
+    expect(matches(q, { text: 'command' })).toBe(false)
+    expect(matches(q, { text: 'server' })).toBe(false)
     expect(matches({ time: 't', command: 'x', outcome: 'cancelled_running' }, { outcomes: ['cancelled'] })).toBe(true)
   })
 })
@@ -119,6 +126,17 @@ describe('the record list', () => {
     expect(seqs(appendLive(l, entry(3), {}, true))).toEqual([3, 2, 1])
     expect(appendLive(l, entry(2), {}, true)).toBe(l)
     expect(appendLive(l, entry(3, { kind: 'config' }), { kinds: ['exec'] }, true)).toBe(l)
+  })
+  it('prepends an in-order live record without re-sorting, and still merges one out of order', () => {
+    let l = loaded([entry(5), entry(3)])
+    l = appendLive(l, entry(6), {}, true)
+    expect(seqs(l)).toEqual([6, 5, 3])
+    l = appendLive(l, entry(4), {}, true) // out of order: merged
+    expect(seqs(l)).toEqual([6, 5, 4, 3])
+    l = appendLive(l, entry(8), {}, false)
+    l = appendLive(l, entry(7), {}, false) // below held[0], above entries[0]
+    expect(l.held.map((e) => e.seq)).toEqual([8, 7])
+    expect(appendLive(l, entry(8), {}, true)).toBe(l)
   })
   it('holds live records as "N new" while scrolled away, then releases them', () => {
     let l = loaded([entry(1)])
