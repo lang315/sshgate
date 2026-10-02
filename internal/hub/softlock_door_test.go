@@ -3,10 +3,13 @@ package hub
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/lang315/sshgate/internal/rpc"
 )
 
 // doorParams has valid params for every UI-door request, aimed at "vis", the
@@ -92,6 +95,10 @@ func TestUIDoorSoftLockAnswersLikeHardLock(t *testing.T) {
 			var res json.RawMessage
 			err := c.Call(context.Background(), m, json.RawMessage(doorParams[m]), &res)
 			if err != nil {
+				var re *rpc.Error
+				if errors.As(err, &re) && re.Code == -32602 {
+					t.Errorf("%s: invalid params, the entry in doorParams proves nothing: %v", m, err)
+				}
 				out[m] = "error: " + err.Error()
 			} else {
 				out[m] = string(res)
@@ -114,13 +121,10 @@ func TestUIDoorSoftLockAnswersLikeHardLock(t *testing.T) {
 		}
 		switch m {
 		case "status":
-			if !strings.Contains(soft[m], `"autoHosts":["vis"]`) || strings.Contains(hard[m], "autoHosts") {
+			if !strings.Contains(soft[m], `"autoHosts":["vis"]`) || strings.Contains(hard[m], "autoHosts") ||
+				!strings.Contains(soft[m], `"locked":true`) || !strings.Contains(hard[m], `"locked":true`) {
 				t.Errorf("status: soft %s, hard %s", soft[m], hard[m])
 			}
-		case "servers.setAutoAllow":
-			// Under a hard lock the timed mode fails in checkLocked too; both
-			// are the locked error, compared below.
-			fallthrough
 		default:
 			if soft[m] != hard[m] {
 				t.Errorf("%s differs\nsoft: %s\nhard: %s", m, soft[m], hard[m])
@@ -152,8 +156,13 @@ func TestUIDoorSetAutoAllowOffRefusedUnderSoftLock(t *testing.T) {
 	}
 }
 
-// Notifications that only move to a safer state still work behind the lock.
-func TestUIDoorSafeNotificationsUnderSoftLock(t *testing.T) {
+// Under soft lock the read loop survives tunnels.stop, files.cancel and a
+// term.write without user:true, none of them counts as UI activity, and the
+// lock state is unchanged. The ids do not exist, so this does not show a cancel
+// taking effect: TestJobCancelWhileRunningAndWhileLocked drives a real one.
+// (term.write with user:true touches the idle clock before it looks the id up,
+// even for an unknown id, so it is not asserted here.)
+func TestUIDoorNotificationsUnderSoftLockAreNotActivity(t *testing.T) {
 	h, _ := newHub(t, &fakeExec{})
 	if err := h.SetAutoAllow("vis", "15m"); err != nil {
 		t.Fatal(err)
@@ -202,8 +211,12 @@ func TestSoftLockInvariantUnderRace(t *testing.T) {
 	loop(func() { h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}) })
 	loop(func() { h.sweepGrants(time.Now().Add(time.Hour)) }) // every timed grant is past its deadline
 	loop(func() { h.Lock() })
+	var seen int // under h.mu: how often the checker saw a soft lock
 	loop(func() {
 		h.mu.Lock()
+		if h.softLocked {
+			seen++
+		}
 		if h.softLocked && (h.deps.MasterKey == nil || len(h.grants) == 0) {
 			t.Errorf("invariant broken: soft-locked with key=%v grants=%d", h.deps.MasterKey != nil, len(h.grants))
 		}
@@ -212,4 +225,7 @@ func TestSoftLockInvariantUnderRace(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	close(stop)
 	wg.Wait()
+	if seen == 0 {
+		t.Fatal("no soft lock was ever observed: the test did not exercise the invariant")
+	}
 }
