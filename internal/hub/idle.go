@@ -48,8 +48,10 @@ func (h *Hub) idleLoop(idle time.Duration) {
 // while calling into the broker); quiet and running are re-checked under
 // h.mu together with the state change. A request submitted between the
 // Pending() read and h.mu cannot be running yet (running++ happens only
-// after approval), so the worst case is that it is approved against a locked
-// vault and fails closed with ErrLocked.
+// after approval), so the worst case is that it stays pending, since decide
+// refuses an allow while locked, until it expires or the human unlocks; if
+// something approves it anyway, the post-approval resolve fails closed with
+// ErrLocked.
 func (h *Hub) lockIfIdle(idle time.Duration) {
 	if len(h.broker.Pending()) > 0 {
 		return

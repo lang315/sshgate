@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -212,5 +213,15 @@ func TestHandleRequestIgnoresNotifications(t *testing.T) {
 	case got := <-calls:
 		t.Fatalf("unexpected extra dispatch: %q", got)
 	default:
+	}
+}
+
+func TestServerMethodsSorted(t *testing.T) {
+	s := NewServer()
+	h := func(context.Context, json.RawMessage) (any, error) { return nil, nil }
+	s.Handle("b.note", h)
+	s.HandleRequest("a.req", h)
+	if got := s.Methods(); !reflect.DeepEqual(got, []string{"a.req", "b.note"}) {
+		t.Fatalf("Methods = %v", got)
 	}
 }

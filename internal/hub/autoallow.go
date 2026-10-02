@@ -403,7 +403,7 @@ const (
 	skipNoGrant autoSkip = iota
 	skipBusy             // maxAutoInflight runs already going
 	skipSudo             // sudo-exec without the host's opt-in
-	skipEnded            // this call ended the grant
+	skipEnded            // the grant is gone or going: this call ended it, or a hard lock is ending it
 )
 
 // autoStart decides, in one h.mu section, whether name's exec runs under its

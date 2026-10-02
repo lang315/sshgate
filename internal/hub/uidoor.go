@@ -77,6 +77,10 @@ func (h *Hub) serversForUI() []uiServer {
 	return out
 }
 
+// uiDoorMethods, when set by a test, is given the door's method list once
+// every handler is registered.
+var uiDoorMethods func([]string)
+
 // ServeUIDoor serves the full-privilege door on r/w (stdio for a desktop app
 // later, an in-process pipe for tests and a CLI approver). Broker events are
 // pushed as notifications for the lifetime of the call.
@@ -330,5 +334,8 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 	defer closeFiles() // after Serve: cancels this door's jobs and waits up to 5 s
 	releaseTunnels := registerTunnelMethods(s, h)
 	defer releaseTunnels()
+	if uiDoorMethods != nil {
+		uiDoorMethods(s.Methods())
+	}
 	return s.Serve(ctx, r, w)
 }

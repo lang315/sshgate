@@ -12,6 +12,7 @@ import (
 
 	"github.com/lang315/sshgate/internal/broker"
 	"github.com/lang315/sshgate/internal/config"
+	"github.com/lang315/sshgate/internal/rpc"
 )
 
 // softLockForTest puts h in soft lock without waiting for the idle rule. The
@@ -638,6 +639,9 @@ func TestExecPastCeilingBeforeTickIsLocked(t *testing.T) {
 			t.Fatal("vis reported unlocked past the ceiling")
 		}
 	}
+	if got := stateOf(h); got != (lockState{soft: true, key: true, grants: 1}) { // no tick has run
+		t.Fatalf("state = %+v, want still soft-locked with its grant", got)
+	}
 }
 
 func TestSoftLockSweepHardLocksWhenReloadFails(t *testing.T) {
@@ -659,4 +663,52 @@ func TestSoftLockSweepHardLocksWhenReloadFails(t *testing.T) {
 	if !hasAutoAllowOff(recs, "server changed") {
 		t.Fatalf("no autoAllowOff/server changed: %v", recs)
 	}
+}
+
+// A deny only moves to a safer state, so the locked UI may still make it.
+func TestDenyStillWorksUnderSoftLock(t *testing.T) {
+	setup := func(t *testing.T) (*Hub, *rpc.Client, chan error) {
+		h, _ := newHubExpiry(t, &fakeExec{}, time.Minute)
+		if err := h.SetAutoAllow("vis", "15m"); err != nil {
+			t.Fatal(err)
+		}
+		c, _ := startUI(t, h)
+		errc := make(chan error, 1)
+		go func() {
+			_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "id", Sudo: true})
+			errc <- err
+		}()
+		waitPending(t, h.Broker(), 1)
+		softLockForTest(h)
+		return h, c, errc
+	}
+	wantDenied := func(t *testing.T, errc chan error) {
+		t.Helper()
+		var de *DeniedError
+		if err := <-errc; !errors.As(err, &de) {
+			t.Fatalf("exec = %v, want *DeniedError", err)
+		}
+	}
+	t.Run("decide", func(t *testing.T) {
+		h, c, errc := setup(t)
+		id := h.Broker().Pending()[0].ID
+		err := c.Call(context.Background(), "decide", map[string]string{"id": id, "outcome": "sent_to_tab"}, nil)
+		if err == nil || err.Error() != ErrLocked.Error() {
+			t.Fatalf("decide sent_to_tab = %v, want the locked error", err)
+		}
+		if n := len(h.Broker().Pending()); n != 1 {
+			t.Fatalf("pending = %d after a refused decide, want 1", n)
+		}
+		if err := c.Call(context.Background(), "decide", map[string]string{"id": id, "outcome": "denied"}, nil); err != nil {
+			t.Fatalf("decide denied: %v", err)
+		}
+		wantDenied(t, errc)
+	})
+	t.Run("denyAll", func(t *testing.T) {
+		_, c, errc := setup(t)
+		if err := c.Call(context.Background(), "denyAll", map[string]string{"reason": "x"}, nil); err != nil {
+			t.Fatalf("denyAll: %v", err)
+		}
+		wantDenied(t, errc)
+	})
 }
