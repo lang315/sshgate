@@ -899,9 +899,11 @@ func TestSoftLockSweepDoesNotReresolveUnchangedFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	idleNow(h)
+	h.sweepGrants(time.Now()) // sweptFile is nil after the soft lock began: this one checks every grant once
 	if err := os.Remove(key); err != nil {
 		t.Fatal(err)
 	}
+	h.sweepGrants(time.Now())
 	h.sweepGrants(time.Now())
 	if grantOf(h, "kf") == nil {
 		t.Fatal("the sweep re-resolved a grant although the vault file did not change")
@@ -920,5 +922,114 @@ func TestSoftLockSweepDoesNotReresolveUnchangedFile(t *testing.T) {
 	h.sweepGrants(time.Now())
 	if got := stateOf(h); got != (lockState{}) {
 		t.Fatalf("state = %+v, want hard lock", got)
+	}
+}
+
+// hideInFile hides name in the vault file on disk, as an outside edit.
+func hideInFile(t *testing.T, path, name string) {
+	t.Helper()
+	if err := config.Update(path, testMK, func(f *config.File) error {
+		for i := range f.Servers {
+			if f.Servers[i].Name == name {
+				f.Servers[i].AIVisible = false
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// status, MCP calls and SetAutoAllow reload too: the sweep must compare with
+// the file the grants were last checked against, not with its own "before".
+func TestSoftLockSweepSeesFileReloadedByOthers(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	idleNow(h)
+	hideInFile(t, path, "vis")
+	if err := h.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	h.sweepGrants(time.Now())
+	if got := stateOf(h); got != (lockState{}) {
+		t.Fatalf("state = %+v, want hard lock", got)
+	}
+	_, recs := readAudit(t, path)
+	if !hasAutoAllowOff(recs, "server changed") {
+		t.Fatalf("no autoAllowOff/server changed: %v", recs)
+	}
+}
+
+// Exec's first resolve fails for a granted host that is hidden: the grant
+// ends, as autoStart ends it, and the AI sees the same error as for a
+// server that does not exist.
+func TestExecEndsGrantOfHiddenServer(t *testing.T) {
+	for _, soft := range []bool{true, false} {
+		name := "unlocked"
+		if soft {
+			name = "soft"
+		}
+		t.Run(name, func(t *testing.T) {
+			h, path := newHub(t, &fakeExec{})
+			if err := h.SetAutoAllow("vis", "forever"); err != nil {
+				t.Fatal(err)
+			}
+			if soft {
+				idleNow(h)
+			}
+			hideInFile(t, path, "vis")
+			if err := h.Reload(); err != nil {
+				t.Fatal(err)
+			}
+			_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
+			_, missing := h.Exec(context.Background(), ExecRequest{Server: "nope", Command: "ls"})
+			if err == nil || missing == nil || err.Error() != serverNotFound("vis").Error() || missing.Error() != serverNotFound("nope").Error() {
+				t.Fatalf("hidden %v, missing %v", err, missing)
+			}
+			if grantOf(h, "vis") != nil {
+				t.Fatal("the grant of a hidden server is still armed")
+			}
+			if soft {
+				if got := stateOf(h); got != (lockState{}) {
+					t.Fatalf("state = %+v, want hard lock", got)
+				}
+			}
+			_, recs := readAudit(t, path)
+			if !hasAutoAllowOff(recs, "server changed") {
+				t.Fatalf("no autoAllowOff/server changed: %v", recs)
+			}
+		})
+	}
+}
+
+// A granted host whose resolve fails ends its grant too.
+func TestExecEndsGrantWhenResolveFails(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	key := filepath.Join(t.TempDir(), "id")
+	if err := os.WriteFile(key, []byte("k"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	addServer(t, h, path, config.Server{Name: "kf", Host: "h", Port: 22, User: "u", Auth: "agent", KeyPath: key, HostKey: "SHA256:abc", AIVisible: true})
+	if err := h.SetAutoAllow("kf", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	idleNow(h)
+	if err := os.Remove(key); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: "kf", Command: "ls"}); !errors.Is(err, ErrConnFailed) {
+		t.Fatalf("err = %v, want ErrConnFailed", err)
+	}
+	if grantOf(h, "kf") != nil {
+		t.Fatal("the grant of a server that no longer resolves is still armed")
+	}
+	if got := stateOf(h); got != (lockState{}) {
+		t.Fatalf("state = %+v, want hard lock", got)
+	}
+	_, recs := readAudit(t, path)
+	if !hasAutoAllowOff(recs, "server changed") {
+		t.Fatalf("no autoAllowOff/server changed: %v", recs)
 	}
 }

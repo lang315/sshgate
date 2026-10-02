@@ -59,7 +59,7 @@ func testVault(t *testing.T) (*config.KDF, []byte) {
 func unlockForTest(h *Hub) {
 	h.mu.Lock()
 	h.deps.MasterKey = bytes.Clone(testMK)
-	h.autoKey, h.softLockedAt = nil, time.Time{}
+	h.autoKey, h.sweptFile, h.softLockedAt = nil, nil, time.Time{}
 	h.lockGen.Add(1)
 	h.unlocked.Store(true)
 	h.mu.Unlock()

@@ -100,7 +100,7 @@ type ExecResponse struct {
 
 type Hub struct {
 	o       Options
-	mu      sync.Mutex // guards deps.File, deps.MasterKey, storeErr, sinks, lastActivity, running, grants, grantSeq, autoKey, softLockedAt, ranLocked and autoSink; CreateVault, SetAutoAllow, autoAllowOff, SaveServer, DeleteServer and ForgetHostKey each hold it across their own store write, the reload that follows, and ending a server's auto-allow grant, so all of them serialize with each other
+	mu      sync.Mutex // guards deps.File, deps.MasterKey, storeErr, sinks, lastActivity, running, grants, grantSeq, autoKey, sweptFile, softLockedAt, ranLocked and autoSink; CreateVault, SetAutoAllow, autoAllowOff, SaveServer, DeleteServer and ForgetHostKey each hold it across their own store write, the reload that follows, and ending a server's auto-allow grant, so all of them serialize with each other
 	deps    *mcpserver.Deps
 	sink    func(broker.Event)
 	sinkGen uint64 // bumped on every setEventSink; lets release() no-op if superseded
@@ -119,6 +119,7 @@ type Hub struct {
 	grants       map[string]*grant // auto-allow; see autoallow.go
 	grantSeq     uint64            // ids for grant.inflight
 	autoKey      []byte            // the master key while the UI door is soft-locked; read only by the auto path (resolveAutoLocked) and the vault MAC check (vaultKeyLocked); see softlock.go
+	sweptFile    *config.File      // under soft lock: the vault file the grants were last checked against (sweepGrants); nil before the first sweep of a soft lock and when not soft-locked
 	softLockedAt time.Time         // wall clock (Round(0)), so time asleep counts toward maxSoftLock
 	ranLocked    map[string]int    // auto runs per server finished while the UI was locked; cleared by TakeRanLocked
 	autoSink     func(method string, params any)
@@ -248,7 +249,7 @@ func (h *Hub) Unlock(pw string) error {
 	clear(h.deps.MasterKey)
 	h.deps.MasterKey = mk
 	clear(h.autoKey)
-	h.autoKey, h.softLockedAt = nil, time.Time{}
+	h.autoKey, h.sweptFile, h.softLockedAt = nil, nil, time.Time{}
 	h.lockGen.Add(1)
 	h.unlocked.Store(true)
 	h.lastActivity = time.Now()
@@ -282,7 +283,7 @@ func (h *Hub) zeroKeyLocked() lockNote {
 	clear(h.deps.MasterKey)
 	h.deps.MasterKey = nil
 	clear(h.autoKey)
-	h.autoKey, h.softLockedAt = nil, time.Time{}
+	h.autoKey, h.sweptFile, h.softLockedAt = nil, nil, time.Time{}
 	h.lockGen.Add(1)
 	h.unlocked.Store(false)
 	return h.lockNoteLocked()
@@ -488,17 +489,32 @@ func (h *Hub) resolveForAI(name string) (sshx.DialConfig, error) {
 // resolveForAuto is Exec's first resolve. It uses the grant rule: under soft
 // lock a server with a live grant resolves. autoStart then decides whether
 // the request runs; one that does not never reaches the broker while locked.
+// A failure for a server that has a grant ends the grant ("server changed"),
+// as autoStart does: otherwise this call would fail before autoStart looked,
+// and the grant would hold on, under soft lock with the key in memory. ErrLocked
+// is the exception: a hard lock ends every grant itself, and under soft lock it
+// means the ceiling has passed, which the next tick ends. The error returned
+// is the same either way.
 func (h *Hub) resolveForAuto(name string) (sshx.DialConfig, error) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	if err := h.checkGrantLocked(name); err != nil {
-		return sshx.DialConfig{}, err
+	err := h.checkGrantLocked(name)
+	if err == nil {
+		var dc sshx.DialConfig
+		if dc, err = h.resolveAutoLocked(name); err == nil {
+			h.mu.Unlock()
+			return dc, nil
+		}
+		err = &hiddenError{ai: ErrConnFailed, detail: err}
 	}
-	dc, err := h.resolveAutoLocked(name)
-	if err != nil {
-		return sshx.DialConfig{}, &hiddenError{ai: ErrConnFailed, detail: err}
+	ended := !errors.Is(err, ErrLocked) && h.endGrantLocked(name)
+	if ended {
+		h.auditGrantEnded(name, "server changed")
 	}
-	return dc, nil
+	h.mu.Unlock()
+	if ended {
+		h.notifyGrantEnded(name, "server changed")
+	}
+	return sshx.DialConfig{}, err
 }
 
 // hiddenError shows the AI only ai; detail is for the audit and stderr.

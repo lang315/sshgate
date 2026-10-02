@@ -535,8 +535,10 @@ func cutBytes(s string, n int) (string, int) {
 // Under soft lock it also re-reads the vault file and, when that replaced the
 // file, ends any grant whose server no longer matches it: nothing else would,
 // since such a server fails Exec's first resolve before autoStart looks at its
-// grant, and the grant would hold the key. A file that did not change is not
-// re-resolved: that decrypts and reads key files under h.mu on every tick, and
+// grant, and the grant would hold the key. Grants are re-resolved only when
+// the file differs from the one they were last checked against (h.sweptFile,
+// not this sweep's own reload: status, MCP calls and SetAutoAllow reload too):
+// re-resolving decrypts and reads key files under h.mu on every tick, and
 // autoStart re-resolves on every run anyway. The idle loop calls it every
 // tick; Exec also checks the deadline exactly.
 func (h *Hub) sweepGrants(now time.Time) {
@@ -544,7 +546,7 @@ func (h *Hub) sweepGrants(now time.Time) {
 	failed := false
 	h.mu.Lock()
 	soft := h.autoKey != nil
-	before := h.deps.File
+	stale := false
 	if soft {
 		if err := h.reloadLocked(); err != nil {
 			// Fail closed: the vault can no longer be checked, so no grant may
@@ -552,6 +554,11 @@ func (h *Hub) sweepGrants(now time.Time) {
 			fmt.Fprintf(os.Stderr, "hub: soft lock: vault reload failed: %v\n", err)
 			failed = true
 		}
+		// sweptFile is nil on the first sweep of a soft lock, so that one checks
+		// every grant against the file as it is. Set before the loop: ending
+		// the last grant zeroes the key and clears it again.
+		stale = h.deps.File != h.sweptFile
+		h.sweptFile = h.deps.File
 	}
 	var ended []end
 	for name, g := range h.grants {
@@ -559,7 +566,7 @@ func (h *Hub) sweepGrants(now time.Time) {
 		switch {
 		case !g.until.IsZero() && !now.Before(g.until):
 			reason = "expired"
-		case failed, soft && h.deps.File != before && h.grantStaleLocked(name, g):
+		case failed, stale && h.grantStaleLocked(name, g):
 			reason = "server changed"
 		}
 		if reason != "" {
