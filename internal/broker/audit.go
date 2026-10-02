@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"slices"
@@ -338,11 +339,54 @@ func (q ReadQuery) match(f fields, line []byte, text string) bool {
 	return kind == "exec" && slices.ContainsFunc(q.Outcomes, f.outcomeIs)
 }
 
+// linesBackward calls fn with each line in the first size bytes of r, last
+// line first and without its newline, until fn returns false. Those bytes end
+// with '\n' (Audit.size). It holds one 64 KiB chunk and the line it is
+// assembling, never the file; line is valid only during the call.
+func linesBackward(r io.ReaderAt, size int64, fn func(line []byte) bool) error {
+	buf := make([]byte, 64<<10)
+	var carry []byte // the end of a line whose start is in an earlier chunk
+	tail := true     // still in what follows the last '\n', which is not a line yet
+	for end := size; end > 0; {
+		n := min(int64(len(buf)), end)
+		end -= n
+		chunk := buf[:n]
+		if m, err := r.ReadAt(chunk, end); m < len(chunk) {
+			return fmt.Errorf("audit file changed during the read: %w", err) // it shrank under us
+		}
+		for {
+			i := bytes.LastIndexByte(chunk, '\n')
+			if i < 0 {
+				break
+			}
+			if !tail {
+				line := chunk[i+1:]
+				if !fn(append(line[:len(line):len(line)], carry...)) {
+					return nil
+				}
+			}
+			tail, carry, chunk = false, nil, chunk[:i]
+		}
+		if !tail {
+			carry = append(bytes.Clone(chunk), carry...) // chunk is a view of buf, which the next read reuses
+		}
+	}
+	if !tail {
+		fn(carry) // the file's first line
+	}
+	return nil
+}
+
 // Read returns up to q.Limit records matching q, newest first, before
-// q.Before. It reads only the bytes below the size recorded under a.mu, so
-// it never sees a half-written line and never holds a.mu while reading.
-// ponytail: whole-file scan on every call. Switch to a backwards reader from
-// EOF when the file is large; that is also when rotation is needed.
+// q.Before. It reads backwards from the size recorded under a.mu, a chunk at
+// a time, and stops at the first older match past the limit: it never sees a
+// half-written line, never holds a.mu while reading, and never holds the
+// file in memory. Skipped counts the unparsed lines in the span this call
+// covers (from q.Before, or the newest line, down to the last record
+// returned, or to the start of the file when no older match exists), so the
+// counts of successive pages add up to the whole file's.
+// ponytail: a page deep in the file still walks down from EOF to q.Before,
+// without parsing. Return a byte offset with Next when that walk shows.
 func (a *Audit) Read(q ReadQuery) (ReadResult, error) {
 	limit := q.Limit
 	if limit <= 0 {
@@ -350,38 +394,55 @@ func (a *Audit) Read(q ReadQuery) (ReadResult, error) {
 	}
 	limit = min(limit, MaxReadLimit)
 	// Bytes below a.size are whole lines and the file only grows through a,
-	// so the read needs no lock: a slow read never holds up a writer.
+	// so the read needs no lock: a slow read never holds up a writer. seq is
+	// counted down from a.n, so a.n must be this file's line count: recount
+	// after a hand edit, as append does.
 	a.mu.Lock()
-	size := a.size
+	var err error
+	if st, serr := a.f.Stat(); serr != nil {
+		err = serr
+	} else if st.Size() != a.size {
+		err = a.recountLocked()
+	}
+	seq, size := a.n+1, a.size
 	a.mu.Unlock()
-	data, err := io.ReadAll(io.NewSectionReader(a.f, 0, size))
 	if err != nil {
 		return ReadResult{}, err
 	}
 	res := ReadResult{Records: []Entry{}, Path: a.path}
 	text := strings.ToLower(q.Text)
-	lines := bytes.Split(data, []byte{'\n'})
-	lines = lines[:len(lines)-1] // what follows the last '\n' is not a line yet
 	more := false
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := stripLocal(lines[i]) // strip before ANY use: matching, unmarshaling, returning
+	below := 0 // unparsed lines below the last record returned
+	err = linesBackward(a.f, size, func(line []byte) bool {
+		seq--
+		if q.Before > 0 && seq >= q.Before {
+			return true
+		}
+		line = stripLocal(line) // strip before ANY use: matching, unmarshaling, returning
 		var f fields
 		if len(line) == 0 || line[0] != '{' || json.Unmarshal(line, &f) != nil {
-			res.Skipped++
-			continue
+			below++
+			return true
 		}
-		seq := i + 1
-		if q.Before > 0 && seq >= q.Before || !q.match(f, line, text) {
-			continue
+		if !q.match(f, line, text) {
+			return true
 		}
 		if len(res.Records) == limit {
 			more = true
-			continue
+			return false
 		}
-		res.Records = append(res.Records, Entry{Seq: seq, Record: line})
+		res.Skipped += below
+		below = 0
+		res.Records = append(res.Records, Entry{Seq: seq, Record: bytes.Clone(line)}) // line is a view of the read buffer
+		return true
+	})
+	if err != nil {
+		return ReadResult{}, err
 	}
 	if more {
 		res.Next = res.Records[len(res.Records)-1].Seq
+	} else {
+		res.Skipped += below // the scan reached the start of the file
 	}
 	return res, nil
 }
