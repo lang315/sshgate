@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
@@ -514,15 +515,13 @@ func TestExecUnderSoftLockNeedsApprovalFailsAtOnce(t *testing.T) {
 	if grantOf(h, "vis") == nil {
 		t.Fatal("a refusal ended the grant")
 	}
+	// Refusals are not audited: a client retrying ErrAutoBusy would append a
+	// record per retry for as long as the soft lock lasts.
 	_, recs := readAudit(t, path)
-	var reasons []any
 	for _, r := range recs {
 		if r["outcome"] == "error" {
-			reasons = append(reasons, r["reason"])
+			t.Fatalf("a refusal under soft lock was audited: %v", r)
 		}
-	}
-	if !reflect.DeepEqual(reasons, []any{ErrAutoBusy.Error(), ErrNeedsApproval.Error()}) {
-		t.Fatalf("audited refusals = %v", reasons)
 	}
 	close(be.release)
 	wg.Wait()
@@ -844,5 +843,82 @@ func TestStaleLockNoteIsDropped(t *testing.T) {
 	}
 	if !reflect.DeepEqual(locked, []string{`{"reason":"current"}`}) {
 		t.Fatalf("locked notes after a lock = %v, want only the current one", locked)
+	}
+}
+
+// A run cancelled by a manual Lock did not "run while locked": after pressing
+// Lock to cut the AI off, the next unlock must not report it.
+func TestManualLockDuringRunIsNotCountedAsRanLocked(t *testing.T) {
+	be := newBlockExec()
+	h, _ := newHub(t, be)
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	errc := make(chan error, 1)
+	go func() {
+		_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
+		errc <- err
+	}()
+	waitInflight(t, h, "vis", 1)
+	idleNow(h)
+	h.Lock()
+	if err := <-errc; !errors.Is(err, ErrCancelledRunning) {
+		t.Fatalf("err = %v, want ErrCancelledRunning", err)
+	}
+	if got := h.TakeRanLocked(); len(got) != 0 {
+		t.Fatalf("TakeRanLocked = %+v, want empty", got)
+	}
+}
+
+func TestFailedRunUnderSoftLockIsNotCounted(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{err: errors.New("boom")})
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	idleNow(h)
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}); err == nil {
+		t.Fatal("the run did not fail")
+	}
+	if got := h.TakeRanLocked(); len(got) != 0 {
+		t.Fatalf("TakeRanLocked = %+v, want empty", got)
+	}
+}
+
+// The sweep re-resolves a grant only when the reload replaced the vault file.
+// A key file that vanishes while the file is unchanged would end the grant if
+// every tick resolved it again.
+func TestSoftLockSweepDoesNotReresolveUnchangedFile(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	key := filepath.Join(t.TempDir(), "id")
+	if err := os.WriteFile(key, []byte("k"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := config.Server{Name: "kf", Host: "h", Port: 22, User: "u", Auth: "agent", KeyPath: key, HostKey: "SHA256:abc", AIVisible: true}
+	addServer(t, h, path, s)
+	if err := h.SetAutoAllow("kf", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	idleNow(h)
+	if err := os.Remove(key); err != nil {
+		t.Fatal(err)
+	}
+	h.sweepGrants(time.Now())
+	if grantOf(h, "kf") == nil {
+		t.Fatal("the sweep re-resolved a grant although the vault file did not change")
+	}
+	// A changed file does re-check: hiding the server ends the grant.
+	if err := config.Update(path, testMK, func(f *config.File) error {
+		for i := range f.Servers {
+			if f.Servers[i].Name == "kf" {
+				f.Servers[i].AIVisible = false
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.sweepGrants(time.Now())
+	if got := stateOf(h); got != (lockState{}) {
+		t.Fatalf("state = %+v, want hard lock", got)
 	}
 }

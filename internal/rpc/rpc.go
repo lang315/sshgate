@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -75,12 +76,7 @@ func (s *Server) HandleRequest(method string, h Handler) {
 func (s *Server) Methods() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]string, 0, len(s.handlers))
-	for m := range s.handlers {
-		out = append(out, m)
-	}
-	slices.Sort(out)
-	return out
+	return slices.Sorted(maps.Keys(s.handlers))
 }
 
 func (s *Server) write(m message) error {

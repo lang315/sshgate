@@ -267,10 +267,11 @@ type ReadResult struct {
 
 // fields are what Read filters on. An exec record has no kind.
 type fields struct {
-	Kind     string `json:"kind"`
-	Server   string `json:"server"`
-	Outcome  string `json:"outcome"`
-	Approval string `json:"approval"`
+	Kind     string   `json:"kind"`
+	Server   string   `json:"server"`
+	Servers  []string `json:"servers"` // softLock: the hosts whose grants were live
+	Outcome  string   `json:"outcome"`
+	Approval string   `json:"approval"`
 }
 
 func (f fields) outcomeIs(o string) bool {
@@ -321,7 +322,7 @@ func hasText(line []byte, text string) bool {
 
 // match reports whether a parsed line passes q; text is q.Text lowercased.
 func (q ReadQuery) match(f fields, line []byte, text string) bool {
-	if q.Server != "" && f.Server != q.Server {
+	if q.Server != "" && f.Server != q.Server && !slices.Contains(f.Servers, q.Server) {
 		return false
 	}
 	if text != "" && !hasText(line, text) {

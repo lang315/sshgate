@@ -58,8 +58,13 @@ var doorSkipped = map[string]bool{
 // These must be refused as locked under soft lock, whatever else is compared.
 var doorMustRefuse = []string{
 	"servers.save", "servers.delete", "servers.forgetHostKey", "servers.setAutoAllow", "servers.autoAllowCheck",
-	"import.scan", "audit.read", "term.open", "files.list", "tunnels.save", "tunnels.start", "decide",
+	"import.scan", "import.apply", "audit.read", "term.open", "files.list", "files.mkdir", "files.rename",
+	"files.plan", "files.run", "tunnels.save", "tunnels.start", "tunnels.delete", "decide",
 }
+
+// These must fail under both locks, but not as "locked": vault.create refuses
+// because a vault exists, whatever the lock state.
+var doorMustError = []string{"vault.create"}
 
 // Under soft lock the UI door must answer every request exactly as it does
 // under a hard lock. The table must cover the whole door: a new method with
@@ -134,6 +139,11 @@ func TestUIDoorSoftLockAnswersLikeHardLock(t *testing.T) {
 	for _, m := range doorMustRefuse {
 		if !strings.Contains(strings.ToLower(soft[m]), "locked") || !strings.HasPrefix(soft[m], "error: ") {
 			t.Errorf("%s under soft lock = %s, want a locked refusal", m, soft[m])
+		}
+	}
+	for _, m := range doorMustError {
+		if !strings.HasPrefix(soft[m], "error: ") || !strings.HasPrefix(hard[m], "error: ") {
+			t.Errorf("%s: soft %s, hard %s, want an error under both locks", m, soft[m], hard[m])
 		}
 	}
 }

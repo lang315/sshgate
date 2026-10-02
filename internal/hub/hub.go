@@ -43,7 +43,7 @@ var (
 	// gets while the UI is locked and it cannot run under the grant: nobody
 	// can approve it, and "Vault is locked" would be wrong while other runs
 	// on the same host succeed.
-	ErrAutoBusy      = errors.New("auto-allow is running 2 commands on this server; retry when one finishes")
+	ErrAutoBusy      = fmt.Errorf("auto-allow is running %d commands on this server; retry when one finishes", maxAutoInflight)
 	ErrNeedsApproval = errors.New("this command needs approval and the app is locked; unlock it in the app")
 )
 
@@ -579,18 +579,18 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 	}
 	// While the UI is locked nobody can decide: fail now instead of pending
 	// for five minutes. Checked after autoStart, so it also covers the run
-	// that just ended the last grant and hard-locked the hub.
+	// that just ended the last grant and hard-locked the hub. Not audited,
+	// like the ErrLocked of a host with no grant: ErrAutoBusy tells the AI to
+	// retry, and a polling client would append a record per retry for as long
+	// as the soft lock lasts.
 	if h.Locked() {
-		err := ErrLocked
 		switch skip {
 		case skipBusy:
-			err = ErrAutoBusy
+			return ExecResponse{}, ErrAutoBusy
 		case skipSudo:
-			err = ErrNeedsApproval
+			return ExecResponse{}, ErrNeedsApproval
 		}
-		base.Outcome, base.Reason = "error", err.Error()
-		h.record(base)
-		return ExecResponse{}, err
+		return ExecResponse{}, ErrLocked
 	}
 
 	submitted := time.Now()

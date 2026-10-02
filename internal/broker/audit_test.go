@@ -568,3 +568,21 @@ func TestAuditFileLocalPathsStayInTheBroker(t *testing.T) {
 		t.Fatalf("disk lost local: %s", disk)
 	}
 }
+
+// A softLock record names its hosts in servers, not server; filtering the log
+// to one of them must still find it.
+func TestAuditReadServerMatchesSoftLockServers(t *testing.T) {
+	a, _ := openTestAudit(t)
+	if err := a.WriteConfig(ConfigRecord{Action: "softLock", Servers: []string{"a", "b"}}); err != nil {
+		t.Fatal(err)
+	}
+	for server, want := range map[string][]int{"a": {1}, "b": {1}, "c": {}} {
+		res, err := a.Read(ReadQuery{Server: server})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := seqsOf(res); !slices.Equal(got, want) {
+			t.Errorf("server %q: seqs %v, want %v", server, got, want)
+		}
+	}
+}
