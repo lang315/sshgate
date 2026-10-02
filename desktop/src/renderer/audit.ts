@@ -55,7 +55,7 @@ function leaves(v: unknown, out: string[]): string[] {
 
 // Whether r belongs in a list read with q: broker's ReadQuery.match, mirrored.
 export function matches(r: AuditRecord, q: AuditQuery): boolean {
-  if (q.server && r.server !== q.server) return false
+  if (q.server && r.server !== q.server && !(Array.isArray(r.servers) && r.servers.includes(q.server))) return false
   if (q.text && !leaves(r, []).join('\n').toLowerCase().includes(q.text.toLowerCase())) return false
   if (!q.kinds?.length && !q.outcomes?.length) return true
   const kind: AuditKind = r.kind || 'exec'
@@ -109,6 +109,7 @@ const EXEC_BADGE: Record<string, Badge> = {
 export function rowView(r: AuditRecord, now: Date): RowView {
   const base = { time: formatTime(str(r.time), now), host: str(r.server) }
   const list = (v: unknown): string[] => (Array.isArray(v) ? v.map(str) : [])
+  if (!base.host) base.host = list(r.servers).join(', ')
   switch (r.kind) {
     case 'config': {
       const action = str(r.action)

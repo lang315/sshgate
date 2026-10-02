@@ -42,6 +42,9 @@ export const applyOff = (servers: ServerInfo[], server: string): ServerInfo[] =>
 // Soft lock (spec 2026-10-02-soft-lock-design.md): the unlock screen's list of
 // hosts still on auto-allow comes from status.autoHosts; autoAllow.off drops
 // one without a hub call.
+// A status reply that was in flight when autoAllow.off arrived must not put the host back.
+export const lockHostsFrom = (autoHosts: string[] | undefined, droppedSince: ReadonlySet<string>) =>
+  (autoHosts ?? []).filter((h) => !droppedSince.has(h))
 export const dropLockHost = (hosts: string[], server: string) => hosts.filter((h) => h !== server)
 
 export function ranLockedText(ran: RanWhileLocked[]): string | undefined {

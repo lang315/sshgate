@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AutoAllowRan, HubEvent, ServerInfo } from '../src/shared/protocol'
-import { applyOff, autoHosts, chipLabel, commandLabel, draftRefusal, dropLockHost, dropOnLock, enableAllowed, FEED_CAP, handleAutoEvent, isActive, pausedHosts, pushFeed, ranLockedText, SAVED_BUT, saveConfirm, timedNote } from '../src/renderer/autoallow'
+import { applyOff, autoHosts, chipLabel, commandLabel, draftRefusal, dropLockHost, dropOnLock, enableAllowed, FEED_CAP, handleAutoEvent, isActive, lockHostsFrom, pausedHosts, pushFeed, ranLockedText, SAVED_BUT, saveConfirm, timedNote } from '../src/renderer/autoallow'
 import { draftFrom } from '../src/renderer/hostForm'
 
 // The renderer must never call the hub in response to autoAllow.ran or
@@ -213,5 +213,13 @@ describe('soft lock', () => {
     expect(ranLockedText([{ server: 'a', count: 1 }])).toBe('While the app was locked the AI ran 1 command on a. See the Audit tab.')
     expect(ranLockedText([{ server: 'a', count: 2 }, { server: 'b', count: 3 }]))
       .toBe('While the app was locked the AI ran 5 commands on a, b. See the Audit tab.')
+  })
+})
+
+describe('lockHostsFrom', () => {
+  it('gives [] for no hosts, drops hosts that autoAllow.off removed since the status call began, keeps the rest', () => {
+    expect(lockHostsFrom(undefined, new Set(['a']))).toEqual([])
+    expect(lockHostsFrom(['a', 'b'], new Set(['a']))).toEqual(['b'])
+    expect(lockHostsFrom(['a', 'b'], new Set())).toEqual(['a', 'b'])
   })
 })

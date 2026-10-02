@@ -114,7 +114,7 @@ export interface AuditPage { records: AuditEntry[]; next?: number; skipped: numb
 export type HubEvent =
   | { method: 'pending'; params: { request: ApprovalRequest } }
   | { method: 'decided'; params: { request: ApprovalRequest; decision: { outcome: Outcome; reason: string } } }
-  | { method: 'locked'; params: { reason: LockReason; soft?: boolean } }
+  | { method: 'locked'; params: { reason: LockReason } }
   | { method: 'term.data'; params: { id: string; data: string } }
   | { method: 'term.exit'; params: { id: string; code: number; reason: string } }
   | { method: 'term.dropped'; params: { id: string; bytes: number } }
