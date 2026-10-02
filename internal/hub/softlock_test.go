@@ -948,6 +948,10 @@ func TestSoftLockSweepSeesFileReloadedByOthers(t *testing.T) {
 		t.Fatal(err)
 	}
 	idleNow(h)
+	h.sweepGrants(time.Now()) // the first sweep of a soft lock sets sweptFile
+	if got := stateOf(h); got != (lockState{soft: true, key: true, grants: 1}) {
+		t.Fatalf("state after a clean sweep = %+v", got)
+	}
 	hideInFile(t, path, "vis")
 	if err := h.Reload(); err != nil {
 		t.Fatal(err)
