@@ -1,4 +1,4 @@
-import type { ApprovalRequest, AuditPage, AuditQuery, AutoAllowCheck, AutoAllowMode, FileGrant, FileOp, FilesListResult, HubEvent, HubState, ImportResult, ImportScan, ServerInfo, ServerInput, Status, TermOpenResult, Tunnel, TunnelView } from '../shared/protocol'
+import type { ApprovalRequest, AuditPage, AuditQuery, AutoAllowCheck, AutoAllowMode, FileGrant, FileOp, FilesListResult, HubEvent, HubState, ImportResult, ImportScan, RanWhileLocked, ServerInfo, ServerInput, Status, TermOpenResult, Tunnel, TunnelView } from '../shared/protocol'
 
 interface Bridge {
   call(method: string, params?: unknown): Promise<unknown>
@@ -43,7 +43,7 @@ export function fromBase64(s: string): Uint8Array {
 export const hub = {
   hello: () => call<{ protocol: number }>('hello'),
   status: () => call<Status>('status'),
-  unlock: async (password: string) => { await call('unlock', { password }) },
+  unlock: (password: string) => call<{ ranWhileLocked?: RanWhileLocked[] }>('unlock', { password }),
   lock: async () => { await call('lock') },
   servers: () => call<ServerInfo[]>('servers'),
   pending: () => call<ApprovalRequest[]>('pending'),

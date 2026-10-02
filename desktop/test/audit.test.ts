@@ -52,6 +52,10 @@ describe('rowView', () => {
     expect(main({ action: 'delete' })).toBe('delete')
     expect(rowView({ time: iso(T), kind: 'config', action: 'save', server: 'box' }, T).badges).toEqual([{ text: 'save', tone: 'plain' }])
   })
+  it('shows the hosts of a softLock record', () => {
+    const v = rowView({ kind: 'config', action: 'softLock', servers: ['box', 'db'], time: '2026-10-02T08:00:00Z' } as AuditRecord, new Date('2026-10-02T09:00:00Z'))
+    expect(v.main).toBe('softLock box, db')
+  })
   it('file: the action, the first path and the phase', () => {
     expect(rowView({ time: iso(T), kind: 'file', server: 'box', action: 'upload', phase: 'start', remote: ['/home/u/a.txt', '/home/u/b.txt'] }, T)).toEqual({
       time: '14:05:09', host: 'box', badges: [{ text: 'upload', tone: 'plain' }], main: '/home/u/a.txt', side: ['start'],

@@ -48,6 +48,11 @@ describe('AutoAllowDialog', () => {
   it('shows "Until turned off" for the forever mode', () => {
     const html = dialog({ mode: 'forever' })
     expect(html).toContain('Until turned off')
+    expect(html).toContain('keeps running on this host')
+  })
+
+  it('says the AI keeps running on a timed grant while locked from inactivity', () => {
+    expect(dialog({ mode: '15m' })).toContain('keeps running on this host')
   })
 
   it('shows the typed-name input only when typeName is true', () => {

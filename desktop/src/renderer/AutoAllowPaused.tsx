@@ -26,7 +26,7 @@ export function AutoAllowPaused({ hosts, onResume, onStop }: { hosts: string[]; 
   if (hosts.length === 0) return null
   return (
     <div className="banner auto" role="status">
-      <span>{`Auto-allow is paused on ${hosts.join(', ')}.`}</span>
+      <span>{`Auto-allow is paused on ${hosts.join(', ')}. Once resumed, the AI keeps running there while the app is locked from inactivity.`}</span>
       <button type="button" className="btn" tabIndex={-1} disabled={now - since < ALLOW_DELAY_MS} onKeyDown={blockKeyboardActivation} onClick={onResume}>Resume</button>
       <button type="button" className="btn" onClick={onStop}>Stop</button>
     </div>

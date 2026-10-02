@@ -38,7 +38,12 @@ export interface ServerInput {
 
 // storeError is set while the hub's last reload of the vault file was
 // refused (tampered or unreadable); the hub keeps the last good copy.
-export interface Status { locked: boolean; hasStore: boolean; hasVault: boolean; storePath: string; pending: number; storeError?: string }
+// autoHosts is set only while soft-locked: the UI is locked, the AI still runs on these hosts.
+export interface Status { locked: boolean; hasStore: boolean; hasVault: boolean; storePath: string; pending: number; storeError?: string; autoHosts?: string[] }
+// Why the hub locked. grantsEnded and softLockLimit end a soft lock.
+export type LockReason = 'idle' | 'manual' | 'grantsEnded' | 'softLockLimit'
+// Auto runs that finished on a server while the UI was locked; in the unlock reply.
+export interface RanWhileLocked { server: string; count: number }
 
 export interface HostKeyUnknown {
   status: 'hostKeyUnknown'; server: string; host: string; port: number; user: string
@@ -97,7 +102,7 @@ export interface AuditRecord {
   client?: string; command?: string; description?: string; sudo?: boolean; timeoutSec?: number; outcome?: string
   exitCode?: number; durationMs?: number; approval?: string; waitMs?: number; redacted?: Record<string, number>
   // config
-  action?: string; changed?: string[]; until?: string; forever?: boolean; fingerprint?: string; oldFingerprint?: string
+  action?: string; changed?: string[]; servers?: string[]; until?: string; forever?: boolean; fingerprint?: string; oldFingerprint?: string
   // file (action too)
   phase?: string; remote?: string[]; from?: string; to?: string
   // tunnel (phase and to too)
@@ -109,7 +114,7 @@ export interface AuditPage { records: AuditEntry[]; next?: number; skipped: numb
 export type HubEvent =
   | { method: 'pending'; params: { request: ApprovalRequest } }
   | { method: 'decided'; params: { request: ApprovalRequest; decision: { outcome: Outcome; reason: string } } }
-  | { method: 'locked'; params: { reason: 'idle' | 'manual' } }
+  | { method: 'locked'; params: { reason: LockReason; soft?: boolean } }
   | { method: 'term.data'; params: { id: string; data: string } }
   | { method: 'term.exit'; params: { id: string; code: number; reason: string } }
   | { method: 'term.dropped'; params: { id: string; bytes: number } }
@@ -133,4 +138,4 @@ export type RequestMethod = (typeof REQUEST_METHODS)[number]
 export const FILES_RELAYED = ['files.plan', 'files.run'] as const
 export const NOTIFY_METHODS = ['term.write', 'term.ack', 'term.resize', 'files.cancel', 'tunnels.stop'] as const
 export type NotifyMethod = (typeof NOTIFY_METHODS)[number]
-export const PROTOCOL_VERSION = 8
+export const PROTOCOL_VERSION = 9

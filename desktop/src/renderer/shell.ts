@@ -19,3 +19,8 @@ export function screenFor(
   if (status.locked) return unlockError ? { kind: 'locked', error: unlockError } : { kind: 'locked' }
   return { kind: 'ready' }
 }
+
+// The unlock screen's wording: every lock that followed inactivity reads as
+// idle, including a soft lock that later hardened.
+export const lockKind = (reason: string | undefined): 'idle' | 'manual' =>
+  reason === 'idle' || reason === 'grantsEnded' || reason === 'softLockLimit' ? 'idle' : 'manual'

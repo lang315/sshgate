@@ -114,8 +114,9 @@ export function rowView(r: AuditRecord, now: Date): RowView {
       const action = str(r.action)
       const changed = list(r.changed)
       const detail = action === 'autoAllowOn' ? grantLength(r)
-        : changed.length ? changed.join(', ')
-          : str(r.reason) || str(r.fingerprint) || str(r.oldFingerprint)
+        : action === 'softLock' ? list(r.servers).join(', ')
+          : changed.length ? changed.join(', ')
+            : str(r.reason) || str(r.fingerprint) || str(r.oldFingerprint)
       return { ...base, badges: [{ text: action, tone: 'plain' }], main: detail ? `${action} ${detail}` : action, side: [] }
     }
     case 'file': {
