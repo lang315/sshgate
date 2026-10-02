@@ -1,7 +1,8 @@
 # sshgate: Soft lock — the idle lock keeps auto-allow running — Design
 
 Date: 2026-10-02
-Status: Draft, revised 2026-10-02 after four independent reviews (security, code conformance, architecture, testing). The 24-hour ceiling was decided 2026-10-02. Approved 2026-10-02; plan `plans/2026-10-02-soft-lock.md`.
+Status: Approved 2026-10-02; implemented (plan `plans/2026-10-02-soft-lock.md`). Revised 2026-10-02 after four independent reviews (security, code conformance, architecture, testing). The 24-hour ceiling was decided 2026-10-02.
+Amended during implementation (2026-10-02): sudo is checked before the in-flight cap; the ceiling is also checked on each exec; a failed vault reload under soft lock hard-locks.
 Depends on: `2026-09-28-auto-allow-design.md` (with its 2026-09-29 amendment), `2026-09-24-desktop-app-design.md`, `2026-09-30-slice4b-audit-viewer-design.md`. Everything there still holds unless this document changes it by name; where they disagree, this document wins.
 
 This spec reverses four statements of the auto-allow spec:
@@ -112,7 +113,7 @@ Four places read `deps.MasterKey` directly and must apply the strict rule themse
 
 `decide` gains a check: an `allowed` or `sendToTab` decision returns `ErrLocked` while `lockedLocked()` (soft or hard). `denied` and `denyAll` still work; they only move to the safer state.
 
-**Grant rule**, the one exception: the server is locked when the key is absent, or when `softLocked` is set and `h.grants[name]` is nil. Exactly two callers use it: the first resolve in `Exec` and `autoStart`. They get it from a separate function (`checkGrantLocked`), not from a flag on `checkLocked`, so no other caller can pick it up by accident. `autoEligibleLocked` and the post-approval resolve in `Exec` stay on the strict rule.
+**Grant rule**, the one exception: the server is locked when the key is absent, or when `softLocked` is set and `h.grants[name]` is nil. The rule also treats a soft lock at or past the 24-hour ceiling as locked, so an exec that arrives after the ceiling but before the next idle tick is refused. Exactly two callers use it: the first resolve in `Exec` and `autoStart`. They get it from a separate function (`checkGrantLocked`), not from a flag on `checkLocked`, so no other caller can pick it up by accident. `autoEligibleLocked` and the post-approval resolve in `Exec` stay on the strict rule.
 
 ### Running an exec under soft lock
 
@@ -120,7 +121,7 @@ Four places read `deps.MasterKey` directly and must apply the strict rule themse
 
 1. First resolve, grant rule: vault exists → visible → locked → pinned. A host with no grant returns `ErrLocked` here, unaudited, exactly as under a hard lock. Hidden and nonexistent servers still return their byte-identical error first.
 2. Sanitize the command, validate the description.
-3. `autoStart` applies every existing check: deadline, resolve, `snap`, the root and sudo opt-ins, at most 2 in flight. A failed check ends the grant as today. It now also reports why it returned no run.
+3. `autoStart` applies every existing check: deadline, resolve, `snap`, the root and sudo opt-ins, at most 2 in flight. A failed check ends the grant as today. It now also reports why it returned no run. The sudo opt-in is checked before the in-flight cap, so a `sudo-exec` without the opt-in gets `ErrNeedsApproval` even when 2 runs are in flight.
 4. If `autoStart` returns no run, `Exec` takes `h.mu` and looks at `lockedLocked()`. When it is true, `Exec` returns at once and never reaches `broker.Submit`, writing one audit record with `outcome: "error"` and the reason. The error depends on why:
 
 | Why no auto run | Error to the AI |
@@ -139,7 +140,7 @@ Auto runs still never count as UI activity and never increment `h.running`. Each
 
 One helper runs, with `h.mu` held, after every removal from `h.grants`: when `softLocked` is set and no grant is left, it zeroes the key and queues the `locked` notification with reason `grantsEnded`. It is called from the removal itself, not from a list of callers, so a new way to end a grant cannot forget it. An auto run in flight is cancelled when its grant ends, as today.
 
-Under soft lock `sweepGrants` also ends, with reason "server changed", any grant whose server no longer passes the strict visibility and pin checks or whose `snap` no longer matches. Without this, a server hidden or removed by an outside edit of the vault file would fail the first resolve before `autoStart` ever looked at its grant, and the grant would hold the key indefinitely.
+Under soft lock `sweepGrants` also ends, with reason "server changed", any grant whose server no longer passes the strict visibility and pin checks or whose `snap` no longer matches. Without this, a server hidden or removed by an outside edit of the vault file would fail the first resolve before `autoStart` ever looked at its grant, and the grant would hold the key indefinitely. If that reload fails, the sweep ends every grant with the same reason, which hard-locks: the vault can no longer be checked, so it fails closed.
 
 ### Idle lock
 

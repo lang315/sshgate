@@ -1,7 +1,7 @@
 # sshgate: Per-host Auto-allow for AI exec — Design
 
 Date: 2026-09-28
-Status: Approved 2026-09-28; implemented (plan `plans/2026-09-28-auto-allow.md`). Amended 2026-09-29 (see "Amendment 2026-09-29" at the end): the control moves into the Host editor and root hosts and sudo-exec become per-host opt-ins; where the amendment and an earlier section disagree, the amendment wins. Amendment implemented (plan `plans/2026-09-29-auto-allow-editor.md`).
+Status: Approved 2026-09-28; implemented (plan `plans/2026-09-28-auto-allow.md`). Amended 2026-09-29 (see "Amendment 2026-09-29" at the end): the control moves into the Host editor and root hosts and sudo-exec become per-host opt-ins; where the amendment and an earlier section disagree, the amendment wins. Amendment implemented (plan `plans/2026-09-29-auto-allow-editor.md`). Amended 2026-10-02 by `2026-10-02-soft-lock-design.md`: the idle lock no longer ends grants; where they disagree, that document wins.
 Depends on: `2026-09-24-desktop-app-design.md` (slice 1), `2026-09-25-desktop-slice2a-design.md` (slice 2a), `2026-09-27-slice3b-port-forwarding-design.md` (slice 3b). Everything there still holds unless this document changes it by name.
 
 This spec reverses a standing decision. ROADMAP: "Every AI command is approved by a human. No auto-approval rules of any kind until a spec argues otherwise." Slice 1's decision table: "No auto-approval rules". This document is that argument, and it replaces both with the rule in "ROADMAP, PRODUCT, README, CLAUDE.md changes".

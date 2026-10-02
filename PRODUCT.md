@@ -14,7 +14,7 @@ One user: the author, a developer/ops person managing a handful to a few dozen o
 
 ## Product Purpose
 
-sshgate lets an AI agent run commands on real servers with a human decision on every single command by default. The human may put one host on auto-allow (plain exec by default; root hosts and sudo-exec only when the human opts in per host) for a set time, or until turned off with a Resume after each unlock; it is visible while on, audited, and stoppable at any time. The desktop app is that human's control surface: it holds the unlocked vault, the SSH terminals, and the approval queue. Success means the author does their SSH work in this app instead of another terminal, and never approves an AI command they did not mean to.
+sshgate lets an AI agent run commands on real servers with a human decision on every single command by default. The human may put one host on auto-allow (plain exec by default; root hosts and sudo-exec only when the human opts in per host) for a set time, or until turned off; it is visible while on, audited, and stoppable at any time. The desktop app is that human's control surface: it holds the unlocked vault, the SSH terminals, and the approval queue. Success means the author does their SSH work in this app instead of another terminal, and never approves an AI command they did not mean to.
 
 ## Positioning
 
@@ -30,7 +30,7 @@ Every AI-issued command blocks on an explicit human Allow by default. The one ex
 ## Capabilities and Constraints
 
 - Screens that exist: create vault, unlock, host list with New/Edit/Delete, host editor (secrets write-only, Forget host key), terminal tabs, Files tab per host (listing, transfer strip) with its New folder, Rename, Delete files, and Files already exist dialogs, AI approval panel, host-key trust and mismatch dialogs, hub starting/restarting/failed, store-error banner, Audit tab (filters, expandable rows, Load older, live updates; read-only).
-- Security behaviour is fixed and must survive any redesign: Deny is the default and keyboard-reachable; Allow is mouse-only and disabled for 500 ms after anything in the list changes; "Deny all" is always rendered so the list never shifts; the host-key Trust button, the auto-allow dialog's Enable, and the paused banner's Resume follow the same rules, as do the Files dialogs' Overwrite all, Skip existing, and Delete (Cancel is their default); secrets are never displayed; the renderer never polls the hub (only `status`), or the idle lock never fires.
+- Security behaviour is fixed and must survive any redesign: Deny is the default and keyboard-reachable; Allow is mouse-only and disabled for 500 ms after anything in the list changes; "Deny all" is always rendered so the list never shifts; the host-key Trust button, the auto-allow dialog's Enable, and the paused banner's Resume follow the same rules; the unlock screen's **Stop auto-allow and lock** needs no password and no delay, because it only moves to the safer state; as do the Files dialogs' Overwrite all, Skip existing, and Delete (Cancel is their default); secrets are never displayed; the renderer never polls the hub (only `status`), or the idle lock never fires.
 - Not built and not to be designed as if present: Keychain, snippets, ProxyJump, local shell, split panes, sync (later roadmap slices, each behind an entry gate).
 - UI language: English.
 - Themes: dark, light, and Auto (follows the OS), chosen with a ☾ / ☀ / Auto control; Auto is the default, and the choice is a per-machine display preference.
