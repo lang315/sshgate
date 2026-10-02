@@ -3,6 +3,7 @@
 Date: 2026-10-02
 Status: Approved 2026-10-02; implemented (plan `plans/2026-10-02-soft-lock.md`). Revised 2026-10-02 after four independent reviews (security, code conformance, architecture, testing). The 24-hour ceiling was decided 2026-10-02.
 Amended during implementation (2026-10-02): sudo is checked before the in-flight cap; the ceiling is also checked on each exec; a failed vault reload under soft lock hard-locks.
+Amended after code review (2026-10-02): the soft-lock key lives in `autoKey`, out of `deps.MasterKey`; a lock generation replaces the `soft` flag; refusals under a locked UI are not audited; `ranLocked` counts only successful runs under soft lock; the sweep checks grants only when the vault file changed; a grant whose server no longer resolves is ended at the first resolve.
 Depends on: `2026-09-28-auto-allow-design.md` (with its 2026-09-29 amendment), `2026-09-24-desktop-app-design.md`, `2026-09-30-slice4b-audit-viewer-design.md`. Everything there still holds unless this document changes it by name; where they disagree, this document wins.
 
 This spec reverses four statements of the auto-allow spec:
@@ -73,13 +74,13 @@ A dropped SSH connection is not a limit: the key is present, so the next auto ru
 
 | State | Master key in memory | UI door | AI exec, host with a live grant | AI exec, other hosts |
 |---|---|---|---|---|
-| Unlocked | yes | open | auto | waits for approval |
-| Soft-locked | yes | locked | auto | `ErrLocked` |
+| Unlocked | yes, `deps.MasterKey` | open | auto | waits for approval |
+| Soft-locked | yes, `autoKey` | locked | auto | `ErrLocked` |
 | Hard-locked | no | locked | `ErrLocked` | `ErrLocked` |
 
 A **live grant** is an entry in `h.grants`. `sweepGrants` runs before `lockIfIdle` in every tick, so an entry past its deadline is gone before the idle rule looks.
 
-Invariant, checked under `h.mu` at every exit of a section that touches these fields: `softLocked` implies the key is present and `len(h.grants) > 0`.
+Soft-locked means `autoKey != nil`; there is no separate flag. Invariant, checked under `h.mu` at every exit of a section that touches these fields: `autoKey != nil` implies `deps.MasterKey == nil` and `len(h.grants) > 0`.
 
 Transitions:
 
@@ -95,38 +96,49 @@ Transitions:
 
 `Hub` gains, guarded by `h.mu`:
 
-- `softLocked bool` and `softLockedAt time.Time`, the wall-clock time the soft lock began (`time.Now().Round(0)`, so time asleep counts). `zeroKeyLocked` clears both.
-- `ranLocked map[string]int`: auto runs per server since the soft lock began. Cleared when `unlock` reports it.
+- `autoKey []byte`: the master key while soft-locked. `enterSoftLocked` moves it out of `deps.MasterKey`; `Unlock` and `zeroKeyLocked` clear it.
+- `softLockedAt time.Time`, the wall-clock time the soft lock began (`time.Now().Round(0)`, so time asleep counts). `Unlock` and `zeroKeyLocked` clear it.
+- `ranLocked map[string]int`: successful auto runs per server finished under soft lock. Cleared when `unlock` reports it (`TakeRanLocked`).
+- `sweptFile *config.File`: the vault file the grants were last checked against by `sweepGrants`. Nil on entering soft lock, so the first sweep checks every grant once, and nil when not soft-locked.
+- `lockGen atomic.Uint64`: bumped, under `h.mu`, at every lock-state change (entering soft lock, `Unlock`, `CreateVault`, `zeroKeyLocked`).
 
-`h.unlocked` (the atomic read by the audit sink) changes meaning from "`MasterKey != nil`" to "the UI may be served": key present and not soft-locked. It is set false on entering soft lock and true only by `Unlock` and `CreateVault`.
+`h.unlocked` (the atomic read by the audit sink) keeps its meaning, `deps.MasterKey != nil`. Soft lock moves the key out of `deps.MasterKey`, so it is false in both locked states and true only after `Unlock` and `CreateVault`.
 
 ### What "locked" means to each caller
 
-**Strict rule**, `lockedLocked()`: the vault has a KDF and either the key is absent or `softLocked` is set. `checkLocked` keeps using it. Every UI-door path that goes through it, through `Locked()`, or through `h.unlocked` refuses under soft lock with no further change: `term.open`, `files.list`/`mkdir`/`rename`/`plan`/`run`, `tunnels.start`, `audit.read`.
+**Strict rule**, `lockedLocked()`: the vault has a KDF and `deps.MasterKey == nil`. It has no soft-lock case: under soft lock the key is not in `deps.MasterKey`, it is in `autoKey`, which no strict reader looks at. So every reader of the key is strict by default, and a reader written later that forgets soft lock fails closed. These all refuse under soft lock with no change of their own:
 
-Four places read `deps.MasterKey` directly and must apply the strict rule themselves:
+- everything that goes through `checkLocked`, `Locked()`, `Deps.IsLocked` or `h.unlocked`: `term.open`, `files.list`/`mkdir`/`rename`/`plan`/`run`, `tunnels.start`, `audit.read`;
+- `writeKeyLocked` (`hosts.go`): `servers.save`, `servers.delete`, `servers.forgetHostKey`, `tunnels.save`/`delete`, `import.scan`/`apply`;
+- arming or extending a grant (`armLocked`, through `autoEligibleLocked`'s `checkLocked`), so every mode but `off` of `servers.setAutoAllow` is refused;
+- `serversForUI` (`uidoor.go`), through `Deps.IsLocked`: under soft lock `servers` answers as it would under a hard lock. Every server with a stored secret is `locked: true`.
 
-- `writeKeyLocked` (`hosts.go`): `servers.save`, `servers.delete`, `servers.forgetHostKey`, `tunnels.save`/`delete`, `import.scan`/`apply`.
-- `armLocked` (`autoallow.go`): arming or extending a grant.
-- `SetAutoAllow`, every mode: refused with `ErrLocked` before anything else. This includes `off`, which today skips the eligibility check and ends the in-memory grant even when the vault write is refused, and `forever` on an already-armed host, which today returns before any key check.
-- `serversForUI` (`uidoor.go`), through `Deps.IsLocked`: under soft lock `servers` answers as it would under a hard lock. Every server with a stored secret is `locked: true`, and `autoAllow` is derived from the vault flag alone, with no live grant shown.
+What reads `autoKey`, and nothing else:
+
+- `resolveAutoLocked`, which resolves on a copy of `deps` that carries the key. Callers: `resolveForAuto` (Exec's first resolve), `autoStart`, `grantStaleLocked` (the sweep).
+- `vaultKeyLocked`, the key the vault file is checked against: `deps.MasterKey`, else `autoKey`. One caller, `reloadLocked`, so the file's MAC is still verified under soft lock.
+
+Two grant-related checks stay on `autoKey != nil`:
+
+- `autoAllowOff` (`SetAutoAllow` with `off`) returns `ErrLocked` before anything else. `off` would otherwise end the in-memory grant even when the vault write is refused, and could not clear the vault flag; `lock` is the one stop.
+- `autoStateLocked` hides live grants from a locked UI: `autoAllow` in `servers` comes from the vault flag alone, as under a hard lock.
 
 `decide` gains a check: an `allowed` or `sendToTab` decision returns `ErrLocked` while `lockedLocked()` (soft or hard). `denied` and `denyAll` still work; they only move to the safer state.
 
-**Grant rule**, the one exception: the server is locked when the key is absent, or when `softLocked` is set and `h.grants[name]` is nil. The rule also treats a soft lock at or past the 24-hour ceiling as locked, so an exec that arrives after the ceiling but before the next idle tick is refused. Exactly two callers use it: the first resolve in `Exec` and `autoStart`. They get it from a separate function (`checkGrantLocked`), not from a flag on `checkLocked`, so no other caller can pick it up by accident. `autoEligibleLocked` and the post-approval resolve in `Exec` stay on the strict rule.
+**Grant rule**, the one exception: the server is locked when both keys are absent, or when `autoKey` is set and `h.grants[name]` is nil. The rule also treats a soft lock at or past the 24-hour ceiling as locked, so an exec that arrives after the ceiling but before the next idle tick is refused. Exactly two callers use it: the first resolve in `Exec` and `autoStart`. They get it from a separate function (`checkGrantLocked`, over `aiLockedLocked`), not from a flag on `checkLocked`, so no other caller can pick it up by accident. `ServersForMCP` uses `aiLockedLocked` too. `autoEligibleLocked` and the post-approval resolve in `Exec` stay on the strict rule.
 
 ### Running an exec under soft lock
 
 `Hub.Exec` keeps its order. Under soft lock:
 
-1. First resolve, grant rule: vault exists → visible → locked → pinned. A host with no grant returns `ErrLocked` here, unaudited, exactly as under a hard lock. Hidden and nonexistent servers still return their byte-identical error first.
+1. First resolve (`resolveForAuto`), grant rule: vault exists → visible → locked → pinned. A host with no grant returns `ErrLocked` here, unaudited, exactly as under a hard lock. Hidden and nonexistent servers still return their byte-identical error first. If the resolve fails for a server that has a grant (hidden, removed, no pin, or the resolve itself fails), the grant is ended with reason "server changed", as `autoStart` would end it; otherwise this call would fail before `autoStart` looked and the grant would hold the key. `ErrLocked` is the exception: a hard lock has ended every grant itself, and under soft lock it means the ceiling has passed, which the next tick ends. The error the AI sees is the same either way.
 2. Sanitize the command, validate the description.
-3. `autoStart` applies every existing check: deadline, resolve, `snap`, the root and sudo opt-ins, at most 2 in flight. A failed check ends the grant as today. It now also reports why it returned no run. The sudo opt-in is checked before the in-flight cap, so a `sudo-exec` without the opt-in gets `ErrNeedsApproval` even when 2 runs are in flight.
-4. If `autoStart` returns no run, `Exec` takes `h.mu` and looks at `lockedLocked()`. When it is true, `Exec` returns at once and never reaches `broker.Submit`, writing one audit record with `outcome: "error"` and the reason. The error depends on why:
+3. `autoStart` applies every existing check: deadline, resolve, `snap`, the root and sudo opt-ins, at most `maxAutoInflight` (2) in flight. A failed check ends the grant as today. It now also reports why it returned no run: `autoSkip`, one of `skipNone`, `skipBusy`, `skipSudo`. The sudo opt-in is checked before the in-flight cap, so a `sudo-exec` without the opt-in gets `ErrNeedsApproval` even when 2 runs are in flight.
+4. If `autoStart` returns no run, `Exec` takes `h.mu` and looks at `lockedLocked()`. When it is true, `Exec` returns at once and never reaches `broker.Submit`. It writes no audit record: a client that retries on `ErrAutoBusy` would otherwise append one per retry for as long as the soft lock lasts. The error depends on why:
 
 | Why no auto run | Error to the AI |
 |---|---|
-| 2 runs already in flight on this host | `ErrAutoBusy`: "auto-allow is running 2 commands on this server; retry when one finishes" |
+| `maxAutoInflight` runs already in flight on this host | `ErrAutoBusy`: "auto-allow is running 2 commands on this server; retry when one finishes" (the number comes from `maxAutoInflight`) |
 | `sudo-exec` and the host has no sudo opt-in | `ErrNeedsApproval`: "this command needs approval and the app is locked; unlock it in the app" |
 | The grant just ended (the hub is now hard-locked) | `ErrLocked` |
 
@@ -134,13 +146,13 @@ Four places read `deps.MasterKey` directly and must apply the strict rule themse
 
 5. A request that reached the broker before the soft lock stays pending until it expires or the human unlocks. If something approves it meanwhile, `decide` refuses; and the post-approval resolve uses the strict rule, so it would return `ErrLocked` even on a granted host.
 
-Auto runs still never count as UI activity and never increment `h.running`. Each one under soft lock increments `ranLocked[server]`.
+Auto runs still never count as UI activity and never increment `h.running`. What `autoExec` does when a run finishes is decided in one `h.mu` section, from the state it reads there: a run that succeeded while soft-locked is counted in `ranLocked[server]`; while unlocked, `autoAllow.ran` is sent; a failed run under soft lock, or any run finishing under a hard lock (a manual lock cancelled it), is neither counted nor sent. The audit log has every run.
 
 ### Ending a grant
 
-One helper runs, with `h.mu` held, after every removal from `h.grants`: when `softLocked` is set and no grant is left, it zeroes the key and queues the `locked` notification with reason `grantsEnded`. It is called from the removal itself, not from a list of callers, so a new way to end a grant cannot forget it. An auto run in flight is cancelled when its grant ends, as today.
+One helper, `hardenLocked`, runs with `h.mu` held after every removal from `h.grants` (`endGrantLocked`): when `autoKey` is set and no grant is left, it zeroes the key and queues the `locked` notification with reason `grantsEnded`, from a goroutine of its own because the caller holds `h.mu`. It is called from the removal itself, not from a list of callers, so a new way to end a grant cannot forget it. The note carries the lock generation of its change, and the UI door drops it when the hub has moved on (see Protocol 9). An auto run in flight is cancelled when its grant ends, as today.
 
-Under soft lock `sweepGrants` also ends, with reason "server changed", any grant whose server no longer passes the strict visibility and pin checks or whose `snap` no longer matches. Without this, a server hidden or removed by an outside edit of the vault file would fail the first resolve before `autoStart` ever looked at its grant, and the grant would hold the key indefinitely. If that reload fails, the sweep ends every grant with the same reason, which hard-locks: the vault can no longer be checked, so it fails closed.
+Under soft lock `sweepGrants` reloads the vault. If that reload fails it ends every grant with reason "server changed", which hard-locks: the vault can no longer be checked, so it fails closed. Otherwise it ends, with the same reason, any grant whose server no longer passes the visibility and pin checks or whose `snap` no longer matches (`grantStaleLocked`). Without this, a server hidden or removed by an outside edit of the vault file would fail the first resolve before `autoStart` ever looked at its grant, and the grant would hold the key indefinitely. That per-grant check runs only when the vault file differs from the one the grants were last checked against (`sweptFile`, nil on entering soft lock, so the first sweep checks every grant once), not on every tick: it decrypts and reads key files under `h.mu`, and `autoStart` re-resolves on every run anyway. `sweptFile` is not the sweep's own reload: `status`, MCP calls and `SetAutoAllow` reload too.
 
 ### Idle lock
 
@@ -160,7 +172,7 @@ The ceiling is `maxSoftLock = 24 * time.Hour`, a constant with no flag and no se
 
 ### Unlock and Lock
 
-- `Unlock(pw)` under soft lock runs the full check as today (Argon2, verifier, MAC), replaces the key, clears `softLocked`, sets `h.unlocked`, and returns and clears `ranLocked`. A wrong password changes nothing.
+- `Unlock(pw)` under soft lock runs the full check as today (Argon2, verifier, MAC), replaces the key, clears `autoKey`, sets `h.unlocked`, and returns and clears `ranLocked`. A wrong password changes nothing.
 - `Lock()` under soft lock zeroes the key and ends every grant with reason "locked", as it does when unlocked. The `lock` request is already answered while locked; no new method.
 
 ### MCP door
@@ -172,24 +184,24 @@ The ceiling is `maxSoftLock = 24 * time.Hour`, a constant with no flag and no se
 The rule "nothing with content goes to a locked UI" holds under soft lock:
 
 - `audit.appended`: not sent (`h.unlocked` is false). This includes the `softLock` record itself.
-- `autoAllow.ran`: sent only while `h.unlocked` is true, and sent under the UI door's `sendMu`, the mutex that already orders `audit.appended` against `locked`. Today it is sent outside that mutex with no check.
+- `autoAllow.ran`: sent only while `h.unlocked` is true, and sent under the UI door's `sendMu`, the mutex that already orders `audit.appended` against `locked`. `autoExec` also sends it only when the run finished with `deps.MasterKey` set. A run that succeeded under soft lock is counted in `ranLocked` instead, for the `unlock` reply.
 - `autoAllow.off {server, reason}`: sent. It carries a server name only.
 - `locked`: see Protocol 9.
 
 ## Audit
 
-One new `kind: "config"` action: `softLock`, with `servers`, the names of the hosts whose grants are live when the soft lock begins.
+One new `kind: "config"` action: `softLock`, with `servers`, the names of the hosts whose grants are live when the soft lock begins. The audit read filter on `server` matches a record whose `server` equals the query or whose `servers` contains it (`internal/broker/audit.go`), so the Audit tab's host filter finds the `softLock` record by host; the renderer's `matches` and `rowView` mirror it (`desktop/src/renderer/audit.ts`).
 
 Leaving soft lock writes nothing new: a grant ending is already an `autoAllowOff` record with its reason (`expired`, `server changed`, `locked`).
 
-Auto runs under soft lock are audited like any other auto run. The refusals in "Running an exec" step 4 are audited as exec records with `outcome: "error"`.
+Auto runs under soft lock are audited like any other auto run. The refusals in "Running an exec" step 4 are not audited, like the `ErrLocked` of a host with no grant.
 
 ## Protocol 9
 
 `ProtocolVersion` becomes 9.
 
 - `status` gains `autoHosts: [name, …]`, present only while soft-locked. `locked` and `autoHosts` are read in one `h.mu` section so they cannot disagree. `locked` is true in that state, so `screenFor` is unchanged.
-- The `locked` notification gains `soft: true` when a soft lock begins (`reason: "idle"`). When a soft lock hardens it is sent again with `reason: "grantsEnded"`, `"softLockLimit"`, or `"manual"` and no `soft`.
+- The `locked` notification's params stay `{reason}`; there is no `soft` flag. A soft lock begins with `reason: "idle"`; when it hardens, `locked` is sent again with `"grantsEnded"`, `"softLockLimit"`, or `"manual"`. The renderer tells a soft lock from a hard one by `status.autoHosts`, which the `locked` notification already makes it refresh. `h.lockGen` is bumped at every lock-state change and the lock sink carries the generation of its change; the UI door sends `locked` only when that generation is still the hub's current one, under `sendMu`, so a note for a state the hub has left (the sink may run from a goroutine of its own) is dropped instead of landing after a later note or after an unlock.
 - The `unlock` reply gains `ranWhileLocked: [{server, count}]` when it ends a soft lock or follows one that hardened, omitted when empty.
 - `decide` can now fail with the locked error.
 
@@ -197,10 +209,10 @@ No new methods.
 
 ## Desktop
 
-- `Unlock.tsx`: when the list of auto hosts is non-empty, the card shows "AI auto-allow is still running on: `<names>`" (names joined plainly, as `AutoAllowPaused` does: they are the author's own labels) and a button **Stop auto-allow and lock**. The button calls `hub.lock()`. It needs no password and no 500 ms delay: it only moves to the safer state, like `tunnels.stop` and `files.cancel`, which also work while locked. The sentence "AI requests are refused until you unlock." is shown only when the list is empty.
-- That list is its own piece of state in `App`, set from `status.autoHosts`. `locked` already triggers a `status` refresh (`status` is not UI activity); `autoAllow.off` removes a name. It is not derived from `servers`, which is empty while locked. The renderer makes no other hub call from a notification or a timer.
-- `dropOnLock` still runs on every `locked`, soft included; the server list it edits is reloaded after unlock, so chips and the paused banner come from the hub's fresh answer. A test pins that a forever host is not shown paused after an unlock from soft lock.
-- The mapping from a `locked` reason to the unlock screen's text becomes a pure function: `idle`, `grantsEnded`, and `softLockLimit` show "Locked after inactivity."; anything else is manual.
+- `Unlock.tsx`: when the list of auto hosts is non-empty, the card shows "AI auto-allow is still running on: `<names>`" (names joined plainly, as `AutoAllowPaused` does: they are the author's own labels) and a button **Stop auto-allow and lock**. The button's own handler (`stopAndLock` in `App.tsx`) calls `hub.lock()`, and on failure shows `Could not stop auto-allow: <message>` on the unlock screen. It needs no password and no 500 ms delay: it only moves to the safer state, like `tunnels.stop` and `files.cancel`, which also work while locked. The sentence "AI requests are refused until you unlock." is shown only when the list is empty.
+- That list is its own piece of state in `App`, derived from `status.autoHosts` (not from a `soft` flag on `locked`, and not from `servers`, which is empty while locked). `locked` already triggers a `status` refresh (`status` is not UI activity); `autoAllow.off` removes a name. A `status` reply that was in flight when `autoAllow.off` arrived cannot re-add that host (`lockHostsFrom` in `autoallow.ts` leaves out the hosts dropped since the call began). The renderer makes no other hub call from a notification or a timer.
+- `dropOnLock` still runs on every `locked`, soft included; the server list it edits is reloaded after unlock, so chips and the paused banner come from the hub's fresh answer. The Playwright spec proves end to end that a forever host is not shown paused after an unlock from soft lock.
+- The mapping from a `locked` reason to the unlock screen's text becomes a pure function: `idle`, `grantsEnded`, and `softLockLimit` (`lockKind` in `shell.ts`) show "Locked after inactivity."; anything else is manual.
 - After an unlock whose reply has `ranWhileLocked`, the app's banner slot (shown on every tab) has a dismissible line: "While the app was locked the AI ran N commands on `<names>`. See the Audit tab." The Auto-allowed feed does not list those runs.
 - `AutoAllowDialog`: the text for every mode gains "When the app locks from inactivity, the AI keeps running on this host. Lock by hand to stop it. After 24 hours locked, it stops by itself." The forever text says Resume is needed after a manual lock or a restart. The paused banner's text gains the same sentence, so a forever grant armed before this change is resumed with the new meaning in view.
 - Types to widen: `Status` and the `locked` params in `shared/protocol.ts`, the lock reason in `App.tsx` and `Unlock.tsx`.
@@ -212,55 +224,49 @@ No new methods.
 - Under soft lock the UI door can do nothing it cannot do under a hard lock, and one thing less: it cannot allow a request. It cannot arm, extend, resume, or turn off a grant, or edit a server.
 - The AI cannot cause or extend a soft lock: only a grant armed by the human before the lock keeps a host running, and every per-run check (`snap`, opt-ins, deadline, 2 in flight) still applies. It can tell that a soft lock is on, from `listServers` or from an error.
 - The key never outlives the last live grant.
+- Under soft lock the key is held in a field only the auto path reads (`autoKey`), not in `deps.MasterKey`, so a reader that forgets soft lock sees a locked vault and fails closed.
 - Stopping needs no password. Unlocking always does.
 - Honest limit, restated: a forever grant on an unattended machine lets the AI, and any process running as the same user, run as that account for up to 24 hours after the app locks, and without limit while the author keeps using the app. The dialog says so.
 
 ## Testing
 
-Test seams to add: `softLockForTest`, next to `unlockForTest`, which puts a hub in soft lock without waiting for the idle rule (needed to combine a pending request with a soft lock, which the idle rule itself never produces); and a method on `rpc.Server` that lists its registered methods.
+Test seams: `softLockForTest` (`softlock_test.go`), next to `unlockForTest`, which puts a hub in soft lock without waiting for the idle rule (needed to combine a pending request with a soft lock, which the idle rule itself never produces); and `uiDoorMethods`, a hook in `uidoor.go` that a test sets to receive the UI door's registered method list.
 
-Go, `internal/hub`:
+Go, `internal/hub` (`softlock_test.go`, `softlock_door_test.go`):
 
 Entering and leaving
-- Idle with a live timed grant → soft-locked: key present, `Locked()` true, `status.autoHosts` lists the host, one `softLock` record naming it, one `locked {reason: "idle", soft: true}`; a second tick adds nothing.
-- Idle with a live forever grant → the same; after `Unlock` the grant is armed, not paused, and the next exec is auto.
-- Idle with no grant → hard lock, unchanged. A grant past its deadline and the idle period in the same tick → hard lock, no `softLock` record, exactly one `locked`.
-- A pending request with a live grant holds off the soft lock. `idle <= 0` never soft-locks.
-- `autoHosts` is absent when unlocked and when hard-locked, and shrinks when one of two grants ends; the hub stays soft-locked.
-- The last grant ending zeroes the key in the same step and sends `locked {reason: "grantsEnded"}` with no `soft`: by deadline in `sweepGrants`, by "server changed" in `autoStart`, and by the new sweep check when the server is hidden or removed in the file. A later tick sends no second `locked`.
-- The ceiling: with `softLockedAt` set 24 hours back by hand, the next tick zeroes the key, ends a forever and a timed grant with "soft lock limit", cancels a run in flight, and sends `locked {reason: "softLockLimit"}`; after `Unlock` the forever host is paused. One second short of 24 hours, nothing happens. A pending request holds it off.
-- `lock` under soft lock: key zeroed, grants ended with "locked", `locked {reason: "manual"}`.
-- `Unlock` with a wrong password under soft lock: still soft-locked, the grant still runs. With the right one: `ranWhileLocked` has the count, and a second unlock does not repeat it.
+- `TestIdleWithGrantSoftLocks`: idle with a live grant → soft-locked: `Locked()` true, `status.autoHosts` lists the host, one `softLock` record naming it, one `locked {reason: "idle"}`; a second tick adds nothing. `TestUnlockFromSoftLockKeepsGrants`: after `Unlock` a forever grant is armed, not paused.
+- `TestIdleWithoutGrantHardLocks`, `TestExpiredGrantAndIdleInOneTickHardLocks` (no `softLock` record, exactly one `locked`), `TestPendingRequestHoldsOffSoftLock`.
+- `TestLastGrantEndingHardLocks`: the last grant ending zeroes the key in the same step and sends `locked {reason: "grantsEnded"}`; a later tick sends no second `locked`. `TestSoftLockSweepEndsGrantOfHiddenServer`: the same through the sweep when the server is hidden or removed in the file. `TestSoftLockSweepHardLocksWhenReloadFails`.
+- `TestSoftLockCeiling` (24 hours back: key zeroed, grants ended with "soft lock limit", `locked {reason: "softLockLimit"}`, forever host paused after `Unlock`; one second short of 24 hours, nothing; a pending request holds it off), `TestSoftLockCeilingCancelsRunInFlight`, `TestExecPastCeilingBeforeTickIsLocked`.
+- `TestLockUnderSoftLockIsHard`, `TestUIDoorUnlockReportsRanWhileLocked` (`ranWhileLocked` has the count; a second unlock does not repeat it; a wrong password under soft lock changes nothing).
+- The key's place: `TestSoftLockKeepsKeyOutOfDeps`, `TestSoftLockReloadStillChecksMAC`, `TestExecUnderSoftLockDecryptsWithAutoKey`.
+- Lock generation: `TestStaleLockNoteIsDropped`; `TestUIDoorSoftLockNotifications` covers the notifications a locked UI gets.
+- The sweep: `TestSoftLockSweepDoesNotReresolveUnchangedFile`, `TestSoftLockSweepSeesFileReloadedByOthers`.
 
 Exec
-- Under soft lock a plain exec on the granted host runs with `approval: "auto"`. A run in flight across the transition completes, is not cancelled, and sends no `autoAllow.ran`.
-- A visible host with no grant: `ErrLocked`, nothing audited, `broker.Pending()` empty.
-- A third concurrent run: `ErrAutoBusy` at once, audited, the grant kept. `sudoExec` without `AutoAllowSudo`: `ErrNeedsApproval` at once, audited, the grant kept.
-- The exec that ends the last grant itself returns `ErrLocked` at once and `broker.Pending()` is empty.
-- With `softLockForTest`: a `sudoExec` on the granted host, pending before the lock. `decide allowed` returns the locked error. With the `decide` check bypassed in the test, the approved run still returns `ErrLocked` from the post-approval resolve. This is the test that fails if the grant rule leaks into that resolve; it must use the granted host.
-- Hidden and nonexistent servers return the same bytes under soft lock as when unlocked.
-- `ServersForMCP` under soft lock: granted host `locked: false`, others `locked: true`.
+- `TestExecUnderSoftLockRunsAuto` (`approval: "auto"`), `TestExecUnderSoftLockOtherHostIsLocked` (`ErrLocked`, nothing audited, `broker.Pending()` empty; hidden and nonexistent servers return the same bytes as when unlocked; `ServersForMCP` reports the granted host not locked and the others locked).
+- `TestExecUnderSoftLockNeedsApprovalFailsAtOnce`: a third concurrent run gets `ErrAutoBusy` and `sudoExec` without `AutoAllowSudo` gets `ErrNeedsApproval`, each at once, with the grant kept and no audit record.
+- `TestExecThatEndsLastGrantUnderSoftLock`: `ErrLocked` at once, `broker.Pending()` empty.
+- `TestExecEndsGrantOfHiddenServer`, `TestExecEndsGrantWhenResolveFails`: the first resolve ends the grant with "server changed".
+- `TestApprovalUnderSoftLockDoesNotRun`: with `softLockForTest`, a `sudoExec` on the granted host, pending before the lock; `decide allowed` returns the locked error, and with the `decide` check bypassed the approved run still returns `ErrLocked` from the post-approval resolve. This is the test that fails if the grant rule leaks into that resolve; it uses the granted host. `TestDenyStillWorksUnderSoftLock`.
+- What counts as ran while locked: `TestManualLockDuringRunIsNotCountedAsRanLocked`, `TestFailedRunUnderSoftLockIsNotCounted`.
+- `TestSoftLockRefusesWritesAndGrantChanges`, `TestSoftLockServersMatchHardLock`.
 
 UI door
-- Conformance: the test takes the server's method list and fails on any method with no entry in its table. Each entry has valid params aimed at the granted host and the expected result under soft lock. Refusals (`ErrLocked` or the method's own locked error, not `-32602`): `servers.save` with and without `autoAllow`, `servers.delete`, `servers.forgetHostKey`, `servers.setAutoAllow` for `off`, a timed mode, and `forever` on the already-armed host, `servers.autoAllowCheck`, `tunnels.save`, `tunnels.delete`, `tunnels.start`, `term.open`, `files.list`, `files.mkdir`, `files.rename`, `files.plan`, `files.run`, `audit.read`, `import.scan`, `import.apply`, `vault.create`, `decide` allowing. Answered: `hello`, `status`, `unlock`, `lock`, `pending`, `denyAll`, `decide` denying, and `servers`, whose reply must equal the hard-lock reply for the same vault.
-- Notifications under soft lock: `tunnels.stop` and `files.cancel` work; `term.write` on an open terminal works and, without `user: true`, is not activity.
-- `audit.appended` (the `softLock` record included) and `autoAllow.ran` are not sent under soft lock; `autoAllow.off` is.
-- `hello` reports 9.
+- `TestUIDoorSoftLockAnswersLikeHardLock`: conformance. The test takes the door's method list from `uiDoorMethods` and fails on any method with no entry in its tables. Two lists: methods that must answer with a locked error under soft lock (`doorMustRefuse`: `servers.save`, `servers.delete`, `servers.forgetHostKey`, `servers.setAutoAllow`, `servers.autoAllowCheck`, `import.scan`, `import.apply`, `audit.read`, `term.open`, `files.list`, `files.mkdir`, `files.rename`, `files.plan`, `files.run`, `tunnels.save`, `tunnels.start`, `tunnels.delete`, `decide` allowing), and methods that must answer with any error under both locks (`doorMustError`: `vault.create`, which refuses because a vault exists). Every other method's reply must equal its reply under a hard lock for the same vault, `servers` included.
+- `TestUIDoorSetAutoAllowOffRefusedUnderSoftLock`; `TestUIDoorNotificationsUnderSoftLockAreNotActivity` (`tunnels.stop` and `files.cancel` work; `term.write` without `user: true` is not activity); `TestUIDoorSoftLockNotifications` (`audit.appended`, the `softLock` record included, and `autoAllow.ran` are not sent; `autoAllow.off` is); `hello` reports 9.
 
 Races, with `-race`
-- A stress test in the style of `TestSetAutoAllowConcurrentWithSave`: concurrent `Exec`, `sweepGrants`, `lockIfIdle`, `Unlock`, and `Lock`, asserting the invariant under `h.mu` throughout. The existing seams (`lastActivity` and `until` set by hand, direct `lockIfIdle` and `sweepGrants(now)`, `blockExec`, `deriveKey`) are enough; no clock injection.
+- `TestSoftLockInvariantUnderRace`, in the style of `TestSetAutoAllowConcurrentWithSave`: concurrent `Exec`, `sweepGrants`, `lockIfIdle`, `Unlock`, and `Lock`, asserting the invariant under `h.mu` throughout.
 
-Existing tests that change
-- `TestTimedGrantHoldsIdleLock`: replaced by the entering tests.
-- `TestAutoAllowEndsOnLock`: its idle half asserted that grants are gone; it becomes the soft-lock test. Its manual half stays.
-- `TestAutoRunsDoNotHoldIdleLock`: it waited for the run to be cancelled by the idle lock; it becomes "auto runs do not delay the soft lock, and the run completes".
-- `TestAutoExecCancelledOnLock` (manual lock): unchanged.
-- `uidoor_test.go`: the protocol number, and `waitLockedNote`, which must carry `soft`.
+Existing tests that changed
+- `TestTimedGrantHoldsIdleLock` was replaced by the entering tests; `TestAutoAllowEndsOnLock`'s idle half became the soft-lock test; `TestAutoRunsDoNotHoldIdleLock` became "auto runs do not delay the soft lock, and the run completes"; `uidoor_test.go` has the protocol number.
 
 Desktop:
 
-- Vitest: `Unlock` rendered with `renderToStaticMarkup`, with and without auto hosts; the reason-to-text function; `autoAllow.off` drops a name from the list; `locked {soft: true}` followed by an unlock and a server reload leaves a forever host not paused; the `ranWhileLocked` line.
-- Playwright: a new spec, launched like `idle.spec.ts` with `SSHGATE_IDLE_LOCK` of about 5 s (3 s can fire while the grant is being armed), using the `Mcp` helper extracted from `autoallow-mcp.spec.ts`. That file shares one launch with no idle lock and stays as it is. Steps: add a second visible host with no grant; arm a grant on the first; wait for the unlock screen naming it; exec on it through the real MCP bridge and check the audit log shows `softLock` before the auto records; exec on the second host fails locked; unlock, see no paused banner and the "ran while locked" line, and the next exec is auto; soft-lock again, press **Stop auto-allow and lock**, and the next exec fails.
+- Vitest (`desktop/test`): `Unlock.test.ts` renders `Unlock` with `renderToStaticMarkup`, with and without auto hosts; `shell.test.ts` covers `lockKind`; `autoallow.test.ts` covers `dropLockHost`, `lockHostsFrom` (a host that `autoAllow.off` dropped is not re-added by a stale `status` reply) and `ranLockedText`; `audit.test.ts` covers the `softLock` row and `matches` finding it by `servers`.
+- Playwright (`desktop/e2e/softlock.spec.ts`): launched like `idle.spec.ts` with `SSHGATE_IDLE_LOCK` of about 5 s (3 s can fire while the grant is being armed), using the `Mcp` helper extracted from `autoallow-mcp.spec.ts`. Steps: add a second visible host with no grant; arm a forever grant on the first; wait for the unlock screen naming it; exec on it through the real MCP bridge and check the audit log shows `softLock` before the auto records; exec on the second host fails locked; `list-servers` shows the second host locked and the first not; unlock, see no paused banner (so a forever host is not paused after a soft lock, end to end) and the "ran while locked" line, and the next exec is auto; soft-lock again, press **Stop auto-allow and lock**, and the next exec fails, with an `autoAllowOff` record with reason `locked`.
 
 ## ROADMAP, PRODUCT, README, CLAUDE.md changes
 
