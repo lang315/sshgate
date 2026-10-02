@@ -508,20 +508,35 @@ func cutBytes(s string, n int) (string, int) {
 }
 
 // sweepGrants ends timed grants past their deadline, cancelling their runs.
-// The idle loop calls it every tick; Exec also checks the deadline exactly.
+// Under soft lock it also re-reads the vault file and ends any grant whose
+// server no longer matches it: nothing else would, since such a server fails
+// Exec's first resolve before autoStart looks at its grant, and the grant
+// would hold the key. The idle loop calls it every tick; Exec also checks
+// the deadline exactly.
 func (h *Hub) sweepGrants(now time.Time) {
+	type end struct{ name, reason string }
 	h.mu.Lock()
-	var ended []string
+	if h.softLocked {
+		_ = h.reloadLocked() // a failure is remembered as storeError; the last good copy is checked
+	}
+	var ended []end
 	for name, g := range h.grants {
-		if !g.until.IsZero() && !now.Before(g.until) {
+		reason := ""
+		switch {
+		case !g.until.IsZero() && !now.Before(g.until):
+			reason = "expired"
+		case h.softLocked && h.grantStaleLocked(name, g):
+			reason = "server changed"
+		}
+		if reason != "" {
 			h.endGrantLocked(name)
-			h.auditGrantEnded(name, "expired")
-			ended = append(ended, name)
+			h.auditGrantEnded(name, reason)
+			ended = append(ended, end{name, reason})
 		}
 	}
 	h.mu.Unlock()
-	for _, n := range ended {
-		h.notifyGrantEnded(n, "expired")
+	for _, e := range ended {
+		h.notifyGrantEnded(e.name, e.reason)
 	}
 }
 

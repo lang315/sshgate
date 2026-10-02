@@ -55,3 +55,25 @@ func (h *Hub) lockStatus() (locked bool, autoHosts []string) {
 	}
 	return h.lockedLocked(), autoHosts
 }
+
+// maxSoftLock bounds how long a key and a grant outlive the human's last
+// input. Before soft lock that bound was the idle period. A constant: no
+// flag, no setting.
+const maxSoftLock = 24 * time.Hour
+
+// grantStaleLocked reports, with h.mu held, that g no longer matches name's
+// server: hidden, removed, unpinned, refused, or changed since the grant's
+// snapshot. sweepGrants uses it under soft lock; autoStart makes the same
+// checks on every run, but only for a server that still passes the first
+// resolve.
+func (h *Hub) grantStaleLocked(name string, g *grant) bool {
+	if h.noVaultLocked() {
+		return true
+	}
+	s, ok := h.deps.File.FindServer(name)
+	if !ok || autoRefusal(s) != "" || g.until.IsZero() && !s.AutoAllow {
+		return true
+	}
+	dc, err := h.resolveLocked(name)
+	return err != nil || snapOf(dc) != g.snap
+}

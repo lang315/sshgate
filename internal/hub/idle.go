@@ -13,10 +13,10 @@ func (h *Hub) touch() {
 	h.mu.Unlock()
 }
 
-// idleLoop sweeps expired auto-allow grants every tick, and locks the vault (softly, while a grant is live)
-// after a quiet period with nothing pending or running (only while idle>0:
-// idle<=0 disables auto-lock, but the sweep still runs, once a minute). It
-// exits when h.done is closed (Close).
+// idleLoop sweeps expired auto-allow grants every tick, and locks the vault
+// (softly, while a grant is live) after a quiet period with nothing pending
+// or running (only while idle>0: idle<=0 disables auto-lock, but the sweep
+// still runs, once a minute). It exits when h.done is closed (Close).
 func (h *Hub) idleLoop(idle time.Duration) {
 	tick := time.Minute
 	if idle > 0 {
@@ -42,6 +42,8 @@ func (h *Hub) idleLoop(idle time.Duration) {
 // running, and no UI input arrived within idle. With a live auto-allow grant
 // it locks softly: the UI door locks, the key and the grants stay (see
 // softlock.go). No grant delays it, and auto runs never count as running.
+// A soft lock older than maxSoftLock becomes a hard lock that ends every
+// grant.
 // Pending() is read before h.mu to keep the lock order (never hold h.mu
 // while calling into the broker); quiet and running are re-checked under
 // h.mu together with the state change. A request submitted between the
@@ -54,7 +56,23 @@ func (h *Hub) lockIfIdle(idle time.Duration) {
 	}
 	h.mu.Lock()
 	switch {
-	case h.running > 0, h.softLocked, h.deps.MasterKey == nil, time.Since(h.lastActivity) < idle:
+	case h.running > 0:
+		h.mu.Unlock()
+	case h.softLocked:
+		if time.Now().Round(0).Sub(h.softLockedAt) < maxSoftLock {
+			h.mu.Unlock()
+			return
+		}
+		sink := h.zeroKeyLocked() // first: with softLocked cleared, ending the grants below does not harden again
+		ended := h.endAllGrantsLocked()
+		h.mu.Unlock()
+		if sink != nil {
+			sink("softLockLimit", false)
+		}
+		for _, n := range ended {
+			h.grantEnded(n, "soft lock limit")
+		}
+	case h.deps.MasterKey == nil, time.Since(h.lastActivity) < idle:
 		h.mu.Unlock()
 	case len(h.grants) > 0:
 		sink := h.enterSoftLocked(time.Now().Round(0))

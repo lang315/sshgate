@@ -257,3 +257,160 @@ func TestLastGrantEndingHardLocks(t *testing.T) {
 
 // auditAll is an audit.read query with no filter.
 var auditAll = broker.ReadQuery{}
+
+func TestSoftLockCeiling(t *testing.T) {
+	be := newBlockExec()
+	h, path := newHub(t, be)
+	addServer(t, h, path, config.Server{Name: "two", Host: "h", Port: 22, User: "u", Auth: "agent", HostKey: "SHA256:abc", AIVisible: true})
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetAutoAllow("two", "4h"); err != nil {
+		t.Fatal(err)
+	}
+	idleNow(h)
+	locks := captureLocks(h)
+
+	// One second short: nothing.
+	h.mu.Lock()
+	h.softLockedAt = time.Now().Round(0).Add(-maxSoftLock + time.Second)
+	h.mu.Unlock()
+	h.lockIfIdle(time.Minute)
+	if got := stateOf(h); !got.soft {
+		t.Fatalf("state = %+v, want still soft-locked", got)
+	}
+	noLock(t, locks)
+
+	// At the ceiling: hard lock, both grants end.
+	h.mu.Lock()
+	h.softLockedAt = time.Now().Round(0).Add(-maxSoftLock)
+	h.mu.Unlock()
+	h.lockIfIdle(time.Minute)
+	if got := stateOf(h); got != (lockState{}) {
+		t.Fatalf("state = %+v, want hard lock", got)
+	}
+	wantLock(t, locks, lockNote{"softLockLimit", false})
+	noLock(t, locks)
+	_, recs := readAudit(t, path)
+	n := 0
+	for _, r := range recs {
+		if r["action"] == "autoAllowOff" && r["reason"] == "soft lock limit" {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Fatalf("autoAllowOff/soft lock limit records = %d, want 2: %v", n, recs)
+	}
+
+	// The forever flag stays in the vault, so after unlock the host is paused.
+	if err := h.Unlock("pw"); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range h.serversForUI() {
+		if s.Name == "vis" && (s.AutoAllow == nil || !s.AutoAllow.Forever || !s.AutoAllow.Paused) {
+			t.Fatalf("vis autoAllow = %+v, want forever and paused", s.AutoAllow)
+		}
+	}
+}
+
+func TestSoftLockCeilingCancelsRunInFlight(t *testing.T) {
+	be := newBlockExec()
+	h, _ := newHub(t, be)
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	errc := make(chan error, 1)
+	go func() {
+		_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
+		errc <- err
+	}()
+	waitInflight(t, h, "vis", 1)
+	idleNow(h)
+	h.mu.Lock()
+	h.softLockedAt = time.Now().Round(0).Add(-maxSoftLock)
+	h.mu.Unlock()
+	h.lockIfIdle(time.Minute)
+	if err := <-errc; !errors.Is(err, ErrCancelledRunning) {
+		t.Fatalf("err = %v, want ErrCancelledRunning", err)
+	}
+}
+
+// A server hidden by an outside edit of the vault file must not keep its
+// grant, and so the key, alive.
+func TestSoftLockSweepEndsGrantOfHiddenServer(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	idleNow(h)
+	locks := captureLocks(h)
+	if err := config.Update(path, testMK, func(f *config.File) error {
+		for i := range f.Servers {
+			if f.Servers[i].Name == "vis" {
+				f.Servers[i].AIVisible = false
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.sweepGrants(time.Now())
+	if got := stateOf(h); got != (lockState{}) {
+		t.Fatalf("state = %+v, want hard lock", got)
+	}
+	wantLock(t, locks, lockNote{"grantsEnded", false})
+	_, recs := readAudit(t, path)
+	if !hasAutoAllowOff(recs, "server changed") {
+		t.Fatalf("no autoAllowOff/server changed: %v", recs)
+	}
+}
+
+func TestUnlockFromSoftLockKeepsGrants(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	idleNow(h)
+
+	if err := h.Unlock("wrong"); err == nil {
+		t.Fatal("wrong password unlocked")
+	}
+	if got := stateOf(h); got != (lockState{soft: true, key: true, grants: 1}) {
+		t.Fatalf("state after a wrong password = %+v", got)
+	}
+
+	if err := h.Unlock("pw"); err != nil {
+		t.Fatal(err)
+	}
+	if got := stateOf(h); got != (lockState{key: true, grants: 1}) || h.Locked() || !h.unlocked.Load() {
+		t.Fatalf("state after unlock = %+v", got)
+	}
+	for _, s := range h.serversForUI() {
+		if s.Name == "vis" && (s.AutoAllow == nil || !s.AutoAllow.Forever || s.AutoAllow.Paused) {
+			t.Fatalf("vis autoAllow = %+v, want forever and not paused", s.AutoAllow)
+		}
+	}
+	// Armed with no Resume: the next exec is auto.
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}); err != nil {
+		t.Fatalf("exec after unlock: %v", err)
+	}
+}
+
+func TestLockUnderSoftLockIsHard(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	idleNow(h)
+	locks := captureLocks(h)
+	h.Lock()
+	if got := stateOf(h); got != (lockState{}) {
+		t.Fatalf("state = %+v, want hard lock", got)
+	}
+	wantLock(t, locks, lockNote{"manual", false})
+	noLock(t, locks)
+	_, recs := readAudit(t, path)
+	if !hasAutoAllowOff(recs, "locked") {
+		t.Fatalf("no autoAllowOff/locked: %v", recs)
+	}
+}
