@@ -36,7 +36,7 @@ type AuditRecord struct {
 type ConfigRecord struct {
 	Time           time.Time `json:"time"`
 	Kind           string    `json:"kind"`   // always "config"; exec records have none
-	Action         string    `json:"action"` // trust, forgetHostKey, delete, vaultCreate, save, import, autoAllowOn, autoAllowResume, autoAllowOff, autoAllowCheck
+	Action         string    `json:"action"` // trust, forgetHostKey, delete, vaultCreate, save, import, autoAllowOn, autoAllowResume, autoAllowOff, autoAllowCheck, softLock
 	Server         string    `json:"server,omitempty"`
 	Host           string    `json:"host,omitempty"`
 	Port           int       `json:"port,omitempty"`
@@ -45,6 +45,7 @@ type ConfigRecord struct {
 	OldFingerprint string    `json:"oldFingerprint,omitempty"`
 	KeptServers    []string  `json:"keptServers,omitempty"`
 	Changed        []string  `json:"changed,omitempty"`
+	Servers        []string  `json:"servers,omitempty"` // softLock: the hosts whose grants were live when the UI locked
 	Until          string    `json:"until,omitempty"`   // autoAllowOn: RFC 3339 deadline of a timed grant
 	Forever        bool      `json:"forever,omitempty"` // autoAllowOn: a forever grant
 	Reason         string    `json:"reason,omitempty"`  // autoAllowOff: why it ended; autoAllowCheck: the result

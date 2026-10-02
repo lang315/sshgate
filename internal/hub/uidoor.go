@@ -61,9 +61,13 @@ func (h *Hub) serversForUI() []uiServer {
 	}
 	now := time.Now()
 	for _, s := range h.deps.File.Servers {
+		locked := h.deps.IsLocked(s.Name)
+		if h.softLocked { // as under a hard lock: every server with a stored secret
+			locked = s.EncPassword != "" || s.EncSuPassword != "" || s.EncSudoPassword != "" || s.EncKeyPassphrase != ""
+		}
 		out = append(out, uiServer{
 			Name: s.Name, Host: s.Host, Port: s.Port, User: s.User, Auth: s.Auth, KeyPath: s.KeyPath,
-			HostKey: s.HostKey, HostKeyAlgo: s.HostKeyAlgo, AIVisible: s.AIVisible, Locked: h.deps.IsLocked(s.Name),
+			HostKey: s.HostKey, HostKeyAlgo: s.HostKeyAlgo, AIVisible: s.AIVisible, Locked: locked,
 			HasPassword: s.EncPassword != "", HasSuPassword: s.EncSuPassword != "",
 			HasSudoPassword: s.EncSudoPassword != "", HasKeyPassphrase: s.EncKeyPassphrase != "",
 			AutoAllow: h.autoStateLocked(s, now), AutoAllowRefused: autoRefusal(s),
@@ -93,10 +97,14 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 	// under sendMu with unlocked true precedes locked, and one checked after
 	// the lock is dropped. Neither runs under h.mu.
 	var sendMu sync.Mutex
-	releaseLock := h.setLockSink(func(reason string) {
+	releaseLock := h.setLockSink(func(reason string, soft bool) {
 		sendMu.Lock()
 		defer sendMu.Unlock()
-		s.Notify("locked", map[string]string{"reason": reason})
+		p := map[string]any{"reason": reason}
+		if soft {
+			p["soft"] = true
+		}
+		s.Notify("locked", p)
 	})
 	defer releaseLock()
 	releaseAuto := h.setAutoSink(func(method string, params any) { s.Notify(method, params) })
@@ -148,8 +156,12 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 	// must never block inbound dispatch that way.
 	s.HandleRequest("status", func(context.Context, json.RawMessage) (any, error) {
 		_ = h.Reload() // a failure is remembered and shown as storeError
-		st := map[string]any{"locked": h.Locked(), "hasStore": h.hasStore(), "hasVault": h.hasVault(),
+		locked, autoHosts := h.lockStatus()
+		st := map[string]any{"locked": locked, "hasStore": h.hasStore(), "hasVault": h.hasVault(),
 			"storePath": h.o.StorePath, "pending": len(h.Broker().Pending())}
+		if len(autoHosts) > 0 {
+			st["autoHosts"] = autoHosts
+		}
 		if e := h.storeError(); e != "" {
 			st["storeError"] = e
 		}

@@ -105,23 +105,26 @@ type Hub struct {
 	tunnels *tunnelSet // every running tunnel; see tunnels.go
 
 	storeErr     error // the last reload's error; guarded by h.mu
-	lockSink     func(reason string)
+	lockSink     func(reason string, soft bool)
 	lockSinkGen  uint64
 	lastActivity time.Time
 	running      int               // approved AI commands currently executing
 	grants       map[string]*grant // auto-allow; see autoallow.go
 	grantSeq     uint64            // ids for grant.inflight
+	softLocked   bool              // the UI door is locked but the key is kept for auto runs; see softlock.go
+	softLockedAt time.Time         // wall clock (Round(0)), so time asleep counts toward maxSoftLock
+	ranLocked    map[string]int    // auto runs per server finished while the UI was locked; cleared by TakeRanLocked
 	autoSink     func(method string, params any)
 	autoSinkGen  uint64
 	done         chan struct{}
 	closeOnce    sync.Once
-	unlocked     atomic.Bool                                         // deps.MasterKey != nil, for auditAppended, which must not take h.mu
+	unlocked     atomic.Bool                                         // the UI may be served: key present and not soft-locked; for auditAppended, which must not take h.mu
 	auditSink    atomic.Pointer[func(seq int, line json.RawMessage)] // see audit.go
 }
 
 // New loads the store if present; a missing store is not an error.
 func New(o Options) (*Hub, error) {
-	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit, files: newJobSet(), tunnels: newTunnelSet(), lastActivity: time.Now(), grants: map[string]*grant{}, done: make(chan struct{})}
+	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit, files: newJobSet(), tunnels: newTunnelSet(), lastActivity: time.Now(), grants: map[string]*grant{}, ranLocked: map[string]int{}, done: make(chan struct{})}
 	if o.Audit != nil {
 		o.Audit.OnAppend(h.auditAppended)
 	}
@@ -182,7 +185,7 @@ func (h *Hub) setEventSink(f func(broker.Event)) (release func()) {
 
 // setLockSink installs f to be told when the vault goes from unlocked to
 // locked; release works like setEventSink's.
-func (h *Hub) setLockSink(f func(reason string)) (release func()) {
+func (h *Hub) setLockSink(f func(reason string, soft bool)) (release func()) {
 	h.mu.Lock()
 	h.lockSink = f
 	h.lockSinkGen++
@@ -237,6 +240,7 @@ func (h *Hub) Unlock(pw string) error {
 	}
 	clear(h.deps.MasterKey)
 	h.deps.MasterKey = mk
+	h.softLocked, h.softLockedAt = false, time.Time{}
 	h.unlocked.Store(true)
 	h.lastActivity = time.Now()
 	return nil
@@ -252,21 +256,23 @@ func (h *Hub) lockWithReason(reason string) {
 	ended := h.endAllGrantsLocked()
 	h.mu.Unlock()
 	if sink != nil {
-		sink(reason)
+		sink(reason, false)
 	}
 	for _, n := range ended {
 		h.grantEnded(n, "locked")
 	}
 }
 
-// zeroKeyLocked drops the master key with h.mu held. It returns the lock
-// sink to call (outside h.mu) if the vault was unlocked, else nil.
-func (h *Hub) zeroKeyLocked() func(string) {
+// zeroKeyLocked drops the master key with h.mu held, ending a soft lock too.
+// It returns the lock sink to call (outside h.mu) if the vault was unlocked
+// or soft-locked, else nil.
+func (h *Hub) zeroKeyLocked() func(string, bool) {
 	if h.deps.MasterKey == nil {
 		return nil
 	}
 	clear(h.deps.MasterKey)
 	h.deps.MasterKey = nil
+	h.softLocked, h.softLockedAt = false, time.Time{}
 	h.unlocked.Store(false)
 	return h.lockSink
 }
@@ -277,12 +283,13 @@ func (h *Hub) Locked() bool {
 	return h.lockedLocked()
 }
 
-// lockedLocked reports, with h.mu held, whether an encrypted vault has no
-// key. Its MAC is unchecked then, so every server in it counts as locked,
-// including ones with no encrypted fields.
+// lockedLocked is the strict rule, with h.mu held: an encrypted vault has no
+// key, or is soft-locked. Without a key its MAC is unchecked, so every server
+// in it counts as locked, including ones with no encrypted fields. Every
+// caller but the AI's auto path (checkGrantLocked) uses this.
 func (h *Hub) lockedLocked() bool {
 	f := h.deps.File
-	return f != nil && f.KDF != nil && h.deps.MasterKey == nil
+	return f != nil && f.KDF != nil && (h.deps.MasterKey == nil || h.softLocked)
 }
 
 // noVaultLocked reports, with h.mu held, whether the store has no master

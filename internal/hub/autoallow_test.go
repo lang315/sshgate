@@ -495,25 +495,6 @@ func TestAutoAllowEndsOnLock(t *testing.T) {
 	if last["action"] != "autoAllowOff" || last["reason"] != "locked" {
 		t.Fatalf("audit: %v", last)
 	}
-
-	// Idle lock too; forever does not hold it off (the timed hold-off is Task 3).
-	unlockForTest(h)
-	if err := h.SetAutoAllow("vis", "forever"); err != nil {
-		t.Fatal(err)
-	}
-	h.mu.Lock()
-	h.lastActivity = time.Now().Add(-time.Hour)
-	h.mu.Unlock()
-	h.lockIfIdle(time.Minute)
-	if !h.Locked() {
-		t.Fatal("idle lock did not fire")
-	}
-	h.mu.Lock()
-	n := len(h.grants)
-	h.mu.Unlock()
-	if n != 0 {
-		t.Fatal("grants survived idle lock")
-	}
 }
 
 func TestAutoAllowEndsOnServerWrites(t *testing.T) {
@@ -1748,6 +1729,8 @@ func TestAutoExecErrorKeepsApproval(t *testing.T) {
 	}
 }
 
+// An auto run in flight neither delays the idle lock nor is cancelled by it:
+// the lock is soft, and the run completes.
 func TestAutoRunsDoNotHoldIdleLock(t *testing.T) {
 	be := newBlockExec()
 	h, _ := newHub(t, be)
@@ -1761,37 +1744,13 @@ func TestAutoRunsDoNotHoldIdleLock(t *testing.T) {
 	}()
 	waitInflight(t, h, "vis", 1)
 
-	h.mu.Lock()
-	h.lastActivity = time.Now().Add(-time.Hour)
-	h.mu.Unlock()
-	h.lockIfIdle(time.Minute)
-	if !h.Locked() {
-		t.Fatal("idle lock did not fire during a forever auto run")
+	idleNow(h)
+	if got := stateOf(h); got != (lockState{soft: true, key: true, grants: 1}) {
+		t.Fatalf("state = %+v, want soft lock during a forever auto run", got)
 	}
-	if err := <-errc; !errors.Is(err, ErrCancelledRunning) {
-		t.Fatalf("err = %v, want ErrCancelledRunning", err)
-	}
-}
-
-func TestTimedGrantHoldsIdleLock(t *testing.T) {
-	h, _ := newHub(t, &fakeExec{})
-	if err := h.SetAutoAllow("vis", "15m"); err != nil {
-		t.Fatal(err)
-	}
-	h.mu.Lock()
-	h.lastActivity = time.Now().Add(-time.Hour)
-	h.mu.Unlock()
-	h.lockIfIdle(time.Minute)
-	if h.Locked() {
-		t.Fatal("idle lock fired despite a timed grant before its deadline")
-	}
-
-	h.mu.Lock()
-	h.grants["vis"].until = time.Now().Add(-time.Second)
-	h.mu.Unlock()
-	h.lockIfIdle(time.Minute)
-	if !h.Locked() {
-		t.Fatal("idle lock did not fire once the grant passed its deadline")
+	close(be.release)
+	if err := <-errc; err != nil {
+		t.Fatalf("run across the soft lock: %v", err)
 	}
 }
 

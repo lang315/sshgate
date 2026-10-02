@@ -236,6 +236,10 @@ func (h *Hub) SetAutoAllow(name, mode string) error {
 		return h.autoAllowOff(name, "turned off")
 	}
 	h.mu.Lock()
+	if h.softLocked { // nothing arms, extends or resumes a grant behind a locked UI
+		h.mu.Unlock()
+		return ErrLocked
+	}
 	if err := h.reloadLocked(); err != nil {
 		h.mu.Unlock()
 		return err
@@ -265,6 +269,12 @@ func (h *Hub) SetAutoAllow(name, mode string) error {
 // grant, and the flag was already false, or the write itself failed).
 func (h *Hub) autoAllowOff(name, reason string) error {
 	h.mu.Lock()
+	// Under soft lock the one stop is lock, which ends every grant and zeroes
+	// the key. Ending a single grant here could not clear its vault flag.
+	if h.softLocked {
+		h.mu.Unlock()
+		return ErrLocked
+	}
 	err := h.reloadLocked() // best-effort; a failure doesn't stop the off below
 	flag := false
 	if h.deps.File != nil {
@@ -319,6 +329,7 @@ func (h *Hub) endGrantLocked(name string) bool {
 		cancel()
 	}
 	delete(h.grants, name)
+	h.hardenLocked()
 	return true
 }
 
@@ -514,18 +525,6 @@ func (h *Hub) sweepGrants(now time.Time) {
 	}
 }
 
-// timedGrantLocked reports a timed grant still before its deadline; h.mu is
-// held. Such a grant holds off the idle lock: its deadline was fixed by the
-// human, and nothing the AI does moves it.
-func (h *Hub) timedGrantLocked(now time.Time) bool {
-	for _, g := range h.grants {
-		if !g.until.IsZero() && now.Before(g.until) {
-			return true
-		}
-	}
-	return false
-}
-
 // uiAutoAllow is a server's auto-allow state for the app.
 type uiAutoAllow struct {
 	Until   string `json:"until,omitempty"`
@@ -586,6 +585,9 @@ func (h *Hub) AutoAllowCheck(ctx context.Context, name string) (AutoCheck, error
 // autoStateLocked is name's state for serversForUI; h.mu is held.
 func (h *Hub) autoStateLocked(s config.Server, now time.Time) *uiAutoAllow {
 	g := h.grants[s.Name]
+	if h.softLocked { // a locked UI sees the vault flag only, as under a hard lock
+		g = nil
+	}
 	switch {
 	case g != nil && !g.until.IsZero() && now.Before(g.until):
 		return &uiAutoAllow{Until: g.until.UTC().Format(time.RFC3339)}

@@ -122,7 +122,7 @@ func changes(a, b config.Server, in config.ServerInput) []string {
 // all run in one h.mu section (writeKey's own Lock would deadlock there).
 func (h *Hub) writeKeyLocked() ([]byte, error) {
 	switch {
-	case h.deps.MasterKey != nil:
+	case h.deps.MasterKey != nil && !h.softLocked:
 		return bytes.Clone(h.deps.MasterKey), nil
 	case h.deps.File != nil && h.deps.File.KDF != nil:
 		return nil, ErrLocked
