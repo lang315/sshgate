@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"reflect"
 	"sync"
 	"testing"
@@ -19,7 +20,8 @@ import (
 // caller arms a grant first: soft lock with no grant breaks the invariant.
 func softLockForTest(h *Hub) {
 	h.mu.Lock()
-	h.softLocked, h.softLockedAt = true, time.Now().Round(0)
+	h.autoKey, h.deps.MasterKey, h.softLockedAt = h.deps.MasterKey, nil, time.Now().Round(0)
+	h.lockGen.Add(1)
 	h.unlocked.Store(false)
 	h.mu.Unlock()
 }
@@ -32,6 +34,7 @@ func idleNow(h *Hub) {
 	h.lockIfIdle(time.Minute)
 }
 
+// lockState: key is either key present, soft is autoKey.
 type lockState struct {
 	soft, key bool
 	grants    int
@@ -40,37 +43,36 @@ type lockState struct {
 func stateOf(h *Hub) lockState {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return lockState{h.softLocked, h.deps.MasterKey != nil, len(h.grants)}
+	return lockState{h.autoKey != nil, h.deps.MasterKey != nil || h.autoKey != nil, len(h.grants)}
 }
 
-type lockNote struct {
-	reason string
-	soft   bool
-}
-
-func captureLocks(h *Hub) chan lockNote {
-	c := make(chan lockNote, 8)
-	h.setLockSink(func(reason string, soft bool) { c <- lockNote{reason, soft} })
+func captureLocks(h *Hub) chan string {
+	c := make(chan string, 8)
+	h.setLockSink(func(reason string, gen uint64) {
+		if gen == h.lockGen.Load() { // as the door does
+			c <- reason
+		}
+	})
 	return c
 }
 
-func wantLock(t *testing.T, c chan lockNote, want lockNote) {
+func wantLock(t *testing.T, c chan string, want string) {
 	t.Helper()
 	select {
 	case got := <-c:
 		if got != want {
-			t.Fatalf("locked = %+v, want %+v", got, want)
+			t.Fatalf("locked = %q, want %q", got, want)
 		}
 	case <-time.After(testWait):
-		t.Fatalf("no locked notification, want %+v", want)
+		t.Fatalf("no locked notification, want %q", want)
 	}
 }
 
-func noLock(t *testing.T, c chan lockNote) {
+func noLock(t *testing.T, c chan string) {
 	t.Helper()
 	select {
 	case got := <-c:
-		t.Fatalf("unexpected locked %+v", got)
+		t.Fatalf("unexpected locked %q", got)
 	case <-time.After(200 * time.Millisecond):
 	}
 }
@@ -100,7 +102,7 @@ func TestIdleWithGrantSoftLocks(t *testing.T) {
 			if !h.Locked() || h.unlocked.Load() {
 				t.Fatal("soft lock must read as locked to the UI")
 			}
-			wantLock(t, locks, lockNote{"idle", true})
+			wantLock(t, locks, "idle")
 			_, recs := readAudit(t, path)
 			last := recs[len(recs)-1]
 			if last["action"] != "softLock" || !reflect.DeepEqual(last["servers"], []any{"vis"}) {
@@ -127,7 +129,7 @@ func TestIdleWithoutGrantHardLocks(t *testing.T) {
 	if got := stateOf(h); got != (lockState{}) {
 		t.Fatalf("state = %+v, want hard lock", got)
 	}
-	wantLock(t, locks, lockNote{"idle", false})
+	wantLock(t, locks, "idle")
 	_, recs := readAudit(t, path)
 	if countAction(recs, "softLock") != 0 {
 		t.Fatal("softLock record without a grant")
@@ -153,7 +155,7 @@ func TestExpiredGrantAndIdleInOneTickHardLocks(t *testing.T) {
 	if got := stateOf(h); got != (lockState{}) {
 		t.Fatalf("state = %+v, want hard lock", got)
 	}
-	wantLock(t, locks, lockNote{"idle", false})
+	wantLock(t, locks, "idle")
 	noLock(t, locks)
 	_, recs := readAudit(t, path)
 	if countAction(recs, "softLock") != 0 {
@@ -253,7 +255,7 @@ func TestLastGrantEndingHardLocks(t *testing.T) {
 	if got := stateOf(h); got != (lockState{}) {
 		t.Fatalf("state = %+v, want hard lock", got)
 	}
-	wantLock(t, locks, lockNote{"grantsEnded", false})
+	wantLock(t, locks, "grantsEnded")
 	// A later tick sends no second locked.
 	idleNow(h)
 	noLock(t, locks)
@@ -293,7 +295,7 @@ func TestSoftLockCeiling(t *testing.T) {
 	if got := stateOf(h); got != (lockState{}) {
 		t.Fatalf("state = %+v, want hard lock", got)
 	}
-	wantLock(t, locks, lockNote{"softLockLimit", false})
+	wantLock(t, locks, "softLockLimit")
 	noLock(t, locks)
 	_, recs := readAudit(t, path)
 	n := 0
@@ -362,7 +364,7 @@ func TestSoftLockSweepEndsGrantOfHiddenServer(t *testing.T) {
 	if got := stateOf(h); got != (lockState{}) {
 		t.Fatalf("state = %+v, want hard lock", got)
 	}
-	wantLock(t, locks, lockNote{"grantsEnded", false})
+	wantLock(t, locks, "grantsEnded")
 	_, recs := readAudit(t, path)
 	if !hasAutoAllowOff(recs, "server changed") {
 		t.Fatalf("no autoAllowOff/server changed: %v", recs)
@@ -415,7 +417,7 @@ func TestLockUnderSoftLockIsHard(t *testing.T) {
 	if got := stateOf(h); got != (lockState{}) {
 		t.Fatalf("state = %+v, want hard lock", got)
 	}
-	wantLock(t, locks, lockNote{"manual", false})
+	wantLock(t, locks, "manual")
 	noLock(t, locks)
 	_, recs := readAudit(t, path)
 	if !hasAutoAllowOff(recs, "locked") {
@@ -658,7 +660,7 @@ func TestSoftLockSweepHardLocksWhenReloadFails(t *testing.T) {
 	if got := stateOf(h); got != (lockState{}) {
 		t.Fatalf("state = %+v, want hard lock", got)
 	}
-	wantLock(t, locks, lockNote{"grantsEnded", false})
+	wantLock(t, locks, "grantsEnded")
 	_, recs := readAudit(t, path)
 	if !hasAutoAllowOff(recs, "server changed") {
 		t.Fatalf("no autoAllowOff/server changed: %v", recs)
@@ -711,4 +713,136 @@ func TestDenyStillWorksUnderSoftLock(t *testing.T) {
 		}
 		wantDenied(t, errc)
 	})
+}
+
+// Under soft lock the key is in autoKey and nowhere a strict reader looks.
+func TestSoftLockKeepsKeyOutOfDeps(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	addServer(t, h, path, encServer(t, "enc", "encSudoPassword", "s3cr3t"))
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	idleNow(h)
+	h.mu.Lock()
+	moved := h.deps.MasterKey == nil && h.autoKey != nil
+	h.mu.Unlock()
+	if !moved {
+		t.Fatal("the key is not in autoKey alone")
+	}
+	dc, err := h.Resolve("enc")
+	if err == nil || dc.SudoPassword != "" {
+		t.Fatalf("Resolve under soft lock = %+v, %v; want an error and no secret", dc, err)
+	}
+	if !h.Deps().IsLocked("enc") {
+		t.Fatal("Deps().IsLocked(enc) = false under soft lock")
+	}
+	if _, err := h.writeKey(); !errors.Is(err, ErrLocked) {
+		t.Fatalf("writeKey = %v, want ErrLocked", err)
+	}
+}
+
+// reloadLocked must keep checking the file's MAC under soft lock, with the key
+// that is no longer in deps.
+func TestSoftLockReloadStillChecksMAC(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	idleNow(h)
+	f, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Servers[0].Host = "evil" // no key: MAC left stale
+	f.Revision++
+	b, _ := json.Marshal(f)
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Reload(); err == nil {
+		t.Fatal("tampered store accepted under soft lock")
+	}
+	if s, _ := h.Deps().File.FindServer("vis"); s.Host != "h" {
+		t.Fatalf("tampered file took effect: %+v", s)
+	}
+	h.sweepGrants(time.Now())
+	if got := stateOf(h); got != (lockState{}) {
+		t.Fatalf("state after the sweep = %+v, want hard lock", got)
+	}
+}
+
+// The auto path decrypts with autoKey: a granted host that stores a secret
+// still runs behind a locked UI.
+func TestExecUnderSoftLockDecryptsWithAutoKey(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	addServer(t, h, path, encServer(t, "enc", "encSudoPassword", "s3cr3t"))
+	setAutoAllowRoot(t, h, path, "enc", true)
+	if err := h.SetAutoAllow("enc", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	idleNow(h)
+	if got := stateOf(h); !got.soft {
+		t.Fatalf("state = %+v, want soft lock", got)
+	}
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: "enc", Command: "ls"}); err != nil {
+		t.Fatalf("exec on a granted host with a stored secret under soft lock: %v", err)
+	}
+	_, recs := readAudit(t, path)
+	if rec := findAutoRecord(t, recs); rec["outcome"] != "allowed" || rec["approval"] != "auto" {
+		t.Fatalf("audit: %v", rec)
+	}
+}
+
+// A lock note carries the generation of its own state change; the door drops
+// one the hub has since left.
+func TestStaleLockNoteIsDropped(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	c, notes := startUIRaw(t, h)
+	if err := c.Call(context.Background(), "status", nil, nil); err != nil { // the door is up
+		t.Fatal(err)
+	}
+	idleNow(h)
+	if r := waitLockedNote(t, notes); r != "idle" {
+		t.Fatalf("reason = %q", r)
+	}
+	h.mu.Lock()
+	sink, stale := h.lockSink, h.lockGen.Load()
+	h.mu.Unlock()
+	if err := h.Unlock("pw"); err != nil {
+		t.Fatal(err)
+	}
+	sink("grantsEnded", stale)
+	select {
+	case n := <-notes:
+		t.Fatalf("a stale lock note arrived: %s %s", n.method, n.params)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	h.Lock() // also ends the grant, which sends autoAllow.off after locked
+	if r := waitLockedNote(t, notes); r != "manual" {
+		t.Fatalf("reason = %q", r)
+	}
+	h.mu.Lock()
+	cur := h.lockGen.Load()
+	h.mu.Unlock()
+	sink("current", cur)
+	sink("stale", stale)
+	var locked []string
+	for deadline := time.After(300 * time.Millisecond); ; {
+		select {
+		case n := <-notes:
+			if n.method == "locked" {
+				locked = append(locked, string(n.params))
+			}
+			continue
+		case <-deadline:
+		}
+		break
+	}
+	if !reflect.DeepEqual(locked, []string{`{"reason":"current"}`}) {
+		t.Fatalf("locked notes after a lock = %v, want only the current one", locked)
+	}
 }

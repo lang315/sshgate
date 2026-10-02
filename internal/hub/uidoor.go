@@ -61,13 +61,9 @@ func (h *Hub) serversForUI() []uiServer {
 	}
 	now := time.Now()
 	for _, s := range h.deps.File.Servers {
-		locked := h.deps.IsLocked(s.Name)
-		if h.softLocked { // as under a hard lock: every server with a stored secret
-			locked = s.EncPassword != "" || s.EncSuPassword != "" || s.EncSudoPassword != "" || s.EncKeyPassphrase != ""
-		}
 		out = append(out, uiServer{
 			Name: s.Name, Host: s.Host, Port: s.Port, User: s.User, Auth: s.Auth, KeyPath: s.KeyPath,
-			HostKey: s.HostKey, HostKeyAlgo: s.HostKeyAlgo, AIVisible: s.AIVisible, Locked: locked,
+			HostKey: s.HostKey, HostKeyAlgo: s.HostKeyAlgo, AIVisible: s.AIVisible, Locked: h.deps.IsLocked(s.Name),
 			HasPassword: s.EncPassword != "", HasSuPassword: s.EncSuPassword != "",
 			HasSudoPassword: s.EncSudoPassword != "", HasKeyPassphrase: s.EncKeyPassphrase != "",
 			AutoAllow: h.autoStateLocked(s, now), AutoAllowRefused: autoRefusal(s),
@@ -100,16 +96,18 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 	// sink notifies under it. h.unlocked is false before the sink runs (the
 	// key may stay, under a soft lock), so a record sent under sendMu with
 	// unlocked true precedes locked, and one checked after the lock is
-	// dropped. None of them runs under h.mu.
+	// dropped. The lock sink also drops a note whose generation is not the
+	// hub's current one: a lock note may be sent from a goroutine of its own,
+	// so without that check one for a state the hub has since left could land
+	// after a later lock note or after an unlock. None of them runs under h.mu.
 	var sendMu sync.Mutex
-	releaseLock := h.setLockSink(func(reason string, soft bool) {
+	releaseLock := h.setLockSink(func(reason string, gen uint64) {
 		sendMu.Lock()
 		defer sendMu.Unlock()
-		p := map[string]any{"reason": reason}
-		if soft {
-			p["soft"] = true
+		if gen != h.lockGen.Load() {
+			return
 		}
-		s.Notify("locked", p)
+		s.Notify("locked", map[string]any{"reason": reason})
 	})
 	defer releaseLock()
 	// autoAllow.ran carries the command, so it follows audit.appended's rule:

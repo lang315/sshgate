@@ -100,7 +100,7 @@ type ExecResponse struct {
 
 type Hub struct {
 	o       Options
-	mu      sync.Mutex // guards deps.File, deps.MasterKey, storeErr, sinks, lastActivity, running, grants, grantSeq, softLocked, softLockedAt, ranLocked and autoSink; CreateVault, SetAutoAllow, autoAllowOff, SaveServer, DeleteServer and ForgetHostKey each hold it across their own store write, the reload that follows, and ending a server's auto-allow grant, so all of them serialize with each other
+	mu      sync.Mutex // guards deps.File, deps.MasterKey, storeErr, sinks, lastActivity, running, grants, grantSeq, autoKey, softLockedAt, ranLocked and autoSink; CreateVault, SetAutoAllow, autoAllowOff, SaveServer, DeleteServer and ForgetHostKey each hold it across their own store write, the reload that follows, and ending a server's auto-allow grant, so all of them serialize with each other
 	deps    *mcpserver.Deps
 	sink    func(broker.Event)
 	sinkGen uint64 // bumped on every setEventSink; lets release() no-op if superseded
@@ -111,20 +111,21 @@ type Hub struct {
 	tunnels *tunnelSet // every running tunnel; see tunnels.go
 
 	storeErr     error // the last reload's error; guarded by h.mu
-	lockSink     func(reason string, soft bool)
+	lockSink     func(reason string, gen uint64)
+	lockGen      atomic.Uint64 // bumped, under h.mu, at every lock-state change; a lock note for an older one is stale
 	lockSinkGen  uint64
 	lastActivity time.Time
 	running      int               // approved AI commands currently executing
 	grants       map[string]*grant // auto-allow; see autoallow.go
 	grantSeq     uint64            // ids for grant.inflight
-	softLocked   bool              // the UI door is locked but the key is kept for auto runs; see softlock.go
+	autoKey      []byte            // the master key while the UI door is soft-locked; read only by the auto path (resolveAutoLocked) and the vault MAC check (vaultKeyLocked); see softlock.go
 	softLockedAt time.Time         // wall clock (Round(0)), so time asleep counts toward maxSoftLock
 	ranLocked    map[string]int    // auto runs per server finished while the UI was locked; cleared by TakeRanLocked
 	autoSink     func(method string, params any)
 	autoSinkGen  uint64
 	done         chan struct{}
 	closeOnce    sync.Once
-	unlocked     atomic.Bool                                         // the UI may be served: key present and not soft-locked; for auditAppended, which must not take h.mu
+	unlocked     atomic.Bool                                         // the UI may be served: deps.MasterKey != nil; for auditAppended, which must not take h.mu
 	auditSink    atomic.Pointer[func(seq int, line json.RawMessage)] // see audit.go
 }
 
@@ -191,7 +192,7 @@ func (h *Hub) setEventSink(f func(broker.Event)) (release func()) {
 
 // setLockSink installs f to be told when the vault goes from unlocked to
 // locked; release works like setEventSink's.
-func (h *Hub) setLockSink(f func(reason string, soft bool)) (release func()) {
+func (h *Hub) setLockSink(f func(reason string, gen uint64)) (release func()) {
 	h.mu.Lock()
 	h.lockSink = f
 	h.lockSinkGen++
@@ -246,7 +247,9 @@ func (h *Hub) Unlock(pw string) error {
 	}
 	clear(h.deps.MasterKey)
 	h.deps.MasterKey = mk
-	h.softLocked, h.softLockedAt = false, time.Time{}
+	clear(h.autoKey)
+	h.autoKey, h.softLockedAt = nil, time.Time{}
+	h.lockGen.Add(1)
 	h.unlocked.Store(true)
 	h.lastActivity = time.Now()
 	return nil
@@ -258,29 +261,31 @@ func (h *Hub) Lock() { h.lockWithReason("manual") }
 // lock sink. The sink runs outside h.mu.
 func (h *Hub) lockWithReason(reason string) {
 	h.mu.Lock()
-	sink := h.zeroKeyLocked()
+	note := h.zeroKeyLocked()
 	ended := h.endAllGrantsLocked()
 	h.mu.Unlock()
-	if sink != nil {
-		sink(reason, false)
+	if note != nil {
+		note(reason)
 	}
 	for _, n := range ended {
 		h.grantEnded(n, "locked")
 	}
 }
 
-// zeroKeyLocked drops the master key with h.mu held, ending a soft lock too.
-// It returns the lock sink to call (outside h.mu) if the vault was unlocked
-// or soft-locked, else nil.
-func (h *Hub) zeroKeyLocked() func(string, bool) {
-	if h.deps.MasterKey == nil {
+// zeroKeyLocked drops both keys with h.mu held, ending a soft lock too. It
+// returns the lock note to send (outside h.mu) if either key was present, else
+// nil.
+func (h *Hub) zeroKeyLocked() lockNote {
+	if h.deps.MasterKey == nil && h.autoKey == nil {
 		return nil
 	}
 	clear(h.deps.MasterKey)
 	h.deps.MasterKey = nil
-	h.softLocked, h.softLockedAt = false, time.Time{}
+	clear(h.autoKey)
+	h.autoKey, h.softLockedAt = nil, time.Time{}
+	h.lockGen.Add(1)
 	h.unlocked.Store(false)
-	return h.lockSink
+	return h.lockNoteLocked()
 }
 
 func (h *Hub) Locked() bool {
@@ -290,12 +295,13 @@ func (h *Hub) Locked() bool {
 }
 
 // lockedLocked is the strict rule, with h.mu held: an encrypted vault has no
-// key, or is soft-locked. Without a key its MAC is unchecked, so every server
-// in it counts as locked, including ones with no encrypted fields. Every
-// caller but the AI's auto path (checkGrantLocked) uses this.
+// key. Without a key its MAC is unchecked, so every server in it counts as
+// locked, including ones with no encrypted fields. Under soft lock the key is
+// in h.autoKey, so this is true then too. Every caller but the AI's auto path
+// (checkGrantLocked) uses this.
 func (h *Hub) lockedLocked() bool {
 	f := h.deps.File
-	return f != nil && f.KDF != nil && (h.deps.MasterKey == nil || h.softLocked)
+	return f != nil && f.KDF != nil && h.deps.MasterKey == nil
 }
 
 // noVaultLocked reports, with h.mu held, whether the store has no master
@@ -352,11 +358,12 @@ func (h *Hub) reloadLocked() (err error) {
 		return nil
 	}
 	// A vault never loses its KDF; one that did lost its MAC check with it.
-	if f.KDF == nil && (h.deps.MasterKey != nil || h.deps.File != nil && h.deps.File.KDF != nil) {
+	key := h.vaultKeyLocked()
+	if f.KDF == nil && (key != nil || h.deps.File != nil && h.deps.File.KDF != nil) {
 		return errors.New("store lost its master password; it was tampered with")
 	}
-	if h.deps.MasterKey != nil {
-		if err := f.VerifyMAC(h.deps.MasterKey); err != nil {
+	if key != nil {
+		if err := f.VerifyMAC(key); err != nil {
 			return err
 		}
 	}
@@ -487,7 +494,7 @@ func (h *Hub) resolveForAuto(name string) (sshx.DialConfig, error) {
 	if err := h.checkGrantLocked(name); err != nil {
 		return sshx.DialConfig{}, err
 	}
-	dc, err := h.resolveLocked(name)
+	dc, err := h.resolveAutoLocked(name)
 	if err != nil {
 		return sshx.DialConfig{}, &hiddenError{ai: ErrConnFailed, detail: err}
 	}

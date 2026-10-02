@@ -1,48 +1,86 @@
 package hub
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/lang315/sshgate/internal/broker"
+	"github.com/lang315/sshgate/internal/sshx"
 )
 
 // Soft lock (spec 2026-10-02-soft-lock-design.md): when the idle lock fires
-// while a grant is live, the UI door locks but the master key stays, so auto
-// runs on granted hosts continue. Invariant, whenever h.mu is released:
-// softLocked implies the key is present and at least one grant is live.
+// while a grant is live, the UI door locks but the master key is kept for auto
+// runs on granted hosts. The key moves out of deps.MasterKey into h.autoKey,
+// which only the auto path (resolveAutoLocked) and the vault MAC check
+// (vaultKeyLocked) read, so every other reader sees a locked vault with no
+// check of its own. Invariant, whenever h.mu is released: autoKey != nil
+// implies deps.MasterKey == nil and at least one grant is live.
 
 // grantNamesLocked lists the hosts with a live grant, sorted; h.mu is held.
 func (h *Hub) grantNamesLocked() []string {
-	names := make([]string, 0, len(h.grants))
-	for n := range h.grants {
-		names = append(names, n)
-	}
-	slices.Sort(names)
-	return names
+	return slices.Sorted(maps.Keys(h.grants))
 }
 
-// enterSoftLocked locks the UI door and keeps the key; h.mu is held and at
-// least one grant is live. The audit record is written after h.unlocked is
-// cleared, so it is not pushed to the UI. It returns the lock sink to call
+// lockNote tells the lock sink about one lock-state change; the generation it
+// carries is the one that change made. Call it outside h.mu.
+type lockNote func(reason string)
+
+// lockNoteLocked is the note for the state change just made, with h.mu held:
+// nil when no lock sink is installed.
+func (h *Hub) lockNoteLocked() lockNote {
+	sink, gen := h.lockSink, h.lockGen.Load()
+	if sink == nil {
+		return nil
+	}
+	return func(reason string) { sink(reason, gen) }
+}
+
+// enterSoftLocked locks the UI door and moves the key to autoKey; h.mu is held
+// and at least one grant is live. The audit record is written after h.unlocked
+// is cleared, so it is not pushed to the UI. It returns the lock note to send
 // outside h.mu.
-func (h *Hub) enterSoftLocked(now time.Time) func(string, bool) {
-	h.softLocked, h.softLockedAt = true, now
+func (h *Hub) enterSoftLocked(now time.Time) lockNote {
+	h.autoKey, h.deps.MasterKey, h.softLockedAt = h.deps.MasterKey, nil, now
+	h.lockGen.Add(1)
 	h.unlocked.Store(false)
 	h.auditConfig(broker.ConfigRecord{Action: "softLock", Servers: h.grantNamesLocked()})
-	return h.lockSink
+	return h.lockNoteLocked()
+}
+
+// resolveAutoLocked resolves name for the auto path, with h.mu held. Under
+// soft lock the key is in h.autoKey, which nothing else reads, so the resolve
+// runs on a copy of deps that carries it.
+func (h *Hub) resolveAutoLocked(name string) (sshx.DialConfig, error) {
+	if h.autoKey == nil {
+		return h.deps.Resolve(name)
+	}
+	d := *h.deps
+	d.MasterKey = h.autoKey
+	return d.Resolve(name)
+}
+
+// vaultKeyLocked is the key the vault file is checked against: the master
+// key, or under soft lock the one kept for the auto path. h.mu is held.
+func (h *Hub) vaultKeyLocked() []byte {
+	if h.deps.MasterKey != nil {
+		return h.deps.MasterKey
+	}
+	return h.autoKey
 }
 
 // hardenLocked runs after every removal from h.grants, with h.mu held: the
 // key never outlives the last grant. The sink is called on its own goroutine
-// because the caller still holds h.mu; it only writes to the UI door.
+// because the caller still holds h.mu; it only writes to the UI door. Its
+// delivery order against other lock notes is unspecified, so the note carries
+// the generation of this change and the door drops it once the hub has moved on.
 func (h *Hub) hardenLocked() {
-	if !h.softLocked || len(h.grants) > 0 {
+	if h.autoKey == nil || len(h.grants) > 0 {
 		return
 	}
-	if sink := h.zeroKeyLocked(); sink != nil {
-		go sink("grantsEnded", false)
+	if note := h.zeroKeyLocked(); note != nil {
+		go note("grantsEnded")
 	}
 }
 
@@ -51,7 +89,7 @@ func (h *Hub) hardenLocked() {
 func (h *Hub) lockStatus() (locked bool, autoHosts []string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.softLocked {
+	if h.autoKey != nil {
 		autoHosts = h.grantNamesLocked()
 	}
 	return h.lockedLocked(), autoHosts
@@ -75,21 +113,21 @@ func (h *Hub) grantStaleLocked(name string, g *grant) bool {
 	if !ok || autoRefusal(s) != "" || g.until.IsZero() && !s.AutoAllow {
 		return true
 	}
-	dc, err := h.resolveLocked(name)
+	dc, err := h.resolveAutoLocked(name)
 	return err != nil || snapOf(dc) != g.snap
 }
 
 // aiLockedLocked is the grant rule, with h.mu held and a vault present: the
-// server is locked to the AI when the key is absent, or under soft lock when
-// it has no live grant or the soft lock has reached its ceiling (otherwise
-// enforced only on the idle tick, so an exec right after a wake from sleep
-// could run first).
+// server is locked to the AI when both keys are absent, or under soft lock
+// when it has no live grant or the soft lock has reached its ceiling
+// (otherwise enforced only on the idle tick, so an exec right after a wake
+// from sleep could run first).
 func (h *Hub) aiLockedLocked(name string) bool {
-	if h.deps.MasterKey == nil {
-		return true
-	}
-	if !h.softLocked {
+	if h.deps.MasterKey != nil {
 		return false
+	}
+	if h.autoKey == nil {
+		return true
 	}
 	return h.grants[name] == nil || time.Now().Round(0).Sub(h.softLockedAt) >= maxSoftLock
 }

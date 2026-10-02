@@ -60,16 +60,16 @@ func (h *Hub) lockIfIdle(idle time.Duration) {
 	switch {
 	case h.running > 0:
 		h.mu.Unlock()
-	case h.softLocked:
+	case h.autoKey != nil:
 		if time.Now().Round(0).Sub(h.softLockedAt) < maxSoftLock {
 			h.mu.Unlock()
 			return
 		}
-		sink := h.zeroKeyLocked() // first: with softLocked cleared, ending the grants below does not harden again
+		note := h.zeroKeyLocked() // first: with autoKey cleared, ending the grants below does not harden again
 		ended := h.endAllGrantsLocked()
 		h.mu.Unlock()
-		if sink != nil {
-			sink("softLockLimit", false)
+		if note != nil {
+			note("softLockLimit")
 		}
 		for _, n := range ended {
 			h.grantEnded(n, "soft lock limit")
@@ -77,16 +77,16 @@ func (h *Hub) lockIfIdle(idle time.Duration) {
 	case h.deps.MasterKey == nil, time.Since(h.lastActivity) < idle:
 		h.mu.Unlock()
 	case len(h.grants) > 0:
-		sink := h.enterSoftLocked(time.Now().Round(0))
+		note := h.enterSoftLocked(time.Now().Round(0))
 		h.mu.Unlock()
-		if sink != nil {
-			sink("idle", true)
+		if note != nil {
+			note("idle")
 		}
 	default:
-		sink := h.zeroKeyLocked()
+		note := h.zeroKeyLocked()
 		h.mu.Unlock()
-		if sink != nil {
-			sink("idle", false)
+		if note != nil {
+			note("idle")
 		}
 	}
 }

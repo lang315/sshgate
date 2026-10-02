@@ -236,10 +236,6 @@ func (h *Hub) SetAutoAllow(name, mode string) error {
 		return h.autoAllowOff(name, "turned off")
 	}
 	h.mu.Lock()
-	if h.softLocked { // nothing arms, extends or resumes a grant behind a locked UI
-		h.mu.Unlock()
-		return ErrLocked
-	}
 	if err := h.reloadLocked(); err != nil {
 		h.mu.Unlock()
 		return err
@@ -271,7 +267,7 @@ func (h *Hub) autoAllowOff(name, reason string) error {
 	h.mu.Lock()
 	// Under soft lock the one stop is lock, which ends every grant and zeroes
 	// the key. Ending a single grant here could not clear its vault flag.
-	if h.softLocked {
+	if h.autoKey != nil {
 		h.mu.Unlock()
 		return ErrLocked
 	}
@@ -442,7 +438,7 @@ func (h *Hub) autoStart(ctx context.Context, name string, sudo bool) (*autoRun, 
 	}
 	reason := ""
 	s, _ := h.deps.File.FindServer(name)
-	dc, err := h.resolveLocked(name)
+	dc, err := h.resolveAutoLocked(name)
 	switch {
 	case !g.until.IsZero() && !time.Now().Before(g.until):
 		reason = "expired"
@@ -542,7 +538,7 @@ func (h *Hub) sweepGrants(now time.Time) {
 	type end struct{ name, reason string }
 	failed := false
 	h.mu.Lock()
-	if h.softLocked {
+	if h.autoKey != nil {
 		if err := h.reloadLocked(); err != nil {
 			// Fail closed: the vault can no longer be checked, so no grant may
 			// keep the key. The detail stays on stderr, never to the AI.
@@ -556,7 +552,7 @@ func (h *Hub) sweepGrants(now time.Time) {
 		switch {
 		case !g.until.IsZero() && !now.Before(g.until):
 			reason = "expired"
-		case failed, h.softLocked && h.grantStaleLocked(name, g):
+		case failed, h.autoKey != nil && h.grantStaleLocked(name, g):
 			reason = "server changed"
 		}
 		if reason != "" {
@@ -631,7 +627,7 @@ func (h *Hub) AutoAllowCheck(ctx context.Context, name string) (AutoCheck, error
 // autoStateLocked is name's state for serversForUI; h.mu is held.
 func (h *Hub) autoStateLocked(s config.Server, now time.Time) *uiAutoAllow {
 	g := h.grants[s.Name]
-	if h.softLocked { // a locked UI sees the vault flag only, as under a hard lock
+	if h.autoKey != nil { // a locked UI sees the vault flag only, as under a hard lock
 		g = nil
 	}
 	switch {

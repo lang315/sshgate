@@ -185,7 +185,7 @@ func TestUIDoorNotificationsUnderSoftLockAreNotActivity(t *testing.T) {
 }
 
 // The invariant under concurrent execs, sweeps, idle ticks, unlocks and
-// locks: softLocked implies a key and at least one grant. Run with -race.
+// locks: autoKey implies no deps key and at least one grant. Run with -race.
 func TestSoftLockInvariantUnderRace(t *testing.T) {
 	be := newBlockExec() // not fakeExec: its calls slice has no mutex
 	close(be.release)
@@ -214,15 +214,24 @@ func TestSoftLockInvariantUnderRace(t *testing.T) {
 	var seen int // under h.mu: how often the checker saw a soft lock
 	loop(func() {
 		h.mu.Lock()
-		if h.softLocked {
+		if h.autoKey != nil {
 			seen++
 		}
-		if h.softLocked && (h.deps.MasterKey == nil || len(h.grants) == 0) {
-			t.Errorf("invariant broken: soft-locked with key=%v grants=%d", h.deps.MasterKey != nil, len(h.grants))
+		if h.autoKey != nil && (h.deps.MasterKey != nil || len(h.grants) == 0) {
+			t.Errorf("invariant broken: soft-locked with deps key=%v grants=%d", h.deps.MasterKey != nil, len(h.grants))
 		}
 		h.mu.Unlock()
 	})
 	time.Sleep(500 * time.Millisecond)
+	// A soft lock is rare under this churn: run on until the checker has seen one.
+	for end := time.Now().Add(testWait); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+		h.mu.Lock()
+		n := seen
+		h.mu.Unlock()
+		if n > 0 {
+			break
+		}
+	}
 	close(stop)
 	wg.Wait()
 	if seen == 0 {
@@ -277,8 +286,8 @@ func TestUIDoorSoftLockNotifications(t *testing.T) {
 
 	idleNow(h)
 	got := collect(300 * time.Millisecond)
-	if len(got) == 0 || got[0].method != "locked" || string(got[0].params) != `{"reason":"idle","soft":true}` {
-		t.Fatalf("first notification after idle = %+v, want locked idle soft", got)
+	if len(got) == 0 || got[0].method != "locked" || string(got[0].params) != `{"reason":"idle"}` {
+		t.Fatalf("first notification after idle = %+v, want locked idle", got)
 	}
 	for _, n := range got {
 		if n.method == "audit.appended" || n.method == "autoAllow.ran" {
