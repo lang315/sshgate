@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  appendLive, applyPage, clearOnLock, EMPTY, failLoad, formatTime, matches, mergeEntries, releaseHeld, rowView,
+  appendLive, applyPage, clearOnLock, dayLabel, EMPTY, failLoad, formatTime, matches, mergeEntries, releaseHeld, rowView,
   startLoad, toggleChip, toQuery, type AuditList,
 } from '../src/renderer/audit'
 import { REQUEST_METHODS, type AuditEntry, type AuditRecord } from '../src/shared/protocol'
@@ -13,24 +13,29 @@ const seqs = (l: AuditList) => l.entries.map((e) => e.seq)
 const loaded = (entries: AuditEntry[]): AuditList => ({ ...EMPTY, status: 'loaded', entries })
 
 describe('formatTime', () => {
-  it('shows HH:MM:SS today and the date otherwise', () => {
-    expect(formatTime(iso(T), T)).toBe('14:05:09')
-    expect(formatTime(iso(new Date(2026, 8, 29, 23, 59, 1)), T)).toBe('2026-09-29 23:59:01')
-    expect(formatTime('not a time', T)).toBe('')
+  it('shows HH:MM:SS, and the day as a group label', () => {
+    expect(formatTime(iso(T))).toBe('14:05:09')
+    expect(formatTime('not a time')).toBe('')
+    const day = (d: Date) => dayLabel(iso(d), T)
+    expect(day(T)).toBe('Today')
+    expect(day(new Date(T.getFullYear(), T.getMonth(), T.getDate() - 1, 23, 59, 1))).toBe('Yesterday')
+    expect(day(new Date(2026, 0, 5, 12))).toBe('Mon Jan 05 2026')
+    expect(dayLabel('not a time', T)).toBe('No date')
   })
 })
 
 describe('rowView', () => {
   it('exec: outcome, sudo and wait', () => {
     expect(rowView({ time: iso(T), server: 'box', command: 'rm -rf /tmp/x', outcome: 'denied', sudo: true, waitMs: 12_300 }, T)).toEqual({
-      time: '14:05:09', host: 'box', main: 'rm -rf /tmp/x', side: ['wait 12 s'],
+      time: '14:05:09', day: 'Today', host: 'box', kind: 'exec', alert: true, main: 'rm -rf /tmp/x', side: ['wait 12 s'],
       badges: [{ text: 'denied', tone: 'danger' }, { text: 'sudo', tone: 'danger' }],
     })
   })
   it('exec: an auto run shows auto, its exit code and the masked count', () => {
     const v = rowView({ time: iso(T), server: 'box', command: 'cat .env', outcome: 'allowed', approval: 'auto', exitCode: 0, redacted: { password: 2, token: 1 } }, T)
     expect(v.badges).toEqual([{ text: 'auto', tone: 'auto' }])
-    expect(v.side).toEqual(['exit 0', '3 masked'])
+    expect(v.side).toEqual(['3 masked'])
+    expect(v).toMatchObject({ exit: 0, alert: false })
   })
   it('exec: every other outcome', () => {
     const badges = (r: Partial<AuditRecord>) => rowView({ time: iso(T), command: 'x', ...r }, T).badges.map((b) => b.text)
@@ -42,24 +47,25 @@ describe('rowView', () => {
     expect(badges({ outcome: 'sent_to_tab' })).toEqual(['sent to tab'])
     expect(rowView({ time: iso(T), command: 'x', outcome: 'allowed', waitMs: 400 }, T).side).toEqual(['wait 400 ms'])
   })
-  it('config: the action and its detail', () => {
+  it('config: the detail, with the action as the badge', () => {
     const main = (r: Partial<AuditRecord>) => rowView({ time: iso(T), kind: 'config', ...r }, T).main
-    expect(main({ action: 'autoAllowOn', until: at(15 * 60_000 - 800) })).toBe('autoAllowOn 15m')
-    expect(main({ action: 'autoAllowOn', until: at(2 * 3_600_000) })).toBe('autoAllowOn 2h')
-    expect(main({ action: 'autoAllowOn', forever: true })).toBe('autoAllowOn forever')
-    expect(main({ action: 'save', changed: ['host: a → 10.0.0.2', 'password'] })).toBe('save host: a → 10.0.0.2, password')
-    expect(main({ action: 'autoAllowOff', reason: 'locked' })).toBe('autoAllowOff locked')
-    expect(main({ action: 'delete' })).toBe('delete')
+    expect(main({ action: 'autoAllowOn', until: at(15 * 60_000 - 800) })).toBe('15m')
+    expect(main({ action: 'autoAllowOn', until: at(2 * 3_600_000) })).toBe('2h')
+    expect(main({ action: 'autoAllowOn', forever: true })).toBe('forever')
+    expect(main({ action: 'save', changed: ['host: a → 10.0.0.2', 'password'] })).toBe('host: a → 10.0.0.2, password')
+    expect(main({ action: 'autoAllowOff', reason: 'locked' })).toBe('locked')
+    expect(main({ action: 'delete' })).toBe('')
     expect(rowView({ time: iso(T), kind: 'config', action: 'save', server: 'box' }, T).badges).toEqual([{ text: 'save', tone: 'plain' }])
+    expect(rowView({ time: iso(T), kind: 'config', action: 'forgetHostKey' }, T).badges).toEqual([{ text: 'forget host key', tone: 'plain' }])
   })
   it('shows the hosts of a softLock record', () => {
     const v = rowView({ kind: 'config', action: 'softLock', servers: ['box', 'db'], time: '2026-10-02T08:00:00Z' } as AuditRecord, new Date('2026-10-02T09:00:00Z'))
-    expect(v.main).toBe('softLock box, db')
+    expect(v.main).toBe('box, db')
     expect(v.host).toBe('box, db')
   })
   it('file: the action, the first path and the phase', () => {
     expect(rowView({ time: iso(T), kind: 'file', server: 'box', action: 'upload', phase: 'start', remote: ['/home/u/a.txt', '/home/u/b.txt'] }, T)).toEqual({
-      time: '14:05:09', host: 'box', badges: [{ text: 'upload', tone: 'plain' }], main: '/home/u/a.txt', side: ['start'],
+      time: '14:05:09', day: 'Today', host: 'box', kind: 'file', alert: false, badges: [{ text: 'upload', tone: 'plain' }], main: '/home/u/a.txt', side: ['start'],
     })
     expect(rowView({ time: iso(T), kind: 'file', action: 'rename', from: '/a', to: '/b' }, T).main).toBe('/a → /b')
   })

@@ -1,13 +1,14 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { AuditQuery, AuditRecord, ServerInfo } from '../shared/protocol'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { AuditQuery, ServerInfo } from '../shared/protocol'
 import { displayText } from '../shared/display'
 import { hub } from './transport'
 import { Latest } from './approvals'
 import { Debouncer } from './terminals'
 import {
-  appendLive, applyPage, CHIPS, clearOnLock, EMPTY, failLoad, maskedCount, NO_FILTERS, releaseHeld, rowView,
+  appendLive, applyPage, CHIPS, clearOnLock, EMPTY, failLoad, NO_FILTERS, releaseHeld,
   startLoad, toggleChip, toQuery, type AuditList, type Filters,
 } from './audit'
+import { AuditTable } from './AuditTable'
 import { ChevronDownIcon, RefreshIcon } from './icons'
 
 // The fixed Audit tab. It calls audit.read only when it is shown with the
@@ -98,7 +99,6 @@ export function AuditView({ visible, ready, servers }: { visible: boolean; ready
     if (!n.delete(seq)) n.add(seq)
     return n
   })
-  const now = new Date()
   return (
     <section className="auditview" role="region" aria-label="Audit log" style={{ display: visible ? 'flex' : 'none' }}>
       <div className="audit-toolbar">
@@ -126,27 +126,7 @@ export function AuditView({ visible, ready, servers }: { visible: boolean; ready
           <button type="button" className="btn sm newpill" onClick={() => { toTop(); setList(releaseHeld) }}>{`${list.held.length} new`}</button>
         )}
         <div className="audit-scroll" ref={scroller} onScroll={onScroll}>
-          <table className="audittable">
-            <tbody>
-              {list.entries.map((e) => {
-                const v = rowView(e.record, now)
-                const open = expanded.has(e.seq)
-                return (
-                  <Fragment key={e.seq}>
-                    <tr className="auditrow" data-seq={e.seq} tabIndex={0} aria-expanded={open} onClick={() => toggle(e.seq)}
-                      onKeyDown={(k) => { if (k.key === 'Enter') { k.preventDefault(); toggle(e.seq) } }}>
-                      <td className="when">{v.time}</td>
-                      <td className="host">{displayText(v.host)}</td>
-                      <td className="badges">{v.badges.map((b, i) => <span key={i} className={'chip ' + b.tone}>{displayText(b.text)}</span>)}</td>
-                      <td className="main mono" title={displayText(v.main)}>{displayText(v.main)}</td>
-                      <td className="side">{displayText(v.side.join(' · '))}</td>
-                    </tr>
-                    {open && <tr className="auditdetail"><td colSpan={5}><AuditDetail record={e.record} /></td></tr>}
-                  </Fragment>
-                )
-              })}
-            </tbody>
-          </table>
+          <AuditTable entries={list.entries} expanded={expanded} onToggle={toggle} now={new Date()} />
           {list.status === 'loading' && <p className="muted audit-note">Loading…</p>}
           {list.status === 'loaded' && list.entries.length === 0 && <p className="empty audit-note">No audit records match.</p>}
           {list.next !== undefined && (
@@ -160,31 +140,5 @@ export function AuditView({ visible, ready, servers }: { visible: boolean; ready
         {list.path && <>Audit file: <code>{displayText(list.path)}</code></>}
       </footer>
     </section>
-  )
-}
-
-function AuditDetail({ record: r }: { record: AuditRecord }) {
-  const facts: [string, string][] = []
-  const add = (label: string, v: unknown) => { if (typeof v === 'string' ? v !== '' : typeof v === 'number') facts.push([label, String(v)]) }
-  add('Reason', r.reason)
-  add('Client', r.client)
-  if (typeof r.timeoutSec === 'number') add('Timeout', `${r.timeoutSec} s`)
-  if (typeof r.durationMs === 'number') add('Duration', `${r.durationMs} ms`)
-  const redacted = maskedCount(r) > 0 ? Object.entries(r.redacted ?? {}).filter(([, n]) => typeof n === 'number') : []
-  return (
-    <div className="audit-detail">
-      {!r.kind && typeof r.command === 'string' && <pre className="cmd">{displayText(r.command)}</pre>}
-      {typeof r.description === 'string' && r.description !== '' && (
-        <div className="desc"><span className="desc-label">AI&apos;s description · unverified</span>{displayText(r.description)}</div>
-      )}
-      {facts.length > 0 && (
-        <dl className="audit-facts">{facts.map(([k, v]) => <Fragment key={k}><dt>{k}</dt><dd>{displayText(v)}</dd></Fragment>)}</dl>
-      )}
-      {redacted.length > 0 && <p className="muted">{'Masked: ' + redacted.map(([k, n]) => `${displayText(k)} ×${n}`).join(', ')}</p>}
-      <details>
-        <summary>Raw JSON</summary>
-        <pre className="cmd">{JSON.stringify(r, null, 2).split('\n').map(displayText).join('\n')}</pre>
-      </details>
-    </div>
   )
 }

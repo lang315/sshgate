@@ -8,6 +8,7 @@
   --wait: #E9A23B; --wait-tint: #3A2C14; --ok: #6CC58F; --on-wait: #1A1407;
   --on-danger: #ffffff;
   --auto: #8FA7F0; --auto-tint: #1F2744;
+  --stripe: #20252A; --row-hover: #2B3238;
   --term-bg: #0E1012; --term-fg: #D8D4CC; --code-bg: #0E1012;
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.5);
@@ -21,6 +22,7 @@
   --wait: #8B6123; --wait-tint: #fcefdc; --ok: #3F7A57; --on-wait: #ffffff;
   --on-danger: #ffffff;
   --auto: #3B53A8; --auto-tint: #e3e8fb;
+  --stripe: #ffffff; --row-hover: #e4e8f3;
   --term-bg: #ffffff; --term-fg: #1b1f2e; --code-bg: #eef0f6;
   --shadow: 0 8px 24px rgba(27, 31, 46, 0.12);
   --shadow-sm: 0 2px 8px rgba(27, 31, 46, 0.08);
@@ -329,22 +331,42 @@ input.is-changed { border-color: var(--wait); }
 .audit-error { padding: 8px 12px 0; }
 .audit-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .audit-scroll { flex: 1; min-height: 0; overflow: auto; padding-bottom: 12px; }
-.newpill { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 1; box-shadow: var(--shadow-sm); }
-.audittable { border-collapse: collapse; width: 100%; table-layout: fixed; }
-.audittable td { padding: 6px 8px; border-bottom: 1px solid var(--divider); vertical-align: top; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.newpill { position: absolute; top: 40px; left: 50%; transform: translateX(-50%); z-index: 2; box-shadow: var(--shadow-sm); }
+/* separate, not collapse: a sticky header cell keeps its border only this way. */
+.audittable { border-collapse: separate; border-spacing: 0; width: 100%; table-layout: fixed; }
+.audittable thead th { position: sticky; top: 0; z-index: 1; background: var(--bg); border-bottom: 1px solid var(--line); padding: 8px; text-align: left; font-size: 11px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.audittable td { padding: 9px 8px; border-bottom: 1px solid var(--divider); vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.audittable .twisty { width: 32px; padding-right: 0; padding-left: 12px; color: var(--muted); }
+.audittable .when { width: 92px; }
+.audittable .kind { width: 64px; }
+.audittable .host { width: 140px; }
+.audittable .badges { width: 150px; }
+.audittable .side { width: 180px; text-align: right; padding-right: 12px; }
+.auditday th { background: var(--bg); border-bottom: 1px solid var(--divider); padding: 14px 12px 6px; text-align: left; font-size: 12px; font-weight: 600; color: var(--label); }
 .auditrow { cursor: default; }
-.auditrow:hover { background: var(--raised); }
-.auditrow td.when { width: 150px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.auditrow td.host { width: 140px; }
-.auditrow td.badges { width: 160px; }
+/* Striped by position in the list, not nth-child: day headings and open
+   detail rows sit between the rows. */
+.auditrow.alt { background: var(--stripe); }
+.auditrow.alert { background: color-mix(in srgb, var(--danger-tint) 55%, transparent); }
+.auditrow:hover, .auditrow[aria-expanded="true"] { background: var(--row-hover); }
+.auditrow[aria-expanded="true"] td { border-bottom-color: transparent; }
+.auditrow .twisty .ico { transform: rotate(-90deg); transition: transform 150ms ease-out; }
+.auditrow[aria-expanded="true"] .twisty .ico { transform: none; }
+.auditrow td.when, .auditrow td.side { color: var(--muted); font-variant-numeric: tabular-nums; }
+.auditrow td.kind { color: var(--muted); font-size: 12px; }
+.auditrow td.host { font-weight: 500; }
+.auditrow td.main:not(.mono) { color: var(--label); }
 .auditrow td.badges .chip + .chip { margin-left: 4px; }
-.auditrow td.side { width: 170px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.auditrow td.side .bad { color: var(--wait); font-weight: 600; }
 .chip.plain { background: var(--raised); color: var(--label); }
-.auditdetail td { white-space: normal; background: var(--surface); }
-.audit-detail { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
+.auditrow .chip.plain { background: var(--line); }
+.auditdetail td { white-space: normal; background: var(--row-hover); padding: 2px 12px 14px 44px; border-bottom-color: var(--line); }
+.audit-detail { display: flex; flex-direction: column; gap: 8px; }
 .audit-facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; font-size: 12px; }
 .audit-facts dt { color: var(--muted); }
 .audit-facts dd { margin: 0; overflow-wrap: anywhere; }
+.audit-detail details { font-size: 12px; color: var(--muted); }
+.audit-detail details .cmd { margin-top: 6px; }
 .audit-note { padding: 12px; }
 .audit-older { margin: 12px; }
 .auditview > footer { padding: 6px 12px; border-top: 1px solid var(--divider); word-break: break-all; }

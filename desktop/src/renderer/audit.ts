@@ -67,12 +67,20 @@ export function matches(r: AuditRecord, q: AuditQuery): boolean {
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 const pad = (n: number) => String(n).padStart(2, '0')
 
-// HH:MM:SS local time, with the date in front when it is not today.
-export function formatTime(iso: string, now: Date): string {
+// HH:MM:SS local time. The day is the row group's heading (dayLabel).
+export function formatTime(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
-  const t = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-  return d.toDateString() === now.toDateString() ? t : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${t}`
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+// The heading of a record's day group: Today, Yesterday, or "Tue Sep 29 2026".
+export function dayLabel(iso: string, now: Date): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return 'No date'
+  const day = d.toDateString()
+  if (day === now.toDateString()) return 'Today'
+  return day === new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).toDateString() ? 'Yesterday' : day
 }
 
 const formatWait = (ms: number) => (ms < 1000 ? `${ms} ms` : `${Math.round(ms / 1000)} s`)
@@ -93,7 +101,12 @@ export function maskedCount(r: AuditRecord): number {
 
 export type Tone = 'ai' | 'auto' | 'danger' | 'wait' | 'plain'
 export interface Badge { text: string; tone: Tone }
-export interface RowView { time: string; host: string; badges: Badge[]; main: string; side: string[] }
+// alert marks a row the gate refused or failed (denied, error); exit is an
+// exec's exit code, shown apart from side so a non-zero one can stand out.
+export interface RowView {
+  time: string; day: string; host: string; kind: AuditKind; badges: Badge[]; main: string; side: string[]
+  exit?: number; alert: boolean
+}
 
 const EXEC_BADGE: Record<string, Badge> = {
   allowed: { text: 'allowed', tone: 'ai' },
@@ -105,9 +118,10 @@ const EXEC_BADGE: Record<string, Badge> = {
   error: { text: 'error', tone: 'danger' },
 }
 
-// One table row: time, host, badges, the main text, and the side notes.
+// One table row: time, kind, host, badges, the main text, and the side notes.
 export function rowView(r: AuditRecord, now: Date): RowView {
-  const base = { time: formatTime(str(r.time), now), host: str(r.server) }
+  const kind: AuditKind = r.kind === 'config' || r.kind === 'file' || r.kind === 'tunnel' ? r.kind : 'exec'
+  const base = { time: formatTime(str(r.time)), day: dayLabel(str(r.time), now), host: str(r.server), kind, alert: false }
   const list = (v: unknown): string[] => (Array.isArray(v) ? v.map(str) : [])
   if (!base.host) base.host = list(r.servers).join(', ')
   switch (r.kind) {
@@ -118,7 +132,9 @@ export function rowView(r: AuditRecord, now: Date): RowView {
         : action === 'softLock' ? list(r.servers).join(', ')
           : changed.length ? changed.join(', ')
             : str(r.reason) || str(r.fingerprint) || str(r.oldFingerprint)
-      return { ...base, badges: [{ text: action, tone: 'plain' }], main: detail ? `${action} ${detail}` : action, side: [] }
+      // The badge spaces the camelCase action (autoAllowOn reads "auto allow on");
+      // Raw JSON keeps the stored name, which is what a text search matches.
+      return { ...base, badges: [{ text: action.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase(), tone: 'plain' }], main: detail, side: [] }
     }
     case 'file': {
       const main = r.action === 'rename' ? `${str(r.from)} → ${str(r.to)}` : list(r.remote)[0] ?? ''
@@ -134,11 +150,11 @@ export function rowView(r: AuditRecord, now: Date): RowView {
   if (!auto || outcome !== 'allowed') badges.push(EXEC_BADGE[outcome] ?? { text: outcome, tone: 'plain' })
   if (r.sudo === true) badges.push({ text: 'sudo', tone: 'danger' })
   const side: string[] = []
-  if (typeof r.exitCode === 'number') side.push(`exit ${r.exitCode}`)
   if (typeof r.waitMs === 'number' && r.waitMs > 0) side.push(`wait ${formatWait(r.waitMs)}`)
   const masked = maskedCount(r)
   if (masked > 0) side.push(`${masked} masked`)
-  return { ...base, badges, main: str(r.command), side }
+  const exit = typeof r.exitCode === 'number' ? { exit: r.exitCode } : {}
+  return { ...base, ...exit, alert: outcome === 'denied' || outcome === 'error', badges, main: str(r.command), side }
 }
 
 // The records the tab holds. 'cleared' follows a lock and never loads by

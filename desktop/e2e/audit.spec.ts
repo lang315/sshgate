@@ -53,7 +53,7 @@ test('the Audit tab lists, filters, expands, updates live, and reloads after a l
   const rows = region.locator('tr.auditrow')
   await expect(rows.filter({ hasText: 'echo audit-denied' })).toHaveCount(1)
   await expect(rows.filter({ hasText: 'echo audit-auto' })).toHaveCount(1)
-  await expect(rows.filter({ hasText: 'autoAllowOn 15m' })).toHaveCount(1)
+  await expect(rows.filter({ hasText: /auto allow on\s*15m/ })).toHaveCount(1)
   await expect(region.locator('tr.auditrow td.badges', { hasText: /^save$/ })).toHaveCount(1)
   const seqs = await rows.evaluateAll((els) => els.map((e) => Number(e.getAttribute('data-seq'))))
   expect(seqs).toEqual([...seqs].sort((a, b) => b - a))
