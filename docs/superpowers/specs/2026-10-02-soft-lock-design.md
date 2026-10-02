@@ -1,7 +1,7 @@
 # sshgate: Soft lock — the idle lock keeps auto-allow running — Design
 
 Date: 2026-10-02
-Status: Draft, revised 2026-10-02 after four independent reviews (security, code conformance, architecture, testing). The 24-hour ceiling was decided 2026-10-02. Awaiting the author's review.
+Status: Draft, revised 2026-10-02 after four independent reviews (security, code conformance, architecture, testing). The 24-hour ceiling was decided 2026-10-02. Approved 2026-10-02; plan `plans/2026-10-02-soft-lock.md`.
 Depends on: `2026-09-28-auto-allow-design.md` (with its 2026-09-29 amendment), `2026-09-24-desktop-app-design.md`, `2026-09-30-slice4b-audit-viewer-design.md`. Everything there still holds unless this document changes it by name; where they disagree, this document wins.
 
 This spec reverses four statements of the auto-allow spec:
@@ -196,11 +196,11 @@ No new methods.
 
 ## Desktop
 
-- `Unlock.tsx`: when the list of auto hosts is non-empty, the card shows "AI auto-allow is still running on: `<names>`" (through `displayText`) and a button **Stop auto-allow and lock**. The button calls `hub.lock()`. It needs no password and no 500 ms delay: it only moves to the safer state, like `tunnels.stop` and `files.cancel`, which also work while locked. The sentence "AI requests are refused until you unlock." is shown only when the list is empty.
+- `Unlock.tsx`: when the list of auto hosts is non-empty, the card shows "AI auto-allow is still running on: `<names>`" (names joined plainly, as `AutoAllowPaused` does: they are the author's own labels) and a button **Stop auto-allow and lock**. The button calls `hub.lock()`. It needs no password and no 500 ms delay: it only moves to the safer state, like `tunnels.stop` and `files.cancel`, which also work while locked. The sentence "AI requests are refused until you unlock." is shown only when the list is empty.
 - That list is its own piece of state in `App`, set from `status.autoHosts`. `locked` already triggers a `status` refresh (`status` is not UI activity); `autoAllow.off` removes a name. It is not derived from `servers`, which is empty while locked. The renderer makes no other hub call from a notification or a timer.
 - `dropOnLock` still runs on every `locked`, soft included; the server list it edits is reloaded after unlock, so chips and the paused banner come from the hub's fresh answer. A test pins that a forever host is not shown paused after an unlock from soft lock.
 - The mapping from a `locked` reason to the unlock screen's text becomes a pure function: `idle`, `grantsEnded`, and `softLockLimit` show "Locked after inactivity."; anything else is manual.
-- After an unlock whose reply has `ranWhileLocked`, the Hosts tab shows a dismissible line: "While the app was locked the AI ran N commands on `<names>`." with a button that opens the Audit tab filtered to **Auto**. The Auto-allowed feed does not list those runs.
+- After an unlock whose reply has `ranWhileLocked`, the app's banner slot (shown on every tab) has a dismissible line: "While the app was locked the AI ran N commands on `<names>`. See the Audit tab." The Auto-allowed feed does not list those runs.
 - `AutoAllowDialog`: the text for every mode gains "When the app locks from inactivity, the AI keeps running on this host. Lock by hand to stop it. After 24 hours locked, it stops by itself." The forever text says Resume is needed after a manual lock or a restart. The paused banner's text gains the same sentence, so a forever grant armed before this change is resumed with the new meaning in view.
 - Types to widen: `Status` and the `locked` params in `shared/protocol.ts`, the lock reason in `App.tsx` and `Unlock.tsx`.
 
