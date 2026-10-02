@@ -1,7 +1,7 @@
 # sshgate: Soft lock — the idle lock keeps auto-allow running — Design
 
 Date: 2026-10-02
-Status: Draft, revised 2026-10-02 after four independent reviews (security, code conformance, architecture, testing). Awaiting the author's review; one open question at the end.
+Status: Draft, revised 2026-10-02 after four independent reviews (security, code conformance, architecture, testing). The 24-hour ceiling was decided 2026-10-02. Awaiting the author's review.
 Depends on: `2026-09-28-auto-allow-design.md` (with its 2026-09-29 amendment), `2026-09-24-desktop-app-design.md`, `2026-09-30-slice4b-audit-viewer-design.md`. Everything there still holds unless this document changes it by name; where they disagree, this document wins.
 
 This spec reverses four statements of the auto-allow spec:
@@ -48,6 +48,7 @@ Unattended work still stops when:
 - the renderer crashes: recovery calls `lock`, a hard lock that ends every grant;
 - the hub restarts: it starts hard-locked, and a forever grant is paused until Resume;
 - a timed grant's deadline passes;
+- the soft lock reaches 24 hours;
 - the AI needs a host with no grant, or a `sudo-exec` on a host without the sudo opt-in;
 - the machine sleeps.
 
@@ -65,6 +66,7 @@ A dropped SSH connection is not a limit: the key is present, so the next auto ru
 | `listServers` during soft lock | Granted hosts are reported not locked; all others locked |
 | Requests needing approval during soft lock | Refused at once, with an error that says why |
 | `servers.setAutoAllow` during soft lock | Refused, `off` included; `lock` is the one stop |
+| Maximum soft-lock duration | 24 hours, a constant, then a hard lock; forever grants included |
 
 ## States
 
@@ -83,7 +85,7 @@ Transitions:
 - Unlocked → soft-locked: the idle lock fires and at least one grant is live.
 - Unlocked → hard-locked: the idle lock fires with no live grant; manual Lock; renderer recovery; as today.
 - Soft-locked → unlocked: `unlock` with the right master password. Grants stay armed; a forever grant is not paused.
-- Soft-locked → hard-locked: the last grant ends for any reason, or `lock` is called (the unlock screen's stop button, or renderer recovery). The key is zeroed.
+- Soft-locked → hard-locked: the last grant ends for any reason, `lock` is called (the unlock screen's stop button, or renderer recovery), or the soft lock is 24 hours old. The key is zeroed.
 - Hub restart: starts hard-locked, as today.
 
 ## Hub rules
@@ -92,7 +94,7 @@ Transitions:
 
 `Hub` gains, guarded by `h.mu`:
 
-- `softLocked bool`. `zeroKeyLocked` clears it.
+- `softLocked bool` and `softLockedAt time.Time`, the wall-clock time the soft lock began (`time.Now().Round(0)`, so time asleep counts). `zeroKeyLocked` clears both.
 - `ranLocked map[string]int`: auto runs per server since the soft lock began. Cleared when `unlock` reports it.
 
 `h.unlocked` (the atomic read by the audit sink) changes meaning from "`MasterKey != nil`" to "the UI may be served": key present and not soft-locked. It is set false on entering soft lock and true only by `Unlock` and `CreateVault`.
@@ -148,7 +150,10 @@ Under soft lock `sweepGrants` also ends, with reason "server changed", any grant
 | Unlocked | no | any | nothing |
 | Unlocked | yes | none | hard lock, as today |
 | Unlocked | yes | one or more | enter soft lock; grants stay |
-| Soft-locked | n/a | one or more | nothing (no repeated audit record or notification) |
+| Soft-locked, under 24 h | n/a | one or more | nothing (no repeated audit record or notification) |
+| Soft-locked, 24 h or more | n/a | one or more | hard lock; every grant ends with reason "soft lock limit" |
+
+The ceiling is `maxSoftLock = 24 * time.Hour`, a constant with no flag and no setting. It bounds how long a key and a grant can outlive the human's last input; before this change that bound was the idle period. Like the idle lock, it waits while a request is pending or an approved run is in flight; an auto run in flight does not delay it and is cancelled. A forever grant ended this way keeps its vault flag, so it is paused after the next unlock and needs Resume, as after a manual lock.
 
 `timedGrantLocked` goes away: no grant delays the idle lock. With `--idleLock` disabled (`idle <= 0`) there is no idle lock and so no soft lock. "Soft-locked with no grants" cannot occur (the invariant).
 
@@ -183,7 +188,7 @@ Auto runs under soft lock are audited like any other auto run. The refusals in "
 `ProtocolVersion` becomes 9.
 
 - `status` gains `autoHosts: [name, …]`, present only while soft-locked. `locked` and `autoHosts` are read in one `h.mu` section so they cannot disagree. `locked` is true in that state, so `screenFor` is unchanged.
-- The `locked` notification gains `soft: true` when a soft lock begins (`reason: "idle"`). When a soft lock hardens it is sent again with `reason: "grantsEnded"` or `"manual"` and no `soft`.
+- The `locked` notification gains `soft: true` when a soft lock begins (`reason: "idle"`). When a soft lock hardens it is sent again with `reason: "grantsEnded"`, `"softLockLimit"`, or `"manual"` and no `soft`.
 - The `unlock` reply gains `ranWhileLocked: [{server, count}]` when it ends a soft lock or follows one that hardened, omitted when empty.
 - `decide` can now fail with the locked error.
 
@@ -194,20 +199,20 @@ No new methods.
 - `Unlock.tsx`: when the list of auto hosts is non-empty, the card shows "AI auto-allow is still running on: `<names>`" (through `displayText`) and a button **Stop auto-allow and lock**. The button calls `hub.lock()`. It needs no password and no 500 ms delay: it only moves to the safer state, like `tunnels.stop` and `files.cancel`, which also work while locked. The sentence "AI requests are refused until you unlock." is shown only when the list is empty.
 - That list is its own piece of state in `App`, set from `status.autoHosts`. `locked` already triggers a `status` refresh (`status` is not UI activity); `autoAllow.off` removes a name. It is not derived from `servers`, which is empty while locked. The renderer makes no other hub call from a notification or a timer.
 - `dropOnLock` still runs on every `locked`, soft included; the server list it edits is reloaded after unlock, so chips and the paused banner come from the hub's fresh answer. A test pins that a forever host is not shown paused after an unlock from soft lock.
-- The mapping from a `locked` reason to the unlock screen's text becomes a pure function: `idle` and `grantsEnded` show "Locked after inactivity."; anything else is manual.
+- The mapping from a `locked` reason to the unlock screen's text becomes a pure function: `idle`, `grantsEnded`, and `softLockLimit` show "Locked after inactivity."; anything else is manual.
 - After an unlock whose reply has `ranWhileLocked`, the Hosts tab shows a dismissible line: "While the app was locked the AI ran N commands on `<names>`." with a button that opens the Audit tab filtered to **Auto**. The Auto-allowed feed does not list those runs.
-- `AutoAllowDialog`: the text for every mode gains "When the app locks from inactivity, the AI keeps running on this host. Lock by hand to stop it." The forever text says Resume is needed after a manual lock or a restart. The paused banner's text gains the same sentence, so a forever grant armed before this change is resumed with the new meaning in view.
+- `AutoAllowDialog`: the text for every mode gains "When the app locks from inactivity, the AI keeps running on this host. Lock by hand to stop it. After 24 hours locked, it stops by itself." The forever text says Resume is needed after a manual lock or a restart. The paused banner's text gains the same sentence, so a forever grant armed before this change is resumed with the new meaning in view.
 - Types to widen: `Status` and the `locked` params in `shared/protocol.ts`, the lock reason in `App.tsx` and `Unlock.tsx`.
 
 ## Security rules
 
-- Under soft lock the master key is in memory while the app shows the unlock screen. For a timed grant this is not worse than today, when the key is in memory with the whole UI open until the deadline. For a forever grant it is new: see the open question.
+- Under soft lock the master key is in memory while the app shows the unlock screen. For a timed grant this is not worse than today, when the key is in memory with the whole UI open until the deadline. For a forever grant it is new, and bounded by the 24-hour ceiling.
 - No grant delays the idle lock. A live grant only changes what the lock does. (Pending requests and approved runs still delay it, as today.)
 - Under soft lock the UI door can do nothing it cannot do under a hard lock, and one thing less: it cannot allow a request. It cannot arm, extend, resume, or turn off a grant, or edit a server.
 - The AI cannot cause or extend a soft lock: only a grant armed by the human before the lock keeps a host running, and every per-run check (`snap`, opt-ins, deadline, 2 in flight) still applies. It can tell that a soft lock is on, from `listServers` or from an error.
 - The key never outlives the last live grant.
 - Stopping needs no password. Unlocking always does.
-- Honest limit, restated: a forever grant on an unattended machine lets the AI, and any process running as the same user, run as that account for as long as the app is open. The dialog says so.
+- Honest limit, restated: a forever grant on an unattended machine lets the AI, and any process running as the same user, run as that account for up to 24 hours after the app locks, and without limit while the author keeps using the app. The dialog says so.
 
 ## Testing
 
@@ -222,6 +227,7 @@ Entering and leaving
 - A pending request with a live grant holds off the soft lock. `idle <= 0` never soft-locks.
 - `autoHosts` is absent when unlocked and when hard-locked, and shrinks when one of two grants ends; the hub stays soft-locked.
 - The last grant ending zeroes the key in the same step and sends `locked {reason: "grantsEnded"}` with no `soft`: by deadline in `sweepGrants`, by "server changed" in `autoStart`, and by the new sweep check when the server is hidden or removed in the file. A later tick sends no second `locked`.
+- The ceiling: with `softLockedAt` set 24 hours back by hand, the next tick zeroes the key, ends a forever and a timed grant with "soft lock limit", cancels a run in flight, and sends `locked {reason: "softLockLimit"}`; after `Unlock` the forever host is paused. One second short of 24 hours, nothing happens. A pending request holds it off.
 - `lock` under soft lock: key zeroed, grants ended with "locked", `locked {reason: "manual"}`.
 - `Unlock` with a wrong password under soft lock: still soft-locked, the grant still runs. With the right one: `ranWhileLocked` has the count, and a second unlock does not repeat it.
 
@@ -262,7 +268,3 @@ Desktop:
 - CLAUDE.md: the Auto-allow paragraph (idle sentences, `setAutoAllow` under soft lock), the `Hub.Exec` order and its two resolves, the `h.unlocked` definition, `listServers`, `decide`, protocol 9, and the "refuses every AI exec while the vault is locked" sentence.
 - ROADMAP: record soft lock as a decision that changes the auto-allow rule, and the two deferred defects (monotonic deadlines across sleep; `Unlock` holding `h.mu` during Argon2).
 - `2026-09-28-auto-allow-design.md`: add a line under Status pointing here.
-
-## Open question
-
-**A maximum soft-lock duration.** With a forever grant, the key and the grant now live until the author stops them or quits the app, even long after the AI's task has finished. Before this change both ended at most 15 minutes after the last UI input. Two reviews asked for a ceiling: after N hours of soft lock, hard-lock regardless of grants. The cost is that unattended work longer than N hours stops. Proposed: 24 hours, a constant, not a setting. Undecided.
