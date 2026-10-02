@@ -229,3 +229,88 @@ func TestSoftLockInvariantUnderRace(t *testing.T) {
 		t.Fatal("no soft lock was ever observed: the test did not exercise the invariant")
 	}
 }
+
+// What a locked UI receives: nothing with content. The softLock audit record
+// and a run's record and ran notice are withheld; the lock itself and a
+// grant ending are not.
+func TestUIDoorSoftLockNotifications(t *testing.T) {
+	be := newBlockExec()
+	h, _ := newHub(t, be)
+	c, _, notes := startTermDoor(t, h)
+	if err := c.Call(context.Background(), "status", map[string]any{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
+	}()
+	waitInflight(t, h, "vis", 1)
+
+	// collect gathers notifications for d.
+	collect := func(d time.Duration) []note {
+		var got []note
+		tm := time.After(d)
+		for {
+			select {
+			case n := <-notes:
+				got = append(got, n)
+			case <-tm:
+				return got
+			}
+		}
+	}
+	has := func(ns []note, method string) bool {
+		for _, n := range ns {
+			if n.method == method {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(collect(300*time.Millisecond), "audit.appended") {
+		t.Fatal("no audit.appended while unlocked: the notification channel does not work")
+	}
+
+	idleNow(h)
+	got := collect(300 * time.Millisecond)
+	if len(got) == 0 || got[0].method != "locked" || string(got[0].params) != `{"reason":"idle","soft":true}` {
+		t.Fatalf("first notification after idle = %+v, want locked idle soft", got)
+	}
+	for _, n := range got {
+		if n.method == "audit.appended" || n.method == "autoAllow.ran" {
+			t.Fatalf("locked UI received %s: %s", n.method, n.params)
+		}
+	}
+
+	close(be.release)
+	<-done
+	for _, n := range collect(300 * time.Millisecond) {
+		if n.method == "audit.appended" || n.method == "autoAllow.ran" {
+			t.Fatalf("locked UI received %s after a run: %s", n.method, n.params)
+		}
+	}
+	if ran := h.TakeRanLocked(); len(ran) != 1 || ran[0] != (RanLocked{"vis", 1}) {
+		t.Fatalf("TakeRanLocked = %+v", ran)
+	}
+
+	h.mu.Lock()
+	h.grants["vis"].until = time.Now().Add(-time.Minute)
+	h.mu.Unlock()
+	h.sweepGrants(time.Now())
+	var off, hard bool
+	for _, n := range collect(300 * time.Millisecond) {
+		switch n.method {
+		case "autoAllow.off":
+			off = off || string(n.params) == `{"reason":"expired","server":"vis"}`
+		case "locked":
+			hard = hard || string(n.params) == `{"reason":"grantsEnded"}`
+		}
+	}
+	if !off || !hard {
+		t.Fatalf("grant ended under soft lock: autoAllow.off expired=%v, locked grantsEnded=%v", off, hard)
+	}
+}

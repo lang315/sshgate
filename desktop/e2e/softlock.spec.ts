@@ -52,9 +52,11 @@ test('a second visible host with no grant', async () => {
 
 test('idle with a grant locks the app and keeps the AI running on that host', async () => {
   const win = await l.app.firstWindow()
-  await editAuto(win, 'box', '15m')
+  await editAuto(win, 'box', 'forever')
+  const d = win.getByRole('dialog', { name: 'Auto-allow AI commands on box' })
+  await d.getByLabel('Type box to confirm').fill('box')
   await enable(win, 'box')
-  await expect(card(win, 'box').locator('.chip.auto')).toHaveCount(1)
+  await expect(card(win, 'box').locator('.chip.auto')).toHaveText('Auto ∞')
 
   // No input: DOM waits are not hub calls, so the idle clock runs.
   await expect(win.getByLabel('Master password')).toBeVisible({ timeout: 20000 })
@@ -83,7 +85,7 @@ test('unlock keeps the grant and says what ran', async () => {
   await expect(win.getByText(/While the app was locked the AI ran 1 command on box/)).toBeVisible()
   await expect(win.getByText(/Auto-allow is paused/)).toHaveCount(0)
   await home(win)
-  await expect(card(win, 'box').locator('.chip.auto')).toHaveCount(1)
+  await expect(card(win, 'box').locator('.chip.auto')).toHaveText('Auto ∞')
   expect(await exec('box', 'echo soft-2')).toContain('echo soft-2')
   expect(audit().filter((r) => r.command === 'echo soft-2').pop()).toMatchObject({ outcome: 'allowed', approval: 'auto' })
 })
@@ -91,6 +93,7 @@ test('unlock keeps the grant and says what ran', async () => {
 test('the unlock screen stops auto-allow without the password', async () => {
   const win = await l.app.firstWindow()
   await expect(win.getByLabel('Master password')).toBeVisible({ timeout: 20000 })
+  await expect(win.getByText('AI auto-allow is still running on: box')).toBeVisible()
   await win.getByRole('button', { name: 'Stop auto-allow and lock' }).click()
   await expect(win.getByText('AI auto-allow is still running on: box')).toHaveCount(0)
   await expect(exec('box', 'echo soft-3')).rejects.toThrow(/Vault is locked/)
