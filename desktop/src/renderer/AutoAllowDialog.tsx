@@ -58,8 +58,8 @@ export function AutoAllowDialog({ server, mode, typeName, rootNew, sudoNew, sudo
             )}
             <p className="duration">{chosen}</p>
             <p className="muted">{mode === 'forever'
-              ? 'Stays set after restart. After each unlock it waits for you to click Resume.'
-              : `Ends at ${endsAt}, when you stop it, or when you lock the vault. The vault will not auto-lock before then.`}</p>
+              ? 'Stays set after restart. When the app locks from inactivity, the AI keeps running on this host for up to 24 hours; lock by hand to stop it. After a manual lock or a restart it waits for you to click Resume.'
+              : `Ends at ${endsAt}, when you stop it, or when you lock the vault. When the app locks from inactivity, the AI keeps running on this host until then; lock by hand to stop it.`}</p>
             {typeName && (
               <label className="field">{`Type ${server.name} to confirm`}<input value={typed} onChange={(e) => setTyped(e.target.value)} /></label>
             )}

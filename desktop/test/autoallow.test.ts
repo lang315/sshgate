@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AutoAllowRan, HubEvent, ServerInfo } from '../src/shared/protocol'
-import { applyOff, autoHosts, chipLabel, commandLabel, draftRefusal, dropOnLock, enableAllowed, FEED_CAP, handleAutoEvent, isActive, pausedHosts, pushFeed, SAVED_BUT, saveConfirm, timedNote } from '../src/renderer/autoallow'
+import { applyOff, autoHosts, chipLabel, commandLabel, draftRefusal, dropLockHost, dropOnLock, enableAllowed, FEED_CAP, handleAutoEvent, isActive, lockHostsFrom, pausedHosts, pushFeed, ranLockedText, SAVED_BUT, saveConfirm, timedNote } from '../src/renderer/autoallow'
 import { draftFrom } from '../src/renderer/hostForm'
 
 // The renderer must never call the hub in response to autoAllow.ran or
@@ -200,5 +200,26 @@ describe('draftRefusal', () => {
   it('otherwise undefined: the hub has the final say on the draft\'s other edits', () => {
     const s = pinned()
     expect(draftRefusal(s, { ...draftFrom(s), aiVisible: true })).toBeUndefined()
+  })
+})
+
+describe('soft lock', () => {
+  it('dropLockHost removes one host from the unlock screen list', () => {
+    expect(dropLockHost(['a', 'b'], 'a')).toEqual(['b'])
+    expect(dropLockHost(['a'], 'x')).toEqual(['a'])
+  })
+  it('ranLockedText counts runs across hosts, and is absent when nothing ran', () => {
+    expect(ranLockedText([])).toBeUndefined()
+    expect(ranLockedText([{ server: 'a', count: 1 }])).toBe('While the app was locked the AI ran 1 command on a. See the Audit tab.')
+    expect(ranLockedText([{ server: 'a', count: 2 }, { server: 'b', count: 3 }]))
+      .toBe('While the app was locked the AI ran 5 commands on a, b. See the Audit tab.')
+  })
+})
+
+describe('lockHostsFrom', () => {
+  it('gives [] for no hosts, drops hosts that autoAllow.off removed since the status call began, keeps the rest', () => {
+    expect(lockHostsFrom(undefined, new Set(['a']))).toEqual([])
+    expect(lockHostsFrom(['a', 'b'], new Set(['a']))).toEqual(['b'])
+    expect(lockHostsFrom(['a', 'b'], new Set())).toEqual(['a', 'b'])
   })
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { screenFor } from '../src/renderer/shell'
+import { lockKind, screenFor } from '../src/renderer/shell'
 
 describe('screenFor', () => {
   it('shows the hub screen until the hub runs', () => {
@@ -15,5 +15,15 @@ describe('screenFor', () => {
     expect(screenFor({ kind: 'running' }, { locked: true, hasVault: true }, 'wrong master password'))
       .toEqual({ kind: 'locked', error: 'wrong master password' })
     expect(screenFor({ kind: 'running' }, { locked: false, hasVault: true })).toEqual({ kind: 'ready' })
+  })
+})
+
+describe('lockKind', () => {
+  it('reads every inactivity reason as idle and the rest as manual', () => {
+    expect(lockKind('idle')).toBe('idle')
+    expect(lockKind('grantsEnded')).toBe('idle')
+    expect(lockKind('softLockLimit')).toBe('idle')
+    expect(lockKind('manual')).toBe('manual')
+    expect(lockKind(undefined)).toBe('manual')
   })
 })

@@ -4,7 +4,7 @@ Long-lived plan across every slice. Each slice gets its own spec in
 `specs/` and its own implementation plan in `plans/`, written when that
 slice starts. This file only fixes order, gates, and cross-slice decisions.
 
-Updated: 2026-09-30 (renamed ssh-mcp → sshgate, own public repo lang315/sshgate; slice 2a closed, `sshgate web` removed; 2b split, 2b-1 import done; 3a done, exit gate met on buildpc; 3b done, exit gate met on buildpc; tunnel half-close fixed; per-host auto-allow; slice 4 split into 4a output redaction and 4b audit viewer, audit rotation deferred)
+Updated: 2026-10-02 (soft lock; renamed ssh-mcp → sshgate, own public repo lang315/sshgate; slice 2a closed, `sshgate web` removed; 2b split, 2b-1 import done; 3a done, exit gate met on buildpc; 3b done, exit gate met on buildpc; tunnel half-close fixed; per-host auto-allow; slice 4 split into 4a output redaction and 4b audit viewer, audit rotation deferred)
 
 ## Standing decisions
 
@@ -19,9 +19,10 @@ plan note.
   HTTP or SSE on localhost.
 - Every AI command is approved by a human by default. The human may put one
   host on auto-allow (plain exec by default; root hosts and sudo-exec only
-  when the human opts in per host) for a set time, or until turned off with a
-  Resume after each unlock; it is visible while on, audited, and stoppable at
-  any time (`specs/2026-09-28-auto-allow-design.md`).
+  when the human opts in per host) for a set time, or until turned off; it is
+  visible while on, audited, and stoppable at any time
+  (`specs/2026-09-28-auto-allow-design.md`). The idle lock soft-locks while a
+  grant is live, for at most 24 hours (`specs/2026-10-02-soft-lock-design.md`).
 - The AI never sees a host the user did not mark `AIVisible`, and never
   connects first to a host whose key is not pinned.
 - Vault format: argon2id, AES-GCM per field with AAD, whole-file MAC. Any
@@ -104,3 +105,6 @@ plan note.
 - Auto-allow → 4 (2026-09-28): a host on auto-allow sends its command output to the AI unreviewed; putting a host with secrets on auto-allow meets slice 4's entry gate.
 - Slice 4 split (2026-09-30): audit log rotation is deferred until the log's size matters (the real log is 14 KB); its trigger is a whole-file read that shows in the audit viewer. User-defined patterns, an "Allow unredacted" bypass or per-host opt-out, and entropy-based detection are out of 4a (`specs/2026-09-30-slice4a-output-redaction-design.md`). When 4a's exit gate is met, its row becomes "Done <date of the live check>".
 - 4b → later (2026-09-30): audit rotation stays deferred. Trigger: the audit file is large enough that `audit.read`'s whole-file scan shows in the Audit tab; rotation then comes with a backwards reader from EOF (the `ponytail:` note on `broker.Audit.Read`). Not planned: export (the file is already JSONL, and the tab's footer shows its path), viewing while locked, and MCP-door access (the AI never reads the audit log).
+- Soft lock (2026-10-02, decision): this changes the auto-allow rule. "The idle lock ends every grant" becomes "the idle lock soft-locks while a grant is live, for at most 24 hours": the UI door locks, the key stays, and auto runs on granted hosts continue (`specs/2026-10-02-soft-lock-design.md`). Manual Lock still ends every grant.
+- Soft lock → later (2026-10-02): grant deadlines and the idle clock use monotonic time, which stops while the machine sleeps (`autoallow.go` `until`, `idle.go` `lastActivity`); only the 24-hour ceiling uses wall-clock time. `Unlock` holds `h.mu` during Argon2, which stalls auto runs for each attempt.
+- Soft lock code review → later (2026-10-02): the MCP bridge prints `fatal: context canceled` when it is killed (`cmd/sshgate/main.go` has no clean-exit mapping for `context.Canceled` on the bridge path). A request that reaches the approval broker in the instant before a lock sends its `pending` notification, with the command text, to the locked UI; it cannot run, since `decide` refuses an allow while locked. `hub --cli`'s approver does not check the lock before allowing (the run still fails closed with `ErrLocked`), and its unlock never reports `ranWhileLocked`.

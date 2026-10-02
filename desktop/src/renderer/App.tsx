@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { AutoAllowMode, AutoAllowRan, HostKeyMismatch, HubState, ServerInfo, ServerInput, Status, TunnelState, TunnelView } from '../shared/protocol'
+import type { AutoAllowMode, AutoAllowRan, HostKeyMismatch, HubState, RanWhileLocked, ServerInfo, ServerInput, Status, TunnelState, TunnelView } from '../shared/protocol'
 import { hub } from './transport'
 import { applyState, replayStates, summary } from './tunnels'
-import { autoHosts, dropOnLock, handleAutoEvent, pausedHosts, SAVED_BUT } from './autoallow'
-import { screenFor } from './shell'
+import { autoHosts, dropLockHost, dropOnLock, lockHostsFrom, handleAutoEvent, pausedHosts, ranLockedText, SAVED_BUT } from './autoallow'
+import { lockKind, screenFor } from './shell'
 import { Unlock } from './Unlock'
+import { RanLockedBanner } from './RanLocked'
 import { CreateVault } from './CreateVault'
 import { HostList } from './HostList'
 import { HostEditor } from './HostEditor'
@@ -24,6 +25,11 @@ export function App() {
   const [status, setStatus] = useState<Status>()
   const [unlockError, setUnlockError] = useState<string>()
   const [lockReason, setLockReason] = useState<'idle' | 'manual'>()
+  // The unlock screen's list under a soft lock, and what ran behind it. Both
+  // come from the hub's own replies; neither is derived from `servers`, which
+  // is empty while locked.
+  const [lockHosts, setLockHosts] = useState<string[]>([])
+  const [ranLocked, setRanLocked] = useState<RanWhileLocked[]>([])
   const [servers, setServers] = useState<ServerInfo[]>([])
   const [tunnels, setTunnels] = useState<TunnelView[]>([])
   const [autoFeed, setAutoFeed] = useState<AutoAllowRan[]>([])
@@ -55,15 +61,18 @@ export function App() {
   useEffect(() => { document.documentElement.dataset.theme = theme }, [theme])
   const chooseTheme = (p: ThemePref) => { setThemePref(p); savePref(p) }
 
+  const droppedHosts = useRef(new Set<string>())
   const refresh = useCallback(async () => {
-    try { setStatus(await hub.status()) } catch { setStatus(undefined) }
+    droppedHosts.current.clear()
+    try { const s = await hub.status(); setStatus(s); setLockHosts(lockHostsFrom(s.autoHosts, droppedHosts.current)) } catch { setStatus(undefined); setLockHosts([]) }
   }, [])
 
   useEffect(() => {
     hub.getState().then(setHubState).catch(() => {})
     const offState = hub.onState(setHubState)
     const offEvent = hub.onEvent((e) => {
-      if (e.method === 'locked') { setLockReason(e.params?.reason === 'idle' ? 'idle' : 'manual'); refresh(); setServers(dropOnLock) }
+      if (e.method === 'locked') { setLockReason(lockKind(e.params?.reason)); refresh(); setServers(dropOnLock) }
+      if (e.method === 'autoAllow.off') { droppedHosts.current.add(e.params.server); setLockHosts((cur) => dropLockHost(cur, e.params.server)) }
       // The MCP door reloads the vault file on every AI call: re-read status
       // so a refused reload shows its banner before the user decides.
       if (e.method === 'pending') refresh()
@@ -74,7 +83,7 @@ export function App() {
 
   useEffect(() => {
     if (hubState.kind === 'running') refresh()
-    else { setStatus(undefined); setUnlockError(undefined); setLockReason(undefined) }
+    else { setStatus(undefined); setUnlockError(undefined); setLockReason(undefined); setLockHosts([]); setRanLocked([]) }
   }, [hubState, refresh])
 
   const screen = screenFor(hubState, status, unlockError)
@@ -150,7 +159,10 @@ export function App() {
   }, [screen.kind, hubState.kind])
 
   const unlock = async (pw: string) => {
-    try { await hub.unlock(pw); setUnlockError(undefined); setLockReason(undefined) } catch (e) { setUnlockError((e as Error).message) }
+    try {
+      const r = await hub.unlock(pw)
+      setUnlockError(undefined); setLockReason(undefined); setRanLocked(r.ranWhileLocked ?? [])
+    } catch (e) { setUnlockError((e as Error).message) }
     await refresh()
   }
   const createVault = async (pw: string) => { await hub.createVault(pw); await refresh() }
@@ -195,6 +207,12 @@ export function App() {
   const ready = screen.kind === 'ready'
   useEffect(() => { if (ready) setEverReady(true) }, [ready])
 
+  // The unlock screen's kill switch: like stopAuto, a rejection must never be silent.
+  const stopAndLock = async () => {
+    try { await hub.lock(); setUnlockError(undefined) }
+    catch (e) { setUnlockError(`Could not stop auto-allow: ${(e as Error).message}`) }
+    finally { await refresh() }
+  }
   const lock = async () => { try { await hub.lock(); setUnlockError(undefined); await refresh() } catch { /* the locked/hub-state events recover the UI */ } }
   const autoN = autoHostsSet.size
   const actions = (
@@ -232,13 +250,13 @@ export function App() {
       ) : screen.kind === 'create-vault' ? (
         <CreateVault servers={servers} onCreate={createVault} />
       ) : (
-        <Unlock onUnlock={unlock} error={screen.error} lockReason={lockReason} storePath={status?.storePath} />
+        <Unlock onUnlock={unlock} error={screen.error} lockReason={lockReason} storePath={status?.storePath} autoHosts={lockHosts} onStop={stopAndLock} />
       ))}
       {(ready || everReady) && (
         <div className="shell" style={ready ? undefined : { display: 'none' }} inert={!ready}>
           <main className="work">
             <Terminals ref={terms} theme={theme} hostKeys={hostKeys} onMismatch={setMismatch} onTrusted={reloadServers}
-              home={hostList} actions={actions} banner={<StoreErrorBanner message={status?.storeError} />} servers={servers}
+              home={hostList} actions={actions} banner={<><StoreErrorBanner message={status?.storeError} /><RanLockedBanner text={ranLockedText(ranLocked)} onDismiss={() => setRanLocked([])} /></>} servers={servers}
               onFocusApprovals={focusApprovals} tunnels={tunnels} locked={!!status?.locked} onTunnelsChanged={reloadTunnels}
               autoHosts={autoHostsSet} ready={ready} />
             {/* Inside the work area: the host list and the AI column stay usable beside it. */}

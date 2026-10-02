@@ -25,7 +25,7 @@ rl.on('line', (line) => {
   }
   switch (m.method) {
     case 'hello':
-      return send({ id: m.id, result: { protocol: mode === 'badproto' ? 99 : 8 } })
+      return send({ id: m.id, result: { protocol: mode === 'badproto' ? 99 : 9 } })
     case 'status':
       return send({ id: m.id, result: { locked: true, hasStore: true, pending: 0 } })
     case 'never':

@@ -39,6 +39,12 @@ var (
 	// ErrNoVault: the store has no master password (no file, or a KDF-less
 	// one whose flags and pins were never MAC'd), so the AI gets nothing.
 	ErrNoVault = errors.New("No vault yet; open the app and create one")
+	// ErrAutoBusy and ErrNeedsApproval are what a request on a granted host
+	// gets while the UI is locked and it cannot run under the grant: nobody
+	// can approve it, and "Vault is locked" would be wrong while other runs
+	// on the same host succeed.
+	ErrAutoBusy      = fmt.Errorf("auto-allow is running %d commands on this server; retry when one finishes", maxAutoInflight)
+	ErrNeedsApproval = errors.New("this command needs approval and the app is locked; unlock it in the app")
 )
 
 // errStoreReload is what status shows while the last reload was refused; the
@@ -94,7 +100,7 @@ type ExecResponse struct {
 
 type Hub struct {
 	o       Options
-	mu      sync.Mutex // guards deps.File, deps.MasterKey, storeErr, sinks, lastActivity, running, grants, grantSeq and autoSink; CreateVault, SetAutoAllow, autoAllowOff, SaveServer, DeleteServer and ForgetHostKey each hold it across their own store write, the reload that follows, and ending a server's auto-allow grant, so all of them serialize with each other
+	mu      sync.Mutex // guards deps.File, deps.MasterKey, storeErr, sinks, lastActivity, running, grants, grantSeq, autoKey, sweptFile, softLockedAt, ranLocked and autoSink; CreateVault, SetAutoAllow, autoAllowOff, SaveServer, DeleteServer and ForgetHostKey each hold it across their own store write, the reload that follows, and ending a server's auto-allow grant, so all of them serialize with each other
 	deps    *mcpserver.Deps
 	sink    func(broker.Event)
 	sinkGen uint64 // bumped on every setEventSink; lets release() no-op if superseded
@@ -105,23 +111,28 @@ type Hub struct {
 	tunnels *tunnelSet // every running tunnel; see tunnels.go
 
 	storeErr     error // the last reload's error; guarded by h.mu
-	lockSink     func(reason string)
+	lockSink     func(reason string, gen uint64)
+	lockGen      atomic.Uint64 // bumped, under h.mu, at every lock-state change; a lock note for an older one is stale
 	lockSinkGen  uint64
 	lastActivity time.Time
 	running      int               // approved AI commands currently executing
 	grants       map[string]*grant // auto-allow; see autoallow.go
 	grantSeq     uint64            // ids for grant.inflight
+	autoKey      []byte            // the master key while the UI door is soft-locked; read only by the auto path (resolveAutoLocked) and the vault MAC check (vaultKeyLocked); see softlock.go
+	sweptFile    *config.File      // under soft lock: the vault file the grants were last checked against (sweepGrants); nil before the first sweep of a soft lock and when not soft-locked
+	softLockedAt time.Time         // wall clock (Round(0)), so time asleep counts toward maxSoftLock
+	ranLocked    map[string]int    // auto runs per server finished while the UI was locked; cleared by TakeRanLocked
 	autoSink     func(method string, params any)
 	autoSinkGen  uint64
 	done         chan struct{}
 	closeOnce    sync.Once
-	unlocked     atomic.Bool                                         // deps.MasterKey != nil, for auditAppended, which must not take h.mu
+	unlocked     atomic.Bool                                         // the UI may be served: deps.MasterKey != nil; for auditAppended, which must not take h.mu
 	auditSink    atomic.Pointer[func(seq int, line json.RawMessage)] // see audit.go
 }
 
 // New loads the store if present; a missing store is not an error.
 func New(o Options) (*Hub, error) {
-	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit, files: newJobSet(), tunnels: newTunnelSet(), lastActivity: time.Now(), grants: map[string]*grant{}, done: make(chan struct{})}
+	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit, files: newJobSet(), tunnels: newTunnelSet(), lastActivity: time.Now(), grants: map[string]*grant{}, ranLocked: map[string]int{}, done: make(chan struct{})}
 	if o.Audit != nil {
 		o.Audit.OnAppend(h.auditAppended)
 	}
@@ -182,7 +193,7 @@ func (h *Hub) setEventSink(f func(broker.Event)) (release func()) {
 
 // setLockSink installs f to be told when the vault goes from unlocked to
 // locked; release works like setEventSink's.
-func (h *Hub) setLockSink(f func(reason string)) (release func()) {
+func (h *Hub) setLockSink(f func(reason string, gen uint64)) (release func()) {
 	h.mu.Lock()
 	h.lockSink = f
 	h.lockSinkGen++
@@ -237,6 +248,9 @@ func (h *Hub) Unlock(pw string) error {
 	}
 	clear(h.deps.MasterKey)
 	h.deps.MasterKey = mk
+	clear(h.autoKey)
+	h.autoKey, h.sweptFile, h.softLockedAt = nil, nil, time.Time{}
+	h.lockGen.Add(1)
 	h.unlocked.Store(true)
 	h.lastActivity = time.Now()
 	return nil
@@ -248,27 +262,31 @@ func (h *Hub) Lock() { h.lockWithReason("manual") }
 // lock sink. The sink runs outside h.mu.
 func (h *Hub) lockWithReason(reason string) {
 	h.mu.Lock()
-	sink := h.zeroKeyLocked()
+	note := h.zeroKeyLocked()
 	ended := h.endAllGrantsLocked()
 	h.mu.Unlock()
-	if sink != nil {
-		sink(reason)
+	if note != nil {
+		note(reason)
 	}
 	for _, n := range ended {
 		h.grantEnded(n, "locked")
 	}
 }
 
-// zeroKeyLocked drops the master key with h.mu held. It returns the lock
-// sink to call (outside h.mu) if the vault was unlocked, else nil.
-func (h *Hub) zeroKeyLocked() func(string) {
-	if h.deps.MasterKey == nil {
+// zeroKeyLocked drops both keys with h.mu held, ending a soft lock too. It
+// returns the lock note to send (outside h.mu) if either key was present, else
+// nil.
+func (h *Hub) zeroKeyLocked() lockNote {
+	if h.deps.MasterKey == nil && h.autoKey == nil {
 		return nil
 	}
 	clear(h.deps.MasterKey)
 	h.deps.MasterKey = nil
+	clear(h.autoKey)
+	h.autoKey, h.sweptFile, h.softLockedAt = nil, nil, time.Time{}
+	h.lockGen.Add(1)
 	h.unlocked.Store(false)
-	return h.lockSink
+	return h.lockNoteLocked()
 }
 
 func (h *Hub) Locked() bool {
@@ -277,9 +295,11 @@ func (h *Hub) Locked() bool {
 	return h.lockedLocked()
 }
 
-// lockedLocked reports, with h.mu held, whether an encrypted vault has no
-// key. Its MAC is unchecked then, so every server in it counts as locked,
-// including ones with no encrypted fields.
+// lockedLocked is the strict rule, with h.mu held: an encrypted vault has no
+// key. Without a key its MAC is unchecked, so every server in it counts as
+// locked, including ones with no encrypted fields. Under soft lock the key is
+// in h.autoKey, so this is true then too. Every caller but the AI's auto path
+// (checkGrantLocked) uses this.
 func (h *Hub) lockedLocked() bool {
 	f := h.deps.File
 	return f != nil && f.KDF != nil && h.deps.MasterKey == nil
@@ -339,11 +359,12 @@ func (h *Hub) reloadLocked() (err error) {
 		return nil
 	}
 	// A vault never loses its KDF; one that did lost its MAC check with it.
-	if f.KDF == nil && (h.deps.MasterKey != nil || h.deps.File != nil && h.deps.File.KDF != nil) {
+	key := h.vaultKeyLocked()
+	if f.KDF == nil && (key != nil || h.deps.File != nil && h.deps.File.KDF != nil) {
 		return errors.New("store lost its master password; it was tampered with")
 	}
-	if h.deps.MasterKey != nil {
-		if err := f.VerifyMAC(h.deps.MasterKey); err != nil {
+	if key != nil {
+		if err := f.VerifyMAC(key); err != nil {
 			return err
 		}
 	}
@@ -352,8 +373,8 @@ func (h *Hub) reloadLocked() (err error) {
 }
 
 // ServersForMCP lists AIVisible servers. It works while locked (names are
-// plaintext); then every server is reported locked. With no vault it is
-// empty.
+// plaintext); then every server is reported locked, except, under soft lock,
+// the ones with a live grant. With no vault it is empty.
 func (h *Hub) ServersForMCP() []ServerInfo {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -363,7 +384,7 @@ func (h *Hub) ServersForMCP() []ServerInfo {
 	}
 	for _, s := range h.deps.File.Servers {
 		if s.AIVisible {
-			out = append(out, ServerInfo{Name: s.Name, Locked: h.lockedLocked()})
+			out = append(out, ServerInfo{Name: s.Name, Locked: h.aiLockedLocked(s.Name)})
 		}
 	}
 	return out
@@ -394,9 +415,10 @@ func (h *Hub) record(r broker.AuditRecord) {
 	}
 }
 
-// checkLocked validates the server with h.mu held: a vault exists, the
-// server exists and is AIVisible, unlocked, host key pinned.
-func (h *Hub) checkLocked(name string) error {
+// checkServerLocked validates the server with h.mu held: a vault exists, the
+// server exists and is AIVisible, not locked, host key pinned. locked is the
+// caller's rule: checkLocked's strict one, or checkGrantLocked's.
+func (h *Hub) checkServerLocked(name string, locked bool) error {
 	if h.noVaultLocked() {
 		return ErrNoVault
 	}
@@ -404,13 +426,18 @@ func (h *Hub) checkLocked(name string) error {
 	if !ok || !s.AIVisible {
 		return serverNotFound(name)
 	}
-	if h.lockedLocked() {
+	if locked {
 		return ErrLocked
 	}
 	if s.HostKey == "" {
 		return ErrNoHostKey
 	}
 	return nil
+}
+
+// checkLocked is checkServerLocked under the strict rule.
+func (h *Hub) checkLocked(name string) error {
+	return h.checkServerLocked(name, h.lockedLocked())
 }
 
 // Resolve turns a stored server into a strict DialConfig (no learner: see
@@ -443,9 +470,9 @@ func (h *Hub) resolveLocked(name string) (sshx.DialConfig, error) {
 }
 
 // resolveForAI checks the server (exists, AIVisible, unlocked, pinned) and
-// resolves it in one locked section. Exec calls it before approval, to build
-// the audit redactor, and again after, since the vault may have been locked
-// or reloaded during the wait.
+// resolves it in one locked section, under the strict lock rule. Exec calls
+// it after approval, since the vault may have been locked or reloaded during
+// the wait.
 func (h *Hub) resolveForAI(name string) (sshx.DialConfig, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -457,6 +484,37 @@ func (h *Hub) resolveForAI(name string) (sshx.DialConfig, error) {
 		return sshx.DialConfig{}, &hiddenError{ai: ErrConnFailed, detail: err}
 	}
 	return dc, nil
+}
+
+// resolveForAuto is Exec's first resolve. It uses the grant rule: under soft
+// lock a server with a live grant resolves. autoStart then decides whether
+// the request runs; one that does not never reaches the broker while locked.
+// A failure for a server that has a grant ends the grant ("server changed"),
+// as autoStart does: otherwise this call would fail before autoStart looked,
+// and the grant would hold on, under soft lock with the key in memory. ErrLocked
+// is the exception: a hard lock ends every grant itself, and under soft lock it
+// means the ceiling has passed, which the next tick ends. The error returned
+// is the same either way.
+func (h *Hub) resolveForAuto(name string) (sshx.DialConfig, error) {
+	h.mu.Lock()
+	err := h.checkGrantLocked(name)
+	if err == nil {
+		var dc sshx.DialConfig
+		if dc, err = h.resolveAutoLocked(name); err == nil {
+			h.mu.Unlock()
+			return dc, nil
+		}
+		err = &hiddenError{ai: ErrConnFailed, detail: err}
+	}
+	ended := !errors.Is(err, ErrLocked) && h.endGrantLocked(name)
+	if ended {
+		h.auditGrantEnded(name, "server changed")
+	}
+	h.mu.Unlock()
+	if ended {
+		h.notifyGrantEnded(name, "server changed")
+	}
+	return sshx.DialConfig{}, err
 }
 
 // hiddenError shows the AI only ai; detail is for the audit and stderr.
@@ -500,7 +558,7 @@ func target(dc sshx.DialConfig) string {
 }
 
 func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
-	dc, err := h.resolveForAI(r.Server)
+	dc, err := h.resolveForAuto(r.Server)
 	if err != nil {
 		var he *hiddenError
 		if errors.As(err, &he) {
@@ -530,9 +588,25 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 	req := broker.Request{Client: r.Client, Server: r.Server, Target: target(dc), Command: cmd, Description: r.Description, Sudo: r.Sudo, TimeoutSec: timeout}
 	base := broker.AuditRecord{Time: time.Now(), Client: r.Client, Server: r.Server, Command: red.Redact(cmd), Description: red.Redact(r.Description), Sudo: r.Sudo, TimeoutSec: timeout}
 
-	if ar := h.autoStart(ctx, r.Server, r.Sudo); ar != nil {
+	ar, skip := h.autoStart(ctx, r.Server, r.Sudo)
+	if ar != nil {
 		defer ar.done()
 		return h.autoExec(ar, dc, r, cmd, timeout, base)
+	}
+	// While the UI is locked nobody can decide: fail now instead of pending
+	// for five minutes. Checked after autoStart, so it also covers the run
+	// that just ended the last grant and hard-locked the hub. Not audited,
+	// like the ErrLocked of a host with no grant: ErrAutoBusy tells the AI to
+	// retry, and a polling client would append a record per retry for as long
+	// as the soft lock lasts.
+	if h.Locked() {
+		switch skip {
+		case skipBusy:
+			return ExecResponse{}, ErrAutoBusy
+		case skipSudo:
+			return ExecResponse{}, ErrNeedsApproval
+		}
+		return ExecResponse{}, ErrLocked
 	}
 
 	submitted := time.Now()

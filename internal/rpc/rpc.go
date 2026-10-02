@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"sync"
 	"sync/atomic"
 )
@@ -67,6 +69,14 @@ func (s *Server) HandleRequest(method string, h Handler) {
 	defer s.mu.Unlock()
 	s.handlers[method] = h
 	s.requestOnly[method] = true
+}
+
+// Methods lists every registered method, sorted. Tests use it to prove a
+// table covers the whole door.
+func (s *Server) Methods() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Sorted(maps.Keys(s.handlers))
 }
 
 func (s *Server) write(m message) error {

@@ -1,4 +1,4 @@
-import type { AutoAllowCheck, AutoAllowMode, AutoAllowRan, AutoAllowState, HubEvent, ServerInfo } from '../shared/protocol'
+import type { AutoAllowCheck, AutoAllowMode, AutoAllowRan, AutoAllowState, HubEvent, RanWhileLocked, ServerInfo } from '../shared/protocol'
 import { ALLOW_DELAY_MS } from './approvals'
 import type { HostDraft } from './hostForm'
 
@@ -38,6 +38,20 @@ export const dropOnLock = (servers: ServerInfo[]): ServerInfo[] =>
 
 export const applyOff = (servers: ServerInfo[], server: string): ServerInfo[] =>
   servers.map((s) => (s.name === server ? { ...s, autoAllow: undefined } : s))
+
+// Soft lock (spec 2026-10-02-soft-lock-design.md): the unlock screen's list of
+// hosts still on auto-allow comes from status.autoHosts; autoAllow.off drops
+// one without a hub call.
+// A status reply that was in flight when autoAllow.off arrived must not put the host back.
+export const lockHostsFrom = (autoHosts: string[] | undefined, droppedSince: ReadonlySet<string>) =>
+  (autoHosts ?? []).filter((h) => !droppedSince.has(h))
+export const dropLockHost = (hosts: string[], server: string) => hosts.filter((h) => h !== server)
+
+export function ranLockedText(ran: RanWhileLocked[]): string | undefined {
+  const n = ran.reduce((a, r) => a + r.count, 0)
+  if (n === 0) return undefined
+  return `While the app was locked the AI ran ${n} command${n === 1 ? '' : 's'} on ${ran.map((r) => r.server).join(', ')}. See the Audit tab.`
+}
 
 // handleAutoEvent applies autoAllow.off/autoAllow.ran to renderer state and
 // nothing else: it never calls the hub. Every call but status counts as UI
