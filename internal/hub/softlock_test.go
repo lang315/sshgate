@@ -1,9 +1,12 @@
 package hub
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -366,7 +369,7 @@ func TestSoftLockSweepEndsGrantOfHiddenServer(t *testing.T) {
 }
 
 func TestUnlockFromSoftLockKeepsGrants(t *testing.T) {
-	h, _ := newHub(t, &fakeExec{})
+	h, path := newHub(t, &fakeExec{})
 	if err := h.SetAutoAllow("vis", "forever"); err != nil {
 		t.Fatal(err)
 	}
@@ -394,6 +397,10 @@ func TestUnlockFromSoftLockKeepsGrants(t *testing.T) {
 	if _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}); err != nil {
 		t.Fatalf("exec after unlock: %v", err)
 	}
+	_, recs := readAudit(t, path)
+	if rec := findAutoRecord(t, recs); rec["approval"] != "auto" {
+		t.Fatalf("audit: %v", rec)
+	}
 }
 
 func TestLockUnderSoftLockIsHard(t *testing.T) {
@@ -412,5 +419,244 @@ func TestLockUnderSoftLockIsHard(t *testing.T) {
 	_, recs := readAudit(t, path)
 	if !hasAutoAllowOff(recs, "locked") {
 		t.Fatalf("no autoAllowOff/locked: %v", recs)
+	}
+}
+
+func TestExecUnderSoftLockRunsAuto(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	ran := make(chan string, 4)
+	defer h.setAutoSink(func(method string, _ any) { ran <- method })()
+	idleNow(h)
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}); err != nil {
+		t.Fatalf("exec on a granted host under soft lock: %v", err)
+	}
+	_, recs := readAudit(t, path)
+	if rec := findAutoRecord(t, recs); rec["outcome"] != "allowed" || rec["approval"] != "auto" {
+		t.Fatalf("audit: %v", rec)
+	}
+	select {
+	case m := <-ran:
+		t.Fatalf("%s sent to a locked UI", m)
+	case <-time.After(200 * time.Millisecond):
+	}
+	if got := h.TakeRanLocked(); !reflect.DeepEqual(got, []RanLocked{{Server: "vis", Count: 1}}) {
+		t.Fatalf("TakeRanLocked = %+v", got)
+	}
+	if got := h.TakeRanLocked(); len(got) != 0 {
+		t.Fatalf("second TakeRanLocked = %+v, want empty", got)
+	}
+}
+
+func TestExecUnderSoftLockOtherHostIsLocked(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	addServer(t, h, path, config.Server{Name: "two", Host: "h", Port: 22, User: "u", Auth: "agent", HostKey: "SHA256:abc", AIVisible: true})
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	idleNow(h)
+	before, _ := readAudit(t, path)
+	_, err := h.Exec(context.Background(), ExecRequest{Server: "two", Command: "ls"})
+	if !errors.Is(err, ErrLocked) {
+		t.Fatalf("err = %v, want ErrLocked", err)
+	}
+	if n := len(h.Broker().Pending()); n != 0 {
+		t.Fatalf("pending = %d, want 0", n)
+	}
+	if after, _ := readAudit(t, path); after != before {
+		t.Fatal("a locked refusal on a host with no grant was audited")
+	}
+	// Hidden and nonexistent stay byte-identical.
+	_, e1 := h.Exec(context.Background(), ExecRequest{Server: "hid", Command: "ls"})
+	_, e2 := h.Exec(context.Background(), ExecRequest{Server: "nope", Command: "ls"})
+	if e1 == nil || e2 == nil || e1.Error() != serverNotFound("hid").Error() || e2.Error() != serverNotFound("nope").Error() {
+		t.Fatalf("hidden %v, missing %v", e1, e2)
+	}
+	want := []ServerInfo{{Name: "vis", Locked: false}, {Name: "nokey", Locked: true}, {Name: "two", Locked: true}}
+	if got := h.ServersForMCP(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ServersForMCP = %+v, want %+v", got, want)
+	}
+}
+
+func TestExecUnderSoftLockNeedsApprovalFailsAtOnce(t *testing.T) {
+	be := newBlockExec()
+	h, path := newHubExpiry(t, be, time.Minute) // a request that reached the broker would hang the test
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
+		}()
+	}
+	waitInflight(t, h, "vis", 2)
+	idleNow(h)
+
+	_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "third"})
+	if !errors.Is(err, ErrAutoBusy) {
+		t.Fatalf("third run: %v, want ErrAutoBusy", err)
+	}
+	_, err = h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "id", Sudo: true})
+	if !errors.Is(err, ErrNeedsApproval) {
+		t.Fatalf("sudo without the opt-in: %v, want ErrNeedsApproval", err)
+	}
+	if n := len(h.Broker().Pending()); n != 0 {
+		t.Fatalf("pending = %d, want 0", n)
+	}
+	if grantOf(h, "vis") == nil {
+		t.Fatal("a refusal ended the grant")
+	}
+	_, recs := readAudit(t, path)
+	var reasons []any
+	for _, r := range recs {
+		if r["outcome"] == "error" {
+			reasons = append(reasons, r["reason"])
+		}
+	}
+	if !reflect.DeepEqual(reasons, []any{ErrAutoBusy.Error(), ErrNeedsApproval.Error()}) {
+		t.Fatalf("audited refusals = %v", reasons)
+	}
+	close(be.release)
+	wg.Wait()
+}
+
+// The exec that ends the last grant finds the hub hard-locked, not
+// soft-locked: it must still fail at once and never reach the broker.
+func TestExecThatEndsLastGrantUnderSoftLock(t *testing.T) {
+	h, _ := newHubExpiry(t, &fakeExec{}, time.Minute)
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	idleNow(h)
+	h.mu.Lock()
+	h.grants["vis"].until = time.Now().Add(-time.Second)
+	h.mu.Unlock()
+	_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
+	if !errors.Is(err, ErrLocked) {
+		t.Fatalf("err = %v, want ErrLocked", err)
+	}
+	if n := len(h.Broker().Pending()); n != 0 {
+		t.Fatalf("pending = %d, want 0", n)
+	}
+	if got := stateOf(h); got != (lockState{}) {
+		t.Fatalf("state = %+v, want hard lock", got)
+	}
+}
+
+// A request pending before the soft lock must not run behind the locked UI,
+// even on a granted host. This is the test that fails if the grant rule
+// leaks into the post-approval resolve; it must use the granted host.
+func TestApprovalUnderSoftLockDoesNotRun(t *testing.T) {
+	fe := &fakeExec{}
+	h, _ := newHubExpiry(t, fe, time.Minute)
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := startUI(t, h)
+	errc := make(chan error, 1)
+	go func() {
+		_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "id", Sudo: true})
+		errc <- err
+	}()
+	waitPending(t, h.Broker(), 1)
+	softLockForTest(h)
+	id := h.Broker().Pending()[0].ID
+
+	// Through the door: an allow is refused, a deny is not.
+	err := c.Call(context.Background(), "decide", map[string]string{"id": id, "outcome": "allowed"}, nil)
+	if err == nil || err.Error() != ErrLocked.Error() {
+		t.Fatalf("decide allowed = %v, want the locked error", err)
+	}
+	if n := len(h.Broker().Pending()); n != 1 {
+		t.Fatalf("pending = %d after a refused allow, want 1", n)
+	}
+	// Past the door's check: the post-approval resolve is strict.
+	if err := h.Broker().Decide(id, broker.Decision{Outcome: broker.Allowed}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-errc; !errors.Is(err, ErrLocked) {
+		t.Fatalf("approved run under soft lock = %v, want ErrLocked", err)
+	}
+	if len(fe.calls) != 0 { // read after Exec returned: nothing else writes it
+		t.Fatalf("ran %v behind a locked UI", fe.calls)
+	}
+}
+
+func TestUIDoorUnlockReportsRanWhileLocked(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := startUI(t, h)
+	idleNow(h)
+	for i := 0; i < 2; i++ {
+		if _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var st struct {
+		Locked    bool     `json:"locked"`
+		AutoHosts []string `json:"autoHosts"`
+	}
+	if err := c.Call(context.Background(), "status", nil, &st); err != nil || !st.Locked || !reflect.DeepEqual(st.AutoHosts, []string{"vis"}) {
+		t.Fatalf("status = %+v %v", st, err)
+	}
+	var reply struct {
+		Ran []RanLocked `json:"ranWhileLocked"`
+	}
+	if err := c.Call(context.Background(), "unlock", map[string]string{"password": "pw"}, &reply); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(reply.Ran, []RanLocked{{Server: "vis", Count: 2}}) {
+		t.Fatalf("ranWhileLocked = %+v", reply.Ran)
+	}
+	var raw json.RawMessage
+	if err := c.Call(context.Background(), "status", nil, &raw); err != nil || bytes.Contains(raw, []byte("autoHosts")) {
+		t.Fatalf("status after unlock = %s %v", raw, err)
+	}
+}
+
+func TestExecPastCeilingBeforeTickIsLocked(t *testing.T) {
+	h, _ := newHubExpiry(t, &fakeExec{}, time.Minute)
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	idleNow(h)
+	h.mu.Lock()
+	h.softLockedAt = time.Now().Round(0).Add(-maxSoftLock)
+	h.mu.Unlock()
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}); !errors.Is(err, ErrLocked) {
+		t.Fatalf("exec past the ceiling = %v, want ErrLocked", err)
+	}
+	for _, s := range h.ServersForMCP() {
+		if s.Name == "vis" && !s.Locked {
+			t.Fatal("vis reported unlocked past the ceiling")
+		}
+	}
+}
+
+func TestSoftLockSweepHardLocksWhenReloadFails(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	idleNow(h)
+	locks := captureLocks(h)
+	old := loadStore
+	loadStore = func(string) (*config.File, error) { return nil, errors.New("boom") }
+	defer func() { loadStore = old }()
+	h.sweepGrants(time.Now())
+	if got := stateOf(h); got != (lockState{}) {
+		t.Fatalf("state = %+v, want hard lock", got)
+	}
+	wantLock(t, locks, lockNote{"grantsEnded", false})
+	_, recs := readAudit(t, path)
+	if !hasAutoAllowOff(recs, "server changed") {
+		t.Fatalf("no autoAllowOff/server changed: %v", recs)
 	}
 }

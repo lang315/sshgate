@@ -2,6 +2,7 @@ package hub
 
 import (
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/lang315/sshgate/internal/broker"
@@ -76,4 +77,46 @@ func (h *Hub) grantStaleLocked(name string, g *grant) bool {
 	}
 	dc, err := h.resolveLocked(name)
 	return err != nil || snapOf(dc) != g.snap
+}
+
+// aiLockedLocked is the grant rule, with h.mu held and a vault present: the
+// server is locked to the AI when the key is absent, or under soft lock when
+// it has no live grant or the soft lock has reached its ceiling (otherwise
+// enforced only on the idle tick, so an exec right after a wake from sleep
+// could run first).
+func (h *Hub) aiLockedLocked(name string) bool {
+	if h.deps.MasterKey == nil {
+		return true
+	}
+	if !h.softLocked {
+		return false
+	}
+	return h.grants[name] == nil || time.Now().Round(0).Sub(h.softLockedAt) >= maxSoftLock
+}
+
+// checkGrantLocked is checkServerLocked under the grant rule. It has exactly
+// two callers, resolveForAuto and autoStart; every other path, the
+// post-approval resolve included, stays on checkLocked.
+func (h *Hub) checkGrantLocked(name string) error {
+	return h.checkServerLocked(name, h.aiLockedLocked(name))
+}
+
+// RanLocked is how many auto runs finished on a server while the UI was locked.
+type RanLocked struct {
+	Server string `json:"server"`
+	Count  int    `json:"count"`
+}
+
+// TakeRanLocked returns and clears those counts, sorted by server. The unlock
+// request calls it, so the human sees what ran while they were away.
+func (h *Hub) TakeRanLocked() []RanLocked {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]RanLocked, 0, len(h.ranLocked))
+	for s, n := range h.ranLocked {
+		out = append(out, RanLocked{s, n})
+	}
+	slices.SortFunc(out, func(a, b RanLocked) int { return strings.Compare(a.Server, b.Server) })
+	clear(h.ranLocked)
+	return out
 }

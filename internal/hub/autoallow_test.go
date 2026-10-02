@@ -1632,7 +1632,7 @@ func TestAutoStartFailsClosedWhenServerHidden(t *testing.T) {
 		t.Fatalf("err = %v, want %v", err, serverNotFound("vis"))
 	}
 
-	if ar := h.autoStart(context.Background(), "vis", false); ar != nil {
+	if ar, _ := h.autoStart(context.Background(), "vis", false); ar != nil {
 		t.Fatal("autoStart armed a run for a hidden server")
 	}
 	if g := grantOf(h, "vis"); g != nil {

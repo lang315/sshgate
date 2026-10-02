@@ -91,11 +91,12 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		}
 	})
 	defer release()
-	// sendMu orders audit.appended against locked: the drain checks
-	// h.unlocked and notifies under it, the lock sink notifies under it. The
-	// key is gone and h.unlocked false before the sink runs, so a record sent
-	// under sendMu with unlocked true precedes locked, and one checked after
-	// the lock is dropped. Neither runs under h.mu.
+	// sendMu orders audit.appended and autoAllow.ran against locked: the
+	// drain and the auto sink check h.unlocked and notify under it, the lock
+	// sink notifies under it. h.unlocked is false before the sink runs (the
+	// key may stay, under a soft lock), so a record sent under sendMu with
+	// unlocked true precedes locked, and one checked after the lock is
+	// dropped. None of them runs under h.mu.
 	var sendMu sync.Mutex
 	releaseLock := h.setLockSink(func(reason string, soft bool) {
 		sendMu.Lock()
@@ -107,7 +108,16 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		s.Notify("locked", p)
 	})
 	defer releaseLock()
-	releaseAuto := h.setAutoSink(func(method string, params any) { s.Notify(method, params) })
+	// autoAllow.ran carries the command, so it follows audit.appended's rule:
+	// sent under sendMu, and only while the UI may be served.
+	releaseAuto := h.setAutoSink(func(method string, params any) {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+		if method == "autoAllow.ran" && !h.unlocked.Load() {
+			return
+		}
+		s.Notify(method, params)
+	})
 	defer releaseAuto()
 	// audit.appended goes through a queue with one drain goroutine, so a
 	// writer holding h.mu never waits on the pipe (see auditAppended). The
@@ -172,7 +182,13 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 			Password string `json:"password"`
 		}
 		json.Unmarshal(raw, &p)
-		return empty, h.Unlock(p.Password)
+		if err := h.Unlock(p.Password); err != nil {
+			return nil, err
+		}
+		if ran := h.TakeRanLocked(); len(ran) > 0 {
+			return map[string]any{"ranWhileLocked": ran}, nil
+		}
+		return empty, nil
 	})
 	req("lock", func(context.Context, json.RawMessage) (any, error) {
 		h.Lock()
@@ -283,6 +299,10 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		case broker.Allowed, broker.Denied, broker.SentToTab:
 		default:
 			return nil, &rpc.Error{Code: -32602, Message: "outcome must be allowed, denied, or sent_to_tab"}
+		}
+		// Allow and Send to tab need an open UI; Deny only moves to the safer state.
+		if broker.Outcome(p.Outcome) != broker.Denied && h.Locked() {
+			return nil, ErrLocked
 		}
 		return empty, h.Broker().Decide(p.ID, broker.Decision{Outcome: broker.Outcome(p.Outcome), Reason: p.Reason})
 	})

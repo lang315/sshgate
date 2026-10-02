@@ -39,6 +39,12 @@ var (
 	// ErrNoVault: the store has no master password (no file, or a KDF-less
 	// one whose flags and pins were never MAC'd), so the AI gets nothing.
 	ErrNoVault = errors.New("No vault yet; open the app and create one")
+	// ErrAutoBusy and ErrNeedsApproval are what a request on a granted host
+	// gets while the UI is locked and it cannot run under the grant: nobody
+	// can approve it, and "Vault is locked" would be wrong while other runs
+	// on the same host succeed.
+	ErrAutoBusy      = errors.New("auto-allow is running 2 commands on this server; retry when one finishes")
+	ErrNeedsApproval = errors.New("this command needs approval and the app is locked; unlock it in the app")
 )
 
 // errStoreReload is what status shows while the last reload was refused; the
@@ -94,7 +100,7 @@ type ExecResponse struct {
 
 type Hub struct {
 	o       Options
-	mu      sync.Mutex // guards deps.File, deps.MasterKey, storeErr, sinks, lastActivity, running, grants, grantSeq and autoSink; CreateVault, SetAutoAllow, autoAllowOff, SaveServer, DeleteServer and ForgetHostKey each hold it across their own store write, the reload that follows, and ending a server's auto-allow grant, so all of them serialize with each other
+	mu      sync.Mutex // guards deps.File, deps.MasterKey, storeErr, sinks, lastActivity, running, grants, grantSeq, softLocked, softLockedAt, ranLocked and autoSink; CreateVault, SetAutoAllow, autoAllowOff, SaveServer, DeleteServer and ForgetHostKey each hold it across their own store write, the reload that follows, and ending a server's auto-allow grant, so all of them serialize with each other
 	deps    *mcpserver.Deps
 	sink    func(broker.Event)
 	sinkGen uint64 // bumped on every setEventSink; lets release() no-op if superseded
@@ -359,8 +365,8 @@ func (h *Hub) reloadLocked() (err error) {
 }
 
 // ServersForMCP lists AIVisible servers. It works while locked (names are
-// plaintext); then every server is reported locked. With no vault it is
-// empty.
+// plaintext); then every server is reported locked, except, under soft lock,
+// the ones with a live grant. With no vault it is empty.
 func (h *Hub) ServersForMCP() []ServerInfo {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -370,7 +376,7 @@ func (h *Hub) ServersForMCP() []ServerInfo {
 	}
 	for _, s := range h.deps.File.Servers {
 		if s.AIVisible {
-			out = append(out, ServerInfo{Name: s.Name, Locked: h.lockedLocked()})
+			out = append(out, ServerInfo{Name: s.Name, Locked: h.aiLockedLocked(s.Name)})
 		}
 	}
 	return out
@@ -401,9 +407,10 @@ func (h *Hub) record(r broker.AuditRecord) {
 	}
 }
 
-// checkLocked validates the server with h.mu held: a vault exists, the
-// server exists and is AIVisible, unlocked, host key pinned.
-func (h *Hub) checkLocked(name string) error {
+// checkServerLocked validates the server with h.mu held: a vault exists, the
+// server exists and is AIVisible, not locked, host key pinned. locked is the
+// caller's rule: checkLocked's strict one, or checkGrantLocked's.
+func (h *Hub) checkServerLocked(name string, locked bool) error {
 	if h.noVaultLocked() {
 		return ErrNoVault
 	}
@@ -411,13 +418,18 @@ func (h *Hub) checkLocked(name string) error {
 	if !ok || !s.AIVisible {
 		return serverNotFound(name)
 	}
-	if h.lockedLocked() {
+	if locked {
 		return ErrLocked
 	}
 	if s.HostKey == "" {
 		return ErrNoHostKey
 	}
 	return nil
+}
+
+// checkLocked is checkServerLocked under the strict rule.
+func (h *Hub) checkLocked(name string) error {
+	return h.checkServerLocked(name, h.lockedLocked())
 }
 
 // Resolve turns a stored server into a strict DialConfig (no learner: see
@@ -450,13 +462,29 @@ func (h *Hub) resolveLocked(name string) (sshx.DialConfig, error) {
 }
 
 // resolveForAI checks the server (exists, AIVisible, unlocked, pinned) and
-// resolves it in one locked section. Exec calls it before approval, to build
-// the audit redactor, and again after, since the vault may have been locked
-// or reloaded during the wait.
+// resolves it in one locked section, under the strict lock rule. Exec calls
+// it after approval, since the vault may have been locked or reloaded during
+// the wait.
 func (h *Hub) resolveForAI(name string) (sshx.DialConfig, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if err := h.checkLocked(name); err != nil {
+		return sshx.DialConfig{}, err
+	}
+	dc, err := h.resolveLocked(name)
+	if err != nil {
+		return sshx.DialConfig{}, &hiddenError{ai: ErrConnFailed, detail: err}
+	}
+	return dc, nil
+}
+
+// resolveForAuto is Exec's first resolve. It uses the grant rule: under soft
+// lock a server with a live grant resolves. autoStart then decides whether
+// the request runs; one that does not never reaches the broker while locked.
+func (h *Hub) resolveForAuto(name string) (sshx.DialConfig, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if err := h.checkGrantLocked(name); err != nil {
 		return sshx.DialConfig{}, err
 	}
 	dc, err := h.resolveLocked(name)
@@ -507,7 +535,7 @@ func target(dc sshx.DialConfig) string {
 }
 
 func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
-	dc, err := h.resolveForAI(r.Server)
+	dc, err := h.resolveForAuto(r.Server)
 	if err != nil {
 		var he *hiddenError
 		if errors.As(err, &he) {
@@ -537,9 +565,25 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 	req := broker.Request{Client: r.Client, Server: r.Server, Target: target(dc), Command: cmd, Description: r.Description, Sudo: r.Sudo, TimeoutSec: timeout}
 	base := broker.AuditRecord{Time: time.Now(), Client: r.Client, Server: r.Server, Command: red.Redact(cmd), Description: red.Redact(r.Description), Sudo: r.Sudo, TimeoutSec: timeout}
 
-	if ar := h.autoStart(ctx, r.Server, r.Sudo); ar != nil {
+	ar, skip := h.autoStart(ctx, r.Server, r.Sudo)
+	if ar != nil {
 		defer ar.done()
 		return h.autoExec(ar, dc, r, cmd, timeout, base)
+	}
+	// While the UI is locked nobody can decide: fail now instead of pending
+	// for five minutes. Checked after autoStart, so it also covers the run
+	// that just ended the last grant and hard-locked the hub.
+	if h.Locked() {
+		err := ErrLocked
+		switch skip {
+		case skipBusy:
+			err = ErrAutoBusy
+		case skipSudo:
+			err = ErrNeedsApproval
+		}
+		base.Outcome, base.Reason = "error", err.Error()
+		h.record(base)
+		return ExecResponse{}, err
 	}
 
 	submitted := time.Now()

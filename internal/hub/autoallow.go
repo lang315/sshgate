@@ -395,26 +395,40 @@ type autoRun struct {
 	done func()
 }
 
+// autoSkip is why autoStart returned no run. Exec needs it only while the UI
+// is locked, to tell the AI something truer than "locked".
+type autoSkip int
+
+const (
+	skipNoGrant autoSkip = iota
+	skipBusy             // maxAutoInflight runs already going
+	skipSudo             // sudo-exec without the host's opt-in
+	skipEnded            // this call ended the grant
+)
+
 // autoStart decides, in one h.mu section, whether name's exec runs under its
 // grant, and registers the run. It resolves the server itself and compares
 // it with the grant's snapshot, so the run uses exactly what it checked; any
-// mismatch ends the grant and the request goes to approval. nil: approval. A
+// mismatch ends the grant and the request goes to approval. nil: approval, or
+// a refusal while the UI is locked (see Exec). A
 // sudo request needs its own opt-in (AutoAllowSudo); that check runs after
 // everything that can end the grant, so a changed or expired server still
 // ends it even when the request is sudo.
-func (h *Hub) autoStart(ctx context.Context, name string, sudo bool) *autoRun {
+func (h *Hub) autoStart(ctx context.Context, name string, sudo bool) (*autoRun, autoSkip) {
 	h.mu.Lock()
 	g := h.grants[name]
 	if g == nil {
 		h.mu.Unlock()
-		return nil
+		return nil, skipNoGrant
 	}
-	// checkLocked failing (hidden, deleted, no pin, no vault) must fail
+	// checkGrantLocked failing (hidden, deleted, no pin, no vault) must fail
 	// closed, not just skip this run and leave the grant armed: an identical
 	// server returning later would otherwise resume auto runs with no human
-	// action. ErrLocked is the one exception: a lock in progress ends every
-	// grant itself, so this call must not race that with its own end.
-	if err := h.checkLocked(name); err != nil {
+	// action. ErrLocked is the one exception: with a grant present the grant
+	// rule returns it only when the key is gone or the ceiling has passed, and
+	// a hard lock has ended or is ending every grant itself, so this call must
+	// not race that with its own end.
+	if err := h.checkGrantLocked(name); err != nil {
 		endedByLock := errors.Is(err, ErrLocked)
 		if !endedByLock {
 			h.endGrantLocked(name)
@@ -424,7 +438,7 @@ func (h *Hub) autoStart(ctx context.Context, name string, sudo bool) *autoRun {
 		if !endedByLock {
 			h.notifyGrantEnded(name, "server changed")
 		}
-		return nil
+		return nil, skipEnded
 	}
 	reason := ""
 	s, _ := h.deps.File.FindServer(name)
@@ -437,20 +451,21 @@ func (h *Hub) autoStart(ctx context.Context, name string, sudo bool) *autoRun {
 		fmt.Fprintf(os.Stderr, "hub: auto-allow resolve %q: %v\n", name, err)
 	case autoRefusal(s) != "", snapOf(dc) != g.snap, g.until.IsZero() && !s.AutoAllow:
 		reason = "server changed"
-	case len(g.inflight) >= maxAutoInflight:
-		h.mu.Unlock()
-		return nil
 	}
 	if reason != "" {
 		h.endGrantLocked(name)
 		h.auditGrantEnded(name, reason)
 		h.mu.Unlock()
 		h.notifyGrantEnded(name, reason)
-		return nil
+		return nil, skipEnded
 	}
 	if sudo && !s.AutoAllowSudo { // sudo-exec needs its own opt-in; the grant stays
 		h.mu.Unlock()
-		return nil
+		return nil, skipSudo
+	}
+	if len(g.inflight) >= maxAutoInflight { // after the sudo check: a sudo request can never run, whatever the load
+		h.mu.Unlock()
+		return nil, skipBusy
 	}
 	h.grantSeq++
 	id := h.grantSeq
@@ -462,7 +477,7 @@ func (h *Hub) autoStart(ctx context.Context, name string, sudo bool) *autoRun {
 		delete(g.inflight, id)
 		h.mu.Unlock()
 		cancel()
-	}}
+	}}, skipNoGrant
 }
 
 // autoCmdCap bounds the command text sent to the app's feed.
@@ -491,6 +506,16 @@ func (h *Hub) autoExec(ar *autoRun, dc sshx.DialConfig, r ExecRequest, cmd strin
 	} else {
 		ran["exitCode"] = resp.ExitCode
 	}
+	// Nothing with content goes to a locked UI: count the run instead, for
+	// the unlock reply. ponytail: unlocked is read here and again in the
+	// door's sink, so a run finishing exactly at an unlock can be neither
+	// counted nor shown; the audit log has every run.
+	if !h.unlocked.Load() {
+		h.mu.Lock()
+		h.ranLocked[r.Server]++
+		h.mu.Unlock()
+		return resp, err
+	}
 	h.notifyAuto("autoAllow.ran", ran)
 	return resp, err
 }
@@ -515,9 +540,15 @@ func cutBytes(s string, n int) (string, int) {
 // the deadline exactly.
 func (h *Hub) sweepGrants(now time.Time) {
 	type end struct{ name, reason string }
+	failed := false
 	h.mu.Lock()
 	if h.softLocked {
-		_ = h.reloadLocked() // a failure is remembered as storeError; the last good copy is checked
+		if err := h.reloadLocked(); err != nil {
+			// Fail closed: the vault can no longer be checked, so no grant may
+			// keep the key. The detail stays on stderr, never to the AI.
+			fmt.Fprintf(os.Stderr, "hub: soft lock: vault reload failed: %v\n", err)
+			failed = true
+		}
 	}
 	var ended []end
 	for name, g := range h.grants {
@@ -525,7 +556,7 @@ func (h *Hub) sweepGrants(now time.Time) {
 		switch {
 		case !g.until.IsZero() && !now.Before(g.until):
 			reason = "expired"
-		case h.softLocked && h.grantStaleLocked(name, g):
+		case failed, h.softLocked && h.grantStaleLocked(name, g):
 			reason = "server changed"
 		}
 		if reason != "" {
