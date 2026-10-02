@@ -35,7 +35,7 @@ Claude Code ──stdio──▶ sshgate (bridge) ──per-user socket──▶
 ```
 
 1. The AI calls `exec` through the bridge. The bridge holds no secrets and makes no decisions; it forwards the call to the hub over a socket only your user can open.
-2. The hub checks that the server exists, is visible to AI, has a pinned host key, and that the vault is unlocked. Then it queues the request, unless the host is on [auto-allow](#auto-allow), in which case it runs at once.
+2. The hub checks that the server exists, is visible to AI, has a pinned host key, and that the vault is unlocked (a host on auto-allow also runs while the app is locked from inactivity). Then it queues the request, unless the host is on [auto-allow](#auto-allow), in which case it runs at once.
 3. The app shows the request: server, `user@host:port`, the exact command, and the AI's description (marked unverified). You **Deny**, **Allow**, or **Send to tab**.
 4. On Allow, the hub runs the command over its cached SSH connection, masks every saved secret and every value that looks like a secret (private keys, passwords, tokens) in the output, caps each stream at 64 KiB, writes an audit record, and returns the result to the AI.
 
@@ -92,7 +92,7 @@ Keep the app open while the AI works. When the app is closed, every tool call fa
 
 ### Auto-allow
 
-In a host's editor, open **AI access** (the host must be visible to AI and have a pinned key) and pick a duration in the **Auto-allow** select: 15 min, 30 min, 60 min, 2 h, 4 h, or "Until turned off" (which needs the host name typed to confirm in the confirm dialog Save shows you), then Save. Plain `exec` calls run without a click for that long; the confirm dialog's **Enable** is mouse-only and waits 500 ms, like **Allow**. **Stop** on the host card (always shown while a grant is on), **Stop all auto-allow** in the AI column, locking the vault, or the timer running out all end it. Every run still shows in the AI column's Auto-allowed feed and in the audit log.
+In a host's editor, open **AI access** (the host must be visible to AI and have a pinned key) and pick a duration in the **Auto-allow** select: 15 min, 30 min, 60 min, 2 h, 4 h, or "Until turned off" (which needs the host name typed to confirm in the confirm dialog Save shows you), then Save. Plain `exec` calls run without a click for that long; the confirm dialog's **Enable** is mouse-only and waits 500 ms, like **Allow**. **Stop** on the host card (always shown while a grant is on), **Stop all auto-allow** in the AI column, **Lock** by hand, **Stop auto-allow and lock** on the unlock screen, the timer running out, or 24 hours of inactivity lock all end it. Every run still shows in the AI column's Auto-allowed feed and in the audit log.
 
 Two opt-ins in the same section, off by default and independent of each other, widen what a grant covers:
 
