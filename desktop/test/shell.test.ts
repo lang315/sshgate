@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { lockKind, screenFor } from '../src/renderer/shell'
+import { lockKind, lockTitle, screenFor } from '../src/renderer/shell'
 
 describe('screenFor', () => {
   it('shows the hub screen until the hub runs', () => {
@@ -25,5 +25,12 @@ describe('lockKind', () => {
     expect(lockKind('softLockLimit')).toBe('idle')
     expect(lockKind('manual')).toBe('manual')
     expect(lockKind(undefined)).toBe('manual')
+  })
+})
+
+describe('lockTitle', () => {
+  it('says auto-allow keeps running only while a host is on it', () => {
+    expect(lockTitle(1)).toBe('Auto-allow keeps running while locked')
+    expect(lockTitle(0)).toBeUndefined()
   })
 })

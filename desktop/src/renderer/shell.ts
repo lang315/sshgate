@@ -24,3 +24,8 @@ export function screenFor(
 // idle, including a soft lock that later hardened.
 export const lockKind = (reason: string | undefined): 'idle' | 'manual' =>
   reason === 'idle' || reason === 'grantsEnded' || reason === 'softLockLimit' ? 'idle' : 'manual'
+
+// The Lock button's tooltip: with a host on auto-allow, Lock soft-locks and
+// the AI keeps running there (spec 2026-10-03).
+export const lockTitle = (autoHosts: number): string | undefined =>
+  autoHosts > 0 ? 'Auto-allow keeps running while locked' : undefined

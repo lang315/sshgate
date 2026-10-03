@@ -45,8 +45,11 @@ describe('recoverRenderer', () => {
   it('locks the hub and closes its terminals, then reloads', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const order: string[] = []
-    await recoverRenderer(okHub(order), fakeWin(order), 'crashed', new CrashPolicy())
+    const params: unknown[] = []
+    const hub = { call: async (m: string, p?: unknown) => { order.push(m); params.push(p) } }
+    await recoverRenderer(hub, fakeWin(order), 'crashed', new CrashPolicy())
     expect(order).toEqual(['lock', 'term.closeAll', 'files.cancelAll', 'reload'])
+    expect(params[0]).toEqual({ stopAuto: true }) // a crash stops auto-allow
   })
   it('shows an error page instead of reloading when lock fails', async () => {
     const order: string[] = []

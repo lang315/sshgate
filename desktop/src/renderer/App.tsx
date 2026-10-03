@@ -3,7 +3,7 @@ import type { AutoAllowMode, AutoAllowRan, HostKeyMismatch, HubState, RanWhileLo
 import { hub } from './transport'
 import { applyState, replayStates, summary } from './tunnels'
 import { autoHosts, dropLockHost, dropOnLock, lockHostsFrom, handleAutoEvent, pausedHosts, ranLockedText, SAVED_BUT } from './autoallow'
-import { lockKind, screenFor } from './shell'
+import { lockKind, lockTitle, screenFor } from './shell'
 import { Unlock } from './Unlock'
 import { RanLockedBanner } from './RanLocked'
 import { CreateVault } from './CreateVault'
@@ -209,7 +209,7 @@ export function App() {
 
   // The unlock screen's kill switch: like stopAuto, a rejection must never be silent.
   const stopAndLock = async () => {
-    try { await hub.lock(); setUnlockError(undefined) }
+    try { await hub.lock(true); setUnlockError(undefined) }
     catch (e) { setUnlockError(`Could not stop auto-allow: ${(e as Error).message}`) }
     finally { await refresh() }
   }
@@ -225,7 +225,7 @@ export function App() {
         </button>
       )}
       <ThemeControl pref={themePref} onChange={chooseTheme} />
-      <button type="button" className="btn" onClick={lock}><LockIcon />Lock</button>
+      <button type="button" className="btn" title={lockTitle(autoN)} onClick={lock}><LockIcon />Lock</button>
     </>
   )
   const hostList = (
