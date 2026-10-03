@@ -24,11 +24,11 @@ describe('lockKind', () => {
     expect(lockKind('manual')).toBe('manual')
     expect(lockKind(undefined)).toBe('manual')
   })
-  it('keeps the stored reason when a soft lock hardens, and falls back to idle with none', () => {
+  it('keeps the stored reason when a soft lock hardens, and claims no inactivity with none', () => {
     for (const r of ['grantsEnded', 'softLockLimit']) {
       expect(lockKind(r, 'manual')).toBe('manual')
       expect(lockKind(r, 'idle')).toBe('idle')
-      expect(lockKind(r)).toBe('idle')
+      expect(lockKind(r)).toBe('manual') // the origin's note was dropped as stale: do not guess idle
     }
   })
 })

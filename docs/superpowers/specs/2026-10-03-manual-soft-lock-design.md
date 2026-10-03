@@ -43,7 +43,7 @@ Out:
 |---|---|---|
 | Unlocked, at least one live grant | Soft lock, `locked {reason: "manual"}` | Hard lock, every grant ended with reason "locked", `locked {reason: "manual"}` |
 | Unlocked, no grant | Hard lock, `locked {reason: "manual"}`, as today | Same |
-| Soft-locked | Nothing | Hard lock, every grant ended with reason "locked", `locked {reason: "manual"}` |
+| Soft-locked | Expired grants are swept, as on the idle tick (the last one ending hardens the lock); otherwise nothing | Hard lock, every grant ended with reason "locked", `locked {reason: "manual"}` |
 | Hard-locked | Nothing | Nothing |
 
 Entering soft lock from the Lock button is the same step the idle lock takes (`enterSoftLocked`): the key moves from `deps.MasterKey` to `autoKey`, the lock generation is bumped, one `softLock` audit record is written, and the 24-hour ceiling counts from that moment. Every rule of the soft-lock spec then applies unchanged, whichever lock entered it: the grant rule for AI execs, refusals at once and unaudited for anything else, `servers.setAutoAllow` refused, hardening when the last grant ends, the ceiling, the vault-file sweep, `ranWhileLocked` on unlock, and no Resume needed for a forever grant after unlock.
@@ -62,7 +62,7 @@ The `softLock` config record gains `reason`: `"manual"` when the Lock button ent
 - The Lock button calls `hub.lock()`. While a host is on auto-allow its `title` is "Auto-allow keeps running while locked".
 - `stopAndLock` (the unlock screen's **Stop auto-allow and lock**) calls `hub.lock(true)`. Its text, layout and error line are unchanged.
 - `recoverRenderer` (`window.ts`) calls `lock` with `{stopAuto: true}`: a renderer crash still ends every grant, as the soft-lock spec's Known limits say.
-- The unlock screen lists `status.autoHosts` with the stop button for any soft lock. `lockKind(reason, previous)` keeps the stored reason for `grantsEnded` and `softLockLimit` (they only arrive during a soft lock that an idle or manual lock began), so a manual soft lock that later hardens still reads as a manual lock; with none stored it reads as idle.
+- The unlock screen lists `status.autoHosts` with the stop button for any soft lock. `lockKind(reason, previous)` keeps the stored reason for `grantsEnded` and `softLockLimit` (they only arrive during a soft lock that an idle or manual lock began), so a manual soft lock that later hardens still reads as a manual lock. With none stored (the soft lock's own `locked` note was dropped as stale, because the lock state changed again at once) it reads as manual, which claims no inactivity, rather than guessing idle.
 - The Lock button's handler does not call `refresh()` itself: the `locked` notification that every state-changing lock sends does, and a second concurrent refresh could re-add a host that `autoAllow.off` had removed from the unlock screen.
 - Consent dialog copy: Lock, by hand or from inactivity, does not stop a grant; **Stop auto-allow and lock**, Stop on the host card or Stop all auto-allow does. A forever grant waits for Resume after a restart, the 24-hour limit or **Stop auto-allow and lock**. The paused banner says the AI keeps running "while the app is locked".
 

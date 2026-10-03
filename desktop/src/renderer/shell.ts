@@ -22,10 +22,11 @@ export function screenFor(
 
 // The unlock screen's wording. grantsEnded and softLockLimit only arrive while
 // a soft lock is on, which an idle or manual lock began: the stored reason
-// stays, and only with none (a restart, say) does it read as idle.
+// stays. With none (the soft lock's own note was dropped as stale) it reads as
+// manual, which claims no inactivity, rather than guessing idle.
 export const lockKind = (reason: string | undefined, previous?: 'idle' | 'manual'): 'idle' | 'manual' =>
   reason === 'idle' ? 'idle'
-    : reason === 'grantsEnded' || reason === 'softLockLimit' ? previous ?? 'idle'
+    : reason === 'grantsEnded' || reason === 'softLockLimit' ? previous ?? 'manual'
     : 'manual'
 
 // The Lock button's tooltip: with a host on auto-allow, Lock soft-locks and
