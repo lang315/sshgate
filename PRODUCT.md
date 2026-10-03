@@ -23,7 +23,7 @@ Every AI-issued command blocks on an explicit human Allow by default. The one ex
 ## Operating Context
 
 - Claude Code runs in another window; its `exec`/`sudo-exec` calls arrive as pending requests (at most 5, expiring after 5 minutes) while the user may be typing in a terminal tab (plain exec on a host with an auto-allow grant runs without one, sudo-exec too when the host's sudo opt-in is set).
-- The vault is encrypted (master password, argon2id); the app starts locked and auto-locks after 15 minutes idle. If a host is on auto-allow, the app still locks but the AI keeps running on that host for up to 24 hours. Terminal tabs survive lock and hub restarts.
+- The vault is encrypted (master password, argon2id); the app starts locked and auto-locks after 15 minutes idle. If a host is on auto-allow, the app still locks, whether from idle or by Lock, but the AI keeps running on that host for up to 24 hours. Terminal tabs survive lock and hub restarts.
 - Hosts are added and edited in the app (slice 2a). First connection to a host asks the user to trust its key fingerprint.
 - OS notifications and a tray count signal pending requests when the window is unfocused.
 

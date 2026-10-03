@@ -78,7 +78,7 @@ Go (`internal/hub`):
 - `lock` with an unknown key, or a non-boolean `stopAuto`, is -32602.
 - The idle path's `softLock` record carries `reason: "idle"`.
 
-E2e (`desktop/e2e/softlock.spec.ts`): with a forever grant on `box`, press Lock; the unlock screen names `box`; an `exec` through the real MCP bridge succeeds and is audited `approval: "auto"` after a `softLock` record with `reason: "manual"`; **Stop auto-allow and lock** then makes the next `exec` fail. The existing idle-lock tests stay.
+E2e (`desktop/e2e/manuallock.spec.ts`, its own launch with the default idle lock, so the idle lock cannot fire first; `softlock.spec.ts` runs a 5 s idle lock): with a forever grant on `box`, press Lock; the unlock screen names `box`; an `exec` through the real MCP bridge succeeds and is audited `approval: "auto"` after a `softLock` record with `reason: "manual"`; **Stop auto-allow and lock** then makes the next `exec` fail. The existing idle-lock tests stay in `softlock.spec.ts`.
 
 Unit (`desktop/test`): the Lock button's title with and without hosts on auto-allow.
 

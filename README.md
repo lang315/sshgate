@@ -35,7 +35,7 @@ Claude Code ──stdio──▶ sshgate (bridge) ──per-user socket──▶
 ```
 
 1. The AI calls `exec` through the bridge. The bridge holds no secrets and makes no decisions; it forwards the call to the hub over a socket only your user can open.
-2. The hub checks that the server exists, is visible to AI, has a pinned host key, and that the vault is unlocked (a host on auto-allow also runs while the app is locked from inactivity). Then it queues the request, unless the host is on [auto-allow](#auto-allow), in which case it runs at once.
+2. The hub checks that the server exists, is visible to AI, has a pinned host key, and that the vault is unlocked (a host on auto-allow also runs while the app is locked). Then it queues the request, unless the host is on [auto-allow](#auto-allow), in which case it runs at once.
 3. The app shows the request: server, `user@host:port`, the exact command, and the AI's description (marked unverified). You **Deny**, **Allow**, or **Send to tab**.
 4. On Allow, the hub runs the command over its cached SSH connection, masks every saved secret and every value that looks like a secret (private keys, passwords, tokens) in the output, caps each stream at 64 KiB, writes an audit record, and returns the result to the AI.
 
@@ -87,7 +87,7 @@ Keep the app open while the AI works. When the app is closed, every tool call fa
 - **Host editor.** It never shows a saved password: leave a field empty to keep it, or click **Clear** to remove it. Changing the address or port forgets the pinned key and every password you don't re-enter, closes that server's tabs, and denies its waiting requests.
 - **Host key changed.** A server that presents a different key is refused, and the app shows both fingerprints. If the change was expected, click **Forget host key** in the editor and connect again.
 - **Themes.** Dark, light, or **Auto** (follows the OS), from the ☾ / ☀ / Auto control.
-- **Locking.** After 15 minutes with no activity and nothing pending, the app locks itself; **Lock** does it by hand. If a host is on auto-allow when that happens, the app still locks (terminals, files, tunnels, the editor and approvals need the master password again), but the AI keeps running on that host until the grant ends, 24 hours pass, or you press **Stop auto-allow and lock** on the unlock screen, which needs no password. A timed grant does not keep the app open. While locked, the AI's calls to every other host fail and terminals keep running.
+- **Locking.** After 15 minutes with no activity and nothing pending, the app locks itself; **Lock** does it by hand. If a host is on auto-allow when either happens, the app still locks (terminals, files, tunnels, the editor and approvals need the master password again), but the AI keeps running on that host until the grant ends, 24 hours pass, or you press **Stop auto-allow and lock** on the unlock screen, which needs no password. A timed grant does not keep the app open. While locked, the AI's calls to every other host fail and terminals keep running.
 - **Notifications.** When the window is not focused, a new request shows an OS notification and a count on the tray icon.
 
 ### Auto-allow
@@ -99,7 +99,7 @@ Two opt-ins in the same section, off by default and independent of each other, w
 - **Allow on root hosts** lets a grant run on a `root` login, or a host with a stored su or sudo password. Honest risk: the AI runs as root, and a command it plants can capture the su or sudo password you type or store.
 - **Also auto-allow sudo-exec** lets `sudo-exec` run without asking on a granted host, the same as plain exec. Honest risk: the AI has full root on that host for as long as the grant runs.
 
-A grant "Until turned off" is paused after a manual lock, a restart, or the 24-hour limit until you click **Resume**, not after an inactivity lock. If the hub refuses a grant when you save (for example a `root` host without **Allow on root hosts**), the host edits are still saved and the app tells you auto-allow was not turned on.
+A grant "Until turned off" is paused after a restart or the 24-hour limit until you click **Resume**, not after a lock. If the hub refuses a grant when you save (for example a `root` host without **Allow on root hosts**), the host edits are still saved and the app tells you auto-allow was not turned on.
 
 What stops unattended work on an auto-allowed host:
 
@@ -117,7 +117,7 @@ Closing the window quits the app and stops the hub. There is no Reload; if the r
 ## Safety model
 
 - A human decides every AI command by default. The one exception is a host put on auto-allow: a grant is not a privilege boundary, and anything it leaves running (cron jobs, SSH keys, shell startup files) outlives the grant. If sudoers keeps a global timestamp (`timestamp_type=global`, or an old sudo with `!tty_tickets`), a human running sudo in a terminal lets auto runs use `sudo -n` as root for that ticket's lifetime; sshgate cannot see this. A `sudo` function planted during a grant can capture a password the human types in a terminal on that host.
-- The AI sees only servers marked **Visible to AI**, and only while the vault is unlocked, or, while the app is locked from inactivity, on hosts you put on auto-allow.
+- The AI sees only servers marked **Visible to AI**, and only while the vault is unlocked, or, while the app is locked, on hosts you put on auto-allow.
 - Every connection from the hub verifies a pinned host key. The hub never learns a key on its own; you pin it by clicking **Trust** after seeing the fingerprint.
 - An approval is bound to the `user@host:port` and key you saw. If the server is edited while a request waits, the request fails with "server changed".
 - The vault uses Argon2id for the master key, AES-GCM with per-field authenticated data for each secret, and an HMAC over the whole file. A tampered or corrupt vault file is refused, never overwritten.
@@ -146,7 +146,7 @@ Closing the window quits the app and stops the hub. There is no Reload; if the r
 
 | Tool | Arguments | Notes |
 |---|---|---|
-| `list-servers` | none | Servers visible to AI, one per line; `[locked: unlock the app]` while the vault is locked, except hosts on auto-allow during an inactivity lock. No approval needed. |
+| `list-servers` | none | Servers visible to AI, one per line; `[locked: unlock the app]` while the vault is locked, except hosts on auto-allow while the app is locked. No approval needed. |
 | `exec` | `server` (required, a name from `list-servers`), `command`, `description` (optional, at most 500 bytes), `timeoutSec` (1–600, default 60) | Waits for your decision for up to 5 minutes, then fails as expired. Runs at once on a host with an auto-allow grant. |
 | `sudo-exec` | same as `exec` | Runs `sudo -S` with the saved sudo password, or `sudo -n` if none is saved. Always waits for you, unless the host has a grant and **Also auto-allow sudo-exec** is ticked. |
 
