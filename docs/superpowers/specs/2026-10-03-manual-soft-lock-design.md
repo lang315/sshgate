@@ -18,7 +18,7 @@ Let the author press Lock before walking away while Claude Code works on a host 
 
 Why: today only the idle lock soft-locks. An author who locks by hand, which is the safer habit, ends every grant and finds the task stopped on return. The only way to leave the work running is to leave the app open for 15 minutes and let the idle lock fire.
 
-The change: the Lock button does what the idle lock does. With at least one live grant it soft-locks; with none it hard-locks, as today. Stopping auto-allow becomes an explicit choice, `lock {stopAuto: true}`, made by the unlock screen's existing **Stop auto-allow and lock** button.
+The change: the Lock button does what the idle lock does. With at least one live grant it soft-locks; with none it hard-locks, as today. A grant past its deadline that the sweep has not reached is not live: `LockKeepAuto` runs the grant sweep first (such a grant ends with reason "expired", as on the idle tick), then decides in one `h.mu` section from what is left, so the `softLock` record and `status.autoHosts` list live grants only. Stopping auto-allow becomes an explicit choice, `lock {stopAuto: true}`, made by the unlock screen's existing **Stop auto-allow and lock** button.
 
 What this protects is unchanged from the soft-lock spec: the app's window. The key stays in memory for up to 24 hours while a grant is live, as it already does after an idle lock.
 
@@ -48,7 +48,7 @@ Out:
 
 Entering soft lock from the Lock button is the same step the idle lock takes (`enterSoftLocked`): the key moves from `deps.MasterKey` to `autoKey`, the lock generation is bumped, one `softLock` audit record is written, and the 24-hour ceiling counts from that moment. Every rule of the soft-lock spec then applies unchanged, whichever lock entered it: the grant rule for AI execs, refusals at once and unaudited for anything else, `servers.setAutoAllow` refused, hardening when the last grant ends, the ceiling, the vault-file sweep, `ranWhileLocked` on unlock, and no Resume needed for a forever grant after unlock.
 
-`lock` with no params, or with `{}`, is `stopAuto: false`. Params are decoded strictly (`strictParams`): any key but `stopAuto` is invalid params (-32602). `stopAuto` must be a boolean.
+`lock` with no params, or with `{}`, is `stopAuto: false`. Params are decoded strictly (`strictParams`): any key but `stopAuto` is invalid params (-32602). `stopAuto` must be a boolean: `null`, a string or any other type is invalid params. Fail closed: on invalid params the hub hard-locks first (`Hub.Lock`, every grant ended with reason "locked"), then returns -32602, so a malformed request from the Lock button's path never leaves the UI unlocked.
 
 `lock` still counts as UI activity, as every UI-door request but `status` does; it has no effect on a lock that already happened.
 
@@ -62,7 +62,9 @@ The `softLock` config record gains `reason`: `"manual"` when the Lock button ent
 - The Lock button calls `hub.lock()`. While a host is on auto-allow its `title` is "Auto-allow keeps running while locked".
 - `stopAndLock` (the unlock screen's **Stop auto-allow and lock**) calls `hub.lock(true)`. Its text, layout and error line are unchanged.
 - `recoverRenderer` (`window.ts`) calls `lock` with `{stopAuto: true}`: a renderer crash still ends every grant, as the soft-lock spec's Known limits say.
-- The unlock screen needs no change: it already lists `status.autoHosts` with the stop button for any soft lock, and a `manual` reason reads as a manual lock.
+- The unlock screen lists `status.autoHosts` with the stop button for any soft lock. `lockKind(reason, previous)` keeps the stored reason for `grantsEnded` and `softLockLimit` (they only arrive during a soft lock that an idle or manual lock began), so a manual soft lock that later hardens still reads as a manual lock; with none stored it reads as idle.
+- The Lock button's handler does not call `refresh()` itself: the `locked` notification that every state-changing lock sends does, and a second concurrent refresh could re-add a host that `autoAllow.off` had removed from the unlock screen.
+- Consent dialog copy: Lock, by hand or from inactivity, does not stop a grant; **Stop auto-allow and lock**, Stop on the host card or Stop all auto-allow does. A forever grant waits for Resume after a restart, the 24-hour limit or **Stop auto-allow and lock**. The paused banner says the AI keeps running "while the app is locked".
 
 ## Protocol
 
@@ -76,7 +78,8 @@ Go (`internal/hub`):
 - `stopAuto` from unlocked with a grant, and from soft lock: hard lock, no grant left, an `autoAllowOff` record with reason "locked" per grant.
 - `lock {}` while soft-locked changes nothing: the grant is still live and no second `softLock` record is written.
 - An auto exec runs after a manual soft lock, and a host with no grant is refused with the locked error.
-- `lock` with an unknown key, or a non-boolean `stopAuto`, is -32602.
+- `lock` with an unknown key, a non-boolean `stopAuto` or `stopAuto: null` is -32602 and leaves the hub hard-locked.
+- A forever grant plus an expired, unswept one: soft lock, and the `softLock` record's `servers` lists only the live host; an expired grant alone hard-locks and is ended with reason "expired".
 - The idle path's `softLock` record carries `reason: "idle"`.
 
 E2e (`desktop/e2e/manuallock.spec.ts`, its own launch with the default idle lock, so the idle lock cannot fire first; `softlock.spec.ts` runs a 5 s idle lock): with a forever grant on `box`, press Lock; the unlock screen names `box`; an `exec` through the real MCP bridge succeeds and is audited `approval: "auto"` after a `softLock` record with `reason: "manual"`; **Stop auto-allow and lock** then makes the next `exec` fail. The existing idle-lock tests stay in `softlock.spec.ts`.
