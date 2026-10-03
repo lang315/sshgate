@@ -10,9 +10,9 @@ import (
 	"github.com/lang315/sshgate/internal/sshx"
 )
 
-// Soft lock (spec 2026-10-02-soft-lock-design.md): when the idle lock fires
-// while a grant is live, the UI door locks but the master key is kept for auto
-// runs on granted hosts. The key moves out of deps.MasterKey into h.autoKey,
+// Soft lock (spec 2026-10-02-soft-lock-design.md): when the idle lock fires or
+// the Lock button is pressed while a grant is live, the UI door locks but the
+// master key is kept for auto runs on granted hosts. The key moves out of deps.MasterKey into h.autoKey,
 // which only the auto path (resolveAutoLocked) and the vault MAC check
 // (vaultKeyLocked) read, so every other reader sees a locked vault with no
 // check of its own. Invariant, whenever h.mu is released: autoKey != nil

@@ -1090,9 +1090,9 @@ func TestLockKeepAutoWithoutGrantHardLocks(t *testing.T) {
 }
 
 // A grant past its deadline that the sweep has not reached yet is not live:
-// it must not keep the key.
+// it is ended with reason "expired" and must not keep the key.
 func TestLockKeepAutoWithExpiredGrantHardLocks(t *testing.T) {
-	h, _ := newHub(t, &fakeExec{})
+	h, path := newHub(t, &fakeExec{})
 	if err := h.SetAutoAllow("vis", "15m"); err != nil {
 		t.Fatal(err)
 	}
@@ -1102,6 +1102,41 @@ func TestLockKeepAutoWithExpiredGrantHardLocks(t *testing.T) {
 	h.LockKeepAuto()
 	if got := stateOf(h); got != (lockState{}) {
 		t.Fatalf("state = %+v, want hard lock", got)
+	}
+	_, recs := readAudit(t, path)
+	if !hasAutoAllowOff(recs, "expired") {
+		t.Fatalf("no autoAllowOff/expired: %v", recs)
+	}
+}
+
+// One live grant plus one expired and unswept: soft lock, and only the live
+// host is in the softLock record and in status.autoHosts.
+func TestLockKeepAutoSoftLockListsOnlyLiveGrants(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	addServer(t, h, path, config.Server{Name: "two", Host: "h", Port: 22, User: "u", Auth: "agent", HostKey: "SHA256:abc", AIVisible: true})
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetAutoAllow("two", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	h.grants["two"].until = time.Now().Add(-time.Second)
+	h.mu.Unlock()
+	h.LockKeepAuto()
+	if got := stateOf(h); got != (lockState{soft: true, key: true, grants: 1}) {
+		t.Fatalf("state = %+v, want soft lock with one grant", got)
+	}
+	_, recs := readAudit(t, path)
+	for _, r := range recs {
+		if r["action"] == "softLock" {
+			if s, _ := r["servers"].([]any); len(s) != 1 || s[0] != "vis" {
+				t.Fatalf("softLock servers = %v, want [vis]", r["servers"])
+			}
+		}
+	}
+	if _, hosts := h.lockStatus(); len(hosts) != 1 || hosts[0] != "vis" {
+		t.Fatalf("autoHosts = %v, want [vis]", hosts)
 	}
 }
 

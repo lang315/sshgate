@@ -335,22 +335,28 @@ func TestUIDoorSoftLockNotifications(t *testing.T) {
 }
 
 // The door's lock: {} keeps auto-allow running, {stopAuto: true} stops it,
-// and nothing else is accepted.
+// and nothing else is accepted: invalid params hard-lock (fail closed) before
+// the -32602 error.
 func TestUIDoorLockParams(t *testing.T) {
 	h, path := newHub(t, &fakeExec{})
 	c, _ := startUI(t, h)
 	ctx := context.Background()
-	if err := h.SetAutoAllow("vis", "forever"); err != nil {
-		t.Fatal(err)
-	}
-	for _, bad := range []any{map[string]any{"stop": true}, map[string]any{"stopAuto": "yes"}, []any{}} {
+	for _, bad := range []any{map[string]any{"stop": true}, map[string]any{"stopAuto": "yes"}, map[string]any{"stopAuto": nil}, []any{}} {
+		unlockForTest(h)
+		if err := h.SetAutoAllow("vis", "forever"); err != nil {
+			t.Fatal(err)
+		}
 		var rerr *rpc.Error
 		if err := c.Call(ctx, "lock", bad, nil); !errors.As(err, &rerr) || rerr.Code != -32602 {
 			t.Fatalf("lock %v: %v, want -32602", bad, err)
 		}
+		if got := stateOf(h); got != (lockState{}) {
+			t.Fatalf("lock %v left the state %+v, want hard lock", bad, got)
+		}
 	}
-	if got := stateOf(h); got != (lockState{key: true, grants: 1}) {
-		t.Fatalf("a refused lock changed the state: %+v", got)
+	unlockForTest(h)
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
 	}
 	if err := c.Call(ctx, "lock", map[string]any{}, nil); err != nil {
 		t.Fatal(err)
