@@ -26,7 +26,7 @@ export function Unlock({ onUnlock, error, lockReason, storePath, autoHosts = [],
         {autoHosts.length > 0 && (
           <div className="banner auto" role="status">
             <span>{`AI auto-allow is still running on: ${autoHosts.join(', ')}`}</span>
-            <button type="button" className="btn" onClick={onStop}>Stop auto-allow and lock</button>
+            <button type="button" className="btn sm" onClick={onStop}>Stop auto-allow and lock</button>
           </div>
         )}
         <div className="field">
