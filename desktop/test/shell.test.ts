@@ -19,12 +19,17 @@ describe('screenFor', () => {
 })
 
 describe('lockKind', () => {
-  it('reads every inactivity reason as idle and the rest as manual', () => {
+  it('reads idle as idle and manual or unknown as manual', () => {
     expect(lockKind('idle')).toBe('idle')
-    expect(lockKind('grantsEnded')).toBe('idle')
-    expect(lockKind('softLockLimit')).toBe('idle')
     expect(lockKind('manual')).toBe('manual')
     expect(lockKind(undefined)).toBe('manual')
+  })
+  it('keeps the stored reason when a soft lock hardens, and falls back to idle with none', () => {
+    for (const r of ['grantsEnded', 'softLockLimit']) {
+      expect(lockKind(r, 'manual')).toBe('manual')
+      expect(lockKind(r, 'idle')).toBe('idle')
+      expect(lockKind(r)).toBe('idle')
+    }
   })
 })
 

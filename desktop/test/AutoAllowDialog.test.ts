@@ -51,8 +51,18 @@ describe('AutoAllowDialog', () => {
     expect(html).toContain('keeps running on this host')
   })
 
-  it('says the AI keeps running on a timed grant while locked from inactivity', () => {
-    expect(dialog({ mode: '15m' })).toContain('keeps running on this host')
+  it('says a lock does not stop a grant, and names what does', () => {
+    const stops = 'Stop auto-allow and lock on the unlock screen, Stop on the host card, or Stop all auto-allow'
+    const timed = dialog({ mode: '15m' })
+    expect(timed).toContain('Locking the app, by hand or from inactivity, does not stop it: the AI keeps running on this host until then.')
+    expect(timed).toContain(stops)
+    const forever = dialog({ mode: 'forever' })
+    expect(forever).toContain('Locking the app, by hand or from inactivity, does not stop it: the AI keeps running on this host for up to 24 hours.')
+    expect(forever).toContain(stops)
+    expect(forever).toContain('After a restart, the 24-hour limit, or Stop auto-allow and lock, it waits for you to click Resume.')
+    for (const html of [timed, forever]) {
+      expect(html).not.toMatch(/lock by hand to stop|or when you lock the vault|After a manual lock/)
+    }
   })
 
   it('shows the typed-name input only when typeName is true', () => {
