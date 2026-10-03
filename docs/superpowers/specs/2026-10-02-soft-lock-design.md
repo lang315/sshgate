@@ -4,6 +4,7 @@ Date: 2026-10-02
 Status: Approved 2026-10-02; implemented (plan `plans/2026-10-02-soft-lock.md`). Revised 2026-10-02 after four independent reviews (security, code conformance, architecture, testing). The 24-hour ceiling was decided 2026-10-02.
 Amended during implementation (2026-10-02): sudo is checked before the in-flight cap; the ceiling is also checked on each exec; a failed vault reload under soft lock hard-locks.
 Amended after code review (2026-10-02): the soft-lock key lives in `autoKey`, out of `deps.MasterKey`; a lock generation replaces the `soft` flag; refusals under a locked UI are not audited; `ranLocked` counts only successful runs under soft lock; the sweep checks grants only when the vault file changed; a grant whose server no longer resolves is ended at the first resolve.
+Amended 2026-10-03 by `2026-10-03-manual-soft-lock-design.md`: the Lock button soft-locks too, and the stop is `lock {stopAuto: true}`.
 Depends on: `2026-09-28-auto-allow-design.md` (with its 2026-09-29 amendment), `2026-09-24-desktop-app-design.md`, `2026-09-30-slice4b-audit-viewer-design.md`. Everything there still holds unless this document changes it by name; where they disagree, this document wins.
 
 This spec reverses four statements of the auto-allow spec:

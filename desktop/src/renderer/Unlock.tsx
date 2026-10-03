@@ -4,7 +4,7 @@ import { Mark } from './icons'
 // lockReason is set after an idle or manual lock of a running hub; after a hub
 // restart it is undefined, because the old terminals have ended. autoHosts is
 // non-empty under a soft lock: the AI still runs on those hosts, and onStop
-// (the hub's lock) ends that without the password.
+// (lock with stopAuto) ends that without the password.
 export function Unlock({ onUnlock, error, lockReason, storePath, autoHosts = [], onStop }: {
   onUnlock: (pw: string) => Promise<void>; error?: string; lockReason?: 'idle' | 'manual'; storePath?: string
   autoHosts?: string[]; onStop?: () => void

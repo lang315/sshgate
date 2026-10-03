@@ -265,8 +265,8 @@ func (h *Hub) SetAutoAllow(name, mode string) error {
 // grant, and the flag was already false, or the write itself failed).
 func (h *Hub) autoAllowOff(name, reason string) error {
 	h.mu.Lock()
-	// Under soft lock the one stop is lock, which ends every grant and zeroes
-	// the key. Ending a single grant here could not clear its vault flag.
+	// Under soft lock the one stop is lock {stopAuto: true}, which ends every
+	// grant and zeroes the key. Ending a single grant here could not clear its vault flag.
 	if h.autoKey != nil {
 		h.mu.Unlock()
 		return ErrLocked
@@ -503,7 +503,7 @@ func (h *Hub) autoExec(ar *autoRun, dc sshx.DialConfig, r ExecRequest, cmd strin
 	}
 	// Nothing with content goes to a locked UI: a successful run under soft
 	// lock is counted instead, for the unlock reply. The state is read once,
-	// under h.mu, so a run cancelled by a manual lock, a failed run, or one
+	// under h.mu, so a run cancelled by a stop (a hard lock), a failed run, or one
 	// that finishes with no soft lock is never counted as "ran while locked".
 	// The door's sink also drops autoAllow.ran while locked; the audit log has
 	// every run.

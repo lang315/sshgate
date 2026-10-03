@@ -192,8 +192,28 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		}
 		return empty, nil
 	})
-	req("lock", func(context.Context, json.RawMessage) (any, error) {
-		h.Lock()
+	req("lock", func(_ context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			StopAuto json.RawMessage `json:"stopAuto"` // true or false only: null is invalid
+		}
+		stop := false
+		var err error
+		if len(raw) > 0 && string(raw) != "null" {
+			if err = strictParams(raw, &p, "stopAuto"); err == nil && p.StopAuto != nil {
+				if json.Unmarshal(p.StopAuto, &stop) != nil || string(p.StopAuto) == "null" {
+					err = errBadParams
+				}
+			}
+		}
+		if err != nil {
+			h.Lock() // fail closed: a malformed lock request still locks
+			return nil, err
+		}
+		if stop {
+			h.Lock()
+		} else {
+			h.LockKeepAuto()
+		}
 		return empty, nil
 	})
 	req("vault.create", func(_ context.Context, raw json.RawMessage) (any, error) {

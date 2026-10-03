@@ -3,7 +3,7 @@ import type { AutoAllowMode, AutoAllowRan, HostKeyMismatch, HubState, RanWhileLo
 import { hub } from './transport'
 import { applyState, replayStates, summary } from './tunnels'
 import { autoHosts, dropLockHost, dropOnLock, lockHostsFrom, handleAutoEvent, pausedHosts, ranLockedText, SAVED_BUT } from './autoallow'
-import { lockKind, screenFor } from './shell'
+import { lockKind, lockTitle, screenFor } from './shell'
 import { Unlock } from './Unlock'
 import { RanLockedBanner } from './RanLocked'
 import { CreateVault } from './CreateVault'
@@ -71,7 +71,7 @@ export function App() {
     hub.getState().then(setHubState).catch(() => {})
     const offState = hub.onState(setHubState)
     const offEvent = hub.onEvent((e) => {
-      if (e.method === 'locked') { setLockReason(lockKind(e.params?.reason)); refresh(); setServers(dropOnLock) }
+      if (e.method === 'locked') { setLockReason((prev) => lockKind(e.params?.reason, prev)); refresh(); setServers(dropOnLock) }
       if (e.method === 'autoAllow.off') { droppedHosts.current.add(e.params.server); setLockHosts((cur) => dropLockHost(cur, e.params.server)) }
       // The MCP door reloads the vault file on every AI call: re-read status
       // so a refused reload shows its banner before the user decides.
@@ -209,12 +209,15 @@ export function App() {
 
   // The unlock screen's kill switch: like stopAuto, a rejection must never be silent.
   const stopAndLock = async () => {
-    try { await hub.lock(); setUnlockError(undefined) }
+    try { await hub.lock(true); setUnlockError(undefined) }
     catch (e) { setUnlockError(`Could not stop auto-allow: ${(e as Error).message}`) }
     finally { await refresh() }
   }
-  const lock = async () => { try { await hub.lock(); setUnlockError(undefined); await refresh() } catch { /* the locked/hub-state events recover the UI */ } }
+  // No refresh here: every lock that changes state sends `locked`, whose handler refreshes (a second, concurrent
+  // refresh could re-add a host that autoAllow.off just dropped from the unlock screen); a no-op lock changes nothing.
+  const lock = async () => { try { await hub.lock(); setUnlockError(undefined) } catch { /* the locked/hub-state events recover the UI */ } }
   const autoN = autoHostsSet.size
+  const liveAutoN = autoN - pausedHostsList.length // autoHosts = active + paused, and only a forever grant is paused
   const actions = (
     <>
       {(aiOpen || items.length > 0 || autoN > 0) && (
@@ -225,7 +228,7 @@ export function App() {
         </button>
       )}
       <ThemeControl pref={themePref} onChange={chooseTheme} />
-      <button type="button" className="btn" onClick={lock}><LockIcon />Lock</button>
+      <button type="button" className="btn" title={lockTitle(liveAutoN)} onClick={lock}><LockIcon />Lock</button>
     </>
   )
   const hostList = (

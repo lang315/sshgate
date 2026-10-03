@@ -20,7 +20,16 @@ export function screenFor(
   return { kind: 'ready' }
 }
 
-// The unlock screen's wording: every lock that followed inactivity reads as
-// idle, including a soft lock that later hardened.
-export const lockKind = (reason: string | undefined): 'idle' | 'manual' =>
-  reason === 'idle' || reason === 'grantsEnded' || reason === 'softLockLimit' ? 'idle' : 'manual'
+// The unlock screen's wording. grantsEnded and softLockLimit only arrive while
+// a soft lock is on, which an idle or manual lock began: the stored reason
+// stays. With none (the soft lock's own note was dropped as stale) it reads as
+// manual, which claims no inactivity, rather than guessing idle.
+export const lockKind = (reason: string | undefined, previous?: 'idle' | 'manual'): 'idle' | 'manual' =>
+  reason === 'idle' ? 'idle'
+    : reason === 'grantsEnded' || reason === 'softLockLimit' ? previous ?? 'manual'
+    : 'manual'
+
+// The Lock button's tooltip: with a host on auto-allow, Lock soft-locks and
+// the AI keeps running there (spec 2026-10-03).
+export const lockTitle = (autoHosts: number): string | undefined =>
+  autoHosts > 0 ? 'Auto-allow keeps running while locked' : undefined

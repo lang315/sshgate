@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { lockKind, screenFor } from '../src/renderer/shell'
+import { lockKind, lockTitle, screenFor } from '../src/renderer/shell'
 
 describe('screenFor', () => {
   it('shows the hub screen until the hub runs', () => {
@@ -19,11 +19,23 @@ describe('screenFor', () => {
 })
 
 describe('lockKind', () => {
-  it('reads every inactivity reason as idle and the rest as manual', () => {
+  it('reads idle as idle and manual or unknown as manual', () => {
     expect(lockKind('idle')).toBe('idle')
-    expect(lockKind('grantsEnded')).toBe('idle')
-    expect(lockKind('softLockLimit')).toBe('idle')
     expect(lockKind('manual')).toBe('manual')
     expect(lockKind(undefined)).toBe('manual')
+  })
+  it('keeps the stored reason when a soft lock hardens, and claims no inactivity with none', () => {
+    for (const r of ['grantsEnded', 'softLockLimit']) {
+      expect(lockKind(r, 'manual')).toBe('manual')
+      expect(lockKind(r, 'idle')).toBe('idle')
+      expect(lockKind(r)).toBe('manual') // the origin's note was dropped as stale: do not guess idle
+    }
+  })
+})
+
+describe('lockTitle', () => {
+  it('says auto-allow keeps running only while a host is on it', () => {
+    expect(lockTitle(1)).toBe('Auto-allow keeps running while locked')
+    expect(lockTitle(0)).toBeUndefined()
   })
 })

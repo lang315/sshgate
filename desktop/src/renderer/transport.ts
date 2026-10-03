@@ -44,7 +44,8 @@ export const hub = {
   hello: () => call<{ protocol: number }>('hello'),
   status: () => call<Status>('status'),
   unlock: (password: string) => call<{ ranWhileLocked?: RanWhileLocked[] }>('unlock', { password }),
-  lock: async () => { await call('lock') },
+  // stopAuto ends every auto-allow grant; without it a live grant keeps running behind the lock.
+  lock: async (stopAuto = false) => { await call('lock', stopAuto ? { stopAuto: true } : {}) },
   servers: () => call<ServerInfo[]>('servers'),
   pending: () => call<ApprovalRequest[]>('pending'),
   decide: async (id: string, outcome: 'allowed' | 'denied' | 'sent_to_tab', reason = '') => {

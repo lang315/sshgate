@@ -158,12 +158,13 @@ test('root host: refused until "Allow on root hosts" is ticked, then auto', asyn
   await expect(card(win, 'rootbox').locator('.chip.auto')).toHaveCount(0)
 })
 
-test('lock ends a timed grant', async () => {
+test('Stop auto-allow and lock ends a timed grant', async () => {
   const win = await l.app.firstWindow()
   await editAuto(win, 'box', '15m')
   await enable(win, 'box')
   await expect(card(win, 'box').locator('.chip.auto')).toHaveCount(1)
-  await win.getByRole('button', { name: 'Lock' }).click()
+  await win.getByRole('button', { name: 'Lock', exact: true }).click()
+  await win.getByRole('button', { name: 'Stop auto-allow and lock' }).click()
   await unlockDone(win)
   await expect(card(win, 'box').locator('.chip.auto')).toHaveCount(0)
   expect(configRecs('autoAllowOff', 'box').pop()!.reason).toBe('locked')
@@ -174,7 +175,7 @@ test('lock ends a timed grant', async () => {
   expect(execRec('echo after-lock')!.approval).toBeUndefined()
 })
 
-test('forever grant is paused after unlock until Resume', async () => {
+test('forever grant is paused after Stop auto-allow and lock until Resume', async () => {
   const win = await l.app.firstWindow()
   await editAuto(win, 'box', 'forever')
   const d = win.getByRole('dialog', { name: 'Auto-allow AI commands on box' })
@@ -183,7 +184,8 @@ test('forever grant is paused after unlock until Resume', async () => {
   await expect(card(win, 'box').locator('.chip.auto')).toHaveText('Auto ∞')
   expect(configRecs('autoAllowOn', 'box').pop()!.forever).toBe(true)
 
-  await win.getByRole('button', { name: 'Lock' }).click()
+  await win.getByRole('button', { name: 'Lock', exact: true }).click()
+  await win.getByRole('button', { name: 'Stop auto-allow and lock' }).click()
   await unlockDone(win)
   await expect(win.getByText('Auto-allow is paused on box.').first()).toBeVisible()
   const out = exec('box', 'echo paused-asks')

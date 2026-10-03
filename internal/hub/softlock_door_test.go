@@ -333,3 +333,60 @@ func TestUIDoorSoftLockNotifications(t *testing.T) {
 		t.Fatalf("grant ended under soft lock: autoAllow.off expired=%v, locked grantsEnded=%v", off, hard)
 	}
 }
+
+// The door's lock: {} keeps auto-allow running, {stopAuto: true} stops it,
+// and nothing else is accepted: invalid params hard-lock (fail closed) before
+// the -32602 error.
+func TestUIDoorLockParams(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	c, _ := startUI(t, h)
+	ctx := context.Background()
+	for _, bad := range []any{map[string]any{"stop": true}, map[string]any{"stopAuto": "yes"}, map[string]any{"stopAuto": nil}, []any{}} {
+		unlockForTest(h)
+		if err := h.SetAutoAllow("vis", "forever"); err != nil {
+			t.Fatal(err)
+		}
+		var rerr *rpc.Error
+		if err := c.Call(ctx, "lock", bad, nil); !errors.As(err, &rerr) || rerr.Code != -32602 {
+			t.Fatalf("lock %v: %v, want -32602", bad, err)
+		}
+		if got := stateOf(h); got != (lockState{}) {
+			t.Fatalf("lock %v left the state %+v, want hard lock", bad, got)
+		}
+	}
+	unlockForTest(h)
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Call(ctx, "lock", map[string]any{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := stateOf(h); got != (lockState{soft: true, key: true, grants: 1}) {
+		t.Fatalf("lock {} = %+v, want soft lock", got)
+	}
+	if err := c.Call(ctx, "lock", map[string]any{"stopAuto": true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := stateOf(h); got != (lockState{}) {
+		t.Fatalf("lock {stopAuto: true} = %+v, want hard lock", got)
+	}
+	_, recs := readAudit(t, path)
+	if !hasAutoAllowOff(recs, "locked") {
+		t.Fatalf("no autoAllowOff/locked: %v", recs)
+	}
+}
+
+// lock with no params at all is lock {}.
+func TestUIDoorLockWithoutParamsKeepsAuto(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	c, _ := startUI(t, h)
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Call(context.Background(), "lock", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := stateOf(h); got != (lockState{soft: true, key: true, grants: 1}) {
+		t.Fatalf("lock = %+v, want soft lock", got)
+	}
+}

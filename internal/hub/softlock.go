@@ -10,9 +10,9 @@ import (
 	"github.com/lang315/sshgate/internal/sshx"
 )
 
-// Soft lock (spec 2026-10-02-soft-lock-design.md): when the idle lock fires
-// while a grant is live, the UI door locks but the master key is kept for auto
-// runs on granted hosts. The key moves out of deps.MasterKey into h.autoKey,
+// Soft lock (spec 2026-10-02-soft-lock-design.md): when the idle lock fires or
+// the Lock button is pressed while a grant is live, the UI door locks but the
+// master key is kept for auto runs on granted hosts. The key moves out of deps.MasterKey into h.autoKey,
 // which only the auto path (resolveAutoLocked) and the vault MAC check
 // (vaultKeyLocked) read, so every other reader sees a locked vault with no
 // check of its own. Invariant, whenever h.mu is released: autoKey != nil
@@ -40,12 +40,13 @@ func (h *Hub) lockNoteLocked() lockNote {
 // enterSoftLocked locks the UI door and moves the key to autoKey; h.mu is held
 // and at least one grant is live. The audit record is written after h.unlocked
 // is cleared, so it is not pushed to the UI. It returns the lock note to send
-// outside h.mu.
-func (h *Hub) enterSoftLocked(now time.Time) lockNote {
+// outside h.mu. The callers are lockIfIdle ("idle") and LockKeepAuto
+// ("manual"); reason goes into the audit record.
+func (h *Hub) enterSoftLocked(now time.Time, reason string) lockNote {
 	h.autoKey, h.deps.MasterKey, h.softLockedAt = h.deps.MasterKey, nil, now
 	h.lockGen.Add(1)
 	h.unlocked.Store(false)
-	h.auditConfig(broker.ConfigRecord{Action: "softLock", Servers: h.grantNamesLocked()})
+	h.auditConfig(broker.ConfigRecord{Action: "softLock", Servers: h.grantNamesLocked(), Reason: reason})
 	return h.lockNoteLocked()
 }
 

@@ -258,6 +258,27 @@ func (h *Hub) Unlock(pw string) error {
 
 func (h *Hub) Lock() { h.lockWithReason("manual") }
 
+// LockKeepAuto is the Lock button: with a live grant it soft-locks, as the
+// idle lock does, so the AI keeps running on the granted hosts; with none it
+// hard-locks. Already locked, soft or hard, it changes nothing. Lock is the
+// stop (the UI door's lock with stopAuto).
+func (h *Hub) LockKeepAuto() {
+	h.sweepGrants(time.Now()) // an expired grant is ended, as on the idle tick, and is not live
+	h.mu.Lock()
+	var note lockNote
+	switch {
+	case h.deps.MasterKey == nil:
+	case len(h.grants) > 0:
+		note = h.enterSoftLocked(time.Now().Round(0), "manual")
+	default:
+		note = h.zeroKeyLocked() // no grant to end
+	}
+	h.mu.Unlock()
+	if note != nil {
+		note("manual")
+	}
+}
+
 // lockWithReason zeroes the key and, if the vault was unlocked, tells the
 // lock sink. The sink runs outside h.mu.
 func (h *Hub) lockWithReason(reason string) {

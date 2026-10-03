@@ -54,7 +54,8 @@ export async function recoverRenderer(
 ): Promise<void> {
   console.error('sshgate: renderer gone:', reason)
   const decision = policy.record()
-  const locked = await hub.call('lock', {}, 5000).then(() => true, (e) => {
+  // stopAuto: a renderer crash ends auto-allow (soft-lock spec, Known limits)
+  const locked = await hub.call('lock', { stopAuto: true }, 5000).then(() => true, (e) => {
     if (hubGone(e)) return true
     console.error('sshgate: lock after renderer crash failed:', (e as Error).message)
     return false

@@ -58,8 +58,8 @@ export function AutoAllowDialog({ server, mode, typeName, rootNew, sudoNew, sudo
             )}
             <p className="duration">{chosen}</p>
             <p className="muted">{mode === 'forever'
-              ? 'Stays set after restart. When the app locks from inactivity, the AI keeps running on this host for up to 24 hours; lock by hand to stop it. After a manual lock or a restart it waits for you to click Resume.'
-              : `Ends at ${endsAt}, when you stop it, or when you lock the vault. When the app locks from inactivity, the AI keeps running on this host until then; lock by hand to stop it.`}</p>
+              ? 'Stays set after restart. Locking the app, by hand or from inactivity, does not stop it: the AI keeps running on this host for up to 24 hours. To stop it, use Stop auto-allow and lock on the unlock screen, Stop on the host card, or Stop all auto-allow. After a restart, the 24-hour limit, or Stop auto-allow and lock, it waits for you to click Resume.'
+              : `Ends at ${endsAt} or when you stop it. Locking the app, by hand or from inactivity, does not stop it: the AI keeps running on this host until then. To stop it, use Stop auto-allow and lock on the unlock screen, Stop on the host card, or Stop all auto-allow.`}</p>
             {typeName && (
               <label className="field">{`Type ${server.name} to confirm`}<input value={typed} onChange={(e) => setTyped(e.target.value)} /></label>
             )}

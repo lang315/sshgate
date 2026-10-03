@@ -205,8 +205,8 @@ func TestUIDoorHelloAndLockedNotification(t *testing.T) {
 	if err := c.Call(context.Background(), "hello", nil, &hello); err != nil || hello.Protocol != ProtocolVersion {
 		t.Fatalf("hello: %v %+v", err, hello)
 	}
-	if hello.Protocol != 9 {
-		t.Fatalf("protocol = %d, want 9", hello.Protocol)
+	if hello.Protocol != 10 {
+		t.Fatalf("protocol = %d, want 10", hello.Protocol)
 	}
 	if err := c.Call(context.Background(), "unlock", map[string]string{"password": "pw"}, nil); err != nil {
 		t.Fatal(err)
