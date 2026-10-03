@@ -2,6 +2,7 @@ package broker
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -318,7 +319,7 @@ func TestAuditReadFilters(t *testing.T) {
 			t.Errorf("%s: seqs %v, want %v", c.name, got, c.want)
 		}
 		if res.Skipped != 1 {
-			t.Errorf("%s: skipped %d, want 1 (whole file)", c.name, res.Skipped)
+			t.Errorf("%s: skipped %d, want 1 (the scan reached the start of the file)", c.name, res.Skipped)
 		}
 		if res.Next != 0 {
 			t.Errorf("%s: next %d with nothing older", c.name, res.Next)
@@ -584,5 +585,121 @@ func TestAuditReadServerMatchesSoftLockServers(t *testing.T) {
 		if got := seqsOf(res); !slices.Equal(got, want) {
 			t.Errorf("server %q: seqs %v, want %v", server, got, want)
 		}
+	}
+}
+
+// rawAudit opens an audit log holding exactly these lines.
+func rawAudit(t *testing.T, lines []string) *Audit {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a, err := OpenAudit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { a.Close() })
+	return a
+}
+
+// Read walks the file backwards in 64 KiB chunks: a line longer than a chunk,
+// and lines cut by a chunk edge, must come back whole and in order.
+func TestAuditReadLinesAcrossChunks(t *testing.T) {
+	var lines []string
+	for i := 1; i <= 300; i++ {
+		pad := 60
+		if i%50 == 0 {
+			pad = 150 << 10
+		}
+		lines = append(lines, fmt.Sprintf(`{"command":"%d-%s","outcome":"allowed"}`, i, strings.Repeat("x", pad)))
+	}
+	a := rawAudit(t, lines)
+	res, err := a.Read(ReadQuery{Limit: MaxReadLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Records) != 300 || res.Skipped != 0 || res.Next != 0 {
+		t.Fatalf("%d records, skipped %d, next %d", len(res.Records), res.Skipped, res.Next)
+	}
+	for i, e := range res.Records {
+		if want := 300 - i; e.Seq != want || string(e.Record) != lines[want-1] {
+			t.Fatalf("record %d: seq %d, %d bytes; want seq %d, %d bytes", i, e.Seq, len(e.Record), want, len(lines[want-1]))
+		}
+	}
+}
+
+// Skipped covers only the span a call scanned, so paging through the file
+// returns every record once and the pages' counts add up to the file's.
+func TestAuditReadPagesAddUpSkipped(t *testing.T) {
+	var lines []string
+	var valid []int
+	junk := 0
+	for i := 1; i <= 40; i++ {
+		if i%3 == 0 || i > 38 || i < 3 {
+			lines = append(lines, "junk")
+			junk++
+			continue
+		}
+		lines = append(lines, `{"command":"x","outcome":"allowed"}`)
+		valid = append(valid, i)
+	}
+	a := rawAudit(t, lines)
+	var got []int
+	skipped, before := 0, 0
+	for page := 0; ; page++ {
+		res, err := a.Read(ReadQuery{Limit: 4, Before: before})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, seqsOf(res)...)
+		skipped += res.Skipped
+		if before = res.Next; before == 0 {
+			break
+		}
+		if page > 40 {
+			t.Fatal("paging never ended")
+		}
+	}
+	slices.Reverse(got)
+	if !slices.Equal(got, valid) || skipped != junk {
+		t.Fatalf("seqs %v, skipped %d; want %v, %d", got, skipped, valid, junk)
+	}
+}
+
+type countingReaderAt struct {
+	r *bytes.Reader
+	n int
+}
+
+func (c *countingReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	n, err := c.r.ReadAt(p, off)
+	c.n += n
+	return n, err
+}
+
+// The point of reading backwards: the newest lines cost one chunk, however
+// large the file is.
+func TestLinesBackwardReadsOnlyWhatItNeeds(t *testing.T) {
+	data := bytes.Repeat([]byte("0123456789abcdef\n"), 1<<16) // about 1.1 MiB
+	c := &countingReaderAt{r: bytes.NewReader(data)}
+	var got []string
+	err := linesBackward(c, int64(len(data)), func(line []byte) bool {
+		got = append(got, string(line))
+		return len(got) < 10
+	})
+	if err != nil || len(got) != 10 || got[9] != "0123456789abcdef" {
+		t.Fatalf("err %v, lines %q", err, got)
+	}
+	if c.n > 64<<10 {
+		t.Fatalf("read %d bytes for 10 lines", c.n)
+	}
+	// What follows the last newline is not a line; the first line needs none before it.
+	got = nil
+	if err := linesBackward(strings.NewReader("a\n\nb\npartial"), 12, func(line []byte) bool {
+		got = append(got, string(line))
+		return true
+	}); err != nil || !slices.Equal(got, []string{"b", "", "a"}) {
+		t.Fatalf("err %v, lines %q", err, got)
 	}
 }

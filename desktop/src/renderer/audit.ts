@@ -164,8 +164,10 @@ export function mergeEntries(a: AuditEntry[], b: AuditEntry[]): AuditEntry[] {
 
 export const startLoad = (l: AuditList): AuditList => ({ ...EMPTY, status: 'loading', path: l.path })
 
+// A page's skipped counts only the lines that read scanned, so the pages of
+// one list add up; startLoad starts the count over.
 export const applyPage = (l: AuditList, p: AuditPage): AuditList => ({
-  ...l, status: 'loaded', entries: mergeEntries(l.entries, p.records), next: p.next, skipped: p.skipped, path: p.path, error: undefined,
+  ...l, status: 'loaded', entries: mergeEntries(l.entries, p.records), next: p.next, skipped: l.skipped + p.skipped, path: p.path, error: undefined,
 })
 
 export const failLoad = (l: AuditList, message: string): AuditList => ({ ...l, status: 'error', error: message })

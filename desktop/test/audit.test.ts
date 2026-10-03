@@ -123,6 +123,7 @@ describe('the record list', () => {
     expect(l).toMatchObject({ status: 'loaded', next: 8, skipped: 1, path: '/a/audit.jsonl' })
     l = applyPage(l, { records: [entry(7)], skipped: 1, path: '/a/audit.jsonl' })
     expect(seqs(l)).toEqual([9, 8, 7])
+    expect(l.skipped).toBe(2) // pages add up
     expect(l.next).toBeUndefined()
     expect(failLoad(l, 'boom')).toMatchObject({ status: 'error', error: 'boom', entries: l.entries })
   })
