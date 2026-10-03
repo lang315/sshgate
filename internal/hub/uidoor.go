@@ -192,8 +192,20 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		}
 		return empty, nil
 	})
-	req("lock", func(context.Context, json.RawMessage) (any, error) {
-		h.Lock()
+	req("lock", func(_ context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			StopAuto bool `json:"stopAuto"`
+		}
+		if len(raw) > 0 && string(raw) != "null" {
+			if err := strictParams(raw, &p, "stopAuto"); err != nil {
+				return nil, err
+			}
+		}
+		if p.StopAuto {
+			h.Lock()
+		} else {
+			h.LockKeepAuto()
+		}
 		return empty, nil
 	})
 	req("vault.create", func(_ context.Context, raw json.RawMessage) (any, error) {

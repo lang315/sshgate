@@ -106,7 +106,7 @@ func TestIdleWithGrantSoftLocks(t *testing.T) {
 			wantLock(t, locks, "idle")
 			_, recs := readAudit(t, path)
 			last := recs[len(recs)-1]
-			if last["action"] != "softLock" || !reflect.DeepEqual(last["servers"], []any{"vis"}) {
+			if last["action"] != "softLock" || last["reason"] != "idle" || !reflect.DeepEqual(last["servers"], []any{"vis"}) {
 				t.Fatalf("audit: %v", last)
 			}
 			if locked, hosts := h.lockStatus(); !locked || !reflect.DeepEqual(hosts, []string{"vis"}) {
@@ -1035,5 +1035,92 @@ func TestExecEndsGrantWhenResolveFails(t *testing.T) {
 	_, recs := readAudit(t, path)
 	if !hasAutoAllowOff(recs, "server changed") {
 		t.Fatalf("no autoAllowOff/server changed: %v", recs)
+	}
+}
+
+// The Lock button (spec 2026-10-03): with a live grant it soft-locks, as the
+// idle lock does, and the granted host keeps running.
+func TestLockKeepAutoWithGrantSoftLocks(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	addServer(t, h, path, config.Server{Name: "two", Host: "h", Port: 22, User: "u", Auth: "agent", HostKey: "SHA256:abc", AIVisible: true})
+	locks := captureLocks(h)
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	h.LockKeepAuto()
+	if got := stateOf(h); got != (lockState{soft: true, key: true, grants: 1}) {
+		t.Fatalf("state = %+v, want soft lock", got)
+	}
+	wantLock(t, locks, "manual")
+	_, recs := readAudit(t, path)
+	last := recs[len(recs)-1]
+	if last["action"] != "softLock" || last["reason"] != "manual" || !reflect.DeepEqual(last["servers"], []any{"vis"}) {
+		t.Fatalf("audit: %v", last)
+	}
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"}); err != nil {
+		t.Fatalf("exec on the granted host: %v", err)
+	}
+	if _, err := h.Exec(context.Background(), ExecRequest{Server: "two", Command: "ls"}); !errors.Is(err, ErrLocked) {
+		t.Fatalf("exec on a host with no grant: %v, want ErrLocked", err)
+	}
+	// Pressed again: nothing changes and nothing is written.
+	h.LockKeepAuto()
+	noLock(t, locks)
+	if got := stateOf(h); got != (lockState{soft: true, key: true, grants: 1}) {
+		t.Fatalf("state after a second lock = %+v", got)
+	}
+	_, recs = readAudit(t, path)
+	if n := countAction(recs, "softLock"); n != 1 {
+		t.Fatalf("softLock records = %d, want 1", n)
+	}
+}
+
+func TestLockKeepAutoWithoutGrantHardLocks(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	locks := captureLocks(h)
+	h.LockKeepAuto()
+	if got := stateOf(h); got != (lockState{}) {
+		t.Fatalf("state = %+v, want hard lock", got)
+	}
+	wantLock(t, locks, "manual")
+	_, recs := readAudit(t, path)
+	if n := countAction(recs, "softLock"); n != 0 {
+		t.Fatalf("softLock records = %d, want 0", n)
+	}
+}
+
+// A grant past its deadline that the sweep has not reached yet is not live:
+// it must not keep the key.
+func TestLockKeepAutoWithExpiredGrantHardLocks(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	h.grants["vis"].until = time.Now().Add(-time.Second)
+	h.mu.Unlock()
+	h.LockKeepAuto()
+	if got := stateOf(h); got != (lockState{}) {
+		t.Fatalf("state = %+v, want hard lock", got)
+	}
+}
+
+// Lock (stopAuto) after the Lock button's soft lock is the stop: hard, every
+// grant ended with reason "locked".
+func TestLockAfterLockKeepAutoIsHard(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	h.LockKeepAuto()
+	locks := captureLocks(h)
+	h.Lock()
+	if got := stateOf(h); got != (lockState{}) {
+		t.Fatalf("state = %+v, want hard lock", got)
+	}
+	wantLock(t, locks, "manual")
+	_, recs := readAudit(t, path)
+	if !hasAutoAllowOff(recs, "locked") {
+		t.Fatalf("no autoAllowOff/locked: %v", recs)
 	}
 }

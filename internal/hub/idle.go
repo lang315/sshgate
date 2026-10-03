@@ -2,7 +2,7 @@ package hub
 
 import "time"
 
-const ProtocolVersion = 9
+const ProtocolVersion = 10
 
 const defaultIdleLock = 15 * time.Minute
 
@@ -77,7 +77,7 @@ func (h *Hub) lockIfIdle(idle time.Duration) {
 	case h.deps.MasterKey == nil, time.Since(h.lastActivity) < idle:
 		h.mu.Unlock()
 	case len(h.grants) > 0:
-		note := h.enterSoftLocked(time.Now().Round(0))
+		note := h.enterSoftLocked(time.Now().Round(0), "idle")
 		h.mu.Unlock()
 		if note != nil {
 			note("idle")

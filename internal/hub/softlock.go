@@ -40,12 +40,13 @@ func (h *Hub) lockNoteLocked() lockNote {
 // enterSoftLocked locks the UI door and moves the key to autoKey; h.mu is held
 // and at least one grant is live. The audit record is written after h.unlocked
 // is cleared, so it is not pushed to the UI. It returns the lock note to send
-// outside h.mu.
-func (h *Hub) enterSoftLocked(now time.Time) lockNote {
+// outside h.mu. The callers are lockIfIdle ("idle") and LockKeepAuto
+// ("manual"); reason goes into the audit record.
+func (h *Hub) enterSoftLocked(now time.Time, reason string) lockNote {
 	h.autoKey, h.deps.MasterKey, h.softLockedAt = h.deps.MasterKey, nil, now
 	h.lockGen.Add(1)
 	h.unlocked.Store(false)
-	h.auditConfig(broker.ConfigRecord{Action: "softLock", Servers: h.grantNamesLocked()})
+	h.auditConfig(broker.ConfigRecord{Action: "softLock", Servers: h.grantNamesLocked(), Reason: reason})
 	return h.lockNoteLocked()
 }
 
