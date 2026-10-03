@@ -32,7 +32,7 @@ export const autoHosts = (servers: ServerInfo[], now: number) =>
 
 export const pausedHosts = (servers: ServerInfo[]) => servers.filter((s) => s.autoAllow?.paused).map((s) => s.name)
 
-// On the locked notification: timed grants are gone; forever ones wait for Resume.
+// On the locked notification: the UI shows no live grant while locked; unlock refetches the hub's state.
 export const dropOnLock = (servers: ServerInfo[]): ServerInfo[] =>
   servers.map((s) => ({ ...s, autoAllow: s.autoAllow?.forever ? { forever: true, paused: true } : undefined }))
 

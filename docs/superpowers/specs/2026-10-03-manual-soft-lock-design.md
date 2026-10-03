@@ -10,6 +10,7 @@ This spec reverses these statements of the soft-lock spec:
 - Decisions, Manual Lock: "Hard lock, ends every grant, as today".
 - Decisions, `servers.setAutoAllow` during soft lock: "`lock` is the one stop". The stop is now `lock {stopAuto: true}`.
 - Scope, In: "A third hub state, soft-locked, entered only by the idle lock". The Lock button enters it too.
+- Forever: "Resume ... remains after a manual lock". It does not: a manual Lock with a live grant soft-locks and needs no Resume; Resume remains after **Stop auto-allow and lock** and after a restart.
 
 ## Goal
 

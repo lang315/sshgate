@@ -26,7 +26,7 @@ async function chooseAutoAllow(win: import('@playwright/test').Page, mode: strin
   await editor.getByRole('button', { name: 'Save' }).click()
 }
 
-test('timed auto-allow runs exec without a click, and Stop and Lock end it', async () => {
+test('timed auto-allow runs exec without a click, and Stop auto-allow and lock ends it', async () => {
   const win = await l.app.firstWindow()
   await unlock(win)
   const editor = win.getByRole('dialog', { name: 'Host editor' })
@@ -54,7 +54,8 @@ test('timed auto-allow runs exec without a click, and Stop and Lock end it', asy
   await win.waitForTimeout(600)
   await d.getByRole('button', { name: 'Enable' }).click()
   await expect(win.locator('.hostcard .chip.auto')).toHaveCount(1)
-  await win.getByRole('button', { name: 'Lock' }).click()
+  await win.getByRole('button', { name: 'Lock', exact: true }).click()
+  await win.getByRole('button', { name: 'Stop auto-allow and lock' }).click()
   await unlock(win)
   await expect(win.locator('.hostcard .chip.auto')).toHaveCount(0)
   const afterLock = exec('a3', 'echo after-lock')
@@ -64,7 +65,7 @@ test('timed auto-allow runs exec without a click, and Stop and Lock end it', asy
   await expect(afterLock).rejects.toThrow(/Denied/)
 })
 
-test('forever auto-allow pauses after unlock until Resume', async () => {
+test('forever auto-allow is paused after Stop auto-allow and lock until Resume', async () => {
   const win = await l.app.firstWindow()
   await chooseAutoAllow(win, 'forever')
   const d = win.getByRole('dialog', { name: 'Auto-allow AI commands on box' })
@@ -73,7 +74,8 @@ test('forever auto-allow pauses after unlock until Resume', async () => {
   await d.getByRole('button', { name: 'Enable' }).click()
   await expect(win.locator('.hostcard .chip.auto')).toHaveText('Auto ∞')
 
-  await win.getByRole('button', { name: 'Lock' }).click()
+  await win.getByRole('button', { name: 'Lock', exact: true }).click()
+  await win.getByRole('button', { name: 'Stop auto-allow and lock' }).click()
   await unlock(win)
   await expect(win.getByText('Auto-allow is paused on box.').first()).toBeVisible()
   const waiting = exec('f1', 'echo paused-asks')

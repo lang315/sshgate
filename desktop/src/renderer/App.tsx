@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AutoAllowMode, AutoAllowRan, HostKeyMismatch, HubState, RanWhileLocked, ServerInfo, ServerInput, Status, TunnelState, TunnelView } from '../shared/protocol'
 import { hub } from './transport'
 import { applyState, replayStates, summary } from './tunnels'
-import { autoHosts, dropLockHost, dropOnLock, lockHostsFrom, handleAutoEvent, pausedHosts, ranLockedText, SAVED_BUT } from './autoallow'
+import { autoHosts, isActive, dropLockHost, dropOnLock, lockHostsFrom, handleAutoEvent, pausedHosts, ranLockedText, SAVED_BUT } from './autoallow'
 import { lockKind, lockTitle, screenFor } from './shell'
 import { Unlock } from './Unlock'
 import { RanLockedBanner } from './RanLocked'
@@ -215,6 +215,7 @@ export function App() {
   }
   const lock = async () => { try { await hub.lock(); setUnlockError(undefined); await refresh() } catch { /* the locked/hub-state events recover the UI */ } }
   const autoN = autoHostsSet.size
+  const liveAutoN = servers.filter((s) => isActive(s.autoAllow, now)).length
   const actions = (
     <>
       {(aiOpen || items.length > 0 || autoN > 0) && (
@@ -225,7 +226,7 @@ export function App() {
         </button>
       )}
       <ThemeControl pref={themePref} onChange={chooseTheme} />
-      <button type="button" className="btn" title={lockTitle(autoN)} onClick={lock}><LockIcon />Lock</button>
+      <button type="button" className="btn" title={lockTitle(liveAutoN)} onClick={lock}><LockIcon />Lock</button>
     </>
   )
   const hostList = (
