@@ -99,7 +99,7 @@ Two opt-ins in the same section, off by default and independent of each other, w
 - **Allow on root hosts** lets a grant run on a `root` login, or a host with a stored su or sudo password. Honest risk: the AI runs as root, and a command it plants can capture the su or sudo password you type or store.
 - **Also auto-allow sudo-exec** lets `sudo-exec` run without asking on a granted host, the same as plain exec. Honest risk: the AI has full root on that host for as long as the grant runs.
 
-A grant "Until turned off" is paused after a restart or the 24-hour limit until you click **Resume**, not after a lock. If the hub refuses a grant when you save (for example a `root` host without **Allow on root hosts**), the host edits are still saved and the app tells you auto-allow was not turned on.
+A grant "Until turned off" is paused after a restart, the 24-hour limit, or **Stop auto-allow and lock** until you click **Resume**; a plain lock, by hand or from inactivity, does not pause it. If the hub refuses a grant when you save (for example a `root` host without **Allow on root hosts**), the host edits are still saved and the app tells you auto-allow was not turned on.
 
 What stops unattended work on an auto-allowed host:
 
