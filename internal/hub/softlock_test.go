@@ -478,7 +478,7 @@ func TestExecUnderSoftLockOtherHostIsLocked(t *testing.T) {
 	if e1 == nil || e2 == nil || e1.Error() != serverNotFound("hid").Error() || e2.Error() != serverNotFound("nope").Error() {
 		t.Fatalf("hidden %v, missing %v", e1, e2)
 	}
-	want := []ServerInfo{{Name: "vis", Locked: false}, {Name: "nokey", Locked: true}, {Name: "two", Locked: true}}
+	want := []ServerInfo{{Name: "vis", Host: "h", Locked: false}, {Name: "nokey", Host: "h", Locked: true}, {Name: "two", Host: "h", Locked: true}}
 	if got := h.ServersForMCP(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("ServersForMCP = %+v, want %+v", got, want)
 	}

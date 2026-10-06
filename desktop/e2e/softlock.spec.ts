@@ -75,8 +75,9 @@ test('idle with a grant locks the app and keeps the AI running on that host', as
   await expect(exec('other', 'echo soft-other')).rejects.toThrow(/Vault is locked/)
   expect(audit().some((r) => r.command === 'echo soft-other')).toBe(false)
   const list = await mcp.tool('list-servers', {})
-  expect(list).toMatch(/other \[locked: unlock the app\]/)
-  expect(list).not.toMatch(/box \[locked/)
+  expect(list).toMatch(/- other \(127\.0\.0\.1\) \[locked: unlock the app\]/)
+  expect(list).toMatch(/- box \([^)]+\)\n/)
+  expect(list).not.toMatch(/box \([^)]+\) \[locked/)
 })
 
 test('unlock keeps the grant and says what ran', async () => {

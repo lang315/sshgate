@@ -21,7 +21,7 @@ func fakeHub(t *testing.T, execResp map[string]any, execErr string) func(context
 		client, server := net.Pipe()
 		s := rpc.NewServer()
 		s.HandleRequest("listServers", func(context.Context, json.RawMessage) (any, error) {
-			return []map[string]any{{"name": "vis", "locked": false}}, nil
+			return []map[string]any{{"name": "vis", "host": "10.0.0.12", "locked": false}, {"name": "db", "host": "db.example", "locked": true}}, nil
 		})
 		execHandler := func(_ context.Context, raw json.RawMessage) (any, error) {
 			if execErr != "" {
@@ -86,7 +86,8 @@ func TestBridgeHubDownMessage(t *testing.T) {
 func TestBridgeListServers(t *testing.T) {
 	srv := BuildBridgeServer(fakeHub(t, nil, ""))
 	res := callTool(t, srv, "list-servers", nil)
-	if res.IsError || !strings.Contains(text(res), "vis") {
+	want := "- vis (10.0.0.12)\n- db (db.example) [locked: unlock the app]\n"
+	if res.IsError || text(res) != want {
 		t.Fatalf("got %q", text(res))
 	}
 }
