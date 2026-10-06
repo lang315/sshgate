@@ -146,7 +146,7 @@ Closing the window quits the app and stops the hub. There is no Reload; if the r
 
 | Tool | Arguments | Notes |
 |---|---|---|
-| `list-servers` | none | Servers visible to AI, one per line; `[locked: unlock the app]` while the vault is locked, except hosts on auto-allow while the app is locked. No approval needed. |
+| `list-servers` | none | Servers visible to AI, one per line as `- name (host)`, host being the IP or hostname, so an agent that knows only an IP can find the name; `[locked: unlock the app]` while the vault is locked, except hosts on auto-allow while the app is locked. No approval needed. |
 | `exec` | `server` (required, a name from `list-servers`), `command`, `description` (optional, at most 500 bytes), `timeoutSec` (1–600, default 60) | Waits for your decision for up to 5 minutes, then fails as expired. Runs at once on a host with an auto-allow grant. |
 | `sudo-exec` | same as `exec` | Runs `sudo -S` with the saved sudo password, or `sudo -n` if none is saved. Always waits for you, unless the host has a grant and **Also auto-allow sudo-exec** is ticked. |
 

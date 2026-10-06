@@ -142,9 +142,9 @@ func TestServersForMCPOnlyVisible(t *testing.T) {
 	h, _ := newHub(t, &fakeExec{})
 	names := []string{}
 	for _, s := range h.ServersForMCP() {
-		names = append(names, s.Name)
+		names = append(names, s.Name+"@"+s.Host)
 	}
-	if strings.Join(names, ",") != "vis,nokey" {
+	if strings.Join(names, ",") != "vis@h,nokey@h" {
 		t.Fatalf("got %v", names)
 	}
 }

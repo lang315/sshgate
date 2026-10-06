@@ -153,13 +153,14 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 	mcp.AddTool(s, &mcp.Tool{Name: "sudo-exec", Description: "Run a shell command with sudo on a saved SSH server through the sshgate desktop app. " +
 		"The command runs as `sudo -S` with the server's saved sudo password, or as `sudo -n` when none is saved (which fails if sudo asks for a password). " +
 		"Approval, fresh-shell, output and failure rules are the same as exec."}, execTool("sudoExec"))
-	mcp.AddTool(s, &mcp.Tool{Name: "list-servers", Description: "List the saved SSH servers the user has made visible to AI, one per line as `- name`. " +
+	mcp.AddTool(s, &mcp.Tool{Name: "list-servers", Description: "List the saved SSH servers the user has made visible to AI, one per line as `- name (host)`, where host is the server's IP address or hostname; to find a server by its IP, match the host and use its name. " +
 		"A server marked `[locked: unlock the app]` cannot run commands until the user unlocks the app. " +
 		"Use these names as the `server` argument of exec and sudo-exec; servers the user has not made visible never appear. Needs no approval."},
 		func(ctx context.Context, req *mcp.CallToolRequest, _ ListInput) (*mcp.CallToolResult, any, error) {
 			res, err := withHub(ctx, func(c *rpc.Client) (*mcp.CallToolResult, error) {
 				var list []struct {
 					Name   string `json:"name"`
+					Host   string `json:"host"`
 					Locked bool   `json:"locked"`
 				}
 				if err := c.Call(ctx, "listServers", nil, &list); err != nil {
@@ -174,7 +175,7 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 					if entry.Locked {
 						lock = " [locked: unlock the app]"
 					}
-					fmt.Fprintf(&b, "- %s%s\n", entry.Name, lock)
+					fmt.Fprintf(&b, "- %s (%s)%s\n", entry.Name, entry.Host, lock)
 				}
 				return textOK(b.String()), nil
 			})

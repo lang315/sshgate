@@ -82,6 +82,7 @@ type Options struct {
 
 type ServerInfo struct {
 	Name   string `json:"name"`
+	Host   string `json:"host"` // IP or hostname, so an AI that knows only the address can find the name
 	Locked bool   `json:"locked"`
 }
 
@@ -393,8 +394,8 @@ func (h *Hub) reloadLocked() (err error) {
 	return nil
 }
 
-// ServersForMCP lists AIVisible servers. It works while locked (names are
-// plaintext); then every server is reported locked, except, under soft lock,
+// ServersForMCP lists AIVisible servers. It works while locked (names and
+// hosts are plaintext); then every server is reported locked, except, under soft lock,
 // the ones with a live grant. With no vault it is empty.
 func (h *Hub) ServersForMCP() []ServerInfo {
 	h.mu.Lock()
@@ -405,7 +406,7 @@ func (h *Hub) ServersForMCP() []ServerInfo {
 	}
 	for _, s := range h.deps.File.Servers {
 		if s.AIVisible {
-			out = append(out, ServerInfo{Name: s.Name, Locked: h.aiLockedLocked(s.Name)})
+			out = append(out, ServerInfo{Name: s.Name, Host: s.Host, Locked: h.aiLockedLocked(s.Name)})
 		}
 	}
 	return out
