@@ -2,7 +2,7 @@
 // Docker. It accepts any password or public key. A "shell" echoes its input
 // back until stdin closes, then exits 0; an input line "flood <N>" also
 // makes it write N bytes of 80-column "yyyy" lines, then "FLOOD-DONE". An "exec" reports its command on
-// Execs, waits for Release to be closed, writes the command to stdout, and
+// Execs, waits for Release to be closed, writes the command to stdout (or, for the command "stdin-echo", its stdin), and
 // exits 0. It serves direct-tcpip and loopback tcpip-forward channels.
 package sshtest
 
@@ -212,7 +212,12 @@ func (s *Server) session(ch ssh.Channel, reqs <-chan *ssh.Request) {
 				case <-s.done:
 					return
 				}
-				io.WriteString(ch, p.Cmd)
+				if p.Cmd == "stdin-echo" {
+					b, _ := io.ReadAll(ch) // until the client closes stdin
+					ch.Write(b)
+				} else {
+					io.WriteString(ch, p.Cmd)
+				}
 				finish()
 			}()
 		case "subsystem":

@@ -205,6 +205,22 @@ func (m *Manager) runOnce(ctx context.Context, sess *ssh.Session, cmd string, st
 	}
 }
 
+// ErrStdinUnsupported: with a su password, plain exec runs inside a su
+// shell that frames each command over its own stdin.
+var ErrStdinUnsupported = errors.New("stdin is not supported on a server with a su password")
+
+// ExecStdin runs cmd with stdin piped to it, in a fresh session like Exec.
+func (m *Manager) ExecStdin(ctx context.Context, cmd, stdin string) (ExecResult, error) {
+	if m.cfg.SuPassword != "" {
+		return ExecResult{}, ErrStdinUnsupported
+	}
+	sess, err := m.OpenSession()
+	if err != nil {
+		return ExecResult{}, err
+	}
+	return m.runOnce(ctx, sess, cmd, stdin)
+}
+
 func (m *Manager) Exec(ctx context.Context, cmd string) (ExecResult, error) {
 	if m.cfg.SuPassword != "" {
 		out, code, err := m.execElevated(ctx, cmd)

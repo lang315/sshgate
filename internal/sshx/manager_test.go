@@ -292,3 +292,20 @@ func TestSFTPAgainstOpenSSH(t *testing.T) {
 		t.Fatalf("readdir %v %v", fis, err)
 	}
 }
+
+func TestExecStdinAgainstOpenSSH(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	host, port, cleanup := startSSH(t)
+	defer cleanup()
+	m := NewManager(DialConfig{Host: host, Port: port, User: "test", Password: "testpass", Auth: "password", Insecure: true, TimeoutMs: 30000})
+	defer m.Close()
+	res, err := m.ExecStdin(context.Background(), "cat > /tmp/stdin.txt && cat /tmp/stdin.txt", "one\ntwo\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Stdout != "one\ntwo\n" || res.ExitCode != 0 {
+		t.Fatalf("got %+v", res)
+	}
+}
