@@ -1,7 +1,7 @@
 # sshgate: `exec` takes an optional stdin — Design
 
 Date: 2026-10-07
-Status: Approved in chat 2026-10-07 (sections 1–3), option 1 of three.
+Status: Approved in chat 2026-10-07 (sections 1–3), option 1 of three. Amended 2026-10-07 after code review (see Amendment).
 
 ## Goal
 
@@ -126,3 +126,13 @@ Desktop (`npm run typecheck && npm test && npm run e2e`):
 - Playwright: `autoallow-mcp.spec.ts` adds a stdin exec under a grant through the real MCP bridge and checks its audit record (`stdin`, `approval: "auto"`); one step in an existing spec shows a pending request's stdin block with Send to tab disabled.
 
 Docs: CLAUDE.md (`ExecRequest`, `Hub.Exec` order, protocol 11, the `***` count) and README (editing files with `git apply` and stdin).
+
+## Amendment (2026-10-07, after code review)
+
+Approved in chat ("fix all with your recommendation"). Where this section disagrees with the text above, it wins.
+
+- **MCP door: stdin travels on a new method, `execStdin`.** "The bridge and the hub ship as one binary" does not hold while a hub is running: after a rebuild or an app update, a new bridge can reach an old hub, which ignores the unknown `stdin` field and runs `cat > f` with empty stdin (the approver never sees it; the file is truncated). The bridge now calls `execStdin` when `stdin` is non-empty; an old hub answers "method not found" and the bridge tells the AI to restart the app. `exec` and `sudoExec` refuse a `stdin` param.
+- **Allowed runes:** ZWNJ (U+200C), ZWJ (U+200D) and BOM (U+FEFF) are allowed in stdin besides `\n`, `\t`, `\r`, so files with emoji sequences, Persian or Hindi text, or a byte-order mark can be written and patched. Bidi controls and the other zero-width runes stay forbidden; the approval card highlights every non-ASCII rune.
+- **Early exit is success:** stdin is fed through `StdinPipe` after `Start`, so a command that exits 0 without reading all of its stdin (`grep -q`, `[ -e f ] || cat > f`) is not reported as a connection failure. The same holds for `sudo -S` when sudo does not read the password.
+- **Su password saved during the wait:** the run's own guard (`sshx.ErrStdinUnsupported`) reaches the AI as `stdin is not supported on this server`, not as a connection failure. `run` refuses stdin with sudo itself, too.
+- **Display:** the Audit tab shows stdin like the approval card (tabs kept, CR as ␍); the approval card builds its stdin block once per request.
