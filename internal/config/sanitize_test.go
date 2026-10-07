@@ -75,7 +75,8 @@ func TestAppendDescriptionRejectsControlRunes(t *testing.T) {
 }
 
 func TestValidateStdin(t *testing.T) {
-	ok := []string{"", "a\nb\n", "col1\tcol2\n", "crlf\r\n", "xin chào\n", strings.Repeat("x", MaxStdin)}
+	ok := []string{"", "a\nb\n", "col1\tcol2\n", "crlf\r\n", "xin chào\n", strings.Repeat("x", MaxStdin),
+		"dev \U0001F468\u200d\U0001F4BB\n", "a\u200cb\n", "\ufeffpackage main\n"} // ZWJ, ZWNJ, BOM: ordinary file content
 	for _, s := range ok {
 		if err := ValidateStdin(s); err != nil {
 			t.Errorf("%q: %v", s[:min(len(s), 20)], err)
