@@ -80,10 +80,10 @@ export type Segment = { text: string; nonAscii: boolean }
 
 export const isNonAscii = (cp: number) => cp > 0x7e || cp < 0x20
 
-export function highlightNonAscii(s: string): Segment[] {
+export function highlightNonAscii(s: string, plain = ''): Segment[] {
   const out: Segment[] = []
   for (const ch of s) {
-    const nonAscii = isNonAscii(ch.codePointAt(0)!)
+    const nonAscii = isNonAscii(ch.codePointAt(0)!) && !plain.includes(ch)
     const last = out[out.length - 1]
     if (last && last.nonAscii === nonAscii) last.text += ch
     else out.push({ text: ch, nonAscii })
@@ -93,12 +93,12 @@ export function highlightNonAscii(s: string): Segment[] {
 
 // "N non-ASCII characters highlighted (U+0456, …)": the code points make a
 // homoglyph (Cyrillic і in "gіthub") visible even where the glyphs look identical.
-export function nonAsciiSummary(s: string): string | undefined {
+export function nonAsciiSummary(s: string, plain = ''): string | undefined {
   const cps: number[] = []
   let n = 0
   for (const ch of s) {
     const cp = ch.codePointAt(0)!
-    if (!isNonAscii(cp)) continue
+    if (!isNonAscii(cp) || plain.includes(ch)) continue
     n++
     if (!cps.includes(cp)) cps.push(cp)
   }
@@ -106,6 +106,16 @@ export function nonAsciiSummary(s: string): string | undefined {
   const shown = cps.slice(0, 5).map((cp) => 'U+' + cp.toString(16).toUpperCase().padStart(4, '0'))
   if (cps.length > 5) shown.push(`+${cps.length - 5} more`)
   return `${n} non-ASCII character${n === 1 ? '' : 's'} highlighted (${shown.join(', ')})`
+}
+
+// Stdin is file content: newlines and tabs are plain, a carriage return is
+// shown as ␍ so it cannot hide text behind it.
+export const stdinView = (s: string): Segment[] => highlightNonAscii(s.replaceAll('\r', '␍'), '\n\t')
+
+export function stdinMeta(s: string): string {
+  const bytes = new TextEncoder().encode(s).length
+  const lines = s === '' ? 0 : s.split('\n').length - (s.endsWith('\n') ? 1 : 0)
+  return `${bytes} byte${bytes === 1 ? '' : 's'}, ${lines} line${lines === 1 ? '' : 's'}`
 }
 
 // Click-time re-check for Allow/Send to tab: React may not have committed the

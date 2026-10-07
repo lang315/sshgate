@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { AutoAllowRan } from '../shared/protocol'
-import { allowEnabled, blockKeyboardActivation, clickAllowed, highlightNonAscii, ListChanges, nonAsciiSummary, type PendingItem } from './approvals'
+import { allowEnabled, blockKeyboardActivation, clickAllowed, highlightNonAscii, ListChanges, nonAsciiSummary, stdinMeta, stdinView, type PendingItem } from './approvals'
 import { commandLabel } from './autoallow'
 import { AutoAllowPaused } from './AutoAllowPaused'
 import { CloseIcon, WarningIcon } from './icons'
@@ -94,6 +94,7 @@ const AutoFeed = memo(function AutoFeed({ autoFeed, autoN, paused, onStopAll, on
             <div className="autorun-head">
               <strong>{r.server}</strong>
               {r.sudo && <span className="chip danger">sudo</span>}
+              {r.stdinBytes ? <span className="chip">{`stdin ${r.stdinBytes} B`}</span> : null}
               <span className={'autorun-status ' + (r.error ? 'fail' : r.exitCode === 0 ? 'ok' : 'nonzero')}>{r.error ? 'error' : `exit ${r.exitCode}`}</span>
               <time className="when mono" dateTime={r.time}>{new Date(r.time).toLocaleTimeString()}</time>
             </div>
@@ -123,6 +124,7 @@ export function Item({ item, now, changedAt = 0, listChangedAt = () => 0, onDeci
   }
   const deny = (e: FormEvent) => { e.preventDefault(); if (!busy) act(onDecide(r.id, 'denied', reason)) }
   const summary = nonAsciiSummary(r.command)
+  const stdinSummary = r.stdin ? nonAsciiSummary(r.stdin, '\n\t') : undefined
   const received = r.receivedAt ? new Date(r.receivedAt).toLocaleTimeString() : ''
   return (
     <form className={'approval' + (r.sudo ? ' sudo' : '')} onSubmit={deny}>
@@ -137,6 +139,13 @@ export function Item({ item, now, changedAt = 0, listChangedAt = () => 0, onDeci
         {highlightNonAscii(r.command).map((s, i) => (s.nonAscii ? <mark key={i}>{s.text}</mark> : <span key={i}>{s.text}</span>))}
       </pre>
       {summary && <p className="nonascii"><WarningIcon />{summary}</p>}
+      {r.stdin && (
+        <div className="stdin">
+          <span className="stdin-label">{`stdin · ${stdinMeta(r.stdin)}`}</span>
+          <pre className="cmd">{stdinView(r.stdin).map((s, i) => (s.nonAscii ? <mark key={i}>{s.text}</mark> : <span key={i}>{s.text}</span>))}</pre>
+          {stdinSummary && <p className="nonascii"><WarningIcon />{stdinSummary}</p>}
+        </div>
+      )}
       {r.description && (
         <div className="desc"><span className="desc-label">AI&apos;s description · unverified</span>{r.description}</div>
       )}
@@ -149,7 +158,8 @@ export function Item({ item, now, changedAt = 0, listChangedAt = () => 0, onDeci
         <button type="submit" className="btn deny" disabled={busy}>Deny<kbd aria-hidden="true">↵</kbd></button>
         {/* Between Deny and Allow, so a click that misses Deny does not land on Allow. */}
         <button type="button" className="btn" tabIndex={-1} onKeyDown={blockKeyboardActivation}
-          disabled={busy || !allowEnabled(item, now, changedAt)}
+          disabled={busy || !!r.stdin || !allowEnabled(item, now, changedAt)}
+          title={r.stdin ? 'Not available: the command has stdin' : undefined}
           onClick={() => { if (clickAllowed(item, Date.now(), listChangedAt(), busy)) act(onSendToTab(item)) }}>Send to tab</button>
         <button type="button" className="btn allow" tabIndex={-1} onKeyDown={blockKeyboardActivation}
           disabled={busy || !allowEnabled(item, now, changedAt)}

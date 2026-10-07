@@ -58,6 +58,15 @@ describe('Item', () => {
     expect(html).toContain('AI&#x27;s description · unverified')
     expect(html).toContain('client claude-code (unverified)')
   })
+  it('shows stdin with its size, marks CR, and disables Send to tab but not Allow', () => {
+    const [item] = seed([{ ...req, command: 'cat > f', stdin: 'a\r\nb\n' }], 0)
+    const html = renderToStaticMarkup(createElement(Item, { item, now: 10_000, onDecide: async () => {}, onSendToTab: async () => {}, onEscape: () => {} }))
+    expect(html).toContain('stdin · 5 bytes, 2 lines')
+    expect(html).toContain('<mark>␍</mark>')
+    const buttons = [...html.matchAll(/<button([^>]*)>(.*?)<\/button>/g)].map((m) => ({ attrs: m[1], text: m[2].replace(/<[^>]+>/g, '') }))
+    expect(buttons.find((b) => b.text === 'Send to tab')!.attrs).toMatch(/disabled=""/)
+    expect(buttons.find((b) => b.text === 'Allow')!.attrs).not.toMatch(/disabled=""/)
+  })
 })
 
 // Finds the substring of `html` between a div's own open tag (matched by `openTag`)
@@ -87,5 +96,15 @@ describe('ApprovalPanel', () => {
     }))
     expect(html).toContain('autofeed')
     expect(divContents(html, /<div class="approvals-scroll"[^>]*>/)).not.toContain('autofeed')
+  })
+  it('tags an auto-allowed run that had stdin with its size', () => {
+    const html = renderToStaticMarkup(createElement(ApprovalPanel, {
+      items: [], seedError: undefined,
+      onDecide: async () => {}, onDenyAll: async () => {}, onSendToTab: async () => {},
+      onClose: () => {}, onEscape: () => {},
+      autoFeed: [{ server: 'box', command: 'cat > f', description: '', time: '2024-01-01T00:00:00Z', exitCode: 0, stdinBytes: 12 }],
+      autoN: 1, paused: [], onStopAll: () => {}, onStopPaused: () => {}, onResume: () => {},
+    }))
+    expect(html).toContain('stdin 12 B')
   })
 })
