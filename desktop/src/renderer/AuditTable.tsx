@@ -1,7 +1,7 @@
 import { Fragment } from 'react'
 import type { AuditEntry, AuditKind, AuditRecord } from '../shared/protocol'
 import { displayText } from '../shared/display'
-import { maskedCount, rowView } from './audit'
+import { auditStdinText, maskedCount, rowView } from './audit'
 import { ChevronDownIcon } from './icons'
 
 const KIND: Record<AuditKind, string> = { exec: 'Exec', config: 'Config', file: 'File', tunnel: 'Tunnel' }
@@ -71,7 +71,7 @@ function AuditDetail({ record: r }: { record: AuditRecord }) {
       {!r.kind && typeof r.stdin === 'string' && r.stdin !== '' && (
         <div className="stdin">
           <span className="stdin-label">stdin</span>
-          <pre className="cmd">{r.stdin.split('\n').map(displayText).join('\n')}</pre>
+          <pre className="cmd">{auditStdinText(r.stdin)}</pre>
         </div>
       )}
       {typeof r.description === 'string' && r.description !== '' && (

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  auditStdinText,
   appendLive, applyPage, clearOnLock, dayLabel, EMPTY, failLoad, formatTime, matches, mergeEntries, releaseHeld, rowView,
   startLoad, toggleChip, toQuery, type AuditList,
 } from '../src/renderer/audit'
@@ -183,5 +184,12 @@ describe('matches a softLock record by its servers', () => {
   it('true for a listed host, false for another', () => {
     expect(matches(r, { server: 'box' })).toBe(true)
     expect(matches(r, { server: 'x' })).toBe(false)
+  })
+})
+
+describe('auditStdinText', () => {
+  it('keeps newlines and tabs, shows CR as ␍, and escapes other hidden characters', () => {
+    expect(auditStdinText('func f() {\r\n\treturn\n}\n')).toBe('func f() {␍\n\treturn\n}\n')
+    expect(auditStdinText('a‍b﻿')).toBe('a\\u200db\\ufeff')
   })
 })

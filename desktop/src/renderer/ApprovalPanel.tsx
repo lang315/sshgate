@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, type FormEvent } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { AutoAllowRan } from '../shared/protocol'
 import { allowEnabled, blockKeyboardActivation, clickAllowed, highlightNonAscii, ListChanges, nonAsciiSummary, stdinMeta, stdinView, type PendingItem } from './approvals'
 import { commandLabel } from './autoallow'
@@ -124,7 +124,19 @@ export function Item({ item, now, changedAt = 0, listChangedAt = () => 0, onDeci
   }
   const deny = (e: FormEvent) => { e.preventDefault(); if (!busy) act(onDecide(r.id, 'denied', reason)) }
   const summary = nonAsciiSummary(r.command)
-  const stdinSummary = r.stdin ? nonAsciiSummary(r.stdin, '\n\t') : undefined
+  // Built once per stdin (up to 256 KiB): the panel re-renders every 100 ms
+  // while an Allow delay runs and on every scroll of the list.
+  const stdinBlock = useMemo(() => {
+    if (!r.stdin) return null
+    const stdinSummary = nonAsciiSummary(r.stdin, '\n\t')
+    return (
+      <div className="stdin">
+        <span className="stdin-label">{`stdin · ${stdinMeta(r.stdin)}`}</span>
+        <pre className="cmd">{stdinView(r.stdin).map((s, i) => (s.nonAscii ? <mark key={i}>{s.text}</mark> : <span key={i}>{s.text}</span>))}</pre>
+        {stdinSummary && <p className="nonascii"><WarningIcon />{stdinSummary}</p>}
+      </div>
+    )
+  }, [r.stdin])
   const received = r.receivedAt ? new Date(r.receivedAt).toLocaleTimeString() : ''
   return (
     <form className={'approval' + (r.sudo ? ' sudo' : '')} onSubmit={deny}>
@@ -139,13 +151,7 @@ export function Item({ item, now, changedAt = 0, listChangedAt = () => 0, onDeci
         {highlightNonAscii(r.command).map((s, i) => (s.nonAscii ? <mark key={i}>{s.text}</mark> : <span key={i}>{s.text}</span>))}
       </pre>
       {summary && <p className="nonascii"><WarningIcon />{summary}</p>}
-      {r.stdin && (
-        <div className="stdin">
-          <span className="stdin-label">{`stdin · ${stdinMeta(r.stdin)}`}</span>
-          <pre className="cmd">{stdinView(r.stdin).map((s, i) => (s.nonAscii ? <mark key={i}>{s.text}</mark> : <span key={i}>{s.text}</span>))}</pre>
-          {stdinSummary && <p className="nonascii"><WarningIcon />{stdinSummary}</p>}
-        </div>
-      )}
+      {stdinBlock}
       {r.description && (
         <div className="desc"><span className="desc-label">AI&apos;s description · unverified</span>{r.description}</div>
       )}

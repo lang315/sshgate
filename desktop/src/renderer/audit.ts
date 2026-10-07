@@ -1,4 +1,5 @@
 import type { AuditEntry, AuditKind, AuditOutcome, AuditPage, AuditQuery, AuditRecord } from '../shared/protocol'
+import { displayText } from '../shared/display'
 
 export type Chip = 'exec' | 'auto' | 'denied' | 'config' | 'files' | 'tunnels'
 
@@ -92,6 +93,11 @@ function grantLength(r: AuditRecord): string {
   if (!Number.isFinite(min)) return ''
   return min >= 60 && min % 60 === 0 ? `${min / 60}h` : `${min}m`
 }
+
+// An exec record's stdin as the approval card showed it: newlines and tabs
+// kept, CR as ␍; every other hidden character escaped by displayText.
+export const auditStdinText = (s: string): string =>
+  s.replaceAll('\r', '␍').split('\n').map((l) => l.split('\t').map(displayText).join('\t')).join('\n')
 
 export function maskedCount(r: AuditRecord): number {
   const red: unknown = r.redacted
