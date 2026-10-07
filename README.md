@@ -83,7 +83,7 @@ Keep the app open while the AI works. When the app is closed, every tool call fa
   - **Send to tab** pastes the command into your own terminal for that server instead of running it.
   - Sudo requests have a red edge. Non-ASCII characters in a command are highlighted with their code points (`U+0456`), so a look-alike `gіthub.com` stands out.
   - From a terminal, `Ctrl+Shift+A` (`Cmd+Shift+A` on macOS) jumps to the oldest request's reason field; `Esc` returns to the terminal.
-  - Below the requests, **Auto-allowed** lists the last 50 commands that ran on auto-allow: server, a **SUDO** tag for sudo-exec, exit status, time, the full command, and the AI's description. **Stop all auto-allow** ends every grant.
+  - Below the requests, **Auto-allowed** lists the last 50 commands that ran on auto-allow: server, a **SUDO** tag for sudo-exec, exit status, time, the full command, a `stdin N B` tag when the command had stdin, and the AI's description. **Stop all auto-allow** ends every grant.
 - **Host editor.** It never shows a saved password: leave a field empty to keep it, or click **Clear** to remove it. Changing the address or port forgets the pinned key and every password you don't re-enter, closes that server's tabs, and denies its waiting requests.
 - **Host key changed.** A server that presents a different key is refused, and the app shows both fingerprints. If the change was expected, click **Forget host key** in the editor and connect again.
 - **Themes.** Dark, light, or **Auto** (follows the OS), from the ☾ / ☀ / Auto control.
@@ -147,8 +147,10 @@ Closing the window quits the app and stops the hub. There is no Reload; if the r
 | Tool | Arguments | Notes |
 |---|---|---|
 | `list-servers` | none | Servers visible to AI, one per line as `- name (host)`, host being the IP or hostname, so an agent that knows only an IP can find the name; `[locked: unlock the app]` while the vault is locked, except hosts on auto-allow while the app is locked. No approval needed. |
-| `exec` | `server` (required, a name from `list-servers`), `command`, `description` (optional, at most 500 bytes), `timeoutSec` (1–600, default 60) | Waits for your decision for up to 5 minutes, then fails as expired. Runs at once on a host with an auto-allow grant. |
-| `sudo-exec` | same as `exec` | Runs `sudo -S` with the saved sudo password, or `sudo -n` if none is saved. Always waits for you, unless the host has a grant and **Also auto-allow sudo-exec** is ticked. |
+| `exec` | `server` (required, a name from `list-servers`), `command`, `description` (optional, at most 500 bytes), `stdin` (optional, at most 256 KiB), `timeoutSec` (1–600, default 60) | Waits for your decision for up to 5 minutes, then fails as expired. Runs at once on a host with an auto-allow grant. |
+| `sudo-exec` | same as `exec`, without `stdin` | Runs `sudo -S` with the saved sudo password, or `sudo -n` if none is saved. Always waits for you, unless the host has a grant and **Also auto-allow sudo-exec** is ticked. |
+
+`stdin` lets an agent edit a project on the host: it writes a file with `cat > path` and the content as `stdin`, or edits one with `git apply` and a unified diff as `stdin`. You see the full stdin in the request before you allow it, and the audit log keeps it. Send to tab is not available for a command with stdin. Not available on a host with a su password, or with `sudo-exec`.
 
 - Each command runs in a fresh non-interactive shell, so `cd` and environment variables do not carry over between calls; combine steps into one command. The exception is a server with a saved **su** password: its commands run inside one persistent root shell.
 - The result is `exit code: N`, then `stdout:` and `stderr:` sections. A non-zero exit code is a normal result, not a tool error.
