@@ -489,8 +489,20 @@ const redactMargin = 64 << 10
 // of very long lines still returns max/2 bytes per half. Aligned output can
 // be shorter than max plus the marker. Residual: a line of 64 KiB or more
 // that masking shrinks by 32 KiB or more within itself can keep a cut piece.
+// Vault secrets masked as "***" count as kind "secret".
 func RedactCap(r *Redactor, s string, max int) (string, map[string]int) {
-	s = r.Redact(s)
+	s, n := r.RedactCount(s)
+	out, c := capPatterns(s, max)
+	if n > 0 {
+		if c == nil {
+			c = map[string]int{}
+		}
+		c["secret"] += n
+	}
+	return out, c
+}
+
+func capPatterns(s string, max int) (string, map[string]int) {
 	w := max/2 + redactMargin
 	if len(s) <= 2*w {
 		out, c := RedactPatterns(s)

@@ -345,7 +345,7 @@ func TestLiveRedactTripwires(t *testing.T) {
 	if hit := tripwires(out+errOut, dc); hit != nil {
 		t.Fatalf("masked output tripped %v", hit)
 	}
-	if got := countsText(counts); got != "private_key=1 secret=1 auth_header=1" {
+	if got := countsText(counts); got != "private_key=1 secret=2 auth_header=1" {
 		t.Fatalf("countsText = %q", got)
 	}
 	if got := countsText(nil); got != "nothing" {

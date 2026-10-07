@@ -15,8 +15,17 @@ func NewRedactor(secrets ...string) *Redactor {
 }
 
 func (r *Redactor) Redact(s string) string {
+	s, _ = r.RedactCount(s)
+	return s
+}
+
+// RedactCount masks every vault secret as "***" and reports how many
+// occurrences it replaced.
+func (r *Redactor) RedactCount(s string) (string, int) {
+	n := 0
 	for _, sec := range r.secrets {
+		n += strings.Count(s, sec)
 		s = strings.ReplaceAll(s, sec, "***")
 	}
-	return s
+	return s, n
 }

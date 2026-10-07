@@ -177,3 +177,17 @@ func TestRedactCapCutIsMarkerAndRuneSafe(t *testing.T) {
 		}
 	}
 }
+
+// A vault secret is masked as "***" and counted as kind "secret", so the AI
+// learns the output was masked and does not write it back whole.
+func TestRedactCapCountsVaultSecrets(t *testing.T) {
+	out, c := RedactCap(NewRedactor("s3cr3t-pw"), "DB_PASSWORD=s3cr3t-pw\nAPI=s3cr3t-pw\n", capMax)
+	if out != "DB_PASSWORD=***\nAPI=***\n" || !maps.Equal(c, map[string]int{"secret": 2}) {
+		t.Fatalf("got %q %v", out, c)
+	}
+	// A cut output still counts the masks in the part the cap drops.
+	big := "x=s3cr3t-pw\n" + filler(1<<20) + "y=s3cr3t-pw\n" + filler(1<<20) + "z=s3cr3t-pw\n"
+	if _, c := RedactCap(NewRedactor("s3cr3t-pw"), big, capMax); c["secret"] != 3 {
+		t.Fatalf("big: counts %v", c)
+	}
+}
