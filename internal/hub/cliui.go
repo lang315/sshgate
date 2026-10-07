@@ -63,6 +63,10 @@ func RunCLIApprover(ctx context.Context, h *Hub, in io.Reader, out io.Writer) er
 			}
 		case "s":
 			if r, _, ok := resolveTarget(out, pend, rest, false); ok {
+				if r.Stdin != "" {
+					fmt.Fprintln(out, broker.ErrSendToTabStdin)
+					break
+				}
 				fmt.Fprintf(out, "paste into your terminal (not run here):\n  %s\n", r.Command)
 				h.broker.Decide(r.ID, broker.Decision{Outcome: broker.SentToTab})
 			}
@@ -213,6 +217,12 @@ func printRequest(out io.Writer, r broker.Request) {
 	fmt.Fprintf(out, "server : %s\n", r.Server)
 	fmt.Fprintf(out, "target : %s\n", r.Target)
 	fmt.Fprintf(out, "command: %s\n", r.Command)
+	if r.Stdin != "" {
+		fmt.Fprintf(out, "stdin (%d bytes):\n", len(r.Stdin))
+		for _, line := range strings.Split(strings.TrimSuffix(r.Stdin, "\n"), "\n") {
+			fmt.Fprintf(out, "| %s\n", strings.ReplaceAll(line, "\r", "␍"))
+		}
+	}
 	fmt.Fprintf(out, "timeout: %ds\n", r.TimeoutSec)
 	if r.Description != "" {
 		fmt.Fprintf(out, "AI says (unverified): %s\n", r.Description)
