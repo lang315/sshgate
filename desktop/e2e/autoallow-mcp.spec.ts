@@ -53,6 +53,18 @@ test('baseline: an MCP exec waits for a human decision', async () => {
   expect(r.waitMs).toBeGreaterThan(0)
 })
 
+test('stdin: the card shows it, Send to tab is off, and the command gets it', async () => {
+  const win = await l.app.firstWindow()
+  const out = mcp.tool('exec', { server: 'box', command: 'stdin-echo', stdin: 'line one\nline two\n', description: 'mcp e2e' })
+  const row = win.locator('.approval').filter({ hasText: 'stdin-echo' })
+  await expect(row.locator('.stdin')).toContainText('stdin · 18 bytes, 2 lines')
+  await expect(row.locator('.stdin')).toContainText('line two')
+  await expect(row.getByRole('button', { name: 'Send to tab', exact: true })).toBeDisabled()
+  await waitThenDecide(win, 'stdin-echo', 'allow')
+  expect(await out).toContain('line one\nline two')
+  expect(execRec('stdin-echo')).toMatchObject({ outcome: 'allowed', stdin: 'line one\nline two\n' })
+})
+
 test('timed grant from the editor: MCP execs run with no decision; sudo-exec still asks', async () => {
   const win = await l.app.firstWindow()
   await editAuto(win, 'box', '15m')
@@ -75,6 +87,13 @@ test('timed grant from the editor: MCP execs run with no decision; sudo-exec sti
   await waitThenDecide(win, 'echo sudo-asks', 'deny')
   await expect(sudo).rejects.toThrow(/Denied/)
   expect(execRec('echo sudo-asks')).toMatchObject({ outcome: 'denied', sudo: true })
+})
+
+test('stdin under the grant runs with no decision and is audited', async () => {
+  const win = await l.app.firstWindow()
+  expect(await mcp.tool('exec', { server: 'box', command: 'stdin-echo', stdin: 'auto in\n', description: 'mcp e2e' })).toContain('auto in')
+  expect(execRec('stdin-echo')).toMatchObject({ outcome: 'allowed', approval: 'auto', stdin: 'auto in\n' })
+  await expect(win.getByRole('region', { name: 'Auto-allowed' })).toContainText('stdin 8 B')
 })
 
 test('sudo-exec opt-in: sudo-exec runs with no decision and is tagged', async () => {
