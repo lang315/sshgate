@@ -285,3 +285,34 @@ func TestJSONTags(t *testing.T) {
 		t.Fatalf("Event tags: %s", s)
 	}
 }
+
+// Pasting only the command into a terminal would run a different command
+// than the one approved: Send to tab is refused, and the request stays.
+func TestSendToTabRefusedWithStdin(t *testing.T) {
+	b, _, _ := newTestBroker(time.Minute)
+	done := make(chan Decision, 1)
+	go func() {
+		d, _ := b.Submit(context.Background(), Request{Server: "s", Command: "cat > f", Stdin: "a\n"})
+		done <- d
+	}()
+	r := waitForPending(t, b, 1)[0]
+	if r.Stdin != "a\n" {
+		t.Fatalf("pending request lost stdin: %+v", r)
+	}
+	if err := b.Decide(r.ID, Decision{Outcome: SentToTab}); !errors.Is(err, ErrSendToTabStdin) {
+		t.Fatalf("got %v", err)
+	}
+	if len(b.Pending()) != 1 {
+		t.Fatal("refused send-to-tab removed the request")
+	}
+	if err := b.Decide(r.ID, Decision{Outcome: Denied}); err != nil {
+		t.Fatal(err)
+	}
+	if d := <-done; d.Outcome != Denied {
+		t.Fatalf("outcome %v", d.Outcome)
+	}
+	b2, _ := json.Marshal(Request{Command: "ls"})
+	if strings.Contains(string(b2), "stdin") {
+		t.Fatalf("empty stdin not omitted: %s", b2)
+	}
+}

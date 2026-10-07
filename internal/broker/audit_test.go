@@ -703,3 +703,32 @@ func TestLinesBackwardReadsOnlyWhatItNeeds(t *testing.T) {
 		t.Fatalf("err %v, lines %q", err, got)
 	}
 }
+
+func TestAuditReadsRecordLongerThanAChunk(t *testing.T) {
+	a, err := OpenAudit(filepath.Join(t.TempDir(), "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	stdin := strings.Repeat("0123456789abcdef\n", 200<<10/17)
+	for _, c := range []string{"before", "long", "after"} {
+		r := AuditRecord{Command: c, Outcome: "allowed"}
+		if c == "long" {
+			r.Stdin = stdin
+		}
+		if err := a.Write(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := a.Read(ReadQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Skipped != 0 || len(res.Records) != 3 {
+		t.Fatalf("skipped %d, records %d", res.Skipped, len(res.Records))
+	}
+	var got AuditRecord
+	if err := json.Unmarshal(res.Records[1].Record, &got); err != nil || got.Command != "long" || got.Stdin != stdin {
+		t.Fatalf("long record: err %v, command %q, stdin %d bytes", err, got.Command, len(got.Stdin))
+	}
+}

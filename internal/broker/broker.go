@@ -27,6 +27,7 @@ type Request struct {
 	Target      string    `json:"target"` // user@host:port the approval is for
 	Command     string    `json:"command"`
 	Description string    `json:"description"`
+	Stdin       string    `json:"stdin,omitempty"`
 	Sudo        bool      `json:"sudo"`
 	TimeoutSec  int       `json:"timeoutSec"`
 	ReceivedAt  time.Time `json:"receivedAt"`
@@ -53,6 +54,7 @@ type Options struct {
 var (
 	ErrTooManyPending = errors.New("too many pending requests, try again later")
 	ErrNotFound       = errors.New("no such pending request")
+	ErrSendToTabStdin = errors.New("send to tab is not available for a command with stdin")
 )
 
 type pending struct {
@@ -158,6 +160,16 @@ func (b *Broker) Pending() []Request {
 }
 
 func (b *Broker) Decide(id string, d Decision) error {
+	if d.Outcome == SentToTab {
+		b.mu.Lock()
+		for _, p := range b.q {
+			if p.req.ID == id && p.req.Stdin != "" {
+				b.mu.Unlock()
+				return ErrSendToTabStdin
+			}
+		}
+		b.mu.Unlock()
+	}
 	p := b.remove(id)
 	if p == nil {
 		return ErrNotFound
