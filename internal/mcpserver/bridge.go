@@ -26,6 +26,16 @@ type bridgeExecInput struct {
 	Command     string `json:"command" jsonschema:"shell command to execute; requires human approval in the app"`
 	Description string `json:"description,omitempty" jsonschema:"one sentence on what the command does and why; shown to the approver next to the command (marked unverified) and recorded in the audit log, never executed; at most 500 bytes, no control characters"`
 	TimeoutSec  int    `json:"timeoutSec,omitempty" jsonschema:"execution timeout in seconds, 1-600, default 60"`
+	Stdin       string `json:"stdin,omitempty" jsonschema:"text piped to the command's standard input, shown in full to the approver and recorded in the audit log; use it to write files (cat > path) or apply a unified diff (git apply); at most 256 KiB; newlines, tabs and carriage returns allowed, other control characters rejected"`
+}
+
+// bridgeSudoInput is sudo-exec's input: no stdin, since sudo -S reads the
+// password from stdin.
+type bridgeSudoInput struct {
+	Server      string `json:"server" jsonschema:"connection name from list-servers"`
+	Command     string `json:"command" jsonschema:"shell command to execute; requires human approval in the app"`
+	Description string `json:"description,omitempty" jsonschema:"one sentence on what the command does and why; shown to the approver next to the command (marked unverified) and recorded in the audit log, never executed; at most 500 bytes, no control characters"`
+	TimeoutSec  int    `json:"timeoutSec,omitempty" jsonschema:"execution timeout in seconds, 1-600, default 60"`
 }
 
 func clientName(req *mcp.CallToolRequest) string {
@@ -81,7 +91,7 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 				id := randID()
 				params := map[string]any{
 					"requestId": id, "client": clientName(req), "server": in.Server,
-					"command": in.Command, "description": in.Description, "timeoutSec": in.TimeoutSec,
+					"command": in.Command, "description": in.Description, "timeoutSec": in.TimeoutSec, "stdin": in.Stdin,
 				}
 
 				// Progress notifications keep MCP clients that reset their
@@ -149,10 +159,15 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 		"Each call runs in a fresh non-interactive shell: the working directory, environment variables and activated virtualenvs do not carry over, and ~/.bashrc is usually not read, so write `cd /app && ./run.sh` as one command. " +
 		"(On a server configured with a su password, commands run as root inside one persistent root shell instead.) " +
 		"The result is `exit code:` followed by `stdout:` and `stderr:` sections; a non-zero exit code is a normal result, not a tool error. Each stream is capped at 64 KiB (the middle is cut). Saved secrets are masked, and values that look like secrets (keys, passwords, tokens) are masked too, as `[REDACTED:<kind>]`, with a final `note:` line saying how many; there is no way to get them unmasked. " +
+		"To write a file, pass its content as `stdin` with `cat > path`; to edit one, pass a unified diff as `stdin` with `git apply` (or `patch -p1`). Never write back output that contained masked values (`***` or `[REDACTED:…]`): the file would be corrupted. `stdin` is not available on servers configured with a su password. " +
 		"The call fails if the app is closed, no vault exists yet, the vault is locked, the server is not visible to AI or has no pinned host key, the human denies it, or 5 requests are already waiting."}, execTool("exec"))
+	sudoExec := execTool("sudoExec")
 	mcp.AddTool(s, &mcp.Tool{Name: "sudo-exec", Description: "Run a shell command with sudo on a saved SSH server through the sshgate desktop app. " +
 		"The command runs as `sudo -S` with the server's saved sudo password, or as `sudo -n` when none is saved (which fails if sudo asks for a password). " +
-		"Approval, fresh-shell, output and failure rules are the same as exec."}, execTool("sudoExec"))
+		"Approval, fresh-shell, output and failure rules are the same as exec."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in bridgeSudoInput) (*mcp.CallToolResult, any, error) {
+			return sudoExec(ctx, req, bridgeExecInput{Server: in.Server, Command: in.Command, Description: in.Description, TimeoutSec: in.TimeoutSec})
+		})
 	mcp.AddTool(s, &mcp.Tool{Name: "list-servers", Description: "List the saved SSH servers the user has made visible to AI, one per line as `- name (host)`, where host is the server's IP address or hostname; to find a server by its IP, match the host and use its name. " +
 		"A server marked `[locked: unlock the app]` cannot run commands until the user unlocks the app. " +
 		"Use these names as the `server` argument of exec and sudo-exec; servers the user has not made visible never appear. Needs no approval."},

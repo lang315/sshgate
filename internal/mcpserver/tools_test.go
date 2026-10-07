@@ -7,6 +7,7 @@ import (
 
 	"github.com/lang315/sshgate/internal/config"
 	"github.com/lang315/sshgate/internal/sshx"
+	"github.com/lang315/sshgate/internal/sshx/sshtest"
 )
 
 func TestRunExecSanitizeError(t *testing.T) {
@@ -94,5 +95,34 @@ func TestFormatExecMasksBeforeCap(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, "note: sshgate redacted 1 value (private_key ×1); the value is withheld from AI clients\n") {
 		t.Fatalf("note missing: ...%q", got[len(got)-200:])
+	}
+}
+
+func TestRunExecStdin(t *testing.T) {
+	srv := sshtest.Start(t)
+	close(srv.Release)
+	d := &Deps{CLI: &config.CLIConfig{Host: srv.Host, Port: srv.Port, User: "u", Password: "p", HasHost: true, TimeoutMs: 30000, MaxChars: 1000}, Insecure: true}
+	reg := sshx.NewRegistry()
+	defer reg.CloseAll()
+	res, _ := runExec(context.Background(), d, reg, 1000, false, ExecInput{Command: "stdin-echo", Stdin: "one\ntwo\n"})
+	if res.IsError || !strings.Contains(text(res), "stdout:\none\ntwo\n") {
+		t.Fatalf("got %q", text(res))
+	}
+	res, _ = runExec(context.Background(), d, reg, 1000, true, ExecInput{Command: "cat", Stdin: "x"})
+	if !res.IsError || text(res) != config.ErrStdinSudo.Error() {
+		t.Fatalf("sudo: %q", text(res))
+	}
+	su := &Deps{CLI: &config.CLIConfig{Host: srv.Host, Port: srv.Port, User: "u", Password: "p", SuPassword: "su", HasHost: true, HasSuPassword: true, TimeoutMs: 30000, MaxChars: 1000}, Insecure: true}
+	res, _ = runExec(context.Background(), su, reg, 1000, false, ExecInput{Command: "cat", Stdin: "x"})
+	if !res.IsError || text(res) != config.ErrStdinSu.Error() {
+		t.Fatalf("su: %q", text(res))
+	}
+}
+
+func TestStandaloneStdinOnlyOnExec(t *testing.T) {
+	d := &Deps{CLI: &config.CLIConfig{Host: "h", User: "u", HasHost: true, TimeoutMs: 60000, MaxChars: 1000}}
+	s := inputSchemas(t, BuildServer(d, sshx.NewRegistry(), false, 1000))
+	if !strings.Contains(s["exec"], `"stdin"`) || strings.Contains(s["sudo-exec"], `"stdin"`) {
+		t.Fatalf("exec: %s\nsudo-exec: %s", s["exec"], s["sudo-exec"])
 	}
 }

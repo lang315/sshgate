@@ -14,6 +14,15 @@ type ExecInput struct {
 	Server      string `json:"server" jsonschema:"leave empty: this server exposes only the connection given on its command line"`
 	Command     string `json:"command" jsonschema:"shell command to execute"`
 	Description string `json:"description,omitempty" jsonschema:"optional one-line note on what the command does; appended to the command as a shell comment (# ...), at most 500 bytes, no control characters"`
+	Stdin       string `json:"stdin,omitempty" jsonschema:"text piped to the command's standard input; use it to write files (cat > path) or apply a unified diff (git apply); at most 256 KiB; newlines, tabs and carriage returns allowed, other control characters rejected"`
+}
+
+// SudoInput is sudo-exec's input: no stdin, since sudo -S reads the
+// password from stdin.
+type SudoInput struct {
+	Server      string `json:"server" jsonschema:"leave empty: this server exposes only the connection given on its command line"`
+	Command     string `json:"command" jsonschema:"shell command to execute"`
+	Description string `json:"description,omitempty" jsonschema:"optional one-line note on what the command does; appended to the command as a shell comment (# ...), at most 500 bytes, no control characters"`
 }
 type ListInput struct{}
 
@@ -33,16 +42,28 @@ func runExec(ctx context.Context, d *Deps, reg *sshx.Registry, maxChars int, sud
 	if err != nil {
 		return textErr(err.Error()), nil
 	}
+	if err := config.ValidateStdin(in.Stdin); err != nil {
+		return textErr(err.Error()), nil
+	}
+	if in.Stdin != "" && sudo {
+		return textErr(config.ErrStdinSudo.Error()), nil
+	}
 	dc, err := d.Resolve(in.Server)
 	if err != nil {
 		return textErr(err.Error()), nil
 	}
+	if in.Stdin != "" && dc.SuPassword != "" {
+		return textErr(config.ErrStdinSu.Error()), nil
+	}
 	mgr := reg.Get(nameOr(in.Server), dc)
 	red := config.NewRedactor(dc.Password, dc.SuPassword, dc.SudoPassword, dc.Passphrase)
 	var res sshx.ExecResult
-	if sudo {
+	switch {
+	case in.Stdin != "":
+		res, err = mgr.ExecStdin(ctx, cmd, in.Stdin)
+	case sudo:
 		res, err = mgr.ExecSudo(ctx, cmd)
-	} else {
+	default:
 		res, err = mgr.Exec(ctx, cmd)
 	}
 	if err != nil {
@@ -121,6 +142,7 @@ func BuildServer(d *Deps, reg *sshx.Registry, disableSudo bool, maxChars int) *m
 	mcp.AddTool(s, &mcp.Tool{Name: "exec", Description: "Run a shell command on the SSH server given on this sshgate server's command line. It runs immediately, without human approval. " +
 		"If a su password was configured, the command runs as root inside one persistent root shell; otherwise each call runs in a fresh non-interactive shell, so `cd` and environment changes do not carry over between calls. " +
 		"The result is `exit code:` followed by `stdout:` and `stderr:` sections; a non-zero exit code is a normal result. Each stream is capped at 64 KiB (the middle is cut). Configured secrets are masked, and values that look like secrets (keys, passwords, tokens) are masked too, as `[REDACTED:<kind>]`, with a final `note:` line saying how many. " +
+		"To write a file, pass its content as `stdin` with `cat > path`; to edit one, pass a unified diff as `stdin` with `git apply` (or `patch -p1`). Never write back output that contained masked values (`***` or `[REDACTED:…]`): the file would be corrupted. `stdin` is not available on servers configured with a su password. " +
 		"Commands containing control characters, or longer than the configured maximum length, are rejected."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in ExecInput) (*mcp.CallToolResult, any, error) {
 			res, err := runExec(ctx, d, reg, maxChars, false, in)
@@ -130,8 +152,8 @@ func BuildServer(d *Deps, reg *sshx.Registry, disableSudo bool, maxChars int) *m
 	if !disableSudo {
 		mcp.AddTool(s, &mcp.Tool{Name: "sudo-exec", Description: "Run a shell command with sudo on the SSH server given on this sshgate server's command line, without human approval. " +
 			"It runs as `sudo -S` with the configured sudo password, or `sudo -n` when none is configured (which fails if sudo asks for a password). Output and rejection rules are the same as exec."},
-			func(ctx context.Context, req *mcp.CallToolRequest, in ExecInput) (*mcp.CallToolResult, any, error) {
-				res, err := runExec(ctx, d, reg, maxChars, true, in)
+			func(ctx context.Context, req *mcp.CallToolRequest, in SudoInput) (*mcp.CallToolResult, any, error) {
+				res, err := runExec(ctx, d, reg, maxChars, true, ExecInput{Server: in.Server, Command: in.Command, Description: in.Description})
 				return res, nil, err
 			})
 	}

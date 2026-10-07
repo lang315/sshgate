@@ -239,3 +239,55 @@ func TestBridgeExecRedactedNote(t *testing.T) {
 		t.Fatalf("note without redacted: %q", text(res))
 	}
 }
+
+func TestBridgeExecForwardsStdin(t *testing.T) {
+	got := make(chan map[string]any, 1)
+	dial := func(context.Context) (net.Conn, error) {
+		client, server := net.Pipe()
+		s := rpc.NewServer()
+		s.HandleRequest("exec", func(_ context.Context, raw json.RawMessage) (any, error) {
+			var p map[string]any
+			json.Unmarshal(raw, &p)
+			got <- p
+			return map[string]any{"exitCode": 0, "stdout": "", "stderr": ""}, nil
+		})
+		go s.Serve(context.Background(), server, server)
+		return client, nil
+	}
+	res := callTool(t, BuildBridgeServer(dial), "exec", map[string]any{"server": "vis", "command": "cat > f", "stdin": "a\nb\n"})
+	if res.IsError {
+		t.Fatalf("got %q", text(res))
+	}
+	if p := <-got; p["stdin"] != "a\nb\n" || p["command"] != "cat > f" {
+		t.Fatalf("door params %v", p)
+	}
+}
+
+// inputSchemas maps each tool name to its input schema as JSON.
+func inputSchemas(t *testing.T, srv *mcp.Server) map[string]string {
+	t.Helper()
+	ct, st := mcp.NewInMemoryTransports()
+	go srv.Run(context.Background(), st)
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "t", Version: "0"}, nil).Connect(context.Background(), ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	lt, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]string{}
+	for _, tool := range lt.Tools {
+		b, _ := json.Marshal(tool.InputSchema)
+		out[tool.Name] = string(b)
+	}
+	return out
+}
+
+func TestBridgeStdinOnlyOnExec(t *testing.T) {
+	s := inputSchemas(t, BuildBridgeServer(fakeHub(t, nil, "")))
+	if !strings.Contains(s["exec"], `"stdin"`) || strings.Contains(s["sudo-exec"], `"stdin"`) {
+		t.Fatalf("exec: %s\nsudo-exec: %s", s["exec"], s["sudo-exec"])
+	}
+}
