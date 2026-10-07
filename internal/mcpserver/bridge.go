@@ -19,6 +19,7 @@ import (
 const (
 	hubDownMsg    = "Open the app to approve commands"
 	hubCrashedMsg = "App closed or crashed"
+	hubNoStdinMsg = "The running sshgate app is older than this bridge and does not support stdin; restart the app"
 )
 
 type bridgeExecInput struct {
@@ -91,7 +92,14 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 				id := randID()
 				params := map[string]any{
 					"requestId": id, "client": clientName(req), "server": in.Server,
-					"command": in.Command, "description": in.Description, "timeoutSec": in.TimeoutSec, "stdin": in.Stdin,
+					"command": in.Command, "description": in.Description, "timeoutSec": in.TimeoutSec,
+				}
+				// Stdin goes on its own door method: a hub that predates it
+				// answers "method not found" rather than dropping the field
+				// and running the command without its stdin.
+				method := method
+				if in.Stdin != "" {
+					method, params["stdin"] = "execStdin", in.Stdin
 				}
 
 				// Progress notifications keep MCP clients that reset their
@@ -140,6 +148,10 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 					defer cancel()
 					_ = c.Call(cctx, "cancel", map[string]string{"requestId": id}, nil)
 					return textErr("cancelled by client"), nil
+				}
+				var rpcErr *rpc.Error
+				if method == "execStdin" && errors.As(callErr, &rpcErr) && rpcErr.Code == -32601 {
+					return textErr(hubNoStdinMsg), nil
 				}
 				if callErr != nil {
 					return hubCallErr(callErr), nil
