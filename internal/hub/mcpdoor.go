@@ -19,11 +19,12 @@ type execParams struct {
 	Server      string `json:"server"`
 	Command     string `json:"command"`
 	Description string `json:"description,omitempty"`
+	Stdin       string `json:"stdin,omitempty"`
 	TimeoutSec  int    `json:"timeoutSec,omitempty"`
 }
 
 // ServeMCPDoor accepts connections from the bridge. Every connection is
-// peer-checked, then served a method table that contains only the three
+// peer-checked, then served a method table that contains only the
 // AI-facing calls plus cancel. Nothing here can unlock, decide, or read
 // secrets: those methods are simply not registered. Cancelling ctx closes ln.
 func ServeMCPDoor(ctx context.Context, ln net.Listener, h *Hub) error {
@@ -74,13 +75,18 @@ func serveMCPConn(ctx context.Context, conn net.Conn, h *Hub) {
 		}
 		return list, nil
 	})
-	exec := func(sudo bool) rpc.Handler {
+	// Stdin travels only on execStdin, so a hub that predates it answers
+	// "method not found" instead of running the command without its stdin.
+	exec := func(sudo, withStdin bool) rpc.Handler {
 		// ctx is cancelled by rpc.Server when the connection closes, which
 		// withdraws the pending approval or stops the running command.
 		return func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var p execParams
 			if err := json.Unmarshal(raw, &p); err != nil {
 				return nil, &rpc.Error{Code: -32602, Message: "invalid params"}
+			}
+			if p.Stdin != "" && !withStdin {
+				return nil, &rpc.Error{Code: -32602, Message: "stdin is sent with execStdin"}
 			}
 			reqCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
@@ -100,11 +106,12 @@ func serveMCPConn(ctx context.Context, conn net.Conn, h *Hub) {
 				}
 			}
 			reload()
-			return h.Exec(reqCtx, ExecRequest{Client: p.Client, Server: p.Server, Command: p.Command, Description: p.Description, Sudo: sudo, TimeoutSec: p.TimeoutSec})
+			return h.Exec(reqCtx, ExecRequest{Client: p.Client, Server: p.Server, Command: p.Command, Description: p.Description, Stdin: p.Stdin, Sudo: sudo, TimeoutSec: p.TimeoutSec})
 		}
 	}
-	s.HandleRequest("exec", exec(false))
-	s.HandleRequest("sudoExec", exec(true))
+	s.HandleRequest("exec", exec(false, false))
+	s.HandleRequest("execStdin", exec(false, true))
+	s.HandleRequest("sudoExec", exec(true, false))
 	// cancel may arrive as a notification, which runs on the read loop: it
 	// only takes a mutex and calls a CancelFunc, so it never blocks.
 	s.Handle("cancel", func(_ context.Context, raw json.RawMessage) (any, error) {

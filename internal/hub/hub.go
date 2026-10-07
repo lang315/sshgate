@@ -67,6 +67,7 @@ func (e *DeniedError) Error() string {
 type Executor interface {
 	Exec(ctx context.Context, cmd string) (sshx.ExecResult, error)
 	ExecSudo(ctx context.Context, cmd string) (sshx.ExecResult, error)
+	ExecStdin(ctx context.Context, cmd, stdin string) (sshx.ExecResult, error)
 }
 
 type Options struct {
@@ -87,9 +88,9 @@ type ServerInfo struct {
 }
 
 type ExecRequest struct {
-	Client, Server, Command, Description string
-	Sudo                                 bool
-	TimeoutSec                           int
+	Client, Server, Command, Description, Stdin string
+	Sudo                                        bool
+	TimeoutSec                                  int
 }
 
 type ExecResponse struct {
@@ -551,8 +552,10 @@ func forAI(err error) error {
 	switch {
 	case errors.Is(err, sshx.ErrHostKeyMismatch):
 		return ErrHostKeyFailed
-	case errors.Is(err, sshx.ErrTimeout):
+	case errors.Is(err, sshx.ErrTimeout), errors.Is(err, config.ErrStdinSudo):
 		return err
+	case errors.Is(err, sshx.ErrStdinUnsupported):
+		return config.ErrStdinSu // a su password saved while the request waited
 	}
 	return ErrConnFailed
 }
@@ -592,7 +595,7 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 			// cannot write megabytes to the audit log.
 			c := config.CapOutput
 			h.record(broker.AuditRecord{Time: time.Now(), Client: c(r.Client, 256), Server: c(r.Server, 256),
-				Command: c(r.Command, 4096), Description: c(r.Description, 500), Sudo: r.Sudo, Outcome: "error", Reason: err.Error()})
+				Command: c(r.Command, 4096), Description: c(r.Description, 500), Stdin: c(r.Stdin, 4096), Sudo: r.Sudo, Outcome: "error", Reason: err.Error()})
 		}
 		return ExecResponse{}, err
 	}
@@ -605,10 +608,21 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 	if err := config.ValidateDescription(r.Description); err != nil {
 		return ExecResponse{}, err
 	}
+	if err := config.ValidateStdin(r.Stdin); err != nil {
+		return ExecResponse{}, err
+	}
+	if r.Stdin != "" {
+		if r.Sudo {
+			return ExecResponse{}, config.ErrStdinSudo
+		}
+		if dc.SuPassword != "" {
+			return ExecResponse{}, config.ErrStdinSu
+		}
+	}
 	timeout := clampTimeout(r.TimeoutSec)
 
-	req := broker.Request{Client: r.Client, Server: r.Server, Target: target(dc), Command: cmd, Description: r.Description, Sudo: r.Sudo, TimeoutSec: timeout}
-	base := broker.AuditRecord{Time: time.Now(), Client: r.Client, Server: r.Server, Command: red.Redact(cmd), Description: red.Redact(r.Description), Sudo: r.Sudo, TimeoutSec: timeout}
+	req := broker.Request{Client: r.Client, Server: r.Server, Target: target(dc), Command: cmd, Description: r.Description, Stdin: r.Stdin, Sudo: r.Sudo, TimeoutSec: timeout}
+	base := broker.AuditRecord{Time: time.Now(), Client: r.Client, Server: r.Server, Command: red.Redact(cmd), Description: red.Redact(r.Description), Stdin: red.Redact(r.Stdin), Sudo: r.Sudo, TimeoutSec: timeout}
 
 	ar, skip := h.autoStart(ctx, r.Server, r.Sudo)
 	if ar != nil {
@@ -683,14 +697,14 @@ func (h *Hub) Exec(ctx context.Context, r ExecRequest) (ExecResponse, error) {
 	}
 	// Secrets may have changed on a reload during the wait; mask both sets.
 	red = redactorFor(dc, dc2)
-	base.Command, base.Description = red.Redact(cmd), red.Redact(r.Description)
-	return h.run(ctx, r.Server, dc2, cmd, r.Sudo, timeout, base, red)
+	base.Command, base.Description, base.Stdin = red.Redact(cmd), red.Redact(r.Description), red.Redact(r.Stdin)
+	return h.run(ctx, r.Server, dc2, cmd, r.Stdin, r.Sudo, timeout, base, red)
 }
 
 // run executes cmd on name with dc, audits base (Outcome, exit code, sizes,
 // reason, redacted counts), and returns what the AI sees. It is the tail of
 // both the approved and the auto-allowed path.
-func (h *Hub) run(ctx context.Context, name string, dc sshx.DialConfig, cmd string, sudo bool, timeout int, base broker.AuditRecord, red *config.Redactor) (ExecResponse, error) {
+func (h *Hub) run(ctx context.Context, name string, dc sshx.DialConfig, cmd, stdin string, sudo bool, timeout int, base broker.AuditRecord, red *config.Redactor) (ExecResponse, error) {
 	ex := h.executor(name, dc)
 
 	runCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
@@ -698,9 +712,14 @@ func (h *Hub) run(ctx context.Context, name string, dc sshx.DialConfig, cmd stri
 	start := time.Now()
 	var res sshx.ExecResult
 	var err error
-	if sudo {
+	switch {
+	case stdin != "" && sudo: // refused before the broker; never run unprivileged
+		err = config.ErrStdinSudo
+	case stdin != "":
+		res, err = ex.ExecStdin(runCtx, cmd, stdin)
+	case sudo:
 		res, err = ex.ExecSudo(runCtx, cmd)
-	} else {
+	default:
 		res, err = ex.Exec(runCtx, cmd)
 	}
 	base.DurationMs = time.Since(start).Milliseconds()

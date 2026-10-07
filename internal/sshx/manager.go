@@ -164,11 +164,29 @@ func (m *Manager) runOnce(ctx context.Context, sess *ssh.Session, cmd string, st
 	var out, errb bytes.Buffer
 	sess.Stdout = &out
 	sess.Stderr = &errb
+	// Stdin goes through a pipe the caller feeds, not sess.Stdin: Wait
+	// reports a sess.Stdin copy error (EOF when the command exits without
+	// reading all of it) as the run's error, even after exit status 0.
+	var stdinW io.WriteCloser
 	if stdin != "" {
-		sess.Stdin = strings.NewReader(stdin)
+		w, err := sess.StdinPipe()
+		if err != nil {
+			return ExecResult{}, err
+		}
+		stdinW = w
 	}
 	done := make(chan error, 1)
-	go func() { done <- sess.Run(cmd) }()
+	go func() {
+		if err := sess.Start(cmd); err != nil {
+			done <- err
+			return
+		}
+		if stdinW != nil {
+			// Ends when the command closes its stdin or exits, or sess closes.
+			go func() { io.WriteString(stdinW, stdin); stdinW.Close() }()
+		}
+		done <- sess.Wait()
+	}()
 
 	// ctx deadline wins; otherwise fall back to the configured timeout.
 	var timeout <-chan time.Time
@@ -203,6 +221,22 @@ func (m *Manager) runOnce(ctx context.Context, sess *ssh.Session, cmd string, st
 		}
 		return res, fmt.Errorf("%w: %w", ErrCancelled, ctx.Err())
 	}
+}
+
+// ErrStdinUnsupported: with a su password, plain exec runs inside a su
+// shell that frames each command over its own stdin.
+var ErrStdinUnsupported = errors.New("stdin is not supported on a server with a su password")
+
+// ExecStdin runs cmd with stdin piped to it, in a fresh session like Exec.
+func (m *Manager) ExecStdin(ctx context.Context, cmd, stdin string) (ExecResult, error) {
+	if m.cfg.SuPassword != "" {
+		return ExecResult{}, ErrStdinUnsupported
+	}
+	sess, err := m.OpenSession()
+	if err != nil {
+		return ExecResult{}, err
+	}
+	return m.runOnce(ctx, sess, cmd, stdin)
 }
 
 func (m *Manager) Exec(ctx context.Context, cmd string) (ExecResult, error) {

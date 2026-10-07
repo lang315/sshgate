@@ -239,3 +239,86 @@ func TestBridgeExecRedactedNote(t *testing.T) {
 		t.Fatalf("note without redacted: %q", text(res))
 	}
 }
+
+// doorRecorder serves the given MCP-door methods and reports each call's
+// method and params.
+func doorRecorder(methods ...string) (func(context.Context) (net.Conn, error), chan [2]any) {
+	got := make(chan [2]any, 4)
+	return func(context.Context) (net.Conn, error) {
+		client, server := net.Pipe()
+		s := rpc.NewServer()
+		for _, m := range methods {
+			s.HandleRequest(m, func(_ context.Context, raw json.RawMessage) (any, error) {
+				var p map[string]any
+				json.Unmarshal(raw, &p)
+				got <- [2]any{m, p}
+				return map[string]any{"exitCode": 0, "stdout": "", "stderr": ""}, nil
+			})
+		}
+		go s.Serve(context.Background(), server, server)
+		return client, nil
+	}, got
+}
+
+// Stdin goes on execStdin, so an older hub that would drop the unknown
+// field refuses the call instead; plain exec sends no stdin key.
+func TestBridgeExecForwardsStdin(t *testing.T) {
+	dial, got := doorRecorder("exec", "execStdin")
+	srv := BuildBridgeServer(dial)
+	if res := callTool(t, srv, "exec", map[string]any{"server": "vis", "command": "cat > f", "stdin": "a\nb\n"}); res.IsError {
+		t.Fatalf("got %q", text(res))
+	}
+	if c := <-got; c[0] != "execStdin" || c[1].(map[string]any)["stdin"] != "a\nb\n" || c[1].(map[string]any)["command"] != "cat > f" {
+		t.Fatalf("door call %v", c)
+	}
+	if res := callTool(t, srv, "exec", map[string]any{"server": "vis", "command": "ls"}); res.IsError {
+		t.Fatalf("got %q", text(res))
+	}
+	if c := <-got; c[0] != "exec" {
+		t.Fatalf("door call %v", c)
+	} else if _, has := c[1].(map[string]any)["stdin"]; has {
+		t.Fatalf("plain exec sent stdin: %v", c)
+	}
+}
+
+// A running hub older than this bridge has no execStdin: the AI is told to
+// restart the app, and nothing ran.
+func TestBridgeStdinOnOlderHub(t *testing.T) {
+	dial, got := doorRecorder("exec")
+	res := callTool(t, BuildBridgeServer(dial), "exec", map[string]any{"server": "vis", "command": "cat > f", "stdin": "x"})
+	if !res.IsError || text(res) != hubNoStdinMsg {
+		t.Fatalf("got %v %q", res.IsError, text(res))
+	}
+	if len(got) != 0 {
+		t.Fatal("the older hub's exec was called")
+	}
+}
+
+// inputSchemas maps each tool name to its input schema as JSON.
+func inputSchemas(t *testing.T, srv *mcp.Server) map[string]string {
+	t.Helper()
+	ct, st := mcp.NewInMemoryTransports()
+	go srv.Run(context.Background(), st)
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "t", Version: "0"}, nil).Connect(context.Background(), ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	lt, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]string{}
+	for _, tool := range lt.Tools {
+		b, _ := json.Marshal(tool.InputSchema)
+		out[tool.Name] = string(b)
+	}
+	return out
+}
+
+func TestBridgeStdinOnlyOnExec(t *testing.T) {
+	s := inputSchemas(t, BuildBridgeServer(fakeHub(t, nil, "")))
+	if !strings.Contains(s["exec"], `"stdin"`) || strings.Contains(s["sudo-exec"], `"stdin"`) {
+		t.Fatalf("exec: %s\nsudo-exec: %s", s["exec"], s["sudo-exec"])
+	}
+}

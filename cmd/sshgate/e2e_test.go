@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -329,5 +330,26 @@ func TestEndToEndAutoAllow(t *testing.T) {
 	}
 	if !strings.HasSuffix(txt, "note: sshgate redacted 3 values (private_key ×1, password ×1, auth_header ×1); the values are withheld from AI clients\n") {
 		t.Fatalf("note missing: %q", txt)
+	}
+
+	// stdin end to end: the in-process sshd echoes it back for "stdin-echo".
+	res, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "exec", Arguments: map[string]any{"server": "box", "command": "stdin-echo", "stdin": "line1\nline2\n"}})
+	if err != nil || res.IsError {
+		t.Fatalf("stdin exec: %v %+v", err, res)
+	}
+	if txt = res.Content[0].(*mcp.TextContent).Text; !strings.Contains(txt, "stdout:\nline1\nline2\n") {
+		t.Fatalf("stdin output: %q", txt)
+	}
+	raw, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	var rec map[string]any
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &rec); err != nil {
+		t.Fatal(err)
+	}
+	if rec["command"] != "stdin-echo" || rec["stdin"] != "line1\nline2\n" || rec["approval"] != "auto" {
+		t.Fatalf("audit: %v", rec)
 	}
 }

@@ -485,8 +485,8 @@ const autoCmdCap = 1000
 func (h *Hub) autoExec(ar *autoRun, dc sshx.DialConfig, r ExecRequest, cmd string, timeout int, base broker.AuditRecord) (ExecResponse, error) {
 	red := redactorFor(dc, ar.dc)
 	base.Approval = "auto"
-	base.Command, base.Description = red.Redact(cmd), red.Redact(r.Description)
-	resp, err := h.run(ar.ctx, r.Server, ar.dc, cmd, r.Sudo, timeout, base, red)
+	base.Command, base.Description, base.Stdin = red.Redact(cmd), red.Redact(r.Description), red.Redact(r.Stdin)
+	resp, err := h.run(ar.ctx, r.Server, ar.dc, cmd, r.Stdin, r.Sudo, timeout, base, red)
 	shown, cut := cutBytes(base.Command, autoCmdCap)
 	ran := map[string]any{"server": r.Server, "command": shown, "description": base.Description,
 		"time": time.Now().UTC().Format(time.RFC3339)}
@@ -495,6 +495,9 @@ func (h *Hub) autoExec(ar *autoRun, dc sshx.DialConfig, r ExecRequest, cmd strin
 	}
 	if r.Sudo {
 		ran["sudo"] = true
+	}
+	if r.Stdin != "" {
+		ran["stdinBytes"] = len(r.Stdin)
 	}
 	if err != nil {
 		ran["error"] = err.Error()

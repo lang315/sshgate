@@ -19,6 +19,7 @@ type AuditRecord struct {
 	Server      string         `json:"server"`
 	Command     string         `json:"command"` // already redacted by caller
 	Description string         `json:"description,omitempty"`
+	Stdin       string         `json:"stdin,omitempty"` // already redacted by caller
 	Sudo        bool           `json:"sudo,omitempty"`
 	TimeoutSec  int            `json:"timeoutSec"`
 	Outcome     string         `json:"outcome"` // Outcome values plus "cancelled_running"

@@ -8,7 +8,7 @@ export type Outcome = 'allowed' | 'denied' | 'expired' | 'withdrawn' | 'sent_to_
 
 export interface ApprovalRequest {
   id: string; client: string; server: string; target: string; command: string
-  description: string; sudo: boolean; timeoutSec: number; receivedAt: string
+  description: string; sudo: boolean; timeoutSec: number; receivedAt: string; stdin?: string
 }
 
 export type AutoAllowMode = 'off' | '15m' | '30m' | '60m' | '2h' | '4h' | 'forever'
@@ -23,7 +23,7 @@ export interface ServerInfo {
 
 export interface AutoAllowRan {
   server: string; command: string; truncated?: number; description: string
-  exitCode?: number; error?: string; time: string; sudo?: boolean
+  exitCode?: number; error?: string; time: string; sudo?: boolean; stdinBytes?: number
 }
 export interface AutoAllowCheck { uid: number; passwordlessSudo: boolean }
 
@@ -99,7 +99,7 @@ export interface AuditQuery { before?: number; limit?: number; server?: string; 
 export interface AuditRecord {
   time: string; kind?: 'config' | 'file' | 'tunnel'; server?: string; reason?: string
   // exec
-  client?: string; command?: string; description?: string; sudo?: boolean; timeoutSec?: number; outcome?: string
+  client?: string; command?: string; stdin?: string; description?: string; sudo?: boolean; timeoutSec?: number; outcome?: string
   exitCode?: number; durationMs?: number; approval?: string; waitMs?: number; redacted?: Record<string, number>
   // config
   action?: string; changed?: string[]; servers?: string[]; until?: string; forever?: boolean; fingerprint?: string; oldFingerprint?: string
@@ -138,4 +138,4 @@ export type RequestMethod = (typeof REQUEST_METHODS)[number]
 export const FILES_RELAYED = ['files.plan', 'files.run'] as const
 export const NOTIFY_METHODS = ['term.write', 'term.ack', 'term.resize', 'files.cancel', 'tunnels.stop'] as const
 export type NotifyMethod = (typeof NOTIFY_METHODS)[number]
-export const PROTOCOL_VERSION = 10
+export const PROTOCOL_VERSION = 11

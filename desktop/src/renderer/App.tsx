@@ -283,6 +283,7 @@ export function App() {
               onDecide={(id, outcome, reason) => hub.decide(id, outcome, reason)}
               onDenyAll={() => hub.denyAll('denied all by user')}
               onSendToTab={async (item) => {
+                if (item.request.stdin) throw new Error('Send to tab is not available for a command with stdin')
                 await terms.current!.sendToTab(item.request.server, item.request.command)
                 await hub.decide(item.request.id, 'sent_to_tab')
               }}

@@ -69,10 +69,9 @@ func TestExecRedactsPatternsAutoAllowed(t *testing.T) {
 	checkRedacted(t, res, raw, findAutoRecord(t, recs))
 }
 
-// A vault secret is masked first, as "***", and is not counted. Output with
-// nothing else secret has no redacted field: not in the response, not in
-// its JSON on the MCP door, not in the audit record.
-func TestExecWithoutPatternSecretsHasNoRedacted(t *testing.T) {
+// A vault secret is masked first, as "***", and counted as kind "secret":
+// in the response, in its JSON on the MCP door, and in the audit record.
+func TestExecVaultSecretIsCounted(t *testing.T) {
 	h, path, _ := newEncHub(t, &fakeExec{res: sshx.ExecResult{Stdout: "DB_PASSWORD=s3cr3t-pw\nhello\n"}})
 	if err := h.Unlock("pw"); err != nil {
 		t.Fatal(err)
@@ -82,18 +81,18 @@ func TestExecWithoutPatternSecretsHasNoRedacted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Stdout != "DB_PASSWORD=***\nhello\n" || res.Redacted != nil {
+	if res.Stdout != "DB_PASSWORD=***\nhello\n" || !maps.Equal(res.Redacted, map[string]int{"secret": 1}) {
 		t.Fatalf("got %+v", res)
 	}
 	b, err := json.Marshal(res)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(b), "redacted") {
-		t.Fatalf("MCP door JSON has redacted: %s", b)
+	if !strings.Contains(string(b), `"redacted":{"secret":1}`) {
+		t.Fatalf("MCP door JSON: %s", b)
 	}
 	_, recs := readAudit(t, path)
-	if _, ok := recs[len(recs)-1]["redacted"]; ok {
-		t.Fatalf("audit record has redacted: %v", recs[len(recs)-1])
+	if r, ok := recs[len(recs)-1]["redacted"].(map[string]any); !ok || r["secret"] != float64(1) {
+		t.Fatalf("audit redacted = %v", recs[len(recs)-1]["redacted"])
 	}
 }

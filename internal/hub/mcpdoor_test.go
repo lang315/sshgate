@@ -250,3 +250,23 @@ func TestMCPDoorCancelBeforeExecRefusesExec(t *testing.T) {
 		t.Fatalf("reused id: %v", err)
 	}
 }
+
+// Stdin travels only on execStdin: a hub that predates stdin answers that
+// method with "method not found" instead of running the command without
+// it. exec refuses a stdin rather than dropping it.
+func TestMCPDoorExecStdin(t *testing.T) {
+	fe := &fakeExec{}
+	h, _ := newHub(t, fe)
+	c := startDoor(t, h)
+	go allowFirst(t, h.Broker())
+	if err := c.Call(context.Background(), "execStdin", map[string]any{"server": "vis", "command": "cat > f", "stdin": "a\n"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(fe.calls) != 1 || fe.calls[0] != "stdin:cat > f" || fe.stdin != "a\n" {
+		t.Fatalf("calls %v stdin %q", fe.calls, fe.stdin)
+	}
+	err := c.Call(context.Background(), "exec", map[string]any{"server": "vis", "command": "cat > f", "stdin": "a\n"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "execStdin") || len(fe.calls) != 1 || len(h.Broker().Pending()) != 0 {
+		t.Fatalf("exec with stdin: err %v calls %v", err, fe.calls)
+	}
+}

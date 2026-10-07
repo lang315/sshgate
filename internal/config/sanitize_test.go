@@ -73,3 +73,27 @@ func TestAppendDescriptionRejectsControlRunes(t *testing.T) {
 		t.Fatal("tab in description should error")
 	}
 }
+
+func TestValidateStdin(t *testing.T) {
+	ok := []string{"", "a\nb\n", "col1\tcol2\n", "crlf\r\n", "xin chào\n", strings.Repeat("x", MaxStdin),
+		"dev \U0001F468\u200d\U0001F4BB\n", "a\u200cb\n", "\ufeffpackage main\n"} // ZWJ, ZWNJ, BOM: ordinary file content
+	for _, s := range ok {
+		if err := ValidateStdin(s); err != nil {
+			t.Errorf("%q: %v", s[:min(len(s), 20)], err)
+		}
+	}
+	bad := []struct{ name, in, want string }{
+		{"esc", "a\x1b[2Jb", "forbidden character U+001B"},
+		{"nul", "a\x00b", "forbidden character U+0000"},
+		{"bidi override", "echo ‮gnp.txt", "forbidden character U+202E"},
+		{"zero width space", "rm​ -rf", "forbidden character U+200B"},
+		{"c1 control", "a\u0085b", "forbidden character U+0085"},
+		{"too long", strings.Repeat("x", MaxStdin+1), "stdin too long"},
+		{"masked output", "PASS=[REDACTED:password]\n", "[REDACTED:"},
+	}
+	for _, c := range bad {
+		if err := ValidateStdin(c.in); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: got %v, want an error containing %q", c.name, err, c.want)
+		}
+	}
+}

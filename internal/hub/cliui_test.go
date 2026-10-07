@@ -307,3 +307,33 @@ func TestCLIApproverUnlockWithNoVault(t *testing.T) {
 		t.Fatalf("output: %q", out.String())
 	}
 }
+
+func TestCLIApproverShowsStdinAndRefusesSendToTab(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	out := &safeBuf{}
+	go RunCLIApprover(context.Background(), h, pr, out)
+	waitOut(t, out, "Commands:")
+
+	errc := make(chan error, 1)
+	go func() {
+		_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "cat > f", Stdin: "a\r\nb\n"})
+		errc <- err
+	}()
+	waitPending(t, h.Broker(), 1)
+	waitOut(t, out, "stdin (5 bytes):\n| a␍\n| b\n")
+
+	io.WriteString(pw, "s\n")
+	waitOut(t, out, "send to tab is not available for a command with stdin")
+	if strings.Contains(out.String(), "paste into your terminal") {
+		t.Fatal("printed a paste hint for a stdin command")
+	}
+	if len(h.Broker().Pending()) != 1 {
+		t.Fatal("s removed the request")
+	}
+	io.WriteString(pw, "d\n")
+	if err := <-errc; err == nil {
+		t.Fatal("want denied")
+	}
+}

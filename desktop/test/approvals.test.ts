@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { allowEnabled, blockKeyboardActivation, clickAllowed, highlightNonAscii, Latest, ListChanges, mergeSeed, nonAsciiSummary, reduceApprovals, seed } from '../src/renderer/approvals'
+import { allowEnabled, blockKeyboardActivation, clickAllowed, highlightNonAscii, Latest, ListChanges, mergeSeed, nonAsciiSummary, reduceApprovals, seed, stdinMeta, stdinView } from '../src/renderer/approvals'
 import type { ApprovalRequest } from '../src/shared/protocol'
 
 const req = (id: string): ApprovalRequest => ({
@@ -159,5 +159,13 @@ describe('ListChanges.touch', () => {
     const c = new ListChanges('a', 0)
     c.touch(700)
     expect(c.at).toBe(700)
+  })
+})
+
+describe('stdin display', () => {
+  it('counts bytes and lines, and shows CR as ␍ while newlines and tabs stay plain', () => {
+    expect(stdinMeta('a\r\nb\n')).toBe('5 bytes, 2 lines')
+    expect(stdinMeta('é')).toBe('2 bytes, 1 line')
+    expect(stdinView('a\tb\r\n')).toEqual([{ text: 'a\tb', nonAscii: false }, { text: '␍', nonAscii: true }, { text: '\n', nonAscii: false }])
   })
 })
