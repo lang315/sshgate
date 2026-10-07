@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lang315/sshgate/internal/broker"
 	"github.com/lang315/sshgate/internal/config"
@@ -118,9 +119,13 @@ func TestExecStdinVaultSecretMaskedInAudit(t *testing.T) {
 }
 
 func TestUIDoorRefusesSendToTabWithStdin(t *testing.T) {
-	h, _ := newHub(t, &fakeExec{})
+	h, path := newHub(t, &fakeExec{})
 	c, _ := startUIRaw(t, h)
-	go h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "cat > f", Stdin: "x"})
+	execErr := make(chan error, 1)
+	go func() {
+		_, err := h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "cat > f", Stdin: "x"})
+		execErr <- err
+	}()
 	waitPending(t, h.Broker(), 1)
 	id := h.Broker().Pending()[0].ID
 	err := c.Call(context.Background(), "decide", map[string]string{"id": id, "outcome": "sent_to_tab"}, nil)
@@ -128,4 +133,17 @@ func TestUIDoorRefusesSendToTabWithStdin(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 	h.Broker().Decide(id, broker.Decision{Outcome: broker.Denied})
+	select {
+	case err := <-execErr:
+		if err == nil {
+			t.Fatal("exec after deny returned no error")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("exec did not return after deny")
+	}
+	_, recs := readAudit(t, path)
+	last := recs[len(recs)-1]
+	if last["outcome"] != "denied" || last["stdin"] != "x" {
+		t.Fatalf("last audit record: outcome %v stdin %v", last["outcome"], last["stdin"])
+	}
 }

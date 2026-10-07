@@ -69,7 +69,10 @@ function AuditDetail({ record: r }: { record: AuditRecord }) {
     <div className="audit-detail">
       {!r.kind && typeof r.command === 'string' && <pre className="cmd">{displayText(r.command)}</pre>}
       {!r.kind && typeof r.stdin === 'string' && r.stdin !== '' && (
-        <pre className="cmd stdin">{r.stdin.split('\n').map(displayText).join('\n')}</pre>
+        <div className="stdin">
+          <span className="stdin-label">stdin</span>
+          <pre className="cmd">{r.stdin.split('\n').map(displayText).join('\n')}</pre>
+        </div>
       )}
       {typeof r.description === 'string' && r.description !== '' && (
         <div className="desc"><span className="desc-label">AI&apos;s description · unverified</span>{displayText(r.description)}</div>
