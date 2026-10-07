@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"unicode"
@@ -59,4 +60,35 @@ func AppendDescription(cmd, desc string) (string, error) {
 		return "", err
 	}
 	return cmd + " # " + strings.ReplaceAll(desc, "#", `\#`), nil
+}
+
+// MaxStdin bounds the stdin of one exec: it is shown in full to the
+// approver and stored in full in the audit record.
+const MaxStdin = 256 << 10
+
+var (
+	ErrStdinSudo = errors.New("stdin is not supported with sudo-exec")
+	ErrStdinSu   = errors.New("stdin is not supported on this server")
+)
+
+// ValidateStdin applies the command's rune rules to an exec's stdin, except
+// that newlines, tabs and carriage returns are allowed: stdin is file
+// content. It also refuses a "[REDACTED:" marker, which only appears in
+// masked output: writing that back would corrupt the file.
+func ValidateStdin(s string) error {
+	if len(s) > MaxStdin {
+		return fmt.Errorf("stdin too long (max %d bytes)", MaxStdin)
+	}
+	for i, r := range s {
+		if r == '\n' || r == '\t' || r == '\r' {
+			continue
+		}
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return fmt.Errorf("stdin contains forbidden character U+%04X at position %d", r, i)
+		}
+	}
+	if strings.Contains(s, "[REDACTED:") {
+		return errors.New("stdin contains a [REDACTED:…] marker: it is masked output, and writing it back would corrupt the file")
+	}
+	return nil
 }
