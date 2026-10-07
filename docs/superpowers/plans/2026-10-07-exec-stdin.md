@@ -432,9 +432,44 @@ func TestSendToTabRefusedWithStdin(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+Append to `internal/broker/audit_test.go` (a stdin record is the first audit line that routinely spans several of `linesBackward`'s 64 KiB chunks). Copy the open/close lines from the test around `audit_test.go:180-187` and use its temp-path pattern:
 
-Run: `go test ./internal/broker -run TestSendToTabRefusedWithStdin`
+```go
+func TestAuditReadsRecordLongerThanAChunk(t *testing.T) {
+	a, err := OpenAudit(filepath.Join(t.TempDir(), "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	stdin := strings.Repeat("0123456789abcdef\n", 200<<10/17)
+	for _, c := range []string{"before", "long", "after"} {
+		r := AuditRecord{Command: c, Outcome: "allowed"}
+		if c == "long" {
+			r.Stdin = stdin
+		}
+		if err := a.Write(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := a.Read(ReadQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Skipped != 0 || len(res.Records) != 3 {
+		t.Fatalf("skipped %d, records %d", res.Skipped, len(res.Records))
+	}
+	var got AuditRecord
+	if err := json.Unmarshal(res.Records[1].Record, &got); err != nil || got.Command != "long" || got.Stdin != stdin {
+		t.Fatalf("long record: err %v, command %q, stdin %d bytes", err, got.Command, len(got.Stdin))
+	}
+}
+```
+
+Add `"path/filepath"` to that file's imports if it is missing.
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `go test ./internal/broker -run 'TestSendToTabRefusedWithStdin|TestAuditReadsRecordLongerThanAChunk'`
 Expected: FAIL, `unknown field Stdin` / `undefined: ErrSendToTabStdin`.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -480,7 +515,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/broker/broker.go internal/broker/audit.go internal/broker/broker_test.go
+git add internal/broker/broker.go internal/broker/audit.go internal/broker/broker_test.go internal/broker/audit_test.go
 git commit -m "feat(broker): requests and audit records carry stdin
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -652,6 +687,25 @@ func TestExecStdinVaultSecretMaskedInAudit(t *testing.T) {
 ```
 
 `encServer` (`autoallow_test.go:273`) builds an AI-visible, pinned server whose su password decrypts with `testMK`, so `dc.SuPassword` is set once it resolves.
+
+Also in `stdin_test.go`, the UI door relays the Send-to-tab refusal text (a plain Go error becomes `-32000` with its message, `internal/rpc/rpc.go:196-198`). Use the UI-door helpers the file already uses elsewhere (`startUIRaw` in `uidoor_test.go:201`; read it for the exact return values):
+
+```go
+func TestUIDoorRefusesSendToTabWithStdin(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	c, _ := startUIRaw(t, h)
+	go h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "cat > f", Stdin: "x"})
+	waitPending(t, h.Broker(), 1)
+	id := h.Broker().Pending()[0].ID
+	err := c.Call(context.Background(), "decide", map[string]string{"id": id, "outcome": "sent_to_tab"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "send to tab is not available for a command with stdin") {
+		t.Fatalf("got %v", err)
+	}
+	h.Broker().Decide(id, broker.Decision{Outcome: broker.Denied})
+}
+```
+
+(add `"strings"` to the file's imports).
 
 Change `internal/hub/uidoor_test.go:208-209` to:
 
