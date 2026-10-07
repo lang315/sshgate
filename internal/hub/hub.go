@@ -552,8 +552,10 @@ func forAI(err error) error {
 	switch {
 	case errors.Is(err, sshx.ErrHostKeyMismatch):
 		return ErrHostKeyFailed
-	case errors.Is(err, sshx.ErrTimeout):
+	case errors.Is(err, sshx.ErrTimeout), errors.Is(err, config.ErrStdinSudo):
 		return err
+	case errors.Is(err, sshx.ErrStdinUnsupported):
+		return config.ErrStdinSu // a su password saved while the request waited
 	}
 	return ErrConnFailed
 }
@@ -711,6 +713,8 @@ func (h *Hub) run(ctx context.Context, name string, dc sshx.DialConfig, cmd, std
 	var res sshx.ExecResult
 	var err error
 	switch {
+	case stdin != "" && sudo: // refused before the broker; never run unprivileged
+		err = config.ErrStdinSudo
 	case stdin != "":
 		res, err = ex.ExecStdin(runCtx, cmd, stdin)
 	case sudo:

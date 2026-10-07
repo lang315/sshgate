@@ -3,12 +3,14 @@ package hub
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/lang315/sshgate/internal/broker"
 	"github.com/lang315/sshgate/internal/config"
+	"github.com/lang315/sshgate/internal/sshx"
 )
 
 func TestExecStdinApprovedPath(t *testing.T) {
@@ -145,5 +147,26 @@ func TestUIDoorRefusesSendToTabWithStdin(t *testing.T) {
 	last := recs[len(recs)-1]
 	if last["outcome"] != "denied" || last["stdin"] != "x" {
 		t.Fatalf("last audit record: outcome %v stdin %v", last["outcome"], last["stdin"])
+	}
+}
+
+// A su password saved while the request waited is caught by the run's own
+// guard (sshx.ErrStdinUnsupported); the AI gets the stdin refusal, not
+// "connection failed".
+func TestForAIStdinUnsupported(t *testing.T) {
+	if err := forAI(fmt.Errorf("run: %w", sshx.ErrStdinUnsupported)); !errors.Is(err, config.ErrStdinSu) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// run is the tail of both the approved and the auto path: stdin with sudo
+// fails there too, rather than running unprivileged.
+func TestRunRefusesStdinWithSudo(t *testing.T) {
+	fe := &fakeExec{}
+	h, _ := newHub(t, fe)
+	_, err := h.run(context.Background(), "vis", sshx.DialConfig{}, "cat > f", "x", true, 60, broker.AuditRecord{}, config.NewRedactor())
+	// run re-wraps errors as redacted text, so the AI sees this message.
+	if err == nil || err.Error() != config.ErrStdinSudo.Error() || len(fe.calls) != 0 {
+		t.Fatalf("err %v calls %v", err, fe.calls)
 	}
 }
