@@ -141,6 +141,9 @@ func (b *blockingExec) Exec(ctx context.Context, cmd string) (sshx.ExecResult, e
 	<-b.release
 	return sshx.ExecResult{}, nil
 }
+func (b *blockingExec) ExecStdin(ctx context.Context, cmd, _ string) (sshx.ExecResult, error) {
+	return b.Exec(ctx, cmd)
+}
 func (b *blockingExec) ExecSudo(ctx context.Context, cmd string) (sshx.ExecResult, error) {
 	return b.Exec(ctx, cmd)
 }

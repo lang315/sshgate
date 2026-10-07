@@ -19,6 +19,7 @@ type execParams struct {
 	Server      string `json:"server"`
 	Command     string `json:"command"`
 	Description string `json:"description,omitempty"`
+	Stdin       string `json:"stdin,omitempty"`
 	TimeoutSec  int    `json:"timeoutSec,omitempty"`
 }
 
@@ -100,7 +101,7 @@ func serveMCPConn(ctx context.Context, conn net.Conn, h *Hub) {
 				}
 			}
 			reload()
-			return h.Exec(reqCtx, ExecRequest{Client: p.Client, Server: p.Server, Command: p.Command, Description: p.Description, Sudo: sudo, TimeoutSec: p.TimeoutSec})
+			return h.Exec(reqCtx, ExecRequest{Client: p.Client, Server: p.Server, Command: p.Command, Description: p.Description, Stdin: p.Stdin, Sudo: sudo, TimeoutSec: p.TimeoutSec})
 		}
 	}
 	s.HandleRequest("exec", exec(false))

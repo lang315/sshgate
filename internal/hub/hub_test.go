@@ -21,12 +21,18 @@ import (
 
 type fakeExec struct {
 	calls []string
+	stdin string
 	res   sshx.ExecResult
 	err   error
 }
 
 func (f *fakeExec) Exec(ctx context.Context, cmd string) (sshx.ExecResult, error) {
 	f.calls = append(f.calls, cmd)
+	return f.res, f.err
+}
+func (f *fakeExec) ExecStdin(ctx context.Context, cmd, stdin string) (sshx.ExecResult, error) {
+	f.calls = append(f.calls, "stdin:"+cmd)
+	f.stdin = stdin
 	return f.res, f.err
 }
 func (f *fakeExec) ExecSudo(ctx context.Context, cmd string) (sshx.ExecResult, error) {

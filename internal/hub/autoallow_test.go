@@ -40,6 +40,10 @@ func (b *blockExec) Exec(ctx context.Context, cmd string) (sshx.ExecResult, erro
 	}
 }
 
+func (b *blockExec) ExecStdin(ctx context.Context, cmd, _ string) (sshx.ExecResult, error) {
+	return b.Exec(ctx, cmd)
+}
+
 func (b *blockExec) ExecSudo(ctx context.Context, cmd string) (sshx.ExecResult, error) {
 	return b.Exec(ctx, cmd)
 }
