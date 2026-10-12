@@ -39,7 +39,9 @@ export interface ServerInput {
 // storeError is set while the hub's last reload of the vault file was
 // refused (tampered or unreadable); the hub keeps the last good copy.
 // autoHosts is set only while soft-locked: the UI is locked, the AI still runs on these hosts.
-export interface Status { locked: boolean; hasStore: boolean; hasVault: boolean; storePath: string; pending: number; storeError?: string; autoHosts?: string[] }
+// The soft-lock limit (spec 2026-10-12-soft-lock-limit-design.md).
+export type SoftLockLimit = '24h' | '3d' | '7d' | 'none'
+export interface Status { locked: boolean; hasStore: boolean; hasVault: boolean; storePath: string; pending: number; storeError?: string; autoHosts?: string[]; softLockLimit?: SoftLockLimit }
 // Why the hub locked. grantsEnded and softLockLimit end a soft lock.
 export type LockReason = 'idle' | 'manual' | 'grantsEnded' | 'softLockLimit'
 // Auto runs that finished on a server while the UI was locked; in the unlock reply.
@@ -131,11 +133,11 @@ export const REQUEST_METHODS = ['hello', 'status', 'unlock', 'lock', 'servers', 
   'vault.create', 'servers.save', 'servers.delete', 'servers.forgetHostKey',
   'import.scan', 'import.apply', 'files.list', 'files.mkdir', 'files.rename',
   'tunnels.list', 'tunnels.save', 'tunnels.delete', 'tunnels.start',
-  'servers.setAutoAllow', 'servers.autoAllowCheck', 'audit.read'] as const
+  'servers.setAutoAllow', 'servers.autoAllowCheck', 'audit.read', 'settings.setSoftLockLimit'] as const
 export type RequestMethod = (typeof REQUEST_METHODS)[number]
 // Relayed through Electron main's FilesRelay (tokens → paths, native download
 // conflicts), never straight through relayCall.
 export const FILES_RELAYED = ['files.plan', 'files.run'] as const
 export const NOTIFY_METHODS = ['term.write', 'term.ack', 'term.resize', 'files.cancel', 'tunnels.stop'] as const
 export type NotifyMethod = (typeof NOTIFY_METHODS)[number]
-export const PROTOCOL_VERSION = 11
+export const PROTOCOL_VERSION = 12

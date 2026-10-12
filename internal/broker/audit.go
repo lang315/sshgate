@@ -38,7 +38,7 @@ type AuditRecord struct {
 type ConfigRecord struct {
 	Time           time.Time `json:"time"`
 	Kind           string    `json:"kind"`   // always "config"; exec records have none
-	Action         string    `json:"action"` // trust, forgetHostKey, delete, vaultCreate, save, import, autoAllowOn, autoAllowResume, autoAllowOff, autoAllowCheck, softLock
+	Action         string    `json:"action"` // trust, forgetHostKey, delete, vaultCreate, save, import, autoAllowOn, autoAllowResume, autoAllowOff, autoAllowCheck, softLock, softLockLimit
 	Server         string    `json:"server,omitempty"`
 	Host           string    `json:"host,omitempty"`
 	Port           int       `json:"port,omitempty"`
@@ -51,6 +51,7 @@ type ConfigRecord struct {
 	Until          string    `json:"until,omitempty"`   // autoAllowOn: RFC 3339 deadline of a timed grant
 	Forever        bool      `json:"forever,omitempty"` // autoAllowOn: a forever grant
 	Reason         string    `json:"reason,omitempty"`  // autoAllowOff: why it ended; autoAllowCheck: the result
+	Limit          string    `json:"limit,omitempty"`   // softLockLimit: the new limit, 24h, 3d, 7d or none
 }
 
 // FileRecord is an audit line for a file operation from the app. Transfers
