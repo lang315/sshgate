@@ -298,3 +298,15 @@ func TestReloadDetectsRollbackByOneRevision(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateVaultClearsSoftLockLimit(t *testing.T) {
+	h, path := newHubAt(t, &config.File{Version: 1, SoftLockLimit: "none", Servers: []config.Server{
+		{Name: "a", Host: "h", Port: 22, User: "u", Auth: "agent"}}}, nil)
+	if err := h.CreateVault("longenough"); err != nil {
+		t.Fatal(err)
+	}
+	f, _ := config.Load(path)
+	if f.SoftLockLimit != "" {
+		t.Fatalf("softLockLimit survived vault creation: %q", f.SoftLockLimit)
+	}
+}

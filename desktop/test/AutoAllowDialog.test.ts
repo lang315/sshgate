@@ -107,6 +107,11 @@ describe('AutoAllowDialog', () => {
     expect(html).toContain('R server 127.0.0.1:2222 → localhost:22')
     expect(html).toContain('R server 127.0.0.1:3333 → localhost:80')
   })
+  it('takes the forever copy from the soft-lock limit', () => {
+    expect(dialog({ mode: 'forever', limit: 'none' })).toContain('with no time limit')
+    expect(dialog({ mode: 'forever', limit: 'none' })).not.toContain('24 hours')
+    expect(dialog({ mode: 'forever', limit: '7d' })).toContain('for up to 7 days')
+  })
 })
 
 // The dialog computes changedAt from ListChanges.setKey called during render

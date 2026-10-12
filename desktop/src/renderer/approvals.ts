@@ -20,8 +20,13 @@ export function reduceApprovals(items: PendingItem[], e: HubEvent, now: number):
 // last change to the list (or the panel mounting), so nothing that shifts under
 // the cursor is instantly clickable.
 export function allowEnabled(item: PendingItem, now: number, listChangedAt = 0): boolean {
-  return now - Math.max(item.shownAt, listChangedAt) >= ALLOW_DELAY_MS
+  return delayElapsed(item.shownAt, listChangedAt, now)
 }
+
+// The mouse-only delay shared by Allow, Enable and Save: ALLOW_DELAY_MS must
+// pass since the later of the moment something appeared and its last change.
+export const delayElapsed = (openedAt: number, changedAt: number, now: number) =>
+  now - Math.max(openedAt, changedAt) >= ALLOW_DELAY_MS
 
 // When the approval list last changed, for allowEnabled's listChangedAt: its ids
 // changed, or its rendered height did (e.g. inline error text appearing in an item

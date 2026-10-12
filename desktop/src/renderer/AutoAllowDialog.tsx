@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AutoAllowCheck, AutoAllowMode, ServerInfo } from '../shared/protocol'
+import type { AutoAllowCheck, AutoAllowMode, ServerInfo, SoftLockLimit } from '../shared/protocol'
 import { blockKeyboardActivation, ListChanges } from './approvals'
 import { AUTO_MODES, dialogChangeKey, enableAllowed } from './autoallow'
+import { limitText } from './settings'
 
 type Mode = Exclude<AutoAllowMode, 'off'>
 
 // Confirms the Host editor's Auto-allow choice before Save sends it (spec
 // Amendment 2026-09-29): the duration comes from the editor, not a radio here.
-export function AutoAllowDialog({ server, mode, typeName, rootNew, sudoNew, sudo, refused, remoteTunnels, check, onEnable, onCancel }: {
+export function AutoAllowDialog({ server, mode, typeName, rootNew, sudoNew, sudo, refused, remoteTunnels, check, onEnable, onCancel, limit }: {
   server: ServerInfo; mode: Mode; typeName: boolean; rootNew: boolean; sudoNew: boolean; sudo: boolean; refused?: string
   remoteTunnels: string[]
   check: () => Promise<AutoAllowCheck>
-  onEnable: () => Promise<void>; onCancel: () => void
+  onEnable: () => Promise<void>; onCancel: () => void; limit?: SoftLockLimit
 }) {
   const [typed, setTyped] = useState('')
   const [checked, setChecked] = useState<AutoAllowCheck | 'error'>()
@@ -58,7 +59,7 @@ export function AutoAllowDialog({ server, mode, typeName, rootNew, sudoNew, sudo
             )}
             <p className="duration">{chosen}</p>
             <p className="muted">{mode === 'forever'
-              ? 'Stays set after restart. Locking the app, by hand or from inactivity, does not stop it: the AI keeps running on this host for up to 24 hours. To stop it, use Stop auto-allow and lock on the unlock screen, Stop on the host card, or Stop all auto-allow. After a restart, the 24-hour limit, or Stop auto-allow and lock, it waits for you to click Resume.'
+              ? limitText(limit)
               : `Ends at ${endsAt} or when you stop it. Locking the app, by hand or from inactivity, does not stop it: the AI keeps running on this host until then. To stop it, use Stop auto-allow and lock on the unlock screen, Stop on the host card, or Stop all auto-allow.`}</p>
             {typeName && (
               <label className="field">{`Type ${server.name} to confirm`}<input value={typed} onChange={(e) => setTyped(e.target.value)} /></label>

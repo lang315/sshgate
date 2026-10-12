@@ -18,7 +18,8 @@ import { StoreErrorBanner } from './StoreError'
 import { Latest, mergeSeed, reduceApprovals, type PendingItem } from './approvals'
 import { loadPref, resolveTheme, savePref, type ThemePref } from './theme'
 import { ThemeControl } from './ThemeControl'
-import { LockIcon, Mark } from './icons'
+import { LockIcon, Mark, SettingsIcon } from './icons'
+import { SettingsDialog } from './SettingsDialog'
 
 export function App() {
   const [hubState, setHubState] = useState<HubState>({ kind: 'starting' })
@@ -45,6 +46,7 @@ export function App() {
   }, [servers])
   const terms = useRef<TerminalsHandle>(null)
   const [everReady, setEverReady] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [editing, setEditing] = useState<{ name?: string; focusForget?: boolean }>()
   const [importing, setImporting] = useState(false)
   const hostKeys = useRef(new HostKeyPrompts()).current
@@ -206,6 +208,8 @@ export function App() {
 
   const ready = screen.kind === 'ready'
   useEffect(() => { if (ready) setEverReady(true) }, [ready])
+  // A lock unmounts the dialog; an unlock must not bring back an unsaved one.
+  useEffect(() => { if (!ready) setSettingsOpen(false) }, [ready])
 
   // The unlock screen's kill switch: like stopAuto, a rejection must never be silent.
   const stopAndLock = async () => {
@@ -228,6 +232,8 @@ export function App() {
         </button>
       )}
       <ThemeControl pref={themePref} onChange={chooseTheme} />
+      <button type="button" className="btn" aria-label="Settings" title="Settings" disabled={!status?.softLockLimit}
+        onClick={() => setSettingsOpen(true)}><SettingsIcon /></button>
       <button type="button" className="btn" title={lockTitle(liveAutoN)} onClick={lock}><LockIcon />Lock</button>
     </>
   )
@@ -268,7 +274,7 @@ export function App() {
                 openTabs={editing.name ? terms.current?.openCount(editing.name) ?? 0 : 0}
                 transfers={editing.name ? terms.current?.transferCount(editing.name) ?? 0 : 0} focusForget={editing.focusForget}
                 remoteTunnels={editing.name ? tunnels.filter((t) => t.server === editing.name && t.kind === 'remote' && t.status === 'running').map(summary) : []}
-                autoAllowCheck={hub.autoAllowCheck}
+                autoAllowCheck={hub.autoAllowCheck} softLockLimit={status?.softLockLimit}
                 onSave={onSaveHost}
                 onForget={async (name) => { await hub.forgetHostKey(name); await reloadServers() }}
                 onClose={() => setEditing(undefined)} />
@@ -297,6 +303,11 @@ export function App() {
       {ready && mismatch && (
         <HostKeyMismatchDialog info={mismatch} onClose={() => setMismatch(undefined)}
           onEdit={async () => { const name = mismatch.server; setMismatch(undefined); setImporting(false); await reloadServers(); setEditing({ name, focusForget: true }) }} />
+      )}
+      {ready && settingsOpen && status?.softLockLimit && (
+        <SettingsDialog limit={status.softLockLimit} hosts={[...autoHostsSet].sort()}
+          onSave={async (l) => { await hub.setSoftLockLimit(l); await refresh(); setSettingsOpen(false) }}
+          onCancel={() => setSettingsOpen(false)} />
       )}
     </div>
   )

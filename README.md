@@ -87,28 +87,31 @@ Keep the app open while the AI works. When the app is closed, every tool call fa
 - **Host editor.** It never shows a saved password: leave a field empty to keep it, or click **Clear** to remove it. Changing the address or port forgets the pinned key and every password you don't re-enter, closes that server's tabs, and denies its waiting requests.
 - **Host key changed.** A server that presents a different key is refused, and the app shows both fingerprints. If the change was expected, click **Forget host key** in the editor and connect again.
 - **Themes.** Dark, light, or **Auto** (follows the OS), from the ☾ / ☀ / Auto control.
-- **Locking.** After 15 minutes with no activity and nothing pending, the app locks itself; **Lock** does it by hand. If a host is on auto-allow when either happens, the app still locks (terminals, files, tunnels, the editor and approvals need the master password again), but the AI keeps running on that host until the grant ends, 24 hours pass, or you press **Stop auto-allow and lock** on the unlock screen, which needs no password. A timed grant does not keep the app open. While locked, the AI's calls to every other host fail and terminals keep running.
+- **Settings.** The ⚙ button between the theme control and **Lock** opens Settings while the vault is unlocked. It holds one setting today, **Keep running while locked** under Auto-allow: how long hosts on auto-allow keep running while the app is locked, **24 hours** (the default), **3 days**, **7 days**, or **No limit**. Raising it shows an amber notice (red for **No limit**) that lists the hosts on auto-allow now and says any program running as your user can use that access too. **Save** needs a mouse click and waits 500 ms after the notice changes; Enter and Esc cancel. Every change is in the audit log.
+- **Locking.** After 15 minutes with no activity and nothing pending, the app locks itself; **Lock** does it by hand. If a host is on auto-allow when either happens, the app still locks (terminals, files, tunnels, the editor and approvals need the master password again), but the AI keeps running on that host until the grant ends, the soft-lock limit set in **Settings** (⚙, 24 hours by default; 3 days, 7 days or no limit) passes, or you press **Stop auto-allow and lock** on the unlock screen, which needs no password. A timed grant does not keep the app open. While locked, the AI's calls to every other host fail and terminals keep running.
 - **Notifications.** When the window is not focused, a new request shows an OS notification and a count on the tray icon.
 
 ### Auto-allow
 
-In a host's editor, open **AI access** (the host must be visible to AI and have a pinned key) and pick a duration in the **Auto-allow** select: 15 min, 30 min, 60 min, 2 h, 4 h, or "Until turned off" (which needs the host name typed to confirm in the confirm dialog Save shows you), then Save. Plain `exec` calls run without a click for that long; the confirm dialog's **Enable** is mouse-only and waits 500 ms, like **Allow**. **Stop** on the host card (always shown while a grant is on), **Stop all auto-allow** in the AI column, **Stop auto-allow and lock** on the unlock screen, the timer running out, or 24 hours with the app locked all end it. Every run is in the audit log, and runs made while the app is open also show in the AI column's Auto-allowed feed. Runs made while the app is locked are not in the feed: after you unlock, a line says how many ran, and the Audit tab lists them.
+In a host's editor, open **AI access** (the host must be visible to AI and have a pinned key) and pick a duration in the **Auto-allow** select: 15 min, 30 min, 60 min, 2 h, 4 h, or "Until turned off" (which needs the host name typed to confirm in the confirm dialog Save shows you), then Save. Plain `exec` calls run without a click for that long; the confirm dialog's **Enable** is mouse-only and waits 500 ms, like **Allow**. **Stop** on the host card (always shown while a grant is on), **Stop all auto-allow** in the AI column, **Stop auto-allow and lock** on the unlock screen, the timer running out, or the soft-lock limit from **Settings** passing while the app is locked (24 hours by default) all end it. Every run is in the audit log, and runs made while the app is open also show in the AI column's Auto-allowed feed. Runs made while the app is locked are not in the feed: after you unlock, a line says how many ran, and the Audit tab lists them.
 
 Two opt-ins in the same section, off by default and independent of each other, widen what a grant covers:
 
 - **Allow on root hosts** lets a grant run on a `root` login, or a host with a stored su or sudo password. Honest risk: the AI runs as root, and a command it plants can capture the su or sudo password you type or store.
 - **Also auto-allow sudo-exec** lets `sudo-exec` run without asking on a granted host, the same as plain exec. Honest risk: the AI has full root on that host for as long as the grant runs.
 
-A grant "Until turned off" is paused after a restart, the 24-hour limit, or **Stop auto-allow and lock** until you click **Resume**; a plain lock, by hand or from inactivity, does not pause it. If the hub refuses a grant when you save (for example a `root` host without **Allow on root hosts**), the host edits are still saved and the app tells you auto-allow was not turned on.
+A grant "Until turned off" is paused after a restart, the soft-lock limit, or **Stop auto-allow and lock** until you click **Resume**; a plain lock, by hand or from inactivity, does not pause it. If the hub refuses a grant when you save (for example a `root` host without **Allow on root hosts**), the host edits are still saved and the app tells you auto-allow was not turned on.
 
 What stops unattended work on an auto-allowed host:
 
 - A renderer crash: the app locks the vault and reloads, which ends every grant.
 - A restart of the hub: it starts locked, and a grant "Until turned off" is paused until Resume.
 - A timed grant reaching its deadline.
-- The app having been locked for 24 hours.
+- The app having been locked for the soft-lock limit set in **Settings** (24 hours by default). With **No limit**, only **Stop auto-allow and lock**, a restart or a crash ends it.
 - The AI needing a host with no grant, or `sudo-exec` on a host without the sudo opt-in.
 - The machine going to sleep.
+
+The soft-lock limit is stored in the vault, under its MAC, and only changes while the app is unlocked. An older sshgate refuses a vault whose limit is not 24 hours (it reads the field as tampering): set it back to 24 hours before downgrading. While the app is locked, a copy of the vault file older than the one in use is treated as tampering and stops auto-allow; while it is unlocked, or across a restart, an older copy with a valid MAC is accepted, as it is for every other setting.
 
 A dropped SSH connection does not stop it: the next run reconnects.
 

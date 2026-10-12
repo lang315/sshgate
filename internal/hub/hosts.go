@@ -58,6 +58,7 @@ func (h *Hub) CreateVault(pw string) error {
 			kept = append(kept, s.Name)
 		}
 		f.KDF = &k
+		f.SoftLockLimit = "" // a KDF-less file was never MAC'd: a planted limit must not survive
 		return nil
 	})
 	if err == nil {

@@ -1,5 +1,5 @@
 import type { AutoAllowCheck, AutoAllowMode, AutoAllowRan, AutoAllowState, HubEvent, RanWhileLocked, ServerInfo } from '../shared/protocol'
-import { ALLOW_DELAY_MS } from './approvals'
+import { delayElapsed } from './approvals'
 import type { HostDraft } from './hostForm'
 
 // Per-host auto-allow (spec 2026-09-28-auto-allow-design.md). Everything here
@@ -76,7 +76,7 @@ export const commandLabel = (r: AutoAllowRan) => (r.truncated ? `${r.command} â€
 export function enableAllowed(o: { typeName: boolean; typed: string; host: string; refused?: string; openedAt: number; changedAt: number; now: number }): boolean {
   if (o.refused) return false
   if (o.typeName && o.typed !== o.host) return false
-  return o.now - Math.max(o.openedAt, o.changedAt) >= ALLOW_DELAY_MS
+  return delayElapsed(o.openedAt, o.changedAt, o.now)
 }
 
 // AutoAllowDialog's ListChanges key: anything that shifts the buttons must
