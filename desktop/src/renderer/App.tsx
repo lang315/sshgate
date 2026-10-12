@@ -5,7 +5,7 @@ import type { TouchStatus } from '../shared/touchid'
 import { limitChange, saveSettings } from './settings'
 import { applyState, replayStates, summary } from './tunnels'
 import { autoHosts, dropLockHost, dropOnLock, lockHostsFrom, handleAutoEvent, pausedHosts, ranLockedText, SAVED_BUT } from './autoallow'
-import { lockKind, lockTitle, screenFor } from './shell'
+import { autoTouch, lockKind, lockTitle, screenFor } from './shell'
 import { Unlock } from './Unlock'
 import { RanLockedBanner } from './RanLocked'
 import { CreateVault } from './CreateVault'
@@ -99,6 +99,34 @@ export function App() {
     if (!locked && !settingsOpen) return
     touchid.status().then(setTouch).catch(() => setTouch(undefined))
   }, [locked, settingsOpen])
+  const ready = screen.kind === 'ready'
+  const [touchBusy, setTouchBusy] = useState(false)
+  const touchAsked = useRef(false) // per locked episode; reset by an unlock
+  useEffect(() => { if (ready) touchAsked.current = false }, [ready])
+  const touchUnlock = useCallback(async () => {
+    touchAsked.current = true
+    setTouchBusy(true)
+    try {
+      const r = await touchid.unlock()
+      if ('cancelled' in r) return
+      setUnlockError(undefined); setLockReason(undefined); setRanLocked(r.ranWhileLocked ?? [])
+    } catch (e) {
+      setUnlockError((e as Error).message)
+      touchid.status().then(setTouch).catch(() => setTouch(undefined)) // a reset deleted the file
+    } finally { setTouchBusy(false) }
+    await refresh()
+  }, [refresh])
+  useEffect(() => {
+    if (autoTouch({ locked, touch, asked: touchAsked.current, trigger: 'start', everReady, focused: document.hasFocus() })) void touchUnlock()
+  }, [locked, touch, everReady, touchUnlock])
+  useEffect(() => {
+    if (!locked) return
+    const onFocus = () => {
+      if (autoTouch({ locked: true, touch, asked: touchAsked.current, trigger: 'focus', everReady, focused: true })) void touchUnlock()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [locked, touch, everReady, touchUnlock])
 
   // One fetch per screen change or host edit, never a poll: every call but
   // status counts as UI activity and would hold off the idle lock. status
@@ -216,7 +244,6 @@ export function App() {
   const stopAll = () => setAllAuto([...autoHostsSet], 'off', 'stop')
   const stopPaused = () => setAllAuto(pausedHostsList, 'off', 'stop')
 
-  const ready = screen.kind === 'ready'
   useEffect(() => { if (ready) setEverReady(true) }, [ready])
   // A lock unmounts the dialog; an unlock must not bring back an unsaved one.
   useEffect(() => { if (!ready) setSettingsOpen(false) }, [ready])
@@ -269,7 +296,8 @@ export function App() {
       ) : screen.kind === 'create-vault' ? (
         <CreateVault servers={servers} onCreate={createVault} />
       ) : (
-        <Unlock onUnlock={unlock} error={screen.error} lockReason={lockReason} storePath={status?.storePath} autoHosts={lockHosts} onStop={stopAndLock} />
+        <Unlock onUnlock={unlock} error={screen.error} lockReason={lockReason} storePath={status?.storePath} autoHosts={lockHosts} onStop={stopAndLock}
+          touchId={touch?.enabled && touch.available ? { onUnlock: () => void touchUnlock(), busy: touchBusy } : undefined} />
       ))}
       {(ready || everReady) && (
         <div className="shell" style={ready ? undefined : { display: 'none' }} inert={!ready}>

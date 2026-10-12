@@ -20,4 +20,11 @@ describe('Unlock', () => {
     expect(html).not.toContain('Stop auto-allow and lock')
     expect(render({ lockReason: 'manual' })).not.toContain('Stop auto-allow and lock')
   })
+  it('offers Touch ID above the password only when given', () => {
+    expect(render({})).not.toContain('Unlock with Touch ID')
+    const html = render({ touchId: { onUnlock: () => {}, busy: false } })
+    expect(html).toContain('Unlock with Touch ID')
+    expect(html.indexOf('Unlock with Touch ID')).toBeLessThan(html.indexOf('Master password'))
+    expect(render({ touchId: { onUnlock: () => {}, busy: true } }).match(/<button[^>]*>Unlock with Touch ID<\/button>/)![0]).toMatch(/disabled=""/)
+  })
 })

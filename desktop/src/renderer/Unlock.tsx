@@ -5,9 +5,9 @@ import { Mark } from './icons'
 // restart it is undefined, because the old terminals have ended. autoHosts is
 // non-empty under a soft lock: the AI still runs on those hosts, and onStop
 // (lock with stopAuto) ends that without the password.
-export function Unlock({ onUnlock, error, lockReason, storePath, autoHosts = [], onStop }: {
+export function Unlock({ onUnlock, error, lockReason, storePath, autoHosts = [], onStop, touchId }: {
   onUnlock: (pw: string) => Promise<void>; error?: string; lockReason?: 'idle' | 'manual'; storePath?: string
-  autoHosts?: string[]; onStop?: () => void
+  autoHosts?: string[]; onStop?: () => void; touchId?: { onUnlock: () => void; busy: boolean }
 }) {
   const [pw, setPw] = useState('')
   const [busy, setBusy] = useState(false)
@@ -28,6 +28,9 @@ export function Unlock({ onUnlock, error, lockReason, storePath, autoHosts = [],
             <span>{`AI auto-allow is still running on: ${autoHosts.join(', ')}`}</span>
             <button type="button" className="btn sm" onClick={onStop}>Stop auto-allow and lock</button>
           </div>
+        )}
+        {touchId && (
+          <button type="button" className="btn block" onClick={touchId.onUnlock} disabled={busy || touchId.busy}>Unlock with Touch ID</button>
         )}
         <div className="field">
           <label htmlFor="unlock-pw">Master password</label>
