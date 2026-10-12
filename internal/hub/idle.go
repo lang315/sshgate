@@ -42,7 +42,7 @@ func (h *Hub) idleLoop(idle time.Duration) {
 // running, and no UI input arrived within idle. With a live auto-allow grant
 // it locks softly: the UI door locks, the key and the grants stay (see
 // softlock.go). No grant delays it, and auto runs never count as running.
-// A soft lock older than maxSoftLock becomes a hard lock that ends every
+// A soft lock that reaches the vault's soft-lock limit (pastLimitLocked) becomes a hard lock that ends every
 // grant.
 // Pending() is read before h.mu to keep the lock order (never hold h.mu
 // while calling into the broker); quiet and running are re-checked under
@@ -61,7 +61,7 @@ func (h *Hub) lockIfIdle(idle time.Duration) {
 	case h.running > 0:
 		h.mu.Unlock()
 	case h.autoKey != nil:
-		if time.Now().Round(0).Sub(h.softLockedAt) < maxSoftLock {
+		if !h.pastLimitLocked(time.Now().Round(0)) {
 			h.mu.Unlock()
 			return
 		}

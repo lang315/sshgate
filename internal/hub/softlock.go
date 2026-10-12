@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lang315/sshgate/internal/broker"
+	"github.com/lang315/sshgate/internal/config"
 	"github.com/lang315/sshgate/internal/sshx"
 )
 
@@ -96,10 +97,53 @@ func (h *Hub) lockStatus() (locked bool, autoHosts []string) {
 	return h.lockedLocked(), autoHosts
 }
 
-// maxSoftLock bounds how long a key and a grant outlive the human's last
-// input. Before soft lock that bound was the idle period. A constant: no
-// flag, no setting.
+// maxSoftLock is the default soft-lock limit: how long a key and a grant
+// outlive the human's last input when the vault sets no other.
 const maxSoftLock = 24 * time.Hour
+
+// softLockLimits maps the vault's softLockLimit to a duration; 0 is no limit.
+var softLockLimits = map[string]time.Duration{"": maxSoftLock, "3d": 72 * time.Hour, "7d": 168 * time.Hour, "none": 0}
+
+// softLockLimitOf is f's soft-lock limit. A value this hub does not know (a
+// newer sshgate's) reads as the default: fail closed, to the shortest limit.
+func softLockLimitOf(f *config.File) time.Duration {
+	if f != nil {
+		if d, ok := softLockLimits[f.SoftLockLimit]; ok {
+			return d
+		}
+	}
+	return maxSoftLock
+}
+
+// softLockWire is the UI door's name for a stored value: "24h" for the
+// default and for any value this hub does not know.
+func softLockWire(stored string) string {
+	if _, ok := softLockLimits[stored]; !ok || stored == "" {
+		return "24h"
+	}
+	return stored
+}
+
+// softLockStored is the stored value for a UI-door value; false for anything
+// but 24h, 3d, 7d and none.
+func softLockStored(wire string) (string, bool) {
+	switch wire {
+	case "24h":
+		return "", true
+	case "3d", "7d", "none":
+		return wire, true
+	}
+	return "", false
+}
+
+// pastLimitLocked reports, with h.mu held, that the soft lock has reached the
+// vault's limit. The limit is read from the verified deps.File here, never
+// copied when the soft lock begins: an absent field is the 24-hour default,
+// so a path that soft-locks some other way is still bounded.
+func (h *Hub) pastLimitLocked(now time.Time) bool {
+	d := softLockLimitOf(h.deps.File)
+	return d != 0 && now.Sub(h.softLockedAt) >= d
+}
 
 // grantStaleLocked reports, with h.mu held, that g no longer matches name's
 // server: hidden, removed, unpinned, refused, or changed since the grant's
@@ -120,7 +164,7 @@ func (h *Hub) grantStaleLocked(name string, g *grant) bool {
 
 // aiLockedLocked is the grant rule, with h.mu held and a vault present: the
 // server is locked to the AI when both keys are absent, or under soft lock
-// when it has no live grant or the soft lock has reached its ceiling
+// when it has no live grant or the soft lock has reached the vault's limit (pastLimitLocked)
 // (otherwise enforced only on the idle tick, so an exec right after a wake
 // from sleep could run first).
 func (h *Hub) aiLockedLocked(name string) bool {
@@ -130,7 +174,7 @@ func (h *Hub) aiLockedLocked(name string) bool {
 	if h.autoKey == nil {
 		return true
 	}
-	return h.grants[name] == nil || time.Now().Round(0).Sub(h.softLockedAt) >= maxSoftLock
+	return h.grants[name] == nil || h.pastLimitLocked(time.Now().Round(0))
 }
 
 // checkGrantLocked is checkServerLocked under the grant rule. It has exactly

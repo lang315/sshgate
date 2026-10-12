@@ -33,11 +33,12 @@ type Server struct {
 }
 
 type File struct {
-	Version  int      `json:"version"`
-	Revision int      `json:"revision"`
-	KDF      *KDF     `json:"kdf,omitempty"`
-	MAC      string   `json:"mac,omitempty"`
-	Servers  []Server `json:"servers"`
+	Version       int      `json:"version"`
+	Revision      int      `json:"revision"`
+	KDF           *KDF     `json:"kdf,omitempty"`
+	MAC           string   `json:"mac,omitempty"`
+	Servers       []Server `json:"servers"`
+	SoftLockLimit string   `json:"softLockLimit,omitempty"` // "" (24h), "3d", "7d" or "none"; see hub/softlock.go
 }
 
 func aadFor(f *File, s Server, field string) string {

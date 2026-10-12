@@ -122,7 +122,7 @@ type Hub struct {
 	grantSeq     uint64            // ids for grant.inflight
 	autoKey      []byte            // the master key while the UI door is soft-locked; read only by the auto path (resolveAutoLocked) and the vault MAC check (vaultKeyLocked); see softlock.go
 	sweptFile    *config.File      // under soft lock: the vault file the grants were last checked against (sweepGrants); nil before the first sweep of a soft lock and when not soft-locked
-	softLockedAt time.Time         // wall clock (Round(0)), so time asleep counts toward maxSoftLock
+	softLockedAt time.Time         // wall clock (Round(0)), so time asleep counts toward the soft-lock limit
 	ranLocked    map[string]int    // auto runs per server finished while the UI was locked; cleared by TakeRanLocked
 	autoSink     func(method string, params any)
 	autoSinkGen  uint64
