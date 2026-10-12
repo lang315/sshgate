@@ -1,18 +1,22 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { SoftLockLimit } from '../shared/protocol'
+import type { TouchStatus } from '../shared/touchid'
 import { blockKeyboardActivation, ListChanges } from './approvals'
 import { ChevronDownIcon, SettingsIcon } from './icons'
-import { LIMITS, limitChange, limitHelp, limitNotice, saveAllowed, settingsChangeKey } from './settings'
+import { LIMITS, limitChange, limitHelp, limitNotice, saveAllowed, settingsChangeKey, touchChange, type TouchChange } from './settings'
 
 // App settings (spec 2026-10-12-soft-lock-limit-design.md, "UI and UX"): one
 // dialog of sections, each a heading and label/control rows; Save and Cancel
 // cover the whole dialog. Today: Auto-allow, one row.
-export function SettingsDialog({ limit, hosts, onSave, onCancel }: {
-  limit: SoftLockLimit; hosts: string[]
-  onSave: (limit: SoftLockLimit) => Promise<void>; onCancel: () => void
+export function SettingsDialog({ limit, hosts, touch, onSave, onCancel }: {
+  limit: SoftLockLimit; hosts: string[]; touch?: TouchStatus
+  onSave: (limit: SoftLockLimit, touch: TouchChange, password: string) => Promise<void>; onCancel: () => void
 }) {
   const id = useId()
   const [chosen, setChosen] = useState(limit)
+  const [touchOn, setTouchOn] = useState(touch?.enabled ?? false)
+  const [password, setPassword] = useState('')
+  const tc = touchChange(touch?.enabled ?? false, touchOn)
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [openedAt] = useState(Date.now())
@@ -21,22 +25,41 @@ export function SettingsDialog({ limit, hosts, onSave, onCancel }: {
   const change = limitChange(limit, chosen)
   // Computed during render, as AutoAllowDialog does: an effect would leave one
   // painted frame where the notice moved Save but Save was still enabled.
-  const key = settingsChangeKey(chosen, hosts, error)
+  const key = settingsChangeKey(chosen, hosts, error, tc === 'on')
   const changes = useRef<ListChanges>(null)
   changes.current ??= new ListChanges(key, openedAt)
   changes.current.setKey(key, Date.now())
-  const ok = saveAllowed({ change, busy, openedAt, changedAt: changes.current.at, now })
+  const ok = saveAllowed({ change, touch: tc, password, busy, openedAt, changedAt: changes.current.at, now })
   const notice = change === 'higher' || change === 'none'
   const save = async () => {
     if (!ok) return
     setBusy(true); setError(undefined)
-    try { await onSave(chosen) } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
+    try { await onSave(chosen, tc, password) } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
   return (
     <div className="modal" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`}
       onKeyDown={(e) => { if (e.key === 'Escape' && !busy) onCancel() }}>
       <form className="dialog" onSubmit={(e) => { e.preventDefault(); if (!busy) onCancel() }}>
         <div className="dialog-title"><span className="dialog-icon"><SettingsIcon /></span><h3 id={`${id}-title`}>Settings</h3></div>
+        {touch?.supported && (
+          <section className="settings-section" aria-labelledby={`${id}-unlock`}>
+            <h4 id={`${id}-unlock`}>Unlock</h4>
+            <div className="switch">
+              <label htmlFor={`${id}-touch`} className="switch-title">Unlock with Touch ID</label>
+              <input id={`${id}-touch`} type="checkbox" role="switch" checked={touchOn}
+                disabled={busy || (!touch.available && !touchOn)}
+                onChange={(e) => { setTouchOn(e.target.checked); setPassword('') }} />
+            </div>
+            {!touch.available && <p className="muted">Touch ID is not available on this Mac right now.</p>}
+            {tc === 'on' && (
+              <div className="field">
+                <label htmlFor={`${id}-pw`}>Master password</label>
+                <input id={`${id}-pw`} type="password" autoFocus value={password}
+                  onChange={(e) => setPassword(e.target.value)} disabled={busy} />
+              </div>
+            )}
+          </section>
+        )}
         <section className="settings-section" aria-labelledby={`${id}-auto`}>
           <h4 id={`${id}-auto`}>Auto-allow</h4>
           <div className="settings-row">
