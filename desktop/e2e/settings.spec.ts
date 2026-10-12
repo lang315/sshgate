@@ -43,10 +43,10 @@ test('Settings sets No limit, stored in the vault', async () => {
   await expect(d.getByRole('button', { name: 'Save' })).toHaveClass(/danger-outline/)
 
   await d.getByLabel('Keep running while locked').selectOption('none')
-  await expect(d.locator('.banner-danger')).toContainText('for as long as the app runs')
-  await expect(d.locator('.banner-danger li')).toHaveText(['box'])
   const save = d.getByRole('button', { name: 'Save' })
   await expect(save).toBeDisabled()
+  await expect(d.locator('.banner-danger')).toContainText('for as long as the app runs')
+  await expect(d.locator('.banner-danger li')).toHaveText(['box'])
   await win.waitForTimeout(600)
   await save.click()
   await expect(d).toBeHidden()

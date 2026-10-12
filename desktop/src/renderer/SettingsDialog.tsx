@@ -34,8 +34,8 @@ export function SettingsDialog({ limit, hosts, onSave, onCancel }: {
   }
   return (
     <div className="modal" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`}
-      onKeyDown={(e) => { if (e.key === 'Escape') onCancel() }}>
-      <form className="dialog" onSubmit={(e) => { e.preventDefault(); onCancel() }}>
+      onKeyDown={(e) => { if (e.key === 'Escape' && !busy) onCancel() }}>
+      <form className="dialog" onSubmit={(e) => { e.preventDefault(); if (!busy) onCancel() }}>
         <div className="dialog-title"><span className="dialog-icon"><SettingsIcon /></span><h3 id={`${id}-title`}>Settings</h3></div>
         <section className="settings-section" aria-labelledby={`${id}-auto`}>
           <h4 id={`${id}-auto`}>Auto-allow</h4>
@@ -62,7 +62,7 @@ export function SettingsDialog({ limit, hosts, onSave, onCancel }: {
         <div className="dialog-actions">
           <button type="button" className={'btn' + (notice ? ' danger-outline' : '')} tabIndex={-1} disabled={!ok}
             onKeyDown={blockKeyboardActivation} onClick={save}>Save</button>
-          <button type="submit" className="btn primary" autoFocus>Cancel<kbd aria-hidden="true">↵</kbd></button>
+          <button type="submit" className="btn primary" autoFocus disabled={busy}>Cancel<kbd aria-hidden="true">↵</kbd></button>
         </div>
       </form>
     </div>
