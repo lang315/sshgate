@@ -92,13 +92,12 @@ export function App() {
   }, [hubState, refresh])
 
   const screen = screenFor(hubState, status, unlockError)
-  // Touch ID's state, read when the unlock screen or Settings shows. status()
-  // spawns the helper but never calls the hub beyond `status`, so it is not UI activity.
+  // Touch ID's state, read when the unlock screen shows and before Settings
+  // opens (the dialog starts from it). status() spawns the helper but never
+  // calls the hub beyond `status`, so it is not UI activity.
   const locked = screen.kind === 'locked'
-  useEffect(() => {
-    if (!locked && !settingsOpen) return
-    touchid.status().then(setTouch).catch(() => setTouch(undefined))
-  }, [locked, settingsOpen])
+  const loadTouch = useCallback(() => touchid.status().then(setTouch, () => setTouch(undefined)), [])
+  useEffect(() => { if (locked) void loadTouch() }, [locked, loadTouch])
   const ready = screen.kind === 'ready'
   const [touchBusy, setTouchBusy] = useState(false)
   const touchAsked = useRef(false) // per locked episode; reset by an unlock
@@ -270,7 +269,7 @@ export function App() {
       )}
       <ThemeControl pref={themePref} onChange={chooseTheme} />
       <button type="button" className="btn" aria-label="Settings" title="Settings" disabled={!status?.softLockLimit}
-        onClick={() => setSettingsOpen(true)}><SettingsIcon /></button>
+        onClick={async () => { await loadTouch(); setSettingsOpen(true) }}><SettingsIcon /></button>
       <button type="button" className="btn" title={lockTitle(liveAutoN)} onClick={lock}><LockIcon />Lock</button>
     </>
   )

@@ -41,6 +41,15 @@ test('Settings turns Touch ID on; a focus while locked unlocks with no typing', 
   await expect(d).toBeHidden()
   expect(fs.statSync(touchFile()).mode & 0o777).toBe(0o600)
 
+  // Reopened without a lock in between, Settings shows Touch ID on and has nothing to save.
+  await win.getByRole('button', { name: 'Settings' }).click()
+  await expect(d.getByRole('switch', { name: 'Unlock with Touch ID' })).toBeChecked()
+  await win.waitForTimeout(700)
+  await expect(d.getByRole('switch', { name: 'Unlock with Touch ID' })).toBeChecked()
+  await expect(save).toBeDisabled()
+  await win.keyboard.press('Escape')
+  await expect(d).toBeHidden()
+
   await (await lockBtn()).click()
   await expect(win.getByRole('button', { name: 'Unlock with Touch ID' })).toBeVisible()
   await win.waitForTimeout(500)
@@ -60,3 +69,26 @@ test('a changed fingerprint set turns Touch ID off, and the password still unloc
   await unlock(win)
   await expect(await lockBtn()).toBeVisible()
 })
+
+test('a renderer crash closes a Touch ID dialog still up', async () => {
+  const win = await l.app.firstWindow()
+  fs.rmSync(modeFile, { force: true })
+  await win.getByRole('button', { name: 'Settings' }).click()
+  const d = win.getByRole('dialog', { name: 'Settings' })
+  await d.getByRole('switch', { name: 'Unlock with Touch ID' }).check()
+  await d.getByLabel('Master password').fill('pw')
+  await expect(d.getByRole('button', { name: 'Save' })).toBeEnabled()
+  await d.getByRole('button', { name: 'Save' }).click()
+  await expect(d).toBeHidden()
+
+  fs.writeFileSync(modeFile, 'slow')
+  await (await lockBtn()).click()
+  await win.getByRole('button', { name: 'Unlock with Touch ID' }).click()
+  await expect.poll(() => fs.existsSync(`${modeFile}.pid`)).toBe(true)
+  const pid = Number(fs.readFileSync(`${modeFile}.pid`, 'utf8'))
+  const alive = () => { try { process.kill(pid, 0); return true } catch { return false } }
+  expect(alive()).toBe(true)
+  await l.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer())
+  await expect.poll(alive, { timeout: 10_000 }).toBe(false)
+})
+

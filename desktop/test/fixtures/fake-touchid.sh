@@ -1,7 +1,8 @@
 #!/bin/sh
 # Fake sshgate-touchid for vitest and e2e: "seals" with base64 and asks for no
 # finger. FAKE_TOUCHID_MODE names a file holding the mode: ok (default),
-# cancel, invalid, unavailable, fail, slow (blocks until killed).
+# cancel, invalid, unavailable, fail, slow (writes its pid to <mode file>.pid
+# and blocks until killed).
 mode=ok
 if [ -n "${FAKE_TOUCHID_MODE:-}" ] && [ -f "$FAKE_TOUCHID_MODE" ]; then mode=$(cat "$FAKE_TOUCHID_MODE"); fi
 case "$1" in
@@ -13,7 +14,7 @@ case "$1" in
       invalid) exit 3 ;;
       unavailable) exit 4 ;;
       fail) echo boom >&2; exit 1 ;;
-      slow) exec sleep 30 ;;
+      slow) echo $$ > "$FAKE_TOUCHID_MODE.pid"; exec sleep 30 ;;
     esac
     sed -n 's/.*"fake":"\([^"]*\)".*/\1/p' | base64 -d ;;
   *) exit 1 ;;

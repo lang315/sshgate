@@ -46,7 +46,8 @@ function createWindow(): BrowserWindow {
   // Never let this window navigate to, or open, other content that could get window.sshmcp.
   w.webContents.on('will-navigate', (e) => e.preventDefault())
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  w.webContents.on('render-process-gone', (_e, d) => { void recoverRenderer(hub, w, d.reason, crashPolicy, () => files.reset()) })
+  // Close a Touch ID dialog first: a finger on it after the lock below would unlock the vault behind the dead renderer.
+  w.webContents.on('render-process-gone', (_e, d) => { touch.cancel(); void recoverRenderer(hub, w, d.reason, crashPolicy, () => files.reset()) })
   w.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'))
   return w
 }
