@@ -31,6 +31,7 @@ export const TunnelIcon = icon(<><path d="M4 8h13l-3-3" /><path d="M20 16H7l3 3"
 export const ChevronDownIcon = icon(<path d="M6 9l6 6 6-6" />)
 export const StopIcon = icon(<rect x="5" y="5" width="14" height="14" rx="2" />)
 export const ListIcon = icon(<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01" />)
+export const SettingsIcon = icon(<><circle cx="12" cy="12" r="3" /><circle cx="12" cy="12" r="7" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1l2.1-2.1M17 7l2.1-2.1" /></>)
 
 // The in-app mark: a terminal glyph on the accent tile, then the name. The app
 // icon (desktop/build/icon.png, a shield) is a different drawing, used only for
