@@ -17,9 +17,11 @@ export interface Launched { app: ElectronApplication; tmp: string; socket: strin
 // sshtestd's port, returns an SSH config written to <tmp>/ssh_config for the
 // hub (SSHGATE_SSH_CONFIG); sshtestd then writes its host key to
 // <tmp>/known_hosts. sftp starts sshtestd with -sftp-root=<tmp>/sftp; sftp
-// is that root on disk (the server's home is <sftp>/home).
+// is that root on disk (the server's home is <sftp>/home). userDataDir runs
+// the app with --user-data-dir=<tmp>/userdata, so nothing touches the real
+// userData (touchid.json).
 export async function launch(extraEnv: Record<string, string> = {},
-  opts: { emptyStore?: boolean; sshConfig?: (port: number, tmp: string) => string; sftp?: boolean } = {}): Promise<Launched> {
+  opts: { emptyStore?: boolean; sshConfig?: (port: number, tmp: string) => string; sftp?: boolean; userDataDir?: boolean } = {}): Promise<Launched> {
   const tmp = fs.mkdtempSync('/tmp/sme')
   // Binaries go in bin/: the hub's socket directory is <tmp>/sshgate.
   const bin = path.join(tmp, 'bin')
@@ -41,7 +43,7 @@ export async function launch(extraEnv: Record<string, string> = {},
     env.SSHGATE_SSH_CONFIG = cfg
   }
   const app = await electron.launch({
-    args: ['.'],
+    args: ['.', ...(opts.userDataDir ? [`--user-data-dir=${path.join(tmp, 'userdata')}`] : [])],
     cwd: path.resolve(__dirname, '..'),
     env: { ...process.env, SSHGATE_BIN: path.join(bin, 'sshgate'), SSHGATE_STORE: store, SSHGATE_RUNTIME_DIR: tmp, ...env },
   })
