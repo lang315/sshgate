@@ -268,7 +268,7 @@ export function App() {
                 openTabs={editing.name ? terms.current?.openCount(editing.name) ?? 0 : 0}
                 transfers={editing.name ? terms.current?.transferCount(editing.name) ?? 0 : 0} focusForget={editing.focusForget}
                 remoteTunnels={editing.name ? tunnels.filter((t) => t.server === editing.name && t.kind === 'remote' && t.status === 'running').map(summary) : []}
-                autoAllowCheck={hub.autoAllowCheck}
+                autoAllowCheck={hub.autoAllowCheck} softLockLimit={status?.softLockLimit}
                 onSave={onSaveHost}
                 onForget={async (name) => { await hub.forgetHostKey(name); await reloadServers() }}
                 onClose={() => setEditing(undefined)} />

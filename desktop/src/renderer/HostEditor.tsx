@@ -1,5 +1,5 @@
 import { useId, useState, type FormEvent, type KeyboardEvent } from 'react'
-import type { AutoAllowCheck, AutoAllowMode, SecretField, ServerInfo, ServerInput } from '../shared/protocol'
+import type { AutoAllowCheck, AutoAllowMode, SecretField, ServerInfo, ServerInput, SoftLockLimit } from '../shared/protocol'
 import { AUTO_MODES, draftRefusal, saveConfirm, timedNote } from './autoallow'
 import { AutoAllowDialog } from './AutoAllowDialog'
 import { arrowStep, closesTabs, closeWarning, draftFrom, endpointChanged, labelHint, SECRET_FIELDS, secretPlaceholder, toInput, type HostDraft } from './hostForm'
@@ -28,9 +28,9 @@ const OPT_INS: { key: 'autoAllowRoot' | 'autoAllowSudo'; label: string; hint: st
   { key: 'autoAllowSudo', label: 'Also auto-allow sudo-exec', hint: 'sudo-exec runs without asking on a granted host, the same as plain exec.' },
 ]
 
-export function HostEditor({ server, openTabs, transfers, focusForget, remoteTunnels, autoAllowCheck, onSave, onForget, onClose }: {
+export function HostEditor({ server, openTabs, transfers, focusForget, remoteTunnels, autoAllowCheck, softLockLimit, onSave, onForget, onClose }: {
   server?: ServerInfo; openTabs: number; transfers: number; focusForget?: boolean
-  remoteTunnels: string[]; autoAllowCheck: (name: string) => Promise<AutoAllowCheck>
+  remoteTunnels: string[]; autoAllowCheck: (name: string) => Promise<AutoAllowCheck>; softLockLimit?: SoftLockLimit
   onSave: (input: ServerInput, original: string | undefined, autoAllow: AutoAllowMode) => Promise<void>
   onForget: (name: string) => Promise<void>
   onClose: () => void
@@ -222,7 +222,7 @@ export function HostEditor({ server, openTabs, transfers, focusForget, remoteTun
         <AutoAllowDialog server={server} mode={draft.autoAllow as Exclude<AutoAllowMode, 'off'>}
           typeName={sc.typeName} rootNew={sc.rootNew} sudoNew={sc.sudoNew} sudo={draft.autoAllowSudo} refused={refusalHint}
           remoteTunnels={remoteTunnels} check={() => autoAllowCheck(server.name)}
-          onEnable={doSave} onCancel={() => setConfirm(false)} />
+          onEnable={doSave} onCancel={() => setConfirm(false)} limit={softLockLimit} />
       )
     })()}
     </>

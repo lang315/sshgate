@@ -1,4 +1,4 @@
-import type { AutoAllowCheck, AutoAllowMode, AutoAllowRan, AutoAllowState, HubEvent, RanWhileLocked, ServerInfo } from '../shared/protocol'
+import type { AutoAllowCheck, AutoAllowMode, AutoAllowRan, AutoAllowState, HubEvent, RanWhileLocked, ServerInfo, SoftLockLimit } from '../shared/protocol'
 import { ALLOW_DELAY_MS } from './approvals'
 import type { HostDraft } from './hostForm'
 
@@ -87,6 +87,19 @@ export function enableAllowed(o: { typeName: boolean; typed: string; host: strin
 // confirming "forever" by typing the host name doesn't itself restart the wait.
 export const dialogChangeKey = (mode: Exclude<AutoAllowMode, 'off'>, rootNew: boolean, sudoNew: boolean, sudo: boolean, checked: AutoAllowCheck | 'error' | undefined, error: string | undefined, remoteTunnels: string[]): string =>
   JSON.stringify([mode, rootNew, sudoNew, sudo, checked === undefined ? 'pending' : checked === 'error' ? 'error' : [checked.uid, checked.passwordlessSudo], error, remoteTunnels])
+
+// The forever grant's paragraph in AutoAllowDialog, from the vault's soft-lock
+// limit (status.softLockLimit; absent reads as the 24-hour default).
+export function limitText(limit: SoftLockLimit | undefined): string {
+  const l = limit ?? '24h'
+  const keep = l === 'none'
+    ? 'the AI keeps running on this host while the app is locked, with no time limit'
+    : `the AI keeps running on this host for up to ${({ '24h': '24 hours', '3d': '3 days', '7d': '7 days' })[l]}`
+  const after = l === 'none'
+    ? 'After a restart or Stop auto-allow and lock'
+    : `After a restart, the ${({ '24h': '24-hour', '3d': '3-day', '7d': '7-day' })[l]} limit, or Stop auto-allow and lock`
+  return `Stays set after restart. Locking the app, by hand or from inactivity, does not stop it: ${keep}. To stop it, use Stop auto-allow and lock on the unlock screen, Stop on the host card, or Stop all auto-allow. ${after}, it waits for you to click Resume.`
+}
 
 // The Host editor's Auto-allow controls (spec Amendment 2026-09-29).
 
