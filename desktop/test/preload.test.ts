@@ -22,3 +22,16 @@ describe('preload grantDropped', () => {
     await expect(grant(Array(1001).fill(new File([], 'real')), 'box')).rejects.toThrow()
   })
 })
+
+describe('preload touchid', () => {
+  it('invokes the touchid channels, the password only as {password}', async () => {
+    await exposed.sshmcp.touchEnable('pw')
+    expect(invoke).toHaveBeenCalledWith('touchid:enable', { password: 'pw' })
+    await exposed.sshmcp.touchUnlock()
+    expect(invoke).toHaveBeenCalledWith('touchid:unlock')
+    await exposed.sshmcp.touchStatus()
+    expect(invoke).toHaveBeenCalledWith('touchid:status')
+    await exposed.sshmcp.touchDisable()
+    expect(invoke).toHaveBeenCalledWith('touchid:disable')
+  })
+})

@@ -2,6 +2,7 @@ import { ipcMain, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent
 import { FILES_RELAYED, NOTIFY_METHODS, REQUEST_METHODS, type HubState } from '../shared/protocol'
 import type { HubProcess } from './hubProcess'
 import type { FilesRelay } from './files'
+import type { TouchId } from './touchid'
 
 export interface HubLike {
   call(method: string, params?: unknown, timeoutMs?: number): Promise<unknown>
@@ -44,9 +45,15 @@ export function registerIpc(
   getWindow: () => BrowserWindow | undefined,
   isTrusted: IsTrusted,
   files: Pick<FilesRelay, 'call' | 'onNotification' | 'onState' | 'pickUpload' | 'pickDownloadDir' | 'grantDropped'>,
+  touch: Pick<TouchId, 'status' | 'enable' | 'disable' | 'unlock' | 'cancel'>,
 ): void {
   ipcMain.handle('hub:call', (e, method: unknown, params: unknown) =>
-    guard(isTrusted, e, () => (typeof method === 'string' && relayed.has(method) ? files.call(method, params) : relayCall(hub, method, params))))
+    guard(isTrusted, e, async () => {
+      if (typeof method === 'string' && relayed.has(method)) return files.call(method, params)
+      const r = await relayCall(hub, method, params)
+      if (method === 'unlock') touch.cancel() // a typed password won: close a Touch ID dialog still up
+      return r
+    }))
   ipcMain.on('hub:notify', (e, method: unknown, params: unknown) => {
     if (isTrusted(e)) relayNotify(hub, method, params)
   })
@@ -54,9 +61,18 @@ export function registerIpc(
   ipcMain.handle('files:pickUpload', (e, p: unknown) => guard(isTrusted, e, () => files.pickUpload(p)))
   ipcMain.handle('files:pickDownloadDir', (e, p: unknown) => guard(isTrusted, e, () => files.pickDownloadDir(p)))
   ipcMain.handle('files:grantDropped', (e, p: unknown) => guard(isTrusted, e, async () => files.grantDropped(p)))
+  ipcMain.handle('touchid:status', (e) => guard(isTrusted, e, () => touch.status()))
+  ipcMain.handle('touchid:enable', (e, p: unknown) =>
+    guard(isTrusted, e, () => touch.enable((p as { password?: unknown } | undefined)?.password)))
+  ipcMain.handle('touchid:disable', (e) => guard(isTrusted, e, async () => touch.disable()))
+  ipcMain.handle('touchid:unlock', (e) => guard(isTrusted, e, () => touch.unlock()))
   hub.on('notification', (method: string, params: unknown) => {
     files.onNotification(method, params)
     getWindow()?.webContents.send('hub:event', { method, params })
   })
-  hub.on('state', (s: HubState) => { files.onState(s); getWindow()?.webContents.send('hub:state', s) })
+  hub.on('state', (s: HubState) => {
+    files.onState(s)
+    if (s.kind !== 'running') touch.cancel()
+    getWindow()?.webContents.send('hub:state', s)
+  })
 }

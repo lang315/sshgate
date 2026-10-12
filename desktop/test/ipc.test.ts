@@ -8,6 +8,7 @@ import { ipcMain } from 'electron'
 import { guard, isMainFrameOf, registerIpc, relayCall, relayNotify } from '../src/main/ipc'
 
 const fakeHub = () => ({ call: vi.fn(async () => ({ ok: true })), notify: vi.fn() })
+const fakeTouch = () => ({ status: vi.fn(async () => ({ supported: true, available: true, enabled: true })), enable: vi.fn(async () => {}), disable: vi.fn(), unlock: vi.fn(async () => ({})), cancel: vi.fn() })
 
 describe('ipc whitelist', () => {
   it('relays whitelisted requests', async () => {
@@ -55,7 +56,7 @@ describe('registerIpc hub:notify', () => {
   it('drops a notification from an untrusted sender and relays a trusted one', () => {
     const h = { ...fakeHub(), on: vi.fn(), state: { kind: 'running' } }
     const trusted = { sender: 'app' }
-    registerIpc(h as never, () => undefined, (e) => e === (trusted as never), fakeFiles())
+    registerIpc(h as never, () => undefined, (e) => e === (trusted as never), fakeFiles(), fakeTouch())
     const on = vi.mocked(ipcMain.on).mock.calls.find(([ch]) => ch === 'hub:notify')![1] as (e: unknown, m: unknown, p: unknown) => void
     on({ sender: 'evil' }, 'term.write', { id: 'a', data: '' })
     expect(h.notify).not.toHaveBeenCalled()
@@ -69,7 +70,7 @@ describe('registerIpc hub:call routes files.* to the relay', () => {
     const h = { ...fakeHub(), on: vi.fn(), state: { kind: 'running' } }
     const files = { call: vi.fn(async () => ({ ok: 'relay' })), onNotification: vi.fn(), onState: vi.fn() }
     const trusted = { sender: 'app' }
-    registerIpc(h as never, () => undefined, (e) => e === (trusted as never), files as never)
+    registerIpc(h as never, () => undefined, (e) => e === (trusted as never), files as never, fakeTouch())
     const handle = vi.mocked(ipcMain.handle).mock.calls.find(([ch]) => ch === 'hub:call')![1] as (e: unknown, m: unknown, p: unknown) => Promise<unknown>
     await expect(handle(trusted, 'files.plan', { a: 1 })).resolves.toEqual({ ok: 'relay' })
     expect(files.call).toHaveBeenCalledWith('files.plan', { a: 1 })
@@ -89,7 +90,7 @@ describe('registerIpc rejects an untrusted sender for the files handlers', () =>
       grantDropped: vi.fn(() => []),
     }
     const trusted = { sender: 'app' }
-    registerIpc(h as never, () => undefined, (e) => e === (trusted as never), files as never)
+    registerIpc(h as never, () => undefined, (e) => e === (trusted as never), files as never, fakeTouch())
     const handler = (channel: string) => vi.mocked(ipcMain.handle).mock.calls.find(([ch]) => ch === channel)![1] as (e: unknown, ...a: unknown[]) => Promise<unknown>
 
     await expect(handler('hub:call')({ sender: 'evil' }, 'files.plan', {})).rejects.toThrow('untrusted sender')
@@ -123,5 +124,50 @@ describe('isMainFrameOf', () => {
   it('rejects a destroyed or missing window', () => {
     expect(isMainFrameOf(win(true), { sender: wc, senderFrame: mainFrame })).toBe(false)
     expect(isMainFrameOf(undefined, { sender: wc, senderFrame: mainFrame })).toBe(false)
+  })
+})
+
+describe('registerIpc touchid', () => {
+  const setup = () => {
+    vi.mocked(ipcMain.handle).mockClear()
+    const h = { ...fakeHub(), on: vi.fn(), state: { kind: 'running' } }
+    const touch = fakeTouch()
+    const trusted = { sender: 'app' }
+    registerIpc(h as never, () => undefined, (e) => e === (trusted as never), fakeFiles(), touch)
+    const handler = (ch: string) => vi.mocked(ipcMain.handle).mock.calls.find(([c]) => c === ch)![1] as (e: unknown, ...a: unknown[]) => Promise<unknown>
+    return { h, touch, trusted, handler }
+  }
+  it('rejects an untrusted sender on every touchid channel', async () => {
+    const { touch, handler } = setup()
+    for (const ch of ['touchid:status', 'touchid:enable', 'touchid:disable', 'touchid:unlock']) {
+      await expect(handler(ch)({ sender: 'evil' }, { password: 'pw' })).rejects.toThrow('untrusted sender')
+    }
+    expect(touch.status).not.toHaveBeenCalled()
+    expect(touch.enable).not.toHaveBeenCalled()
+    expect(touch.disable).not.toHaveBeenCalled()
+    expect(touch.unlock).not.toHaveBeenCalled()
+  })
+  it('routes a trusted call', async () => {
+    const { touch, trusted, handler } = setup()
+    await handler('touchid:enable')(trusted, { password: 'pw' })
+    expect(touch.enable).toHaveBeenCalledWith('pw')
+    await handler('touchid:unlock')(trusted)
+    expect(touch.unlock).toHaveBeenCalled()
+  })
+  it('a password unlock that succeeds closes a Touch ID dialog; a failed one does not', async () => {
+    const { h, touch, trusted, handler } = setup()
+    h.call.mockRejectedValueOnce(new Error('wrong master password'))
+    await expect(handler('hub:call')(trusted, 'unlock', { password: 'x' })).rejects.toThrow()
+    expect(touch.cancel).not.toHaveBeenCalled()
+    await handler('hub:call')(trusted, 'unlock', { password: 'pw' })
+    expect(touch.cancel).toHaveBeenCalledTimes(1)
+  })
+  it('a hub that stops closes a Touch ID dialog', () => {
+    const { h, touch } = setup()
+    const onState = h.on.mock.calls.find(([ev]) => ev === 'state')![1] as (s: unknown) => void
+    onState({ kind: 'running' })
+    expect(touch.cancel).not.toHaveBeenCalled()
+    onState({ kind: 'restarting', attempt: 1 })
+    expect(touch.cancel).toHaveBeenCalledTimes(1)
   })
 })

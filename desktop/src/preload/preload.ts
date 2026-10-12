@@ -24,4 +24,8 @@ contextBridge.exposeInMainWorld('sshmcp', {
     const paths = files.map((f) => webUtils.getPathForFile(f)).filter((p) => p !== '')
     return ipcRenderer.invoke('files:grantDropped', { server, paths })
   },
+  touchStatus: () => ipcRenderer.invoke('touchid:status'),
+  touchEnable: (password: string) => ipcRenderer.invoke('touchid:enable', { password }),
+  touchDisable: () => ipcRenderer.invoke('touchid:disable'),
+  touchUnlock: () => ipcRenderer.invoke('touchid:unlock'),
 })
