@@ -1,5 +1,6 @@
 # Compiled binary
 /sshgate
+/sshgate-touchid
 # SDD scratch (ledger, briefs, reports, diffs)
 /.superpowers/
 # memsearch tool index
