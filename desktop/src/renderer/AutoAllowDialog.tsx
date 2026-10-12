@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AutoAllowCheck, AutoAllowMode, ServerInfo, SoftLockLimit } from '../shared/protocol'
 import { blockKeyboardActivation, ListChanges } from './approvals'
-import { AUTO_MODES, dialogChangeKey, enableAllowed, limitText } from './autoallow'
+import { AUTO_MODES, dialogChangeKey, enableAllowed } from './autoallow'
+import { limitText } from './settings'
 
 type Mode = Exclude<AutoAllowMode, 'off'>
 

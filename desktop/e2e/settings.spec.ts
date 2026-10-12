@@ -47,7 +47,7 @@ test('Settings sets No limit, stored in the vault', async () => {
   await expect(save).toBeDisabled()
   await expect(d.locator('.banner-danger')).toContainText('for as long as the app runs')
   await expect(d.locator('.banner-danger li')).toHaveText(['box'])
-  await win.waitForTimeout(600)
+  await expect(save).toBeEnabled()
   await save.click()
   await expect(d).toBeHidden()
 

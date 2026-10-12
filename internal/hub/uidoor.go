@@ -174,7 +174,7 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		if len(autoHosts) > 0 {
 			st["autoHosts"] = autoHosts
 		}
-		if l, ok := h.softLockLimitForUI(); ok {
+		if l := h.softLockLimitForUI(); l != "" {
 			st["softLockLimit"] = l
 		}
 		if e := h.storeError(); e != "" {
@@ -293,7 +293,7 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		if err := strictParams(raw, &p, "limit"); err != nil {
 			return nil, err
 		}
-		if _, ok := softLockStored(p.Limit); !ok {
+		if _, ok := softLockLimits[p.Limit]; !ok {
 			return nil, &rpc.Error{Code: -32602, Message: "limit must be 24h, 3d, 7d, or none"}
 		}
 		return empty, h.SetSoftLockLimit(p.Limit)

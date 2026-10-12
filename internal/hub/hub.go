@@ -381,6 +381,12 @@ func (h *Hub) reloadLocked() (err error) {
 	if h.deps.File != nil && f.Revision == h.deps.File.Revision && f.MAC == h.deps.File.MAC {
 		return nil
 	}
+	// Under soft lock no writer runs, so a lower Revision is an older copy
+	// written back (one with a higher soft-lock limit, say). Refuse it for
+	// every caller; the sweep then ends every grant, as for any failed reload.
+	if h.autoKey != nil && h.deps.File != nil && f.Revision < h.deps.File.Revision {
+		return fmt.Errorf("vault revision went back from %d to %d", h.deps.File.Revision, f.Revision)
+	}
 	// A vault never loses its KDF; one that did lost its MAC check with it.
 	key := h.vaultKeyLocked()
 	if f.KDF == nil && (key != nil || h.deps.File != nil && h.deps.File.KDF != nil) {

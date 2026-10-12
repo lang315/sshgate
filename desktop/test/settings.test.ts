@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { LIMITS, limitChange, limitHelp, limitNotice, saveAllowed, settingsChangeKey } from '../src/renderer/settings'
-import { limitText } from '../src/renderer/autoallow'
+import { LIMITS, limitChange, limitHelp, limitNotice, limitText, saveAllowed, settingsChangeKey } from '../src/renderer/settings'
 
 describe('limitChange', () => {
   it('orders 24h < 3d < 7d < none', () => {

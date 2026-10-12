@@ -61,7 +61,7 @@ func (h *Hub) lockIfIdle(idle time.Duration) {
 	case h.running > 0:
 		h.mu.Unlock()
 	case h.autoKey != nil:
-		if !h.pastLimitLocked(time.Now().Round(0)) {
+		if !h.pastLimitLocked() {
 			h.mu.Unlock()
 			return
 		}

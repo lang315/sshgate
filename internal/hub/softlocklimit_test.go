@@ -22,6 +22,43 @@ func setLimitInFile(t *testing.T, path, stored string) {
 	}
 }
 
+// limitHub is a hub whose vault holds stored as its soft-lock limit, with a
+// forever grant on "vis", soft-locked by the idle rule.
+func limitHub(t *testing.T, stored string) (*Hub, string) {
+	t.Helper()
+	h, path := newHub(t, &fakeExec{})
+	setLimitInFile(t, path, stored)
+	if err := h.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	idleNow(h)
+	return h, path
+}
+
+// ageSoftLock moves the start of h's soft lock d into the past.
+func ageSoftLock(h *Hub, d time.Duration) {
+	h.mu.Lock()
+	h.softLockedAt = time.Now().Round(0).Add(-d)
+	h.mu.Unlock()
+}
+
+// wantSweepHardLocks runs one sweep and expects a hard lock with the grants
+// ended and audited.
+func wantSweepHardLocks(t *testing.T, h *Hub, path string) {
+	t.Helper()
+	h.sweepGrants(time.Now())
+	if got := stateOf(h); got != (lockState{}) {
+		t.Fatalf("after the sweep: state = %+v, want hard lock", got)
+	}
+	_, recs := readAudit(t, path)
+	if countAction(recs, "autoAllowOff") == 0 {
+		t.Fatalf("no autoAllowOff record: %v", recs)
+	}
+}
+
 func TestSoftLockLimitOf(t *testing.T) {
 	for stored, want := range map[string]time.Duration{
 		"": 24 * time.Hour, "3d": 72 * time.Hour, "7d": 168 * time.Hour, "none": 0, "2w": 24 * time.Hour,
@@ -33,47 +70,30 @@ func TestSoftLockLimitOf(t *testing.T) {
 	if got := softLockLimitOf(nil); got != 24*time.Hour {
 		t.Errorf("softLockLimitOf(nil) = %v, want 24h", got)
 	}
-	for stored, want := range map[string]string{"": "24h", "3d": "3d", "7d": "7d", "none": "none", "2w": "24h"} {
+	for stored, want := range map[string]string{"": "24h", "24h": "24h", "3d": "3d", "7d": "7d", "none": "none", "2w": "24h"} {
 		if got := softLockWire(stored); got != want {
 			t.Errorf("softLockWire(%q) = %q, want %q", stored, got, want)
 		}
 	}
-	for wire, want := range map[string]string{"24h": "", "3d": "3d", "7d": "7d", "none": "none"} {
-		if got, ok := softLockStored(wire); !ok || got != want {
-			t.Errorf("softLockStored(%q) = %q, %v; want %q, true", wire, got, ok, want)
-		}
-	}
 	for _, bad := range []string{"", "1d", "24H", "None", "0"} {
-		if _, ok := softLockStored(bad); ok {
-			t.Errorf("softLockStored(%q) accepted", bad)
+		if _, ok := softLockLimits[bad]; ok {
+			t.Errorf("softLockLimits accepts %q", bad)
 		}
 	}
 }
 
 func TestSoftLockLimitThreeDays(t *testing.T) {
-	h, path := newHub(t, &fakeExec{})
-	setLimitInFile(t, path, "3d")
-	if err := h.Reload(); err != nil {
-		t.Fatal(err)
-	}
-	if err := h.SetAutoAllow("vis", "forever"); err != nil {
-		t.Fatal(err)
-	}
-	idleNow(h)
+	h, _ := limitHub(t, "3d")
 	locks := captureLocks(h)
 
-	h.mu.Lock()
-	h.softLockedAt = time.Now().Round(0).Add(-72*time.Hour + time.Second)
-	h.mu.Unlock()
+	ageSoftLock(h, 72*time.Hour-time.Second)
 	h.lockIfIdle(time.Minute)
 	if got := stateOf(h); !got.soft {
 		t.Fatalf("one second short of 3 days: state = %+v, want soft", got)
 	}
 	noLock(t, locks)
 
-	h.mu.Lock()
-	h.softLockedAt = time.Now().Round(0).Add(-72 * time.Hour)
-	h.mu.Unlock()
+	ageSoftLock(h, 72*time.Hour)
 	h.lockIfIdle(time.Minute)
 	if got := stateOf(h); got != (lockState{}) {
 		t.Fatalf("at 3 days: state = %+v, want hard lock", got)
@@ -82,18 +102,8 @@ func TestSoftLockLimitThreeDays(t *testing.T) {
 }
 
 func TestSoftLockNoLimit(t *testing.T) {
-	h, path := newHub(t, &fakeExec{})
-	setLimitInFile(t, path, "none")
-	if err := h.Reload(); err != nil {
-		t.Fatal(err)
-	}
-	if err := h.SetAutoAllow("vis", "forever"); err != nil {
-		t.Fatal(err)
-	}
-	idleNow(h)
-	h.mu.Lock()
-	h.softLockedAt = time.Now().Round(0).Add(-365 * 24 * time.Hour)
-	h.mu.Unlock()
+	h, _ := limitHub(t, "none")
+	ageSoftLock(h, 365*24*time.Hour)
 	h.lockIfIdle(time.Minute)
 	if got := stateOf(h); got != (lockState{soft: true, key: true, grants: 1}) {
 		t.Fatalf("a year into a no-limit soft lock: state = %+v, want soft with its grant", got)
@@ -118,8 +128,8 @@ func TestSoftLockLimitReadLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	softLockForTest(h)
+	ageSoftLock(h, 24*time.Hour)
 	h.mu.Lock()
-	h.softLockedAt = time.Now().Round(0).Add(-24 * time.Hour)
 	past := h.aiLockedLocked("vis")
 	h.mu.Unlock()
 	if !past {
@@ -132,8 +142,8 @@ func TestSoftLockLimitReadLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	softLockForTest(h)
+	ageSoftLock(h, 24*time.Hour)
 	h.mu.Lock()
-	h.softLockedAt = time.Now().Round(0).Add(-24 * time.Hour)
 	past = h.aiLockedLocked("vis")
 	h.mu.Unlock()
 	if past {
@@ -142,18 +152,8 @@ func TestSoftLockLimitReadLive(t *testing.T) {
 }
 
 func TestSoftLockLimitUnknownValueIsDefault(t *testing.T) {
-	h, path := newHub(t, &fakeExec{})
-	setLimitInFile(t, path, "2w")
-	if err := h.Reload(); err != nil {
-		t.Fatal(err)
-	}
-	if err := h.SetAutoAllow("vis", "forever"); err != nil {
-		t.Fatal(err)
-	}
-	idleNow(h)
-	h.mu.Lock()
-	h.softLockedAt = time.Now().Round(0).Add(-24 * time.Hour)
-	h.mu.Unlock()
+	h, _ := limitHub(t, "2w")
+	ageSoftLock(h, 24*time.Hour)
 	h.lockIfIdle(time.Minute)
 	if got := stateOf(h); got != (lockState{}) {
 		t.Fatalf("unknown limit at 24 hours: state = %+v, want hard lock", got)
@@ -163,11 +163,7 @@ func TestSoftLockLimitUnknownValueIsDefault(t *testing.T) {
 // An outside edit of softLockLimit under soft lock fails the MAC on the
 // sweep's reload: every grant ends and the hub hard-locks.
 func TestSoftLockLimitTamperUnderSoftLock(t *testing.T) {
-	h, path := newHub(t, &fakeExec{})
-	if err := h.SetAutoAllow("vis", "forever"); err != nil {
-		t.Fatal(err)
-	}
-	idleNow(h)
+	h, path := limitHub(t, "")
 	f, err := config.Load(path)
 	if err != nil {
 		t.Fatal(err)
@@ -178,19 +174,12 @@ func TestSoftLockLimitTamperUnderSoftLock(t *testing.T) {
 	if err := os.WriteFile(path, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	h.sweepGrants(time.Now())
-	if got := stateOf(h); got != (lockState{}) {
-		t.Fatalf("after the sweep: state = %+v, want hard lock", got)
-	}
-	_, recs := readAudit(t, path)
-	if countAction(recs, "autoAllowOff") == 0 {
-		t.Fatalf("no autoAllowOff record: %v", recs)
-	}
+	wantSweepHardLocks(t, h, path)
 }
 
 // A MAC-valid older copy of the vault written back under soft lock (here one
-// whose limit is "none") must not raise the limit: the sweep's reload sees a
-// lower Revision, every grant ends and the hub hard-locks.
+// whose limit is "none") must not raise the limit: any reload sees a lower
+// Revision and refuses it, and the next sweep ends every grant and hard-locks.
 func TestSoftLockLimitReplayUnderSoftLock(t *testing.T) {
 	h, path := newHub(t, &fakeExec{})
 	// Armed first, so the old copy also holds the forever flag and passes the
@@ -218,9 +207,10 @@ func TestSoftLockLimitReplayUnderSoftLock(t *testing.T) {
 	if err := os.WriteFile(path, old, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	h.sweepGrants(time.Now())
-	if got := stateOf(h); got != (lockState{}) {
-		t.Fatalf("after the sweep: state = %+v, want hard lock", got)
+	// status, the MCP door and the file/term/tunnel paths reload before any
+	// sweep runs; none of them may take the older copy.
+	if err := h.Reload(); err == nil {
+		t.Fatal("Reload under soft lock accepted an older vault copy")
 	}
 	h.mu.Lock()
 	limit := h.deps.File.SoftLockLimit
@@ -228,10 +218,7 @@ func TestSoftLockLimitReplayUnderSoftLock(t *testing.T) {
 	if limit != "" {
 		t.Fatalf("in-memory limit = %q after the replay, want the last copy's 24h", limit)
 	}
-	_, recs := readAudit(t, path)
-	if countAction(recs, "autoAllowOff") == 0 {
-		t.Fatalf("no autoAllowOff record: %v", recs)
-	}
+	wantSweepHardLocks(t, h, path)
 }
 
 func TestSetSoftLockLimitWritesFileAndAudit(t *testing.T) {

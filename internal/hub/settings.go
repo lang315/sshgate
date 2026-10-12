@@ -13,9 +13,12 @@ import (
 // stored writes nothing. A failed reload after the write is returned; the
 // write stands.
 func (h *Hub) SetSoftLockLimit(limit string) error {
-	stored, ok := softLockStored(limit)
-	if !ok {
+	if _, ok := softLockLimits[limit]; !ok {
 		return fmt.Errorf("unknown soft-lock limit %q", limit)
+	}
+	stored := limit
+	if stored == "24h" {
+		stored = "" // the default is stored as absent
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -38,12 +41,12 @@ func (h *Hub) SetSoftLockLimit(limit string) error {
 }
 
 // softLockLimitForUI is the limit in force as a UI-door value, only while
-// unlocked: while hard-locked the file's MAC is unchecked.
-func (h *Hub) softLockLimitForUI() (string, bool) {
+// unlocked (while hard-locked the file's MAC is unchecked); "" otherwise.
+func (h *Hub) softLockLimitForUI() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.deps.MasterKey == nil || h.deps.File == nil {
-		return "", false
+		return ""
 	}
-	return softLockWire(h.deps.File.SoftLockLimit), true
+	return softLockWire(h.deps.File.SoftLockLimit)
 }
