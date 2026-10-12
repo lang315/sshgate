@@ -47,6 +47,11 @@ export const lockHostsFrom = (autoHosts: string[] | undefined, droppedSince: Rea
   (autoHosts ?? []).filter((h) => !droppedSince.has(h))
 export const dropLockHost = (hosts: string[], server: string) => hosts.filter((h) => h !== server)
 
+// The hub hands ranWhileLocked to the first unlock reply only (TakeRanLocked):
+// when a typed and a Touch ID unlock race, the later, empty reply keeps the list.
+// App clears it at the next lock instead.
+export const keepRan = (cur: RanWhileLocked[], next?: RanWhileLocked[]) => (next?.length ? next : cur)
+
 export function ranLockedText(ran: RanWhileLocked[]): string | undefined {
   const n = ran.reduce((a, r) => a + r.count, 0)
   if (n === 0) return undefined

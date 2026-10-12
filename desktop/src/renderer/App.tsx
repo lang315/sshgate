@@ -4,7 +4,7 @@ import { hub, touchid } from './transport'
 import type { TouchStatus } from '../shared/touchid'
 import { limitChange, saveSettings } from './settings'
 import { applyState, replayStates, summary } from './tunnels'
-import { autoHosts, dropLockHost, dropOnLock, lockHostsFrom, handleAutoEvent, pausedHosts, ranLockedText, SAVED_BUT } from './autoallow'
+import { autoHosts, dropLockHost, dropOnLock, keepRan, lockHostsFrom, handleAutoEvent, pausedHosts, ranLockedText, SAVED_BUT } from './autoallow'
 import { autoTouch, lockKind, lockTitle, screenFor } from './shell'
 import { Unlock } from './Unlock'
 import { RanLockedBanner } from './RanLocked'
@@ -98,17 +98,18 @@ export function App() {
   const locked = screen.kind === 'locked'
   const loadTouch = useCallback(() => touchid.status().then(setTouch, () => setTouch(undefined)), [])
   useEffect(() => { if (locked) void loadTouch() }, [locked, loadTouch])
+  useEffect(() => { if (locked) setRanLocked([]) }, [locked]) // unlock replies only add to it (keepRan)
   const ready = screen.kind === 'ready'
   const [touchBusy, setTouchBusy] = useState(false)
-  const touchAsked = useRef(false) // per locked episode; reset by an unlock
-  useEffect(() => { if (ready) touchAsked.current = false }, [ready])
+  const touchAsked = useRef(false) // per locked episode; an unlock or a hub restart starts a new one
+  useEffect(() => { if (ready || hubState.kind !== 'running') touchAsked.current = false }, [ready, hubState.kind])
   const touchUnlock = useCallback(async () => {
     touchAsked.current = true
     setTouchBusy(true)
     try {
       const r = await touchid.unlock()
       if ('cancelled' in r) return
-      setUnlockError(undefined); setLockReason(undefined); setRanLocked(r.ranWhileLocked ?? [])
+      setUnlockError(undefined); setLockReason(undefined); setRanLocked((cur) => keepRan(cur, r.ranWhileLocked))
     } catch (e) {
       setUnlockError((e as Error).message)
       touchid.status().then(setTouch).catch(() => setTouch(undefined)) // a reset deleted the file
@@ -200,7 +201,7 @@ export function App() {
   const unlock = async (pw: string) => {
     try {
       const r = await hub.unlock(pw)
-      setUnlockError(undefined); setLockReason(undefined); setRanLocked(r.ranWhileLocked ?? [])
+      setUnlockError(undefined); setLockReason(undefined); setRanLocked((cur) => keepRan(cur, r.ranWhileLocked))
     } catch (e) { setUnlockError((e as Error).message) }
     await refresh()
   }

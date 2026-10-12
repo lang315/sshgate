@@ -31,7 +31,8 @@ export const limitNotice = (l: SoftLockLimit) =>
 
 // Anything that moves Save restarts its delay: the choice (it swaps the
 // notice), the host list in the notice, an error line appearing, and the
-// Touch ID password field.
+// Touch ID password field appearing or going (touchOn: Touch ID being turned
+// on; turning it off shows no field).
 export const settingsChangeKey = (chosen: SoftLockLimit, hosts: string[], error?: string, touchOn = false) =>
   JSON.stringify([chosen, hosts, error ?? null, touchOn])
 

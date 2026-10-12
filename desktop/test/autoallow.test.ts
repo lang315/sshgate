@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AutoAllowRan, HubEvent, ServerInfo } from '../src/shared/protocol'
-import { applyOff, autoHosts, chipLabel, commandLabel, draftRefusal, dropLockHost, dropOnLock, enableAllowed, FEED_CAP, handleAutoEvent, isActive, lockHostsFrom, pausedHosts, pushFeed, ranLockedText, SAVED_BUT, saveConfirm, timedNote } from '../src/renderer/autoallow'
+import { applyOff, autoHosts, chipLabel, commandLabel, draftRefusal, dropLockHost, dropOnLock, enableAllowed, FEED_CAP, handleAutoEvent, isActive, keepRan, lockHostsFrom, pausedHosts, pushFeed, ranLockedText, SAVED_BUT, saveConfirm, timedNote } from '../src/renderer/autoallow'
 import { draftFrom } from '../src/renderer/hostForm'
 
 // The renderer must never call the hub in response to autoAllow.ran or
@@ -223,3 +223,14 @@ describe('lockHostsFrom', () => {
     expect(lockHostsFrom(['a', 'b'], new Set())).toEqual(['a', 'b'])
   })
 })
+
+describe('keepRan', () => {
+  const ran = [{ server: 'box', count: 2 }]
+  it('takes a reply that has runs, and keeps the current list over an empty one', () => {
+    expect(keepRan([], ran)).toEqual(ran)
+    // A typed and a Touch ID unlock raced: the hub gave the list to the first reply only.
+    expect(keepRan(ran, [])).toBe(ran)
+    expect(keepRan(ran, undefined)).toBe(ran)
+  })
+})
+

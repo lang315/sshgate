@@ -2,7 +2,7 @@ import { ipcMain, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent
 import { FILES_RELAYED, NOTIFY_METHODS, REQUEST_METHODS, type HubState } from '../shared/protocol'
 import type { HubProcess } from './hubProcess'
 import type { FilesRelay } from './files'
-import type { TouchId } from './touchid'
+import { TOUCHID_INTERRUPTED, type TouchId } from './touchid'
 
 export interface HubLike {
   call(method: string, params?: unknown, timeoutMs?: number): Promise<unknown>
@@ -72,7 +72,7 @@ export function registerIpc(
   })
   hub.on('state', (s: HubState) => {
     files.onState(s)
-    if (s.kind !== 'running') touch.cancel()
+    if (s.kind !== 'running') touch.cancel(TOUCHID_INTERRUPTED)
     getWindow()?.webContents.send('hub:state', s)
   })
 }

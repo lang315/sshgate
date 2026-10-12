@@ -28,7 +28,7 @@ func available() -> Bool {
 func knownCode(_ e: Error) -> Int32? {
   if let la = e as? LAError {
     switch la.code {
-    case .userCancel, .appCancel, .systemCancel: return 2
+    case .userCancel, .appCancel, .systemCancel, .userFallback: return 2
     case .biometryNotAvailable, .biometryNotEnrolled, .biometryLockout: return 4
     default: return 1
     }
@@ -69,6 +69,7 @@ case "unlock":
         let box = try? AES.GCM.SealedBox(combined: ct) else { fail(1, "bad input") }
   let ctx = LAContext()
   ctx.localizedReason = "unlock the sshgate vault"
+  ctx.localizedFallbackTitle = "" // no "Use Password…": the app's own password field is the fallback
   let secret: SharedSecret
   do {
     let key = try SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: keyData, authenticationContext: ctx)

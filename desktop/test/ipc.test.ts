@@ -6,6 +6,7 @@ vi.mock('electron', () => ({
 
 import { ipcMain } from 'electron'
 import { guard, isMainFrameOf, registerIpc, relayCall, relayNotify } from '../src/main/ipc'
+import { TOUCHID_INTERRUPTED } from '../src/main/touchid'
 
 const fakeHub = () => ({ call: vi.fn(async () => ({ ok: true })), notify: vi.fn() })
 const fakeTouch = () => ({ status: vi.fn(async () => ({ supported: true, available: true, enabled: true })), enable: vi.fn(async () => {}), disable: vi.fn(), unlock: vi.fn(async () => ({})), cancel: vi.fn() })
@@ -161,6 +162,7 @@ describe('registerIpc touchid', () => {
     expect(touch.cancel).not.toHaveBeenCalled()
     await handler('hub:call')(trusted, 'unlock', { password: 'pw' })
     expect(touch.cancel).toHaveBeenCalledTimes(1)
+    expect(touch.cancel).toHaveBeenCalledWith() // silent: the typed password won
   })
   it('a hub that stops closes a Touch ID dialog', () => {
     const { h, touch } = setup()
@@ -169,5 +171,6 @@ describe('registerIpc touchid', () => {
     expect(touch.cancel).not.toHaveBeenCalled()
     onState({ kind: 'restarting', attempt: 1 })
     expect(touch.cancel).toHaveBeenCalledTimes(1)
+    expect(touch.cancel).toHaveBeenCalledWith(TOUCHID_INTERRUPTED)
   })
 })

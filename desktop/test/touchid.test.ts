@@ -3,7 +3,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { HubReplyError } from '../src/main/hubProcess'
-import { TOUCHID_BUSY, TOUCHID_FAILED, TOUCHID_OFF, TOUCHID_RESET, TOUCHID_UNAVAILABLE, TouchId, touchIdHelper } from '../src/main/touchid'
+import { TOUCHID_BUSY, TOUCHID_FAILED, TOUCHID_INTERRUPTED, TOUCHID_OFF, TOUCHID_RESET, TOUCHID_UNAVAILABLE, TouchId, touchIdHelper } from '../src/main/touchid'
 
 const fake = path.join(__dirname, 'fixtures', 'fake-touchid.sh')
 let dir: string
@@ -150,5 +150,50 @@ describe('TouchId', () => {
     t.disable()
     expect(fs.existsSync(file)).toBe(false)
     t.disable()
+  })
+
+  it('a cancel that lands before the helper starts still stops it', async () => {
+    const hub = fakeHub()
+    const t = new TouchId({ helper: fake, file, hub })
+    await t.enable('pw')
+    hub.call.mockClear() // enable called unlock to check the password
+    setMode('slow')
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const call = hub.call.getMockImplementation()!
+    hub.call.mockImplementation(async (m: string, p?: unknown) => { if (m === 'status') await gate; return call(m, p) })
+    const first = t.unlock()
+    t.cancel()
+    release()
+    expect(await first).toEqual({ cancelled: true })
+    expect(fs.existsSync(`${modeFile}.pid`)).toBe(false)
+    expect(hub.call).not.toHaveBeenCalledWith('unlock', expect.anything())
+  })
+
+  it('a cancel with a reason (the hub stopped) rejects with it instead of reading as a cancel', async () => {
+    const t = new TouchId({ helper: fake, file, hub: fakeHub() })
+    await t.enable('pw')
+    setMode('slow')
+    const first = t.unlock()
+    await vi.waitFor(() => expect(fs.existsSync(`${modeFile}.pid`)).toBe(true))
+    t.cancel(TOUCHID_INTERRUPTED)
+    await expect(first).rejects.toThrow(TOUCHID_INTERRUPTED)
+  })
+
+  it('a helper killed by a signal it was not sent is a failure, not a cancel', async () => {
+    const t = new TouchId({ helper: fake, file, hub: fakeHub() })
+    await t.enable('pw')
+    setMode('crash')
+    await expect(t.unlock()).rejects.toThrow(TOUCHID_FAILED)
+    expect(fs.existsSync(file)).toBe(true)
+  })
+
+  it('a file whose sealed blob is not a v1 object reads as not turned on', async () => {
+    const t = new TouchId({ helper: fake, file, hub: fakeHub() })
+    for (const sealed of ['x', 1, [], { v: 2 }]) {
+      fs.writeFileSync(file, JSON.stringify({ storePath: '/v.json', sealed }))
+      expect((await t.status()).enabled).toBe(false)
+      await expect(t.unlock()).rejects.toThrow(TOUCHID_OFF)
+    }
   })
 })
