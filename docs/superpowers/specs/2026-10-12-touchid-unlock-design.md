@@ -65,7 +65,7 @@ Build: `desktop/scripts/build-touchid.sh` runs `swiftc -O` into `<repo root>/ssh
 
 ## Main process: `desktop/src/main/touchid.ts`
 
-Darwin only. On any other platform every call answers `available: false` and nothing spawns.
+With no helper (any platform but macOS, or a missing binary), every call answers `supported: false` and nothing spawns. The dev knob also works off macOS, which is how CI runs the e2e.
 
 Helper path, like `hubLaunch`: `SSHGATE_TOUCHID_HELPER` (dev/test knob, ignored when packaged, like every `SSHGATE_*`); else `<repo root>/sshgate-touchid` when unpackaged, `Contents/Resources/sshgate-touchid` when packaged. A missing helper means "not available".
 
@@ -85,7 +85,7 @@ Rules:
 - Exit 2 returns a "cancelled" result, which the renderer shows as nothing. The file stays.
 - Exit 4 returns `Touch ID is not available right now. Unlock with your password.` The file stays.
 - Exit 1 returns `Touch ID failed.`; the helper's stderr goes to main's stderr, never to the renderer. The file stays.
-- Password bytes are passed as stdin buffers, never on argv or in the environment, and main keeps no copy after the call.
+- Password bytes are passed as stdin buffers, never on argv or in the environment, and main does not store them; a JS string cannot be zeroed.
 
 ## UI and UX
 
