@@ -137,7 +137,7 @@ The mockups were reviewed in the brainstorming browser companion on 2026-10-12. 
 
 ## Security
 
-- Only someone who knows the master password can change the limit: it is written only while unlocked, and it lives under the vault's MAC. A planted or edited value fails closed.
+- Only someone who knows the master password can change the limit: it is written only while unlocked, and it lives under the vault's MAC. A planted or edited value fails closed. Under soft lock a replayed older copy of the vault (a lower `Revision` with a valid MAC) is treated as a failed reload: every grant ends and the hub hard-locks. While unlocked, or across a restart, a replayed copy is accepted, as for every vault field; this is a known limit.
 - No other file stores it. The setting is not in `localStorage`, an environment variable or a flag. In the packaged app the `SSHGATE_*` variables are already ignored. TablePro keeps its MCP approval settings in plain `UserDefaults`, where any same-user process can flip them; that is the pattern this design avoids.
 - Under "No limit", a forever grant on an unattended machine lets the AI, and any process running as the same user that reaches the MCP door, run on that host for as long as the hub runs. The master key stays in memory for that time. This is the honest limit the soft-lock spec stated for 24 hours, now without a bound. The dialog says so before Save.
 - Everything that ends a soft lock today still does: **Stop auto-allow and lock** (no password), Stop on a host card or Stop all auto-allow before locking, the last grant ending, a timed grant's deadline, a renderer crash (`recoverRenderer` hard-locks), a hub restart, and a changed or tampered vault.
@@ -146,6 +146,8 @@ The mockups were reviewed in the brainstorming browser companion on 2026-10-12. 
 ## Known limits
 
 Unattended work under "No limit" still stops when the renderer crashes, the hub restarts, the machine sleeps, a timed grant ends, or the AI needs a host or a `sudo-exec` that the grant does not cover.
+
+A replayed older vault copy while the app is unlocked, or across a restart, can set the limit back to an older value; under soft lock it hard-locks instead.
 
 ## Testing
 

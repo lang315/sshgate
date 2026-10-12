@@ -110,7 +110,7 @@ What stops unattended work on an auto-allowed host:
 - The AI needing a host with no grant, or `sudo-exec` on a host without the sudo opt-in.
 - The machine going to sleep.
 
-The soft-lock limit is stored in the vault, under its MAC, and only changes while the app is unlocked. An older sshgate refuses a vault whose limit is not 24 hours (it reads the field as tampering): set it back to 24 hours before downgrading.
+The soft-lock limit is stored in the vault, under its MAC, and only changes while the app is unlocked. An older sshgate refuses a vault whose limit is not 24 hours (it reads the field as tampering): set it back to 24 hours before downgrading. While the app is locked, a copy of the vault file older than the one in use is treated as tampering and stops auto-allow; while it is unlocked, or across a restart, an older copy with a valid MAC is accepted, as it is for every other setting.
 
 A dropped SSH connection does not stop it: the next run reconnects.
 

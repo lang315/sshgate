@@ -551,7 +551,15 @@ func (h *Hub) sweepGrants(now time.Time) {
 	soft := h.autoKey != nil
 	stale := false
 	if soft {
-		if err := h.reloadLocked(); err != nil {
+		prev := h.deps.File
+		err := h.reloadLocked()
+		if err == nil && prev != nil && h.deps.File.Revision < prev.Revision {
+			// A MAC-valid older copy written back (one with a higher soft-lock
+			// limit, say) fails like any other reload: keep the last copy.
+			err = fmt.Errorf("vault revision went back from %d to %d", prev.Revision, h.deps.File.Revision)
+			h.deps.File, h.storeErr = prev, errStoreReload
+		}
+		if err != nil {
 			// Fail closed: the vault can no longer be checked, so no grant may
 			// keep the key. The detail stays on stderr, never to the AI.
 			fmt.Fprintf(os.Stderr, "hub: soft lock: vault reload failed: %v\n", err)

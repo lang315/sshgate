@@ -188,6 +188,52 @@ func TestSoftLockLimitTamperUnderSoftLock(t *testing.T) {
 	}
 }
 
+// A MAC-valid older copy of the vault written back under soft lock (here one
+// whose limit is "none") must not raise the limit: the sweep's reload sees a
+// lower Revision, every grant ends and the hub hard-locks.
+func TestSoftLockLimitReplayUnderSoftLock(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	// Armed first, so the old copy also holds the forever flag and passes the
+	// sweep's per-grant stale check.
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetSoftLockLimit("none"); err != nil {
+		t.Fatal(err)
+	}
+	old, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetSoftLockLimit("24h"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetAutoAllow("vis", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	idleNow(h)
+	if got := stateOf(h); !got.soft {
+		t.Fatalf("after idleNow: state = %+v, want soft", got)
+	}
+	if err := os.WriteFile(path, old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.sweepGrants(time.Now())
+	if got := stateOf(h); got != (lockState{}) {
+		t.Fatalf("after the sweep: state = %+v, want hard lock", got)
+	}
+	h.mu.Lock()
+	limit := h.deps.File.SoftLockLimit
+	h.mu.Unlock()
+	if limit != "" {
+		t.Fatalf("in-memory limit = %q after the replay, want the last copy's 24h", limit)
+	}
+	_, recs := readAudit(t, path)
+	if countAction(recs, "autoAllowOff") == 0 {
+		t.Fatalf("no autoAllowOff record: %v", recs)
+	}
+}
+
 func TestSetSoftLockLimitWritesFileAndAudit(t *testing.T) {
 	h, path := newHub(t, &fakeExec{})
 	if err := h.SetSoftLockLimit("none"); err != nil {
