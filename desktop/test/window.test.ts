@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ Menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() } }))
 
-import { CrashPolicy, hubGone, menuTemplate, recoverRenderer } from '../src/main/window'
+import { CrashPolicy, hidesOnClose, hubGone, menuTemplate, recoverRenderer } from '../src/main/window'
 
 const roles = (t: unknown): string[] => JSON.stringify(t).match(/"role":"[^"]+"/g)?.map((r) => r.slice(8, -1)) ?? []
 
@@ -98,5 +98,14 @@ describe('hubGone', () => {
     expect(hubGone(new Error('hub did not answer in 5 s'))).toBe(false)
     expect(hubGone(new Error('wrong master password'))).toBe(false)
     expect(hubGone(undefined)).toBe(false)
+  })
+})
+
+describe('hidesOnClose', () => {
+  it('hides the window on macOS unless the app is quitting; elsewhere a close quits', () => {
+    expect(hidesOnClose('darwin', false)).toBe(true)
+    expect(hidesOnClose('darwin', true)).toBe(false)
+    expect(hidesOnClose('linux', false)).toBe(false)
+    expect(hidesOnClose('win32', false)).toBe(false)
   })
 })

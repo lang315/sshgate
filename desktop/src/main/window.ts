@@ -16,6 +16,12 @@ export function installMenu(): void {
   Menu.setApplicationMenu(t ? Menu.buildFromTemplate(t) : null)
 }
 
+// macOS keeps the app, and the hub, running behind the menu bar icon when its
+// window closes; only a quit closes it. Elsewhere closing the window quits.
+export function hidesOnClose(platform: NodeJS.Platform, quitting: boolean): boolean {
+  return platform === 'darwin' && !quitting
+}
+
 export const CRASH_LIMIT = 3
 export const CRASH_WINDOW_MS = 60_000
 

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({}))
-const { notificationText, PendingCounter, trayTitle, trayTooltip, ICON_PNG_BASE64 } = await import('../src/main/attention')
+const { notificationText, PendingCounter, trayTitle, trayTooltip, ICON_PNG_BASE64, TRAY_TEMPLATE_PNG_BASE64 } = await import('../src/main/attention')
 
 const req = { id: 'a', client: 'c', server: 'box', target: 'u@h:22', command: 'x'.repeat(200), description: '', sudo: true, timeoutSec: 60, receivedAt: '' }
 
@@ -53,5 +53,14 @@ describe('attention', () => {
     const height = bytes.readUInt32BE(20)
     expect(width).toBe(16)
     expect(height).toBe(16)
+  })
+  it('menu bar template icons are 16x16 and 32x32 RGBA PNGs', () => {
+    for (const [scale, b64] of Object.entries(TRAY_TEMPLATE_PNG_BASE64)) {
+      const bytes = Buffer.from(b64, 'base64')
+      expect(bytes.subarray(12, 16).toString('ascii')).toBe('IHDR')
+      expect([bytes.readUInt32BE(16), bytes.readUInt32BE(20)]).toEqual([16 * Number(scale), 16 * Number(scale)])
+      expect(bytes[25]).toBe(6) // colour type RGBA: macOS draws a template image from its alpha
+    }
+    expect(Object.keys(TRAY_TEMPLATE_PNG_BASE64)).toEqual(['1', '2'])
   })
 })
