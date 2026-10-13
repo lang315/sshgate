@@ -125,8 +125,8 @@ The Electron app loads only `addon-fit` (`desktop/src/renderer/TermView.tsx:3,32
 | OSC 9/777 notifications | ignored |
 | Window/tab title from the remote | shown only inside the tab, prefixed with the host name, never as the window title or a notification |
 | Query replies | sent without `user`, as above |
-| Library build | `zig build -Demit-lib-vt -Doptimize=ReleaseSafe` (bounds and overflow checks kept) at a commit pinned in the script |
-| Library load | Loading a library is refused unless all of these hold: the build script records the SHA-256 of the library and the app embeds it at build time; a packaged app calls `os.Unsetenv("MYGO_GHOSTTY_VT")` before `terminal.Load`, checks that `terminal.LibraryPath()` is inside `Contents/Resources`, and compares the file's SHA-256 with the embedded one. Tests and CI set `MYGO_GHOSTTY_VT` to the source-built library, so nothing downloads egoist's prebuilt build (`plugins/terminal/internal/library/library.go:89-98`). |
+| Library build | `zig build -Demit-lib-vt -Doptimize=ReleaseSafe` (bounds and overflow checks kept) at the Ghostty commit mygo binds (`befcdfd2c3a1`, `plugins/terminal/internal/libbuild/main.go`), with Zig 0.16.0 (Ghostty's `minimum_zig_version`) and Xcode's linker, on a macOS CI runner. The build is not bit-reproducible (absolute paths in the debug map; the linker version), so egoist's prebuilt library cannot be verified by rebuilding it and is never used. |
+| Library load | Loading a library is refused unless all of these hold: the packaging job builds the library, records its SHA-256 and embeds it into the app in the same job (a rebuild gives a different hash, so the hash binds the app to the exact library shipped beside it); a packaged app calls `os.Unsetenv("MYGO_GHOSTTY_VT")` before `terminal.Load`, checks that `terminal.LibraryPath()` is inside `Contents/Resources`, and compares the file's SHA-256 with the embedded one. Tests and CI set `MYGO_GHOSTTY_VT` to the source-built library, so nothing downloads egoist's prebuilt build (`plugins/terminal/internal/library/library.go:89-98`). |
 
 Without hardened runtime, `DYLD_INSERT_LIBRARIES` can still inject code into the app process (and into the hub, as today). This spec does not change that (see Out).
 
@@ -208,9 +208,32 @@ Measure the packaged slice-0 app and the packaged Electron app on the author's M
 | Idle RSS, total | ≤ 120 MB and ≤ 40% of the Electron app's |
 | `flood` throughput in a terminal tab | ≥ 80% of the Electron app's |
 | `ime.spec.ts` and `clipboard.spec.ts` assertions | all pass in Go tests or by hand |
-| `build-ghostty-vt.sh` in CI | builds the pinned commit, under 15 minutes |
+| `build-ghostty-vt.sh` in CI | builds the pinned commit, under 15 minutes, and the plugin's tests pass with that library |
 
 The slice-0 report records all the numbers for both apps.
+
+### Spike measurements, 2026-10-14
+
+Measured on the author's Mac (Apple M1 Pro, 32 GB, macOS 24.6) with throwaway programs, before slice 0. They make the gate plausible; slice 0 measures the real app.
+
+| Measure | Electron app | mygo | Notes |
+|---|---|---|---|
+| Bundle | 298 MB | about 24–31 MB, estimated | probe app 13 MB stripped, `sshgate` 8.8 MB, libghostty-vt ReleaseSafe 2.26 MB, `sshgate-touchid` 0.12 MB |
+| Idle RSS | 335 MB (installed app, hub 18 MB included) | 78 MB, plus the hub's 18 MB | mygo probe: one window, one terminal, no other views |
+| Peak RSS, 200 MB flood | main 174 MB + renderer 211 MB | 97 MB, flat | |
+| Flood throughput | 47 MB/s end to end (`throughput.spec.ts`, 200 MiB in 4.46 s) | 85 MB/s through a local pty | not yet through the hub |
+| Hub → UI door → Go client, no UI | 210 MB/s | 210 MB/s | the same for both apps, so the hub is not Electron's bottleneck |
+| libghostty-vt parser (`BenchmarkOutput`) | — | 348 MB/s ReleaseFast, 267 MB/s ReleaseSafe | ReleaseSafe costs 23% at the parser and 1.4% per frame |
+| libghostty-vt build | — | 64 s cold, 38 s ReleaseSafe with a warm package cache | Zig 0.16.0, Xcode 26; the plugin's 35 tests pass with the ReleaseSafe library |
+
+Not measured: IME, clipboard and VoiceOver in the mygo terminal, and the end-to-end flood through the hub.
+
+Alternatives checked and set aside:
+- Pure-Go engines: `charmbracelet/x/vt` runs at 5 MB/s on mixed output and 0.07 MB/s on a `yes` flood; `hinshun/vt10x` has no scrollback.
+- Opening hosts in Terminal.app: either exposes vault secrets or needs a hub socket any same-user process could use to skip approval.
+- The fallbacks, in order:
+  - a dylib built on the author's Mac and committed with its hash (no Zig in CI);
+  - xterm.js in `ui.WebView` for the terminal pane only.
 
 ## Testing
 
@@ -228,5 +251,5 @@ The hub's own tests are unchanged and keep covering every door rule.
 - **mygo is 18 days old.** It is at v0.4.x, and 297 of its 393 human commits are by one author, so expect API churn. The fork is pinned with `replace`, and upgrades are deliberate.
 - **Fork changes.** OSC 52 option and `OnInput` hook. Each is small; each must be carried until upstream takes it.
 - **Widgets to build.** Mouse-only button (about 30 lines), closable tab strip on `TabsBase` (about 80), audit list on a virtualized `ui.List` (about 150), side sheet and typed-name confirm (about 50).
-- **Zig in CI.** Building Ghostty's VT library adds Zig to the toolchain, on macOS at least.
+- **Zig in CI.** Building Ghostty's VT library adds Zig 0.16.0 and a macOS runner with Xcode to CI. Fallback: commit a library built on the author's Mac with its hash.
 - **Two desktop apps for months.** Electron stays the daily app until slice 7. Protocol changes in that time must land in both.
