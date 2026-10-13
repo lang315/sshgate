@@ -3,6 +3,7 @@ package hubproc
 import (
 	"context"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -39,5 +40,26 @@ func TestSupervisorGivesUp(t *testing.T) {
 	}
 	if restarts != 3 {
 		t.Fatalf("%d restarts, want 3: %+v", restarts, states)
+	}
+}
+
+// TestSupervisorProtocolMismatchIsFatal: a hub with another protocol is not
+// restarted.
+func TestSupervisorProtocolMismatchIsFatal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses /bin/sh")
+	}
+	script := `read line; id=$(printf '%s' "$line" | sed 's/.*"id":\([0-9]*\).*/\1/'); printf '{"jsonrpc":"2.0","id":%s,"result":{"protocol":11}}\n' "$id"; sleep 5`
+	var states []State
+	s := &Supervisor{
+		Launch:  Launch{Command: "/bin/sh", Args: []string{"-c", script}},
+		Backoff: []time.Duration{time.Millisecond},
+		OnState: func(st State) { states = append(states, st) },
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	s.Run(ctx)
+	if len(states) != 1 || states[0].Kind != "failed" || !strings.Contains(states[0].Message, "protocol 11") {
+		t.Fatalf("states %+v", states)
 	}
 }

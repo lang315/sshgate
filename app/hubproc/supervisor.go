@@ -3,6 +3,7 @@ package hubproc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -65,6 +66,9 @@ func (s *Supervisor) Run(ctx context.Context) {
 				tail = p.StderrTail()
 			}
 		} else if ctx.Err() != nil {
+			return
+		} else if errors.Is(err, ErrProtocol) {
+			s.state(State{Kind: "failed", Message: err.Error()})
 			return
 		} else {
 			tail = []string{err.Error()}

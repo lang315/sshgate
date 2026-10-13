@@ -21,7 +21,7 @@ type Launch struct {
 // point it at another vault, or stretch the idle lock.
 func LaunchFor(env []string, packaged bool, resources, repoRoot, goos string, exists func(string) bool) Launch {
 	knobs := map[string]string{}
-	var out []string
+	out := []string{} // never nil: a nil Cmd.Env inherits the full environment
 	for _, kv := range env {
 		k, v, _ := strings.Cut(kv, "=")
 		if strings.HasPrefix(k, "SSHGATE_") {

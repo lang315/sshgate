@@ -50,3 +50,10 @@ func TestLaunchFallsBackToPath(t *testing.T) {
 		t.Errorf("command %q", l.Command)
 	}
 }
+
+func TestLaunchPackagedOnlyKnobsEnvIsEmptyNotNil(t *testing.T) {
+	l := LaunchFor([]string{"SSHGATE_STORE=/s", "SSHGATE_BIN=/evil"}, true, "/R", "/repo", "linux", has())
+	if l.Env == nil || len(l.Env) != 0 {
+		t.Errorf("env %#v, want non-nil empty", l.Env)
+	}
+}
