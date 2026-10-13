@@ -1,12 +1,12 @@
 import { app, BrowserWindow, dialog, session, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { setupAttention } from './attention'
+import { setupAttention, showWindow } from './attention'
 import { FilesRelay } from './files'
 import { HubProcess, hubLaunch } from './hubProcess'
 import { isMainFrameOf, registerIpc } from './ipc'
 import { TouchId, touchIdHelper } from './touchid'
-import { CrashPolicy, installMenu, recoverRenderer } from './window'
+import { CrashPolicy, hidesOnClose, installMenu, recoverRenderer } from './window'
 
 let win: BrowserWindow | undefined
 const crashPolicy = new CrashPolicy()
@@ -42,6 +42,12 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
     },
   })
+  w.on('close', (e) => {
+    if (!hidesOnClose(process.platform, quitting)) return
+    e.preventDefault()
+    w.hide()
+    app.dock?.hide()
+  })
   w.on('closed', () => { win = undefined })
   // Never let this window navigate to, or open, other content that could get window.sshmcp.
   w.webContents.on('will-navigate', (e) => e.preventDefault())
@@ -71,3 +77,6 @@ app.on('before-quit', (e) => {
 })
 
 app.on('window-all-closed', () => app.quit())
+
+// macOS: opening the app again while it runs in the menu bar shows its window.
+app.on('activate', () => showWindow(getWindow()))
