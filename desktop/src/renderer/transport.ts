@@ -1,4 +1,5 @@
 import type { ApprovalRequest, AuditPage, AuditQuery, AutoAllowCheck, AutoAllowMode, FileGrant, FileOp, FilesListResult, HubEvent, HubState, ImportResult, ImportScan, RanWhileLocked, ServerInfo, ServerInput, SoftLockLimit, Status, TermOpenResult, Tunnel, TunnelView } from '../shared/protocol'
+import type { TouchStatus, TouchUnlockResult } from '../shared/touchid'
 
 interface Bridge {
   call(method: string, params?: unknown): Promise<unknown>
@@ -9,6 +10,10 @@ interface Bridge {
   pickUpload(server: string, folder: string, mode: 'files' | 'folder' | 'both'): Promise<FileGrant[]>
   pickDownloadDir(server: string): Promise<FileGrant | null>
   grantDropped(files: File[], server: string): Promise<FileGrant[]>
+  touchStatus(): Promise<TouchStatus>
+  touchEnable(password: string): Promise<void>
+  touchDisable(): Promise<void>
+  touchUnlock(): Promise<TouchUnlockResult>
 }
 
 const bridge = (): Bridge => (window as unknown as { sshmcp: Bridge }).sshmcp
@@ -99,4 +104,17 @@ export const hub = {
   setSoftLockLimit: async (limit: SoftLockLimit) => { await call('settings.setSoftLockLimit', { limit }) },
   autoAllowCheck: (server: string) => call<AutoAllowCheck>('servers.autoAllowCheck', { server }),
   auditRead: (q: AuditQuery) => call<AuditPage>('audit.read', q),
+}
+
+async function viaBridge<T>(f: () => Promise<T>): Promise<T> {
+  try { return await f() } catch (e) { throw cleanError(e) }
+}
+
+// Touch ID unlock (spec 2026-10-12-touchid-unlock-design.md): handled by main,
+// never relayed to the hub as is. The password only ever goes this way.
+export const touchid = {
+  status: () => viaBridge(() => bridge().touchStatus()),
+  enable: (password: string) => viaBridge(() => bridge().touchEnable(password)),
+  disable: () => viaBridge(() => bridge().touchDisable()),
+  unlock: () => viaBridge(() => bridge().touchUnlock()),
 }

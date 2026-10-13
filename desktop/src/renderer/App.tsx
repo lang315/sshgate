@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AutoAllowMode, AutoAllowRan, HostKeyMismatch, HubState, RanWhileLocked, ServerInfo, ServerInput, Status, TunnelState, TunnelView } from '../shared/protocol'
-import { hub } from './transport'
+import { hub, touchid } from './transport'
+import type { TouchStatus } from '../shared/touchid'
+import { limitChange, saveSettings } from './settings'
 import { applyState, replayStates, summary } from './tunnels'
-import { autoHosts, dropLockHost, dropOnLock, lockHostsFrom, handleAutoEvent, pausedHosts, ranLockedText, SAVED_BUT } from './autoallow'
-import { lockKind, lockTitle, screenFor } from './shell'
+import { autoHosts, dropLockHost, dropOnLock, keepRan, lockHostsFrom, handleAutoEvent, pausedHosts, ranLockedText, SAVED_BUT } from './autoallow'
+import { autoTouch, lockKind, lockTitle, screenFor } from './shell'
 import { Unlock } from './Unlock'
 import { RanLockedBanner } from './RanLocked'
 import { CreateVault } from './CreateVault'
@@ -47,6 +49,7 @@ export function App() {
   const terms = useRef<TerminalsHandle>(null)
   const [everReady, setEverReady] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [touch, setTouch] = useState<TouchStatus>()
   const [editing, setEditing] = useState<{ name?: string; focusForget?: boolean }>()
   const [importing, setImporting] = useState(false)
   const hostKeys = useRef(new HostKeyPrompts()).current
@@ -89,6 +92,41 @@ export function App() {
   }, [hubState, refresh])
 
   const screen = screenFor(hubState, status, unlockError)
+  // Touch ID's state, read when the unlock screen shows and before Settings
+  // opens (the dialog starts from it). status() spawns the helper but never
+  // calls the hub beyond `status`, so it is not UI activity.
+  const locked = screen.kind === 'locked'
+  const loadTouch = useCallback(() => touchid.status().then(setTouch, () => setTouch(undefined)), [])
+  useEffect(() => { if (locked) void loadTouch() }, [locked, loadTouch])
+  useEffect(() => { if (locked) setRanLocked([]) }, [locked]) // unlock replies only add to it (keepRan)
+  const ready = screen.kind === 'ready'
+  const [touchBusy, setTouchBusy] = useState(false)
+  const touchAsked = useRef(false) // per locked episode; an unlock or a hub restart starts a new one
+  useEffect(() => { if (ready || hubState.kind !== 'running') touchAsked.current = false }, [ready, hubState.kind])
+  const touchUnlock = useCallback(async () => {
+    touchAsked.current = true
+    setTouchBusy(true)
+    try {
+      const r = await touchid.unlock()
+      if ('cancelled' in r) return
+      setUnlockError(undefined); setLockReason(undefined); setRanLocked((cur) => keepRan(cur, r.ranWhileLocked))
+    } catch (e) {
+      setUnlockError((e as Error).message)
+      touchid.status().then(setTouch).catch(() => setTouch(undefined)) // a reset deleted the file
+    } finally { setTouchBusy(false) }
+    await refresh()
+  }, [refresh])
+  useEffect(() => {
+    if (autoTouch({ locked, touch, asked: touchAsked.current, trigger: 'start', everReady, focused: document.hasFocus() })) void touchUnlock()
+  }, [locked, touch, everReady, touchUnlock])
+  useEffect(() => {
+    if (!locked) return
+    const onFocus = () => {
+      if (autoTouch({ locked: true, touch, asked: touchAsked.current, trigger: 'focus', everReady, focused: true })) void touchUnlock()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [locked, touch, everReady, touchUnlock])
 
   // One fetch per screen change or host edit, never a poll: every call but
   // status counts as UI activity and would hold off the idle lock. status
@@ -163,7 +201,7 @@ export function App() {
   const unlock = async (pw: string) => {
     try {
       const r = await hub.unlock(pw)
-      setUnlockError(undefined); setLockReason(undefined); setRanLocked(r.ranWhileLocked ?? [])
+      setUnlockError(undefined); setLockReason(undefined); setRanLocked((cur) => keepRan(cur, r.ranWhileLocked))
     } catch (e) { setUnlockError((e as Error).message) }
     await refresh()
   }
@@ -206,7 +244,6 @@ export function App() {
   const stopAll = () => setAllAuto([...autoHostsSet], 'off', 'stop')
   const stopPaused = () => setAllAuto(pausedHostsList, 'off', 'stop')
 
-  const ready = screen.kind === 'ready'
   useEffect(() => { if (ready) setEverReady(true) }, [ready])
   // A lock unmounts the dialog; an unlock must not bring back an unsaved one.
   useEffect(() => { if (!ready) setSettingsOpen(false) }, [ready])
@@ -233,7 +270,7 @@ export function App() {
       )}
       <ThemeControl pref={themePref} onChange={chooseTheme} />
       <button type="button" className="btn" aria-label="Settings" title="Settings" disabled={!status?.softLockLimit}
-        onClick={() => setSettingsOpen(true)}><SettingsIcon /></button>
+        onClick={async () => { await loadTouch(); setSettingsOpen(true) }}><SettingsIcon /></button>
       <button type="button" className="btn" title={lockTitle(liveAutoN)} onClick={lock}><LockIcon />Lock</button>
     </>
   )
@@ -259,7 +296,8 @@ export function App() {
       ) : screen.kind === 'create-vault' ? (
         <CreateVault servers={servers} onCreate={createVault} />
       ) : (
-        <Unlock onUnlock={unlock} error={screen.error} lockReason={lockReason} storePath={status?.storePath} autoHosts={lockHosts} onStop={stopAndLock} />
+        <Unlock onUnlock={unlock} error={screen.error} lockReason={lockReason} storePath={status?.storePath} autoHosts={lockHosts} onStop={stopAndLock}
+          touchId={touch?.enabled && touch.available ? { onUnlock: () => void touchUnlock(), busy: touchBusy } : undefined} />
       ))}
       {(ready || everReady) && (
         <div className="shell" style={ready ? undefined : { display: 'none' }} inert={!ready}>
@@ -305,8 +343,12 @@ export function App() {
           onEdit={async () => { const name = mismatch.server; setMismatch(undefined); setImporting(false); await reloadServers(); setEditing({ name, focusForget: true }) }} />
       )}
       {ready && settingsOpen && status?.softLockLimit && (
-        <SettingsDialog limit={status.softLockLimit} hosts={[...autoHostsSet].sort()}
-          onSave={async (l) => { await hub.setSoftLockLimit(l); await refresh(); setSettingsOpen(false) }}
+        <SettingsDialog limit={status.softLockLimit} hosts={[...autoHostsSet].sort()} touch={touch}
+          onSave={async (l, t, pw) => {
+            await saveSettings({ change: limitChange(status.softLockLimit!, l), limit: l, touch: t, password: pw },
+              { enable: touchid.enable, disable: touchid.disable, setLimit: hub.setSoftLockLimit })
+            await refresh(); setSettingsOpen(false)
+          }}
           onCancel={() => setSettingsOpen(false)} />
       )}
     </div>

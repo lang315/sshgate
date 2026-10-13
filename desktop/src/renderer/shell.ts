@@ -1,4 +1,5 @@
 import type { HubState } from '../shared/protocol'
+import type { TouchStatus } from '../shared/touchid'
 
 export type Screen =
   | { kind: 'hub'; state: HubState }
@@ -33,3 +34,12 @@ export const lockKind = (reason: string | undefined, previous?: 'idle' | 'manual
 // the AI keeps running there (spec 2026-10-03).
 export const lockTitle = (autoHosts: number): string | undefined =>
   autoHosts > 0 ? 'Auto-allow keeps running while locked' : undefined
+
+// Touch ID asks by itself at most once per locked episode: at app start with
+// the window focused (everReady is false until the first unlock), or on the
+// window's focus while locked, so never at the moment of locking. A cancel
+// counts as asked: the dialog hands focus back, which must not ask again.
+export function autoTouch(o: { locked: boolean; touch?: TouchStatus; asked: boolean; trigger: 'start' | 'focus'; everReady: boolean; focused: boolean }): boolean {
+  if (!o.locked || !o.touch?.enabled || !o.touch.available || o.asked) return false
+  return o.trigger === 'focus' || (!o.everReady && o.focused)
+}

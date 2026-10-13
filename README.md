@@ -117,6 +117,12 @@ A dropped SSH connection does not stop it: the next run reconnects.
 
 Closing the window quits the app and stops the hub. There is no Reload; if the renderer crashes, the app locks the vault and reloads at the unlock screen.
 
+### Unlock with Touch ID (macOS)
+
+Open **Settings**, turn on **Unlock with Touch ID**, and type your master password once. From then on the unlock screen has an **Unlock with Touch ID** button and asks by itself when you open the app or come back to its window. The password field always works.
+
+The app keeps your master password in `~/Library/Application Support/sshgate/touchid.json`, encrypted to a key inside your Mac's Secure Enclave that only opens with a fingerprint enrolled today. The file is useless on another machine. Adding or removing a fingerprint turns Touch ID off; unlock with the password and turn it on again. Turning it off in Settings deletes the file. It does not protect against someone at your unlocked Mac who can use your finger.
+
 ## Safety model
 
 - A human decides every AI command by default. The one exception is a host put on auto-allow: a grant is not a privilege boundary, and anything it leaves running (cron jobs, SSH keys, shell startup files) outlives the grant. If sudoers keeps a global timestamp (`timestamp_type=global`, or an old sudo with `!tty_tickets`), a human running sudo in a terminal lets auto runs use `sudo -n` as root for that ticket's lifetime; sshgate cannot see this. A `sudo` function planted during a grant can capture a password the human types in a terminal on that host.
@@ -216,6 +222,7 @@ The same flags work in any MCP client's JSON config:
 |---|---|
 | `~/.config/sshgate/servers.json` | The vault (mode 0600). Copy it to back up. |
 | `~/.config/sshgate/audit.jsonl` | Audit log, one JSON record per line: every request and its outcome (`waitMs` is how long it waited for you; auto-allowed runs carry `approval: "auto"`), host and auto-allow changes, file transfers, and tunnels. Never command output. sshgate only appends to it and never rotates, truncates or deletes it, so it keeps every record (at least 7 days is a requirement for any future rotation) and grows without limit; the Audit tab reads it from the end, so opening the tab stays fast however large it gets (a text search with few matches still reads the whole file). |
+| `~/Library/Application Support/sshgate/touchid.json` | Touch ID unlock's sealed master password (macOS, only when turned on). |
 | `$SSHGATE_RUNTIME_DIR/sshgate/hub.sock`, else `/run/user/<uid>/sshgate/hub.sock` (Linux), else `/tmp/sshgate-<uid>/hub.sock` | Bridge-to-hub socket. On Windows, the named pipe `\\.\pipe\sshgate-hub-<SID>`. |
 
 | Variable | Read by | Effect |
@@ -225,6 +232,7 @@ The same flags work in any MCP client's JSON config:
 | `SSHGATE_STORE` | desktop app | Passed to the hub as `--store=`. |
 | `SSHGATE_SSH_CONFIG` | desktop app | Passed to the hub as `--sshConfig=`: the SSH config **Import from SSH config** reads (default `~/.ssh/config`). |
 | `SSHGATE_IDLE_LOCK` | desktop app | Passed to the hub as `--idleLock=`, for testing. |
+| `SSHGATE_TOUCHID_HELPER` | desktop app | The Touch ID helper to run instead of `sshgate-touchid`, for testing. |
 
 The installed macOS app ignores every `SSHGATE_*` variable above and removes them from the hub's environment, so whoever can set your environment cannot swap the hub that receives your master password.
 

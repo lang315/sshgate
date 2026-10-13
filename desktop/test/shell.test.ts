@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { lockKind, lockTitle, screenFor } from '../src/renderer/shell'
+import { autoTouch, lockKind, lockTitle, screenFor } from '../src/renderer/shell'
 
 describe('screenFor', () => {
   it('shows the hub screen until the hub runs', () => {
@@ -37,5 +37,27 @@ describe('lockTitle', () => {
   it('says auto-allow keeps running only while a host is on it', () => {
     expect(lockTitle(1)).toBe('Auto-allow keeps running while locked')
     expect(lockTitle(0)).toBeUndefined()
+  })
+})
+
+describe('autoTouch', () => {
+  const on = { supported: true, available: true, enabled: true }
+  const base = { locked: true, touch: on, asked: false, everReady: false, focused: true }
+  it('asks at app start with the window focused, and on a focus while locked', () => {
+    expect(autoTouch({ ...base, trigger: 'start' })).toBe(true)
+    expect(autoTouch({ ...base, trigger: 'focus', everReady: true })).toBe(true)
+  })
+  it('never at the moment of locking: no start trigger once the app has been unlocked', () => {
+    expect(autoTouch({ ...base, trigger: 'start', everReady: true })).toBe(false)
+  })
+  it('not at start without focus, and once per episode', () => {
+    expect(autoTouch({ ...base, trigger: 'start', focused: false })).toBe(false)
+    expect(autoTouch({ ...base, trigger: 'focus', asked: true })).toBe(false)
+  })
+  it('only when locked, enabled and available', () => {
+    expect(autoTouch({ ...base, trigger: 'focus', locked: false })).toBe(false)
+    expect(autoTouch({ ...base, trigger: 'focus', touch: { ...on, enabled: false } })).toBe(false)
+    expect(autoTouch({ ...base, trigger: 'focus', touch: { ...on, available: false } })).toBe(false)
+    expect(autoTouch({ ...base, trigger: 'focus', touch: undefined })).toBe(false)
   })
 })

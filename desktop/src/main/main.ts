@@ -5,15 +5,22 @@ import { setupAttention } from './attention'
 import { FilesRelay } from './files'
 import { HubProcess, hubLaunch } from './hubProcess'
 import { isMainFrameOf, registerIpc } from './ipc'
+import { TouchId, touchIdHelper } from './touchid'
 import { CrashPolicy, installMenu, recoverRenderer } from './window'
 
 let win: BrowserWindow | undefined
 const crashPolicy = new CrashPolicy()
 
-const launch = hubLaunch({ env: process.env, packaged: app.isPackaged || !process.defaultApp, appPath: app.getAppPath(), platform: process.platform, exists: fs.existsSync })
+const packaged = app.isPackaged || !process.defaultApp
+const launch = hubLaunch({ env: process.env, packaged, appPath: app.getAppPath(), platform: process.platform, exists: fs.existsSync })
 console.error('sshgate: hub binary', launch.command)
 const hub = new HubProcess(launch)
 const files = new FilesRelay(hub, dialog, getWindow)
+const touch = new TouchId({
+  helper: touchIdHelper({ env: process.env, packaged, appPath: app.getAppPath(), platform: process.platform, exists: fs.existsSync }),
+  file: path.join(app.getPath('userData'), 'touchid.json'),
+  hub,
+})
 
 // Only a destroyed-safe reference to the app's own window ever reaches the hub relay.
 function getWindow(): BrowserWindow | undefined {
@@ -39,7 +46,8 @@ function createWindow(): BrowserWindow {
   // Never let this window navigate to, or open, other content that could get window.sshmcp.
   w.webContents.on('will-navigate', (e) => e.preventDefault())
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  w.webContents.on('render-process-gone', (_e, d) => { void recoverRenderer(hub, w, d.reason, crashPolicy, () => files.reset()) })
+  // Close a Touch ID dialog first: a finger on it after the lock below would unlock the vault behind the dead renderer.
+  w.webContents.on('render-process-gone', (_e, d) => { touch.cancel(); void recoverRenderer(hub, w, d.reason, crashPolicy, () => files.reset()) })
   w.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'))
   return w
 }
@@ -49,7 +57,7 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false))
   session.defaultSession.setPermissionCheckHandler(() => false)
   win = createWindow()
-  registerIpc(hub, getWindow, isTrusted, files)
+  registerIpc(hub, getWindow, isTrusted, files, touch)
   setupAttention(hub, getWindow)
   hub.start()
 })

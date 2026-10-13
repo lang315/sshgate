@@ -30,12 +30,31 @@ export const limitNotice = (l: SoftLockLimit) =>
   `While the app is locked, the AI keeps running on hosts with auto-allow ${l === 'none' ? 'for as long as the app runs' : `for up to ${FIXED[l].phrase}`}. Any program running as your user can use that access too.`
 
 // Anything that moves Save restarts its delay: the choice (it swaps the
-// notice), the host list in the notice, and an error line appearing.
-export const settingsChangeKey = (chosen: SoftLockLimit, hosts: string[], error?: string) => JSON.stringify([chosen, hosts, error ?? null])
+// notice), the host list in the notice, an error line appearing, and the
+// Touch ID password field appearing or going (touchOn: Touch ID being turned
+// on; turning it off shows no field).
+export const settingsChangeKey = (chosen: SoftLockLimit, hosts: string[], error?: string, touchOn = false) =>
+  JSON.stringify([chosen, hosts, error ?? null, touchOn])
 
-export function saveAllowed(o: { change: LimitChange; busy: boolean; openedAt: number; changedAt: number; now: number }): boolean {
-  if (o.change === 'same' || o.busy) return false
+export type TouchChange = 'same' | 'on' | 'off'
+export const touchChange = (enabled: boolean, chosen: boolean): TouchChange => (chosen === enabled ? 'same' : chosen ? 'on' : 'off')
+
+export function saveAllowed(o: { change: LimitChange; touch?: TouchChange; password?: string; busy: boolean; openedAt: number; changedAt: number; now: number }): boolean {
+  const touch = o.touch ?? 'same'
+  if (o.busy || (o.change === 'same' && touch === 'same')) return false
+  if (touch === 'on' && !o.password) return false
   return delayElapsed(o.openedAt, o.changedAt, o.now)
+}
+
+// Touch ID first: when it fails the limit is not saved, and the dialog stays
+// open with the error (spec 2026-10-12-touchid-unlock-design.md).
+export async function saveSettings(
+  o: { change: LimitChange; limit: SoftLockLimit; touch: TouchChange; password: string },
+  api: { enable(password: string): Promise<void>; disable(): Promise<void>; setLimit(l: SoftLockLimit): Promise<void> },
+): Promise<void> {
+  if (o.touch === 'on') await api.enable(o.password)
+  if (o.touch === 'off') await api.disable()
+  if (o.change !== 'same') await api.setLimit(o.limit)
 }
 
 // The forever grant's paragraph in AutoAllowDialog, from the vault's soft-lock

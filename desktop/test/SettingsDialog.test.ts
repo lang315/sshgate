@@ -27,3 +27,27 @@ describe('SettingsDialog', () => {
     expect(render({ limit: 'none' })).toContain('Auto-allow stops only with Stop auto-allow and lock, a restart or a crash.')
   })
 })
+
+describe('SettingsDialog Touch ID', () => {
+  it('has no Unlock section when Touch ID is not supported', () => {
+    expect(render()).not.toContain('>Unlock</h4>')
+    expect(render({ touch: { supported: false, available: false, enabled: false } })).not.toContain('Unlock with Touch ID')
+  })
+  it('shows the switch, off, with no password field', () => {
+    const html = render({ touch: { supported: true, available: true, enabled: false } })
+    expect(html).toContain('>Unlock</h4>')
+    expect(html).toMatch(/<input[^>]*role="switch"[^>]*>/)
+    expect(html).toContain('Unlock with Touch ID')
+    expect(html).not.toContain('Master password')
+  })
+  it('disables the switch with a reason when Touch ID is not available', () => {
+    const html = render({ touch: { supported: true, available: false, enabled: false } })
+    expect(html).toContain('Touch ID is not available on this Mac right now.')
+    expect(html.match(/<input[^>]*role="switch"[^>]*>/)![0]).toMatch(/disabled=""/)
+  })
+  it('keeps an enabled switch usable when Touch ID is not available, so it can be turned off', () => {
+    const sw = render({ touch: { supported: true, available: false, enabled: true } }).match(/<input[^>]*role="switch"[^>]*>/)![0]
+    expect(sw).toMatch(/checked=""/)
+    expect(sw).not.toMatch(/disabled=""/)
+  })
+})

@@ -27,6 +27,8 @@ cp build/icon.icns "$out/Contents/Resources/electron.icns"
 (cd .. && CGO_ENABLED=0 go build -trimpath \
   -ldflags "-s -w -X github.com/lang315/sshgate/internal/mcpserver.Version=$version" \
   -o "desktop/$out/Contents/Resources/sshgate" ./cmd/sshgate)
+./scripts/build-touchid.sh
+cp ../sshgate-touchid "$out/Contents/Resources/sshgate-touchid"
 
 plist="$out/Contents/Info.plist"
 /usr/libexec/PlistBuddy \
