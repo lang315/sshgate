@@ -12,7 +12,7 @@ test.afterAll(async () => { await l?.close() })
 
 const state = () => l.app.evaluate(({ app, BrowserWindow }) => {
   const w = BrowserWindow.getAllWindows()
-  return { windows: w.length, visible: w[0]?.isVisible(), dock: app.dock!.isVisible() }
+  return { windows: w.length, visible: w[0]?.isVisible(), focused: w[0]?.isFocused(), dock: app.dock!.isVisible() }
 })
 
 test('closing the window keeps the hub serving; reopening the app shows the window again', async () => {
@@ -21,11 +21,11 @@ test('closing the window keeps the hub serving; reopening the app shows the wind
   await expect(win.getByRole('button', { name: 'Lock', exact: true })).toBeVisible()
 
   await l.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close())
-  await expect.poll(state).toEqual({ windows: 1, visible: false, dock: false })
+  await expect.poll(state).toEqual({ windows: 1, visible: false, focused: false, dock: false })
   expect(await doorCall(l.socket, 'listServers', {})).toEqual([expect.objectContaining({ name: 'box', locked: false })])
 
   // What Finder/Spotlight sends when the running app is opened again.
   await l.app.evaluate(({ app }) => { app.emit('activate') })
-  await expect.poll(state).toEqual({ windows: 1, visible: true, dock: true })
+  await expect.poll(state).toEqual({ windows: 1, visible: true, focused: true, dock: true })
   await expect(win.getByRole('button', { name: 'Lock', exact: true })).toBeVisible()
 })
