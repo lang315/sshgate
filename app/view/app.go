@@ -2,114 +2,388 @@ package view
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
+	"github.com/lang315/sshgate/app/hubapi"
 	"github.com/lang315/sshgate/app/hubproc"
-	"github.com/lang315/sshgate/app/termconn"
+	"github.com/lang315/sshgate/app/model"
 )
-
-// TerminalOptions wires a hub terminal into mygo's terminal: any real key,
-// paste or input-method commit marks the connection's writes as the user's
-// (the hub's idle lock counts only those).
-func TerminalOptions(conn *termconn.Conn) terminal.Options {
-	return terminal.Options{
-		Conn:     conn,
-		OnKey:    func(_ ui.Modifiers, _ ui.Key) bool { conn.MarkUser(); return false },
-		OnPaste:  func(string) bool { conn.MarkUser(); return false },
-		OnInput:  func(string) { conn.MarkUser() },
-		OpenLink: func(string) bool { return true }, // slice 0 opens no links; the confirm comes in slice 2
-	}
-}
 
 // Door is the part of the UI door client the views call.
 type Door interface {
 	Call(ctx context.Context, method string, params, result any) error
 }
 
-// App is the window's state. Build runs on the main thread; Update runs a
-// function there from any goroutine (Window.Update, or a test's).
+// App is the window's state and the port of the renderer's App.tsx. Build
+// and every method run on the main thread; hub calls run in goroutines and
+// come back through Update. Only status is called without a user action.
 type App struct {
 	Door    Door
 	Update  func(func())
 	Now     func() time.Time
 	OpenTab func(server string) (*terminal.Terminal, error)
+	Shell   Shell
 
-	password string
-	busy     bool
-	err      string
-	hub      string // the supervisor's last word when the hub is not running
-	term     *terminal.Terminal
+	hubState                                model.HubState
+	hubSince                                time.Time // when restarting began, for the countdown
+	hubGen                                  int       // bumped when the hub stops: replies from the old one are dropped
+	status                                  *hubapi.Status
+	screen                                  model.Screen
+	servers                                 []hubapi.Server
+	lockHosts                               []string
+	dropped                                 map[string]bool
+	lockReason, unlockErr, createErr, alert string
+
+	items        []model.PendingItem
+	seen         map[string]bool
+	decidedSince map[string]bool
+	pendingSince map[string]bool
+	seedGen      int
+	seedErr      string
+	aiOpen       bool
+	itemBusy     map[string]bool
+	itemErr      map[string]string
+	denyAllErr   string
+	feed         []hubapi.AutoRan
+	counter      model.PendingCounter
+
+	busy                   bool   // unlock, create vault or stop-and-lock in flight
+	password, newPw, again string // field values
+	query                  string // host search
+	page                   string // "home" or "term"
+	term                   *terminal.Terminal
+	termServer             string
 }
 
-func (a *App) Build(c *ui.Context) {
-	if a.term != nil {
-		terminal.View(c, a.term).Fill().AutoFocus()
+func (a *App) hub() *hubapi.Client { return hubapi.New(a.Door) }
+
+func (a *App) Screen() model.Screen       { return a.screen }
+func (a *App) Items() []model.PendingItem { return a.items }
+func (a *App) LockHosts() []string        { return a.lockHosts }
+func (a *App) LockReason() string         { return a.lockReason }
+func (a *App) UnlockErr() string          { return a.unlockErr }
+func (a *App) Servers() []hubapi.Server   { return a.servers }
+func (a *App) Feed() []hubapi.AutoRan     { return a.feed }
+func (a *App) AIOpen() bool               { return a.aiOpen }
+
+func (a *App) shell() Shell {
+	if a.Shell == nil {
+		return noShell{}
+	}
+	return a.Shell
+}
+
+type noShell struct{}
+
+func (noShell) SetPending(int)                {}
+func (noShell) Notify(string, string, string) {}
+
+func (a *App) init() {
+	if a.dropped == nil {
+		a.dropped, a.seen = map[string]bool{}, map[string]bool{}
+		a.decidedSince, a.pendingSince = map[string]bool{}, map[string]bool{}
+		a.itemBusy, a.itemErr = map[string]bool{}, map[string]string{}
+		a.hubState = model.HubState{Kind: "starting"}
+		a.screen = model.ScreenHub
+		a.page = "home"
+	}
+}
+
+// HubState follows the supervisor; a hub that is not running takes every
+// client-side list with it (a restarted hub starts locked with no grants).
+func (a *App) HubState(st hubproc.State) {
+	a.init()
+	a.hubState = model.HubStateFrom(st.Kind, st.Attempt, st.In, st.Message)
+	if st.Kind == "restarting" {
+		a.hubSince = a.Now()
+	}
+	if st.Kind != "running" {
+		a.hubGen++
+		a.status, a.unlockErr, a.lockReason, a.seedErr = nil, "", "", ""
+		a.lockHosts, a.items, a.feed = []string{}, nil, nil
+		a.decidedSince, a.pendingSince, a.seen = map[string]bool{}, map[string]bool{}, map[string]bool{}
+		a.counter.Reset()
+		a.shell().SetPending(0)
+		a.setScreen()
 		return
 	}
-	ui.Column(c).Fill().Center().Gap(12).Children(func() {
-		ui.Text(c, "sshgate is locked")
-		in := ui.TextInput(c, &a.password).Password().Label("Master password").AutoFocus().Disabled(a.busy)
-		if in.Submitted() || ui.PrimaryButton(c, "Unlock").Disabled(a.busy).Clicked() {
-			a.unlock()
-		}
-		if a.err != "" {
-			ui.Text(c, a.err)
-		}
-		// The hub's last stderr lines come with a crash loop, one per line.
-		for _, line := range strings.Split(a.hub, "\n") {
-			if line != "" {
-				ui.Text(c, line)
-			}
-		}
-	})
+	a.refresh()
 }
 
-// HubState shows what the supervisor reports: a failed hub (a protocol
-// other than 12 included) is fatal and says why; a restart says which
-// attempt. Run it on the main thread, as a.Update does.
-func (a *App) HubState(st hubproc.State) {
-	switch st.Kind {
-	case "failed":
-		a.hub = st.Message
-	case "restarting":
-		a.hub = fmt.Sprintf("hub restarting (attempt %d)", st.Attempt)
+// refresh is the one call allowed without a user action.
+func (a *App) refresh() {
+	a.dropped = map[string]bool{}
+	gen := a.hubGen
+	go func() {
+		s, err := a.hub().Status(context.Background())
+		a.Update(func() {
+			if gen != a.hubGen {
+				return
+			}
+			if err != nil {
+				a.status, a.lockHosts = nil, []string{}
+			} else {
+				a.status = &s
+				a.lockHosts = model.LockHostsFrom(s.AutoHosts, a.dropped)
+			}
+			a.setScreen()
+		})
+	}()
+}
+
+func (a *App) setScreen() {
+	next := model.ScreenFor(a.hubState, a.status)
+	prev := a.screen
+	a.screen = next
+	if next == prev {
+		return
+	}
+	switch next {
+	case model.ScreenReady:
+		a.reloadServers()
+		a.seed()
+	case model.ScreenCreateVault:
+		a.reloadServers()
 	default:
-		a.hub = ""
+		a.servers = nil
 	}
 }
 
-// unlock runs off the main thread: Argon2id takes a while.
-func (a *App) unlock() {
-	pw := a.password
-	a.busy, a.err = true, ""
+func (a *App) reloadServers() {
+	gen := a.hubGen
 	go func() {
-		ctx := context.Background()
-		err := a.Door.Call(ctx, "unlock", map[string]string{"password": pw}, nil)
-		var servers []struct{ Name string }
-		if err == nil {
-			err = a.Door.Call(ctx, "servers", nil, &servers)
+		s, err := a.hub().Servers(context.Background())
+		a.Update(func() {
+			if gen != a.hubGen {
+				return
+			}
+			if err != nil {
+				s = nil
+			}
+			a.servers = s
+		})
+	}()
+}
+
+func (a *App) seed() {
+	a.seedGen++
+	gen, hubGen := a.seedGen, a.hubGen
+	a.decidedSince, a.pendingSince = map[string]bool{}, map[string]bool{}
+	go func() {
+		p, err := a.hub().Pending(context.Background())
+		a.Update(func() {
+			if gen != a.seedGen || hubGen != a.hubGen {
+				return
+			}
+			if err != nil {
+				a.seedErr = err.Error()
+				return
+			}
+			a.items = model.MergeSeed(a.items, p, a.decidedSince, a.pendingSince, a.Now())
+			a.seedErr = ""
+			for _, r := range p {
+				a.seen[r.ID] = true
+			}
+			if len(p) > 0 {
+				a.aiOpen = true
+			}
+		})
+	}()
+}
+
+// Note handles a hub notification; nothing here calls the hub but status.
+func (a *App) Note(method string, params json.RawMessage) {
+	a.init()
+	ev, ok := hubapi.Decode(method, params)
+	if !ok {
+		return
+	}
+	switch e := ev.(type) {
+	case hubapi.LockedEvent:
+		a.lockReason = model.LockKind(e.Reason, a.lockReason)
+		a.servers = model.DropOnLock(a.servers)
+		a.refresh()
+	case hubapi.AutoOffEvent:
+		a.dropped[e.Server] = true
+		a.lockHosts = model.DropLockHost(a.lockHosts, e.Server)
+		if e.Reason != "locked" {
+			a.servers = model.ApplyOff(a.servers, e.Server)
 		}
-		// OpenTab dials SSH: keep it off the main thread.
-		var t *terminal.Terminal
-		if err == nil && len(servers) > 0 && a.OpenTab != nil {
-			t, err = a.OpenTab(servers[0].Name)
+	case hubapi.AutoRanEvent:
+		a.feed = model.PushFeed(a.feed, e.AutoRan)
+	case hubapi.PendingEvent:
+		id := e.Request.ID
+		a.pendingSince[id] = true
+		a.items = model.AddPending(a.items, e.Request, a.Now())
+		if !a.seen[id] {
+			a.seen[id] = true
+			a.aiOpen = true
 		}
+		a.counter.Add(id)
+		a.shell().SetPending(a.counter.Count())
+		title, body := model.NotificationText(e.Request)
+		a.shell().Notify(id, title, body)
+		a.refresh() // a refused vault reload shows before the decision
+	case hubapi.DecidedEvent:
+		id := e.Request.ID
+		a.decidedSince[id] = true
+		a.items = model.RemoveDecided(a.items, id)
+		a.counter.Remove(id)
+		a.shell().SetPending(a.counter.Count())
+	}
+}
+
+func (a *App) unlock(pw string) {
+	if a.busy {
+		return
+	}
+	a.busy, a.password = true, ""
+	go func() {
+		_, err := a.hub().Unlock(context.Background(), pw)
 		a.Update(func() {
 			a.busy = false
 			if err != nil {
-				a.err = err.Error()
-				return
+				a.unlockErr = err.Error()
+			} else {
+				a.unlockErr, a.lockReason = "", ""
 			}
-			a.password = ""
-			if t == nil {
-				a.err = "no server to open"
-				return
-			}
-			a.term = t
+			a.refresh()
 		})
 	}()
+}
+
+// lock relies on the locked notification to refresh: a second refresh
+// could re-add a host an autoAllow.off just dropped.
+func (a *App) lock() {
+	go func() {
+		err := a.hub().Lock(context.Background(), false)
+		a.Update(func() {
+			if err == nil {
+				a.unlockErr = ""
+			}
+		})
+	}()
+}
+
+func (a *App) stopAndLock() {
+	go func() {
+		err := a.hub().Lock(context.Background(), true)
+		a.Update(func() {
+			if err != nil {
+				a.unlockErr = "Could not stop auto-allow: " + err.Error()
+			} else {
+				a.unlockErr = ""
+			}
+			a.refresh()
+		})
+	}()
+}
+
+func (a *App) createVault(pw string) {
+	if a.busy {
+		return
+	}
+	a.busy, a.createErr = true, ""
+	go func() {
+		err := a.hub().CreateVault(context.Background(), pw)
+		a.Update(func() {
+			a.busy = false
+			if err != nil {
+				a.createErr = err.Error()
+			} else {
+				a.newPw, a.again = "", ""
+			}
+			a.refresh()
+		})
+	}()
+}
+
+func (a *App) decide(id, outcome, reason string) {
+	if a.itemBusy[id] {
+		return
+	}
+	a.itemBusy[id], a.itemErr[id] = true, ""
+	go func() {
+		err := a.hub().Decide(context.Background(), id, outcome, reason)
+		a.Update(func() {
+			a.itemBusy[id] = false
+			if err != nil {
+				a.itemErr[id] = err.Error()
+			}
+		})
+	}()
+}
+
+func (a *App) denyAll() {
+	go func() {
+		err := a.hub().DenyAll(context.Background(), "denied all by user")
+		a.Update(func() {
+			a.denyAllErr = ""
+			if err != nil {
+				a.denyAllErr = err.Error()
+			}
+		})
+	}()
+}
+
+func (a *App) stopAll() {
+	names := model.AutoHostNames(a.servers, a.Now())
+	go func() {
+		var failed []string
+		var last string
+		for _, n := range names {
+			if err := a.hub().SetAutoAllow(context.Background(), n, "off"); err != nil {
+				failed, last = append(failed, n), err.Error()
+			}
+		}
+		a.Update(func() {
+			a.alert = ""
+			if len(failed) > 0 {
+				a.alert = fmt.Sprintf("Could not stop auto-allow on %s: %s", strings.Join(failed, ", "), last)
+			}
+			a.reloadServers()
+			a.refresh()
+		})
+	}()
+}
+
+// openHost dials off the main thread; a terminal it replaces is closed
+// there too (term.close may wait up to 5 s on a hung hub).
+func (a *App) openHost(name string) {
+	if a.OpenTab == nil {
+		return
+	}
+	go func() {
+		t, err := a.OpenTab(name)
+		a.Update(func() {
+			if err != nil {
+				a.alert = err.Error()
+				return
+			}
+			if old := a.term; old != nil {
+				go old.Close()
+			}
+			a.term, a.termServer, a.page = t, name, "term"
+		})
+	}()
+}
+
+// Build routes to the screen ScreenFor picks; Tasks 6-8 draw them.
+func (a *App) Build(c *ui.Context) {
+	a.init()
+	switch a.screen {
+	case model.ScreenHub:
+		a.buildHub(c)
+	case model.ScreenCreateVault:
+		a.buildCreateVault(c)
+	case model.ScreenLocked:
+		a.buildUnlock(c)
+	default:
+		a.buildReady(c)
+	}
 }
