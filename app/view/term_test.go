@@ -29,6 +29,19 @@ func (r *rec) Write(p []byte) (int, error) {
 }
 func (r *rec) Close() error { return nil }
 
+// waitWrites waits up to 2 s for ok(everything written so far): the terminal
+// writes its input from a queue goroutine, not during the frame.
+func (r *rec) waitWrites(ok func(string) bool) {
+	for end := time.Now().Add(2 * time.Second); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
+		r.mu.Lock()
+		done := ok(strings.Join(r.writes, ""))
+		r.mu.Unlock()
+		if done {
+			return
+		}
+	}
+}
+
 func needLib(t *testing.T) {
 	if os.Getenv("MYGO_GHOSTTY_VT") == "" {
 		t.Skip("MYGO_GHOSTTY_VT unset: run scripts/build-ghostty-vt.sh; never download egoist's build")
@@ -49,16 +62,7 @@ func TestIMECommitSentOnceAsUser(t *testing.T) {
 	tt.Compose("tiến", 4)
 	tt.Type("tiếng")
 	tt.Frame()
-	// The terminal writes its input from a queue goroutine; wait for the bytes
-	// (a duplicate commit makes them longer, so the check below still catches it).
-	for end := time.Now().Add(2 * time.Second); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
-		r.mu.Lock()
-		n := len(strings.Join(r.writes, ""))
-		r.mu.Unlock()
-		if n >= len("tiếng") {
-			break
-		}
-	}
+	r.waitWrites(func(got string) bool { return len(got) >= len("tiếng") }) // a duplicate commit makes it longer, so the check below still catches it
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if got := strings.Join(r.writes, ""); got != "tiếng" {
@@ -89,6 +93,7 @@ func TestCopyAndPaste(t *testing.T) {
 	tt.SetClipboard("pasted text")
 	tt.Command("paste")
 	tt.Frame()
+	r.waitWrites(func(got string) bool { return strings.Contains(got, "pasted text") })
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if !strings.Contains(strings.Join(r.writes, ""), "pasted text") || pasted != 1 {
