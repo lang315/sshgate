@@ -55,6 +55,11 @@ func (a *App) unlock() {
 		if err == nil {
 			err = a.Door.Call(ctx, "servers", nil, &servers)
 		}
+		// OpenTab dials SSH: keep it off the main thread.
+		var t *terminal.Terminal
+		if err == nil && len(servers) > 0 && a.OpenTab != nil {
+			t, err = a.OpenTab(servers[0].Name)
+		}
 		a.Update(func() {
 			a.busy = false
 			if err != nil {
@@ -62,13 +67,8 @@ func (a *App) unlock() {
 				return
 			}
 			a.password = ""
-			if len(servers) == 0 || a.OpenTab == nil {
+			if t == nil {
 				a.err = "no server to open"
-				return
-			}
-			t, err := a.OpenTab(servers[0].Name)
-			if err != nil {
-				a.err = err.Error()
 				return
 			}
 			a.term = t
