@@ -200,17 +200,19 @@ Tests that need an unpinned host write their own store, because `sshtestd -write
 
 ### Stop gate after slice 0
 
-Measure the packaged slice-0 app and the packaged Electron app on the author's Mac. RSS counts every process of each app, the hub included. Stop the project and stay on Electron if any of these fails:
+Measure the packaged slice-0 app and the packaged Electron app on the author's Mac. Memory is `phys_footprint` (the `footprint` tool; Activity Monitor's Memory column), summed over every process of each app, the hub included, with both apps in the same state: vault unlocked, one terminal tab open, idle. Stop the project and stay on Electron if any of these fails:
 
 | Measure | Threshold |
 |---|---|
 | Bundle size | ≤ 40 MB |
-| Idle RSS, total | ≤ 120 MB and ≤ 40% of the Electron app's |
+| Idle memory (`phys_footprint`), total | ≤ 120 MB and ≤ 40% of the Electron app's |
 | `flood` throughput in a terminal tab | ≥ 80% of the Electron app's |
 | `ime.spec.ts` and `clipboard.spec.ts` assertions | all pass in Go tests or by hand |
 | `build-ghostty-vt.sh` in CI | builds the pinned commit, under 15 minutes, and the plugin's tests pass with that library |
 
 The slice-0 report records all the numbers for both apps.
+
+Amended 2026-10-14, after the first slice-0 measurement: the memory row used `ps` RSS. On macOS, Go returns freed pages with `MADV_FREE_REUSABLE`; they stay in RSS although the system can take them back, so RSS overstated the hub (about 70 MiB after the master-key KDF, in both apps) and was taken with the two apps in different states. The owner chose `phys_footprint` with both apps unlocked and one tab open; the thresholds are unchanged.
 
 ### Spike measurements, 2026-10-14
 
