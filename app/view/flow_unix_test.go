@@ -6,9 +6,11 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,19 +19,40 @@ import (
 	"github.com/lang315/sshgate/app/hubproc"
 	"github.com/lang315/sshgate/app/internal/hubtest"
 	"github.com/lang315/sshgate/app/model"
+	"github.com/lang315/sshgate/app/termconn"
 )
 
 // flowT drives the App against a real hub and sshtestd: AI requests go in
 // through the MCP door, every decision is a click or key in the UI.
 type flowT struct {
-	t     *testing.T
-	a     *App
-	tt    *tester
-	c     *clock
-	sock  string
-	h     *hubapi.Client // setup only; a test never decides through it
-	audit string
+	t      *testing.T
+	a      *App
+	tt     *tester
+	c      *clock
+	sock   string
+	h      *hubapi.Client // setup only; a test never decides through it
+	audit  string
+	writes *countDoor
 }
+
+// countDoor is the door terminals use, counting the bytes of term.write
+// sent as the user's (the idle lock counts only those).
+type countDoor struct {
+	termconn.Door
+	mu   sync.Mutex
+	user int
+}
+
+func (d *countDoor) Notify(method string, params any) error {
+	if p, ok := params.(map[string]any); ok && method == "term.write" && p["user"] == true {
+		d.mu.Lock()
+		d.user += len(p["data"].([]byte))
+		d.mu.Unlock()
+	}
+	return d.Door.Notify(method, params)
+}
+
+func (d *countDoor) userBytes() int { d.mu.Lock(); defer d.mu.Unlock(); return d.user }
 
 func flow(t *testing.T, extraArgs ...string) *flowT {
 	t.Helper()
@@ -42,15 +65,25 @@ func flow(t *testing.T, extraArgs ...string) *flowT {
 	c := &clock{t: time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)}
 	a := &App{Now: c.now}
 	tt := newTester(t, a) // sets a.Update before the hub can send a note
+	mux := termconn.NewMux()
 	p, err := hubproc.Start(context.Background(), hubproc.Launch{Command: bin, Args: append([]string{"hub", "--store=" + store}, extraArgs...), Env: env},
-		func(m string, params json.RawMessage) { a.Update(func() { a.Note(m, params) }) })
+		func(m string, params json.RawMessage) {
+			if mux.Note(m, params) { // as main routes them
+				return
+			}
+			a.Update(func() { a.Note(m, params) })
+		})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { p.Stop() })
 	a.Door = p.Client()
+	writes := &countDoor{Door: p.Client()}
+	a.Dial = func(ctx context.Context, id, server string, trust *hubapi.Trust) (*termconn.Conn, error) {
+		return termconn.Open(ctx, writes, mux, id, server, 24, 80, trust)
+	}
 	running(a, tt)
-	return &flowT{t: t, a: a, tt: tt, c: c, sock: hubtest.MCPSocket(dir), h: hubapi.New(p.Client()), audit: filepath.Join(filepath.Dir(store), "audit.jsonl")}
+	return &flowT{t: t, a: a, tt: tt, c: c, sock: hubtest.MCPSocket(dir), h: hubapi.New(p.Client()), audit: filepath.Join(filepath.Dir(store), "audit.jsonl"), writes: writes}
 }
 
 // until flushes the UI until cond holds, failing after 10 s.
@@ -87,7 +120,29 @@ func (f *flowT) unlock() {
 	f.click("Master password")
 	f.tt.Type(hubtest.Password)
 	f.tt.Key(0, ui.KeyEnter)
-	f.until(func() bool { return f.tt.HasText("Hosts · 1") }, "the host list")
+	// Not "Hosts · 1": a terminal tab may cover the host list.
+	f.until(func() bool { return f.a.Screen() == model.ScreenReady && len(f.a.Servers()) == 1 }, "the ready screen")
+}
+
+// openBox opens a box tab from its card, as the e2e's waitOpen does, and
+// waits until it is open and its terminal focused.
+func (f *flowT) openBox() string {
+	f.t.Helper()
+	if f.a.tabs.Active != "" {
+		f.click("Hosts")
+	}
+	n := len(f.a.tabs.Tabs)
+	f.click("Open box")
+	f.until(func() bool { return len(f.a.tabs.Tabs) == n+1 }, "a new tab")
+	id := f.a.tabs.Active
+	f.until(func() bool { return tabState(f.a, id) == "open" && f.tt.Focused("Terminal box") }, "the box tab open and focused")
+	return id
+}
+
+// shows waits for s in tab id's terminal (sshtestd echoes what is typed).
+func (f *flowT) shows(id, s string) {
+	f.t.Helper()
+	f.until(func() bool { return strings.Contains(termText(f.a, id), s) }, fmt.Sprintf("%q in the terminal", s))
 }
 
 func (f *flowT) result(ch <-chan hubtest.ExecResult) hubtest.ExecResult {
@@ -227,7 +282,11 @@ func TestFlowColumnCollapseKeepsRequest(t *testing.T) {
 	f.click("AI requests")
 	f.tt.Frame()
 	f.click("Allow")
-	f.stillPending(c1, 300*time.Millisecond, "Allow right after the column reopened")
+	f.click("Send to tab")
+	f.stillPending(c1, 300*time.Millisecond, "Allow or Send to tab right after the column reopened")
+	if len(f.a.tabs.Tabs) != 0 {
+		t.Fatal("Send to tab worked right after the column reopened")
+	}
 
 	f.pass()
 	f.click("Deny")
