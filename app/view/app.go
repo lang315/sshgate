@@ -67,6 +67,9 @@ type App struct {
 	hk                     hkState
 	sends                  []pendingSend
 	sendSeq                int // numbers Send to tab attempts
+	editor                 *editorState
+	sheetSeq               int       // numbers the sheets opened
+	searchH                ui.Handle // the host search: the focus after a sheet closes on Hosts
 }
 
 // callTimeout matches Electron's hubProcess.ts: a hung but running hub
@@ -183,6 +186,7 @@ func (a *App) setScreen() {
 		a.reloadServers()
 	default:
 		a.servers = nil
+		a.dropDialogs()
 	}
 }
 

@@ -79,6 +79,9 @@ func (a *App) buildReady(c *ui.Context) {
 				}
 				a.buildHosts(c)
 			})
+			if a.editor != nil {
+				a.buildEditor(c)
+			}
 			if a.aiOpen {
 				ui.Column(c).Fill().Width(380).Children(func() { a.buildColumn(c) })
 			}
@@ -91,7 +94,12 @@ func (a *App) buildHosts(c *ui.Context) {
 	t := c.Theme()
 	shown := model.FilterHosts(a.servers, a.query)
 	ui.Scroll(c).Grow(1).Padding(16).Gap(12).Children(func() {
-		ui.TextInput(c.Key("search"), &a.query).Placeholder("Search hosts").Label("Search hosts")
+		ui.Row(c).Gap(8).Children(func() {
+			ui.TextInput(c.Key("search"), &a.query).Placeholder("Search hosts").Label("Search hosts").Grow(1).Bind(&a.searchH)
+			if ui.Button(c, "New host").Clicked() {
+				a.openEditor("", false)
+			}
+		})
 		ui.Text(c, fmt.Sprintf("Hosts · %d", len(shown))).Bold()
 		switch {
 		case len(a.servers) == 0:
@@ -115,15 +123,20 @@ func (a *App) buildHosts(c *ui.Context) {
 					}).Clicked() {
 						a.openTab(name)
 					}
-					ui.Row(c).Gap(6).Wrap().Children(func() {
-						if s.AIVisible {
-							ui.Text(c, "AI").TextColor(t.Accent)
-						}
-						if s.HostKey == "" {
-							ui.Text(c, "New key").TextColor(t.Warning)
-						}
-						if chip := model.ChipLabel(s.AutoAllow, a.Now()); chip != "" {
-							ui.Text(c, chip).TextColor(t.Warning)
+					ui.Row(c).Gap(6).Children(func() {
+						ui.Row(c).Gap(6).Wrap().Grow(1).Children(func() {
+							if s.AIVisible {
+								ui.Text(c, "AI").TextColor(t.Accent)
+							}
+							if s.HostKey == "" {
+								ui.Text(c, "New key").TextColor(t.Warning)
+							}
+							if chip := model.ChipLabel(s.AutoAllow, a.Now()); chip != "" {
+								ui.Text(c, chip).TextColor(t.Warning)
+							}
+						})
+						if ui.Button(c, "Edit").Label("Edit " + shownName).Tooltip("Edit").Clicked() {
+							a.openEditor(name, false)
 						}
 					})
 				})

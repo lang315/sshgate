@@ -24,7 +24,8 @@ type fakeDoor struct {
 	pw       string
 	servers  []hubapi.Server
 	pending  []hubapi.Request
-	pendGate chan struct{} // when set, pending waits on it
+	pendGate chan struct{}            // when set, pending waits on it
+	gates    map[string]chan struct{} // these methods answer once their channel closes
 	errs     map[string]error
 	params   map[string]string
 	hang     map[string]bool // these methods never answer: they wait for ctx
@@ -38,11 +39,15 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 	}
 	b, _ := json.Marshal(params)
 	d.params[method] = string(b)
+	wait := d.gates[method]
 	err, hang := d.errs[method], d.hang[method]
 	st, stFn := d.status, d.statusFn
 	gate := d.pendGate
 	srv, pend := d.servers, d.pending
 	d.mu.Unlock()
+	if wait != nil {
+		<-wait
+	}
 	if err != nil {
 		return err
 	}
