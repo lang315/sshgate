@@ -9,6 +9,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"runtime"
+	"runtime/debug"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/hkdf"
@@ -38,7 +40,7 @@ func NewKDF(masterPw string) (KDF, []byte, error) {
 		Alg: "argon2id", V: 1, Salt: base64.StdEncoding.EncodeToString(salt),
 		Time: 3, MemoryKiB: 65536, Parallelism: 4, KeyLen: 32,
 	}
-	mk := argon2.IDKey([]byte(masterPw), salt, k.Time, k.MemoryKiB, uint8(k.Parallelism), k.KeyLen)
+	mk := argon2Key([]byte(masterPw), salt, k.Time, k.MemoryKiB, uint8(k.Parallelism), k.KeyLen)
 	blob, err := Encrypt(mk, "verifier", "verifier", verifierConst)
 	if err != nil {
 		return KDF{}, nil, err
@@ -58,7 +60,23 @@ func (k KDF) DeriveKey(masterPw string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return argon2.IDKey([]byte(masterPw), salt, k.Time, k.MemoryKiB, uint8(k.Parallelism), k.KeyLen), nil
+	return argon2Key([]byte(masterPw), salt, k.Time, k.MemoryKiB, uint8(k.Parallelism), k.KeyLen), nil
+}
+
+// argon2Key is argon2.IDKey, then hands its work area (memKiB) back to the
+// OS; the long-running hub would otherwise keep it as idle heap after unlock.
+// The released memory is not zeroed, same as any freed heap.
+func argon2Key(pw, salt []byte, t, memKiB uint32, par uint8, keyLen uint32) []byte {
+	// macOS: with more than ~4 Ps running, the OS often ignores the Go
+	// runtime's release of the work area (measured: 30% released in the hub,
+	// 93% with this cap). par Ps is all Argon2 can use anyway.
+	if prev := runtime.GOMAXPROCS(0); runtime.GOOS == "darwin" && prev > int(par) {
+		runtime.GOMAXPROCS(int(par))
+		defer runtime.GOMAXPROCS(prev)
+	}
+	key := argon2.IDKey(pw, salt, t, memKiB, par, keyLen)
+	debug.FreeOSMemory()
+	return key
 }
 
 func (k KDF) Verify(masterKey []byte) bool {
