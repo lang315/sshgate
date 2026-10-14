@@ -36,6 +36,7 @@ func TestCallShapes(t *testing.T) {
 		{"deny all", "denyAll", `{"reason":"denied all by user"}`, func(c *Client) error { return c.DenyAll(ctx, "denied all by user") }},
 		{"create", "vault.create", `{"password":"password1"}`, func(c *Client) error { return c.CreateVault(ctx, "password1") }},
 		{"auto off", "servers.setAutoAllow", `{"mode":"off","server":"box"}`, func(c *Client) error { return c.SetAutoAllow(ctx, "box", "off") }},
+		{"forget key", "servers.forgetHostKey", `{"name":"box"}`, func(c *Client) error { return c.ForgetHostKey(ctx, "box") }},
 	} {
 		r := &rec{}
 		if err := tc.call(New(r)); err != nil {

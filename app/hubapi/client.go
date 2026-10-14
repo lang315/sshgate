@@ -70,3 +70,9 @@ func (h *Client) CreateVault(ctx context.Context, pw string) error {
 func (h *Client) SetAutoAllow(ctx context.Context, server, mode string) error {
 	return h.c.Call(ctx, "servers.setAutoAllow", map[string]string{"server": server, "mode": mode}, nil)
 }
+
+// ForgetHostKey unpins a server's host key; the hub closes its connection,
+// so its terminals exit.
+func (h *Client) ForgetHostKey(ctx context.Context, name string) error {
+	return h.c.Call(ctx, "servers.forgetHostKey", map[string]string{"name": name}, nil)
+}

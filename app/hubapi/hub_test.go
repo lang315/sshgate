@@ -41,6 +41,15 @@ func TestAgainstRealHub(t *testing.T) {
 	if err := h.Decide(ctx, "nope", Allowed, ""); err == nil || err.Error() != "no such pending request" {
 		t.Fatalf("decide unknown: %v", err)
 	}
+	if err := h.ForgetHostKey(ctx, "nope"); err == nil || err.Error() != `server "nope" not found` {
+		t.Fatalf("forget unknown: %v", err)
+	}
+	if err := h.ForgetHostKey(ctx, "box"); err != nil {
+		t.Fatal(err)
+	}
+	if servers, err := h.Servers(ctx); err != nil || servers[0].HostKey != "" {
+		t.Fatalf("still pinned after ForgetHostKey: %+v %v", servers, err)
+	}
 	if err := h.Lock(ctx, false); err != nil {
 		t.Fatal(err)
 	}

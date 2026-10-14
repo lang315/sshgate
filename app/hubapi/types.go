@@ -80,3 +80,27 @@ type RanLocked struct {
 type UnlockReply struct {
 	RanWhileLocked []RanLocked `json:"ranWhileLocked,omitempty"`
 }
+
+// HostKey is a term.open result other than "open". hostKeyUnknown carries
+// Fingerprint, KeyType and KnownHosts ("match", "different" or "absent", a
+// hint from ~/.ssh/known_hosts, never pinned from); hostKeyMismatch carries
+// Pinned and Presented.
+type HostKey struct {
+	Status      string `json:"status"`
+	Server      string `json:"server"`
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	User        string `json:"user"`
+	Fingerprint string `json:"fingerprint,omitempty"`
+	KeyType     string `json:"keyType,omitempty"`
+	KnownHosts  string `json:"knownHosts,omitempty"`
+	Pinned      string `json:"pinned,omitempty"`
+	Presented   string `json:"presented,omitempty"`
+}
+
+// Trust is term.open's trustHostKey: the key the person checked, which the
+// hub pins once a dial pinned to exactly it succeeds.
+type Trust struct {
+	Fingerprint string `json:"fingerprint"`
+	KeyType     string `json:"keyType"`
+}
