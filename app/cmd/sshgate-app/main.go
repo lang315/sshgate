@@ -81,9 +81,15 @@ func main() {
 	mygo.App.WhenReady(func() {
 		w := mygo.NewWindow(mygo.WindowOptions{Title: "sshgate", Width: 1000, Height: 640, Content: ui.View(a.Build)})
 		a.Update = w.Update
+		a.Shell = newTrayShell(w)
 		sup := &hubproc.Supervisor{
 			Launch: launch,
-			OnNote: func(method string, params json.RawMessage) { mux.Note(method, params) },
+			OnNote: func(method string, params json.RawMessage) {
+				if mux.Note(method, params) {
+					return
+				}
+				a.Update(func() { a.Note(method, params) })
+			},
 			OnProc: func(p *hubproc.Proc) { client.Store(p.Client()) },
 			OnState: func(st hubproc.State) {
 				if st.Kind == "failed" {
