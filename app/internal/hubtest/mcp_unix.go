@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"path/filepath"
+	"time"
 )
 
 // MCPSocket is the hub's MCP door, where the bridge sends AI requests.
@@ -31,6 +32,7 @@ func Exec(sock string, params map[string]any) <-chan ExecResult {
 			return
 		}
 		defer c.Close()
+		c.SetDeadline(time.Now().Add(30 * time.Second)) // longer than any approval wait in the tests
 		b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "exec", "params": params})
 		if _, err := c.Write(append(b, '\n')); err != nil {
 			out <- ExecResult{Err: err}
@@ -57,6 +59,10 @@ func Exec(sock string, params map[string]any) <-chan ExecResult {
 		}
 		if m.Error != nil {
 			out <- ExecResult{Err: errors.New(m.Error.Message)}
+			return
+		}
+		if m.Result == nil {
+			out <- ExecResult{Err: errors.New("exec: reply has neither result nor error")}
 			return
 		}
 		out <- ExecResult{ExitCode: m.Result.ExitCode, Stdout: m.Result.Stdout, Stderr: m.Result.Stderr}
