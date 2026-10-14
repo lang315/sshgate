@@ -22,6 +22,7 @@ func keyAddr(k hubapi.HostKey) string { return fmt.Sprintf("%s@%s:%d", k.User, k
 // key (Electron's HostKeyDialog.tsx). Only the ready screen calls it.
 func (a *App) buildHostKeyDialogs(c *ui.Context) {
 	if a.mismatch != nil {
+		a.hk.mounted = false // a prompt it hides shows again with a fresh Trust delay
 		a.buildMismatch(c, *a.mismatch)
 		return
 	}

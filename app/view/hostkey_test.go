@@ -238,19 +238,118 @@ func (d keyOpen) Call(ctx context.Context, method string, params, result any) er
 // TestMismatchDecodedFromTheHub: a hostKeyMismatch term.open result goes
 // through termconn.Open's decode into the dialog, both keys included.
 func TestMismatchDecodedFromTheHub(t *testing.T) {
-	d := keyOpen{&hubDoor{}, `{"status":"hostKeyMismatch","server":"box","host":"127.0.0.1","port":2222,"user":"test","pinned":"SHA256:old","presented":"SHA256:new"}`}
+	d := keyOpen{&hubDoor{}, `{"status":"hostKeyMismatch","server":"box","host":"127.0.0.1","port":2222,"user":"test","pinned":"SHA256:old","presented":"SHA256:n\u202eew"}`}
 	k := &keyDial{answer: func(int) (*termconn.Conn, error) {
 		return termconn.Open(context.Background(), d, termconn.NewMux(), "t1", "box", 24, 80, nil)
 	}}
 	a, tt, _, _ := hkApp(t, k)
 	clickOpenBox(t, tt)
-	for _, s := range []string{"Host key changed", "test@127.0.0.1:2222", "SHA256:old", "SHA256:new"} {
+	for _, s := range []string{"Host key changed", "test@127.0.0.1:2222", "SHA256:old", `SHA256:n\u202eew`} {
 		if !tt.HasText(s) {
 			t.Fatalf("missing %q in %q", s, tt.Texts())
 		}
 	}
+	for _, s := range tt.Texts() {
+		if strings.ContainsRune(s, '\u202e') {
+			t.Fatalf("raw hidden character shown: %q", s)
+		}
+	}
 	if !tt.Focused("Close") || tabState(a, "t1") != "exited" {
 		t.Fatal(tt.Texts())
+	}
+}
+
+// TestPromptAfterMismatchWaitsAgain: a mismatch dialog that hid a waiting
+// prompt is a new appearance of that prompt once closed, so Trust waits
+// 500 ms again.
+func TestPromptAfterMismatchWaitsAgain(t *testing.T) {
+	mis := hubapi.HostKey{Status: "hostKeyMismatch", Server: "box", Host: "127.0.0.1", Port: 2222, User: "test", Pinned: "SHA256:old", Presented: "SHA256:new"}
+	k := &keyDial{answer: func(n int) (*termconn.Conn, error) {
+		switch n {
+		case 1:
+			return nil, unknownKey("SHA256:abc")
+		case 2:
+			return nil, &termconn.OpenError{Status: mis.Status, Key: mis}
+		}
+		return nil, errors.New("dial refused")
+	}}
+	a, tt, c, _ := hkApp(t, k)
+	clickOpenBox(t, tt)
+	c.add(time.Second)
+	tt.Frame()
+	a.Update(func() { a.openTab("box") })
+	tt.flush()
+	if !tt.HasText("Host key changed") || tt.HasText("Trust this host key?") {
+		t.Fatal("want the mismatch dialog over the prompt:", tt.Texts())
+	}
+	if err := tt.Click("Close"); err != nil {
+		t.Fatal(err)
+	}
+	tt.flush()
+	if !tt.HasText("Trust this host key?") {
+		t.Fatal("the prompt did not come back:", tt.Texts())
+	}
+	_ = tt.Click("Trust and connect")
+	tt.flush()
+	if got := k.list(); len(got) != 2 {
+		t.Fatalf("dials %q: Trust worked right after the mismatch dialog closed", got)
+	}
+	c.add(600 * time.Millisecond)
+	tt.Frame()
+	if err := tt.Click("Trust and connect"); err != nil {
+		t.Fatal(err)
+	}
+	tt.flush()
+	if got := k.list(); len(got) != 3 || got[2] != "t1 SHA256:abc ssh-ed25519" {
+		t.Fatalf("dials %q: Trust did not retry after the delay", got)
+	}
+}
+
+// TestDialogsGiveFocusBackToTheTerminal: answering a prompt, or closing a
+// mismatch, for a background tab focuses the active tab's terminal again.
+func TestDialogsGiveFocusBackToTheTerminal(t *testing.T) {
+	needLib(t)
+	hd, m := &hubDoor{}, termconn.NewMux()
+	mis := hubapi.HostKey{Status: "hostKeyMismatch", Server: "box", Host: "127.0.0.1", Port: 2222, User: "test", Pinned: "SHA256:old", Presented: "SHA256:new"}
+	k := &keyDial{answer: func(n int) (*termconn.Conn, error) {
+		switch n {
+		case 1:
+			return termconn.Open(context.Background(), hd, m, "t1", "box", 24, 80, nil)
+		case 2:
+			return nil, unknownKey("SHA256:abc")
+		}
+		return nil, &termconn.OpenError{Status: mis.Status, Key: mis}
+	}}
+	a, tt, _, _ := hkApp(t, k)
+	clickOpenBox(t, tt)
+	tabsUntil(t, tt, func() bool { return tabState(a, "t1") == "open" && tt.Focused("Terminal box") }, "t1 open and focused")
+	a.Update(func() { a.openTab("box") })
+	tt.flush()
+	a.Update(func() { a.activate("t1") })
+	tt.flush()
+	if !tt.HasText("Trust this host key?") || !tt.Focused("Cancel") {
+		t.Fatal("want t2's prompt with Cancel focused:", tt.Texts())
+	}
+	if err := tt.Click("Cancel"); err != nil {
+		t.Fatal(err)
+	}
+	tt.flush()
+	if tabState(a, "t2") != "exited" || !tt.Focused("Terminal box") {
+		t.Fatal("Cancel did not give the focus back to t1's terminal")
+	}
+	a.Update(func() { a.openTab("box") })
+	tt.flush()
+	a.Update(func() { a.activate("t1") })
+	tt.flush()
+	if !tt.HasText("Host key changed") || !tt.Focused("Close") {
+		t.Fatal("want t3's mismatch dialog with Close focused:", tt.Texts())
+	}
+	if err := tt.Click("Close"); err != nil {
+		t.Fatal(err)
+	}
+	tt.flush()
+	if !tt.Focused("Terminal box") {
+		t.Fatal("Close did not give the focus back to t1's terminal")
 	}
 }
 
