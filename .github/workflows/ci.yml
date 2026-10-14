@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main, feat/go-conversion ]
+    branches: [ main, feat/go-conversion, feat/mygo-desktop ]
   pull_request:
     branches: [ main ]
 
@@ -40,3 +40,30 @@ jobs:
       - run: npm test
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: xvfb-run -a npm run e2e
+
+  app:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: app
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: app/go.mod
+          cache-dependency-path: app/go.sum
+      - name: Build libghostty-vt from source (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          start=$(date +%s)
+          ../scripts/build-ghostty-vt.sh build/natives | tee /tmp/ghostty.log
+          tail -1 /tmp/ghostty.log >> "$GITHUB_ENV"
+          echo "libghostty-vt built in $(( $(date +%s) - start )) s"
+      - run: go vet ./...
+      # Without MYGO_GHOSTTY_VT (Linux, Windows) the terminal tests skip; nothing downloads a prebuilt library.
+      - run: go test -race ./...
