@@ -41,10 +41,9 @@ func TestArgon2KeyConcurrentRestoresGOMAXPROCS(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("the GOMAXPROCS cap in argon2Key is darwin-only")
 	}
-	before := runtime.GOMAXPROCS(0)
-	if before <= 4 {
-		t.Skipf("GOMAXPROCS %d: no cap to test", before)
-	}
+	// Small CI runners have 3-4 CPUs; 8 makes the cap engage for both derives.
+	const before = 8
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(before))
 	pw, salt := []byte("master password"), []byte("0123456789abcdef")
 	done := make(chan struct{}, 2)
 	go func() { argon2Key(pw, salt, 3, 32768, 4, 32); done <- struct{}{} }()

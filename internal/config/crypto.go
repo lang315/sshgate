@@ -76,7 +76,7 @@ func argon2Key(pw, salt []byte, t, memKiB uint32, par uint8, keyLen uint32) []by
 	defer argon2Mu.Unlock()
 	// macOS, empirical, mechanism unknown: the OS often ignores the runtime's
 	// release of the work area unless GOMAXPROCS is at most par during the
-	// derive and the release (hub: 30% released without the cap, 80 of 80
+	// derive and the release (hub: 9 of 30 released without the cap, 38 of 40
 	// with it). Argon2 uses at most par Ps; the rest of the hub also gets
 	// only par Ps for the ~40 ms derive.
 	if prev := runtime.GOMAXPROCS(0); runtime.GOOS == "darwin" && prev > int(par) {
