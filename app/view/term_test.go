@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
@@ -48,6 +49,16 @@ func TestIMECommitSentOnceAsUser(t *testing.T) {
 	tt.Compose("tiến", 4)
 	tt.Type("tiếng")
 	tt.Frame()
+	// The terminal writes its input from a queue goroutine; wait for the bytes
+	// (a duplicate commit makes them longer, so the check below still catches it).
+	for end := time.Now().Add(2 * time.Second); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
+		r.mu.Lock()
+		n := len(strings.Join(r.writes, ""))
+		r.mu.Unlock()
+		if n >= len("tiếng") {
+			break
+		}
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if got := strings.Join(r.writes, ""); got != "tiếng" {
