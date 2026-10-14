@@ -44,11 +44,11 @@ func (a *App) dial(id, server string, trust *hubapi.Trust) {
 		if errors.Is(err, context.DeadlineExceeded) {
 			err = fmt.Errorf("hub did not answer in %d s", int(callTimeout.Seconds()))
 		}
-		a.Update(func() { a.opened(gen, id, conn, err) })
+		a.Update(func() { a.opened(gen, id, conn, err, trust != nil) })
 	}()
 }
 
-func (a *App) opened(gen int, id string, conn *termconn.Conn, err error) {
+func (a *App) opened(gen int, id string, conn *termconn.Conn, err error, trusted bool) {
 	t, ok := a.tabs.Get(id)
 	if gen != a.hubGen || !ok || t.State != "opening" {
 		if conn != nil {
@@ -56,7 +56,17 @@ func (a *App) opened(gen int, id string, conn *termconn.Conn, err error) {
 		}
 		return
 	}
-	if err != nil {
+	var oe *termconn.OpenError
+	switch {
+	case errors.As(err, &oe) && oe.Status == "hostKeyUnknown":
+		a.prompts.Ask(id, oe.Key) // the tab stays opening until the person answers
+		return
+	case errors.As(err, &oe) && oe.Status == "hostKeyMismatch":
+		k := oe.Key
+		a.mismatch = &k
+		a.fail(id, "host key mismatch")
+		return
+	case err != nil:
 		a.fail(id, err.Error())
 		return
 	}
@@ -69,6 +79,9 @@ func (a *App) opened(gen int, id string, conn *termconn.Conn, err error) {
 	tab := a.terms[id]
 	tab.term, tab.conn = term, conn
 	a.tabs.Opened(id)
+	if trusted {
+		a.reloadServers() // the card's New key goes
+	}
 	if a.tabs.Active == id {
 		tab.h.Focus()
 	}
@@ -84,6 +97,7 @@ func (a *App) exited(id, reason string) {
 		return
 	}
 	a.tabs.Exited(id, reason)
+	a.prompts.Drop(id)
 }
 
 func (a *App) activate(id string) {
@@ -103,6 +117,7 @@ func (a *App) focusActive() {
 // reply is closed by opened.
 func (a *App) closeTab(id string) {
 	a.tabs.Close(id)
+	a.prompts.Drop(id)
 	if t := a.terms[id]; t != nil && t.term != nil {
 		go t.term.Close()
 	}

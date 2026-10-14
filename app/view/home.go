@@ -84,6 +84,7 @@ func (a *App) buildReady(c *ui.Context) {
 			}
 		})
 	})
+	a.buildHostKeyDialogs(c)
 }
 
 func (a *App) buildHosts(c *ui.Context) {

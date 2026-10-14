@@ -62,6 +62,9 @@ type App struct {
 	query                  string // host search
 	tabs                   model.TabSet
 	terms                  map[string]*termTab // by tab id
+	prompts                model.HostKeyPrompts
+	mismatch               *hubapi.HostKey
+	hk                     hkState
 }
 
 // callTimeout matches Electron's hubProcess.ts: a hung but running hub
@@ -125,6 +128,7 @@ func (a *App) HubState(st hubproc.State) {
 	if st.Kind != "running" {
 		a.hubGen++
 		a.endTabs()
+		a.prompts, a.mismatch = model.HostKeyPrompts{}, nil
 		a.status, a.unlockErr, a.lockReason, a.seedErr = nil, "", "", ""
 		a.lockHosts, a.items, a.feed = []string{}, nil, nil
 		a.decidedSince, a.pendingSince, a.seen = map[string]bool{}, map[string]bool{}, map[string]bool{}
@@ -407,6 +411,7 @@ func (a *App) Build(c *ui.Context) {
 	a.init()
 	if a.screen != model.ScreenReady {
 		a.col.mounted = false // re-entering ready is a fresh mount: the Allow delay restarts
+		a.hk.mounted = false  // and so does the Trust delay of a prompt the lock screen hid
 	}
 	switch a.screen {
 	case model.ScreenHub:
