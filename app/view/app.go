@@ -2,11 +2,28 @@ package view
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
+	"github.com/lang315/sshgate/app/hubproc"
+	"github.com/lang315/sshgate/app/termconn"
 )
+
+// TerminalOptions wires a hub terminal into mygo's terminal: any real key,
+// paste or input-method commit marks the connection's writes as the user's
+// (the hub's idle lock counts only those).
+func TerminalOptions(conn *termconn.Conn) terminal.Options {
+	return terminal.Options{
+		Conn:     conn,
+		OnKey:    func(_ ui.Modifiers, _ ui.Key) bool { conn.MarkUser(); return false },
+		OnPaste:  func(string) bool { conn.MarkUser(); return false },
+		OnInput:  func(string) { conn.MarkUser() },
+		OpenLink: func(string) bool { return true }, // slice 0 opens no links; the confirm comes in slice 2
+	}
+}
 
 // Door is the part of the UI door client the views call.
 type Door interface {
@@ -24,6 +41,7 @@ type App struct {
 	password string
 	busy     bool
 	err      string
+	hub      string // the supervisor's last word when the hub is not running
 	term     *terminal.Terminal
 }
 
@@ -41,7 +59,27 @@ func (a *App) Build(c *ui.Context) {
 		if a.err != "" {
 			ui.Text(c, a.err)
 		}
+		// The hub's last stderr lines come with a crash loop, one per line.
+		for _, line := range strings.Split(a.hub, "\n") {
+			if line != "" {
+				ui.Text(c, line)
+			}
+		}
 	})
+}
+
+// HubState shows what the supervisor reports: a failed hub (a protocol
+// other than 12 included) is fatal and says why; a restart says which
+// attempt. Run it on the main thread, as a.Update does.
+func (a *App) HubState(st hubproc.State) {
+	switch st.Kind {
+	case "failed":
+		a.hub = st.Message
+	case "restarting":
+		a.hub = fmt.Sprintf("hub restarting (attempt %d)", st.Attempt)
+	default:
+		a.hub = ""
+	}
 }
 
 // unlock runs off the main thread: Argon2id takes a while.

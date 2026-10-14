@@ -27,6 +27,13 @@ func TestGuardRestartsOnChange(t *testing.T) {
 	}
 }
 
+func TestGuardNeverNotedIsNotReady(t *testing.T) {
+	var g Guard
+	if g.Ready(time.Unix(0, 0)) || g.Ready(time.Unix(1<<40, 0)) {
+		t.Fatal("a Guard that never saw Note is ready")
+	}
+}
+
 // guardedView shows one guarded mouse-only button, as the approval column will.
 type guardedView struct {
 	g       Guard

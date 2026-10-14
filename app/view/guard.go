@@ -27,7 +27,10 @@ func (g *Guard) Note(key string, now time.Time) {
 	}
 }
 
-func (g *Guard) Ready(now time.Time) bool { return now.Sub(g.since) >= AllowDelay }
+// Ready is false until Note has run once: a button not yet guarded is not enabled.
+func (g *Guard) Ready(now time.Time) bool {
+	return !g.since.IsZero() && now.Sub(g.since) >= AllowDelay
+}
 
 func (g *Guard) Remaining(now time.Time) time.Duration { return max(0, AllowDelay-now.Sub(g.since)) }
 

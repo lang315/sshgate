@@ -10,6 +10,7 @@ import (
 
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
+	"github.com/lang315/sshgate/app/hubproc"
 )
 
 type fakeDoor struct {
@@ -109,5 +110,30 @@ func TestUnlockOpensFirstServer(t *testing.T) {
 	}
 	if !tt.HasText("no terminal in this test") {
 		t.Fatalf("open error not shown: %q", tt.Texts())
+	}
+}
+
+func TestHubFailureShownOnUnlockScreen(t *testing.T) {
+	a := &App{Door: &fakeDoor{}, Now: time.Now}
+	tt := newTester(t, a)
+	a.HubState(hubproc.State{Kind: "restarting", Attempt: 2, In: time.Second})
+	tt.Frame()
+	if !tt.HasText("hub restarting (attempt 2)") {
+		t.Fatalf("no restart note: %q", tt.Texts())
+	}
+	a.HubState(hubproc.State{Kind: "failed", Message: "hub protocol mismatch: hub speaks protocol 13, this app speaks 12"})
+	tt.Frame()
+	if !tt.HasText("hub protocol mismatch: hub speaks protocol 13, this app speaks 12") {
+		t.Fatalf("failure not shown: %q", tt.Texts())
+	}
+	a.HubState(hubproc.State{Kind: "failed", Message: "the hub crashed 4 times in 60 s\nlast stderr line"})
+	tt.Frame()
+	if !tt.HasText("last stderr line") {
+		t.Fatalf("stderr tail not shown: %q", tt.Texts())
+	}
+	a.HubState(hubproc.State{Kind: "running"})
+	tt.Frame()
+	if tt.HasText("last stderr line") {
+		t.Fatal("running left the failure on screen")
 	}
 }

@@ -63,13 +63,7 @@ func main() {
 		if err != nil {
 			return nil, err
 		}
-		t, err := terminal.New(terminal.Options{
-			Conn:     conn,
-			OnKey:    func(_ ui.Modifiers, _ ui.Key) bool { conn.MarkUser(); return false },
-			OnPaste:  func(string) bool { conn.MarkUser(); return false },
-			OnInput:  func(string) { conn.MarkUser() },
-			OpenLink: func(string) bool { return true }, // slice 0 opens no links; the confirm comes in slice 2
-		})
+		t, err := terminal.New(view.TerminalOptions(conn))
 		if err != nil {
 			conn.Close()
 			return nil, err
@@ -95,6 +89,7 @@ func main() {
 				if st.Kind == "failed" {
 					log.Print(st.Message)
 				}
+				a.Update(func() { a.HubState(st) })
 			},
 		}
 		go func() { defer close(supDone); sup.Run(ctx) }()
