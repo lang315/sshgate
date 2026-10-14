@@ -1,6 +1,139 @@
 package view
 
-import "github.com/egoist/mygo/ui"
+import (
+	"fmt"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 
-// Placeholder until Task 7 draws the ready screen.
-func (a *App) buildReady(c *ui.Context) { ui.Text(c, string(a.screen)) }
+	"github.com/egoist/mygo/plugins/terminal"
+	"github.com/egoist/mygo/ui"
+	"github.com/lang315/sshgate/app/model"
+)
+
+func capFirst(s string) string {
+	r, n := utf8.DecodeRuneInString(s)
+	if n == 0 {
+		return s
+	}
+	return string(unicode.ToUpper(r)) + s[n:]
+}
+
+func (a *App) buildReady(c *ui.Context) {
+	t := c.Theme()
+	now := a.Now()
+	autoN := len(model.AutoHostNames(a.servers, now))
+	liveAuto := autoN - len(model.PausedHosts(a.servers))
+	ui.Column(c).Fill().Children(func() {
+		ui.Row(c).Gap(8).Padding(8).Children(func() {
+			if ui.Button(c, "Hosts").Clicked() {
+				a.page = "home"
+			}
+			if a.term != nil && ui.Button(c, model.DisplayText(a.termServer)).Clicked() {
+				a.page = "term"
+			}
+			ui.Spacer(c)
+			if a.aiOpen || len(a.items) > 0 || autoN > 0 {
+				label := fmt.Sprintf("AI %d", len(a.items))
+				if autoN > 0 {
+					label += fmt.Sprintf(" · auto %d", autoN)
+				}
+				b := ui.Button(c, "").Label("AI requests").Children(func() {
+					txt := ui.Text(c, label)
+					if model.AIButtonWaiting(a.aiOpen, len(a.items)) {
+						txt.TextColor(t.Warning)
+					}
+				})
+				if b.Clicked() {
+					a.aiOpen = !a.aiOpen
+				}
+			}
+			lock := ui.Button(c, "Lock")
+			if tip := model.LockTitle(liveAuto); tip != "" {
+				lock.Tooltip(tip)
+			}
+			if lock.Clicked() {
+				a.lock()
+			}
+		})
+		if a.status != nil && a.status.StoreError != "" {
+			ui.Row(c).Padding(8, 12).Background(t.Danger.Alpha(0.15)).Role(ui.RoleStatus).Children(func() {
+				ui.Text(c, capFirst(model.DisplayText(a.status.StoreError)))
+			})
+		}
+		if a.alert != "" {
+			ui.Row(c).Gap(8).Padding(8, 12).Background(t.Warning.Alpha(0.15)).Children(func() {
+				ui.Text(c, model.DisplayText(a.alert)).Grow(1)
+				if ui.Button(c, "Dismiss").Clicked() {
+					a.alert = ""
+				}
+			})
+		}
+		ui.Row(c).Grow(1).Children(func() {
+			// HeightPercent bounds the column so the host list's Scroll scrolls.
+			ui.Column(c).Grow(1).HeightPercent(100).Children(func() {
+				if a.page == "term" && a.term != nil {
+					terminal.View(c, a.term).Fill()
+					return
+				}
+				a.buildHosts(c)
+			})
+			if a.aiOpen {
+				ui.Column(c).Width(380).Children(func() { a.buildColumn(c) })
+			}
+		})
+	})
+}
+
+func (a *App) buildHosts(c *ui.Context) {
+	t := c.Theme()
+	shown := model.FilterHosts(a.servers, a.query)
+	ui.Scroll(c).Grow(1).Padding(16).Gap(12).Children(func() {
+		ui.TextInput(c.Key("search"), &a.query).Placeholder("Search hosts").Label("Search hosts")
+		ui.Text(c, fmt.Sprintf("Hosts · %d", len(shown))).Bold()
+		switch {
+		case len(a.servers) == 0:
+			ui.Text(c, "No hosts yet. Add one with New host.").TextColor(t.TextMuted)
+		case len(shown) == 0:
+			ui.Text(c, fmt.Sprintf(`No hosts match "%s"`, model.DisplayText(strings.TrimSpace(a.query)))).TextColor(t.TextMuted)
+		}
+		ui.Row(c).Wrap().Gap(12).Children(func() {
+			for _, s := range shown {
+				name := s.Name
+				shownName := model.DisplayText(name)
+				ui.Column(c.Key("host-"+name)).Width(240).Gap(8).Padding(12).Radius(10).Border(1, t.Border).Background(t.Surface).Children(func() {
+					if ui.Button(c, "").Label(shownName).Children(func() {
+						ui.Row(c).Gap(8).Children(func() {
+							ui.Text(c, model.Tile(shownName)).Bold()
+							ui.Column(c).Children(func() {
+								ui.Text(c, shownName).Bold().SingleLine()
+								ui.Text(c, model.DisplayText(model.Addr(s))).Font("monospace").TextColor(t.TextMuted).SingleLine()
+							})
+						})
+					}).Clicked() {
+						a.openHost(name)
+					}
+					ui.Row(c).Gap(6).Wrap().Children(func() {
+						if s.AIVisible {
+							ui.Text(c, "AI").TextColor(t.Accent)
+						}
+						if s.HostKey == "" {
+							ui.Text(c, "New key").TextColor(t.Warning)
+						}
+						if chip := model.ChipLabel(s.AutoAllow, a.Now()); chip != "" {
+							ui.Text(c, chip).TextColor(t.Warning)
+						}
+					})
+				})
+			}
+		})
+		path := ""
+		if a.status != nil {
+			path = a.status.StorePath
+		}
+		ui.Text(c, "Vault file: "+model.DisplayText(path)+" — copy it to back up.").TextColor(t.TextMuted)
+	})
+}
+
+// buildColumn is Task 8's; until then the column is empty.
+func (a *App) buildColumn(c *ui.Context) {}
