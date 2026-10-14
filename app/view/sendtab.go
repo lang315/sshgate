@@ -80,6 +80,15 @@ func (a *App) endSend(req string, seq int, msg string) {
 	}
 }
 
+// failSends fails every waiting send; the requests stay pending.
+func (a *App) failSends(msg string) {
+	for _, s := range a.sends {
+		delete(a.itemBusy, s.req)
+		a.itemErr[s.req] = msg
+	}
+	a.sends = nil
+}
+
 func (a *App) waiting(req string) bool {
 	for _, it := range a.items {
 		if it.Request.ID == req {

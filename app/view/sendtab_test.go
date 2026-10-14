@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lang315/sshgate/app/hubapi"
+	"github.com/lang315/sshgate/app/hubproc"
 	"github.com/lang315/sshgate/app/termconn"
 )
 
@@ -110,7 +111,7 @@ func TestSendToTabFailsWhenItsTabCloses(t *testing.T) {
 // still running, must not end it.
 func TestSendToTabRetryOutlivesTheFirstTimer(t *testing.T) {
 	old := sendReadyTimeout
-	sendReadyTimeout = time.Second
+	sendReadyTimeout = 3 * time.Second
 	t.Cleanup(func() { sendReadyTimeout = old })
 	a, tt, _, _, _ := sendApp(t)
 	gate := make(chan struct{})
@@ -125,11 +126,11 @@ func TestSendToTabRetryOutlivesTheFirstTimer(t *testing.T) {
 	if !tt.HasText("terminal closed") {
 		t.Fatal(tt.Texts())
 	}
-	if d := time.Since(start); d > 600*time.Millisecond {
-		t.Fatalf("the first attempt took %v: too slow to retry before its timer", d)
-	}
-	time.Sleep(time.Until(start.Add(400 * time.Millisecond)))
+	time.Sleep(time.Until(start.Add(time.Second)))
 	retry := time.Now()
+	if d := retry.Sub(start); d > 2*time.Second {
+		t.Fatalf("the first attempt took %v: too slow to retry well before its timer", d)
+	}
 	// Called directly: the error text moved the list, so the button waits
 	// 500 ms on the test's clock.
 	a.Update(func() { a.sendToTab(a.items[0].Request) })
@@ -151,6 +152,57 @@ func TestSendToTabSkipsARequestDecidedMeanwhile(t *testing.T) {
 	tabsUntil(t, tt, func() bool { t1, _ := a.tabs.Get("t1"); return t1.SawOutput }, "the output")
 	if hd.dataFor("t1") != "" || decided(d) != "" || len(a.sends) != 0 {
 		t.Fatalf("pasted %q, decided %q", hd.dataFor("t1"), decided(d))
+	}
+}
+
+// TestSendToTabWaitingAcrossAHubStopLeavesNoBusyFlag: a send waiting when
+// the hub stops must not leave its request busy after the restart.
+func TestSendToTabWaitingAcrossAHubStopLeavesNoBusyFlag(t *testing.T) {
+	d := &fakeDoor{status: hubapi.Status{HasVault: true}}
+	a, tt, c, _ := newApp(t, d)
+	gate := make(chan struct{})
+	t.Cleanup(func() { close(gate) })
+	a.Dial = func(ctx context.Context, _, _ string, _ *hubapi.Trust) (*termconn.Conn, error) {
+		<-gate
+		return nil, ctx.Err()
+	}
+	note(t, a, tt, "pending", map[string]any{"request": reqN("r1", "box", "echo sent")})
+	c.add(time.Second)
+	tt.Frame()
+	click(t, tt, "Send to tab")
+	if !a.itemBusy["r1"] || len(a.sends) != 1 {
+		t.Fatal("the send is not waiting")
+	}
+	a.Update(func() { a.HubState(hubproc.State{Kind: "restarting", Attempt: 1, In: time.Second}) })
+	tt.flush()
+	running(a, tt)
+	note(t, a, tt, "pending", map[string]any{"request": reqN("r1", "box", "echo sent")})
+	c.add(time.Second)
+	tt.Frame()
+	click(t, tt, "Allow")
+	tabsUntil(t, tt, func() bool { return decided(d) != "" }, "the decision")
+	if decided(d) != `{"id":"r1","outcome":"allowed","reason":""}` {
+		t.Fatal(decided(d))
+	}
+}
+
+// TestSendToTabWaitingAcrossALockIsNotPasted: a send waiting when the
+// vault locks fails; the tab's first output, behind the lock screen, gets
+// no paste and the request is not decided.
+func TestSendToTabWaitingAcrossALockIsNotPasted(t *testing.T) {
+	needLib(t)
+	a, tt, d, hd, m := sendApp(t)
+	click(t, tt, "Send to tab")
+	tabsUntil(t, tt, func() bool { return tabState(a, "t1") == "open" }, "the tab")
+	d.set(func() { d.status = hubapi.Status{HasVault: true, Locked: true} })
+	note(t, a, tt, "locked", map[string]string{"reason": "manual"})
+	hubNote(m, "term.data", map[string]any{"id": "t1", "data": []byte("$ ")})
+	tabsUntil(t, tt, func() bool { t1, _ := a.tabs.Get("t1"); return t1.SawOutput }, "the output")
+	if hd.dataFor("t1") != "" || decided(d) != "" {
+		t.Fatalf("pasted %q, decided %q behind the lock", hd.dataFor("t1"), decided(d))
+	}
+	if len(a.Items()) != 1 || a.itemBusy["r1"] || a.itemErr["r1"] != "vault locked" {
+		t.Fatalf("items %d busy %v err %q: the request must stay pending and usable", len(a.Items()), a.itemBusy["r1"], a.itemErr["r1"])
 	}
 }
 

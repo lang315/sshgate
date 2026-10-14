@@ -3,6 +3,7 @@ package termconn
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"sync"
 	"testing"
@@ -312,6 +313,23 @@ func TestOpenRefusedStatusCarriesTheKey(t *testing.T) {
 	}
 	if d.openParams != `{"cols":80,"id":"t1","rows":24,"server":"box","trustHostKey":{"fingerprint":"SHA256:abc","keyType":"ssh-ed25519"}}` {
 		t.Fatal(d.openParams)
+	}
+}
+
+func TestOpenUnexpectedReplyIsAClearError(t *testing.T) {
+	for _, res := range []string{`{}`, `null`, `{"status":""}`, `{"status":"weird"}`, `[1]`, `{"status":7}`} {
+		d := &fakeDoor{openResult: res}
+		m := NewMux()
+		_, err := Open(context.Background(), d, m, "t1", "box", 24, 80, nil)
+		var oe *OpenError
+		if err == nil || errors.As(err, &oe) || err.Error() != "terminal not opened: unexpected reply" {
+			t.Fatalf("reply %s: err %#v", res, err)
+		}
+		// The id is free again.
+		d.openResult = ""
+		if _, err := Open(context.Background(), d, m, "t1", "box", 24, 80, nil); err != nil {
+			t.Fatalf("reply %s: reopen: %v", res, err)
+		}
 	}
 }
 

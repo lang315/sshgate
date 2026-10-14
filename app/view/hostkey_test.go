@@ -99,6 +99,37 @@ func TestUnknownKeyPromptTextsAndCancel(t *testing.T) {
 	}
 }
 
+// TestTrustIsNotReachableByKeyboard: with the delay passed, no number of
+// Tabs focuses Trust and connect, and Space or Enter on whatever has the
+// focus never trusts the key.
+func TestTrustIsNotReachableByKeyboard(t *testing.T) {
+	k := &keyDial{answer: func(int) (*termconn.Conn, error) { return nil, unknownKey("SHA256:abc") }}
+	a, tt, c, _ := hkApp(t, k)
+	for n := range 11 {
+		a.Update(func() { a.openTab("box") })
+		tt.flush()
+		if !tt.HasText("Trust this host key?") {
+			t.Fatalf("%d Tabs: no prompt; screen %q", n, tt.Texts())
+		}
+		c.add(500 * time.Millisecond) // Trust and connect is enabled now
+		tt.Frame()
+		for i := range n {
+			tt.Key(0, ui.KeyTab)
+			if tt.Focused("Trust and connect") {
+				t.Fatalf("Tab %d of %d reached Trust and connect", i+1, n)
+			}
+		}
+		tt.Key(0, ui.KeySpace)
+		tt.Key(0, ui.KeyEnter)
+		tt.flush()
+		for _, d := range k.list() {
+			if strings.Contains(d, "SHA256:abc") {
+				t.Fatalf("%d Tabs then Space and Enter trusted the key: dials %q", n, k.list())
+			}
+		}
+	}
+}
+
 func TestTrustWaitsThenRetriesTheSameID(t *testing.T) {
 	k := &keyDial{answer: func(n int) (*termconn.Conn, error) {
 		if n == 1 {

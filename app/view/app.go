@@ -130,7 +130,8 @@ func (a *App) HubState(st hubproc.State) {
 	if st.Kind != "running" {
 		a.hubGen++
 		a.endTabs()
-		a.prompts, a.mismatch, a.sends = model.HostKeyPrompts{}, nil, nil
+		a.prompts, a.mismatch, a.sends = model.HostKeyPrompts{}, nil, nil // a dropped send's timer then finds nothing
+		a.itemBusy = map[string]bool{}
 		a.status, a.unlockErr, a.lockReason, a.seedErr = nil, "", "", ""
 		a.lockHosts, a.items, a.feed = []string{}, nil, nil
 		a.decidedSince, a.pendingSince, a.seen = map[string]bool{}, map[string]bool{}, map[string]bool{}
@@ -238,6 +239,7 @@ func (a *App) Note(method string, params json.RawMessage) {
 	switch e := ev.(type) {
 	case hubapi.LockedEvent:
 		a.lockReason = model.LockKind(e.Reason, a.lockReason)
+		a.failSends("vault locked") // nothing is pasted behind the lock screen
 		a.servers = model.DropOnLock(a.servers)
 		a.refresh()
 	case hubapi.AutoOffEvent:

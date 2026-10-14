@@ -195,8 +195,10 @@ func TestHubStopEndsEveryTab(t *testing.T) {
 	if tabState(a, "t1") != "exited" || tabState(a, "t2") != "exited" || !tt.HasText("box · exited") {
 		t.Fatalf("tabs %+v after the restart", a.tabs.Tabs)
 	}
-	if strings.Contains(termText(a, "t1"), "late output") {
-		t.Fatal("a term.data after End reached the tab")
+	for deadline := time.Now().Add(300 * time.Millisecond); time.Now().Before(deadline); tt.flush() {
+		if strings.Contains(termText(a, "t1"), "late output") {
+			t.Fatal("a term.data after End reached the tab")
+		}
 	}
 	if hd.closeCount() != 0 {
 		t.Fatal("term.close sent to a hub that is gone")

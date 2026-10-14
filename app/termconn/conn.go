@@ -90,7 +90,10 @@ func Open(ctx context.Context, d Door, m *Mux, id, server string, rows, cols int
 		return nil, err
 	}
 	var k hubapi.HostKey
-	json.Unmarshal(res, &k)
+	if json.Unmarshal(res, &k) != nil || k.Status != "open" && k.Status != "hostKeyUnknown" && k.Status != "hostKeyMismatch" {
+		m.remove(id)
+		return nil, errors.New("terminal not opened: unexpected reply")
+	}
 	if k.Status != "open" {
 		m.remove(id)
 		return nil, &OpenError{Status: k.Status, Key: k}
