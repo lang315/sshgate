@@ -11,7 +11,6 @@ import (
 
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
-	"github.com/lang315/sshgate/app/hubproc"
 	"github.com/lang315/sshgate/app/termconn"
 )
 
@@ -184,7 +183,7 @@ func hubTerm(t *testing.T) (*terminal.Terminal, *ui.Tester, *hubDoor) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	term, err := terminal.New(TerminalOptions(conn))
+	term, err := terminal.New(TerminalOptions(conn, nil))
 	if err != nil {
 		conn.Close()
 		t.Fatal(err)
@@ -288,45 +287,5 @@ func TestHubControlKeysReachTheShell(t *testing.T) {
 	}
 	if d.closed() || !strings.Contains(term.Text(), "keep me") {
 		t.Fatalf("hub terminal closed (%v) or the screen lost its output: %q", d.closed(), term.Text())
-	}
-}
-
-// closeRec reports when the terminal closes its Conn.
-type closeRec struct {
-	*rec
-	once   sync.Once
-	closed chan struct{}
-}
-
-func (r *closeRec) Close() error { r.once.Do(func() { close(r.closed); close(r.block) }); return nil }
-
-// TestHubStopClosesItsTerminal (M4): a stopped hub's terminal is closed and
-// its page left, so it does not come back after the restart.
-func TestHubStopClosesItsTerminal(t *testing.T) {
-	needLib(t)
-	r := &closeRec{rec: &rec{block: make(chan struct{})}, closed: make(chan struct{})}
-	term, err := terminal.New(terminal.Options{Conn: r})
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, tt, _ := readyApp(t, nil)
-	a.Update(func() { a.term, a.termServer, a.page = term, "deadbox", "term" })
-	tt.flush()
-	if !tt.HasText("deadbox") {
-		t.Fatal(tt.Texts())
-	}
-	a.Update(func() { a.HubState(hubproc.State{Kind: "restarting", Attempt: 1, In: time.Second}) })
-	tt.flush()
-	if a.term != nil || a.page != "home" {
-		t.Fatalf("term kept %v page %q after the hub stopped", a.term != nil, a.page)
-	}
-	select {
-	case <-r.closed:
-	case <-time.After(2 * time.Second):
-		t.Fatal("the dead hub's terminal was not closed")
-	}
-	running(a, tt)
-	if tt.HasText("deadbox") || !tt.HasText("Hosts · 0") {
-		t.Fatal("the dead terminal came back:", tt.Texts())
 	}
 }

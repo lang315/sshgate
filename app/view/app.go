@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/hubapi"
 	"github.com/lang315/sshgate/app/hubproc"
 	"github.com/lang315/sshgate/app/model"
+	"github.com/lang315/sshgate/app/termconn"
 )
 
 // Door is the part of the UI door client the views call.
@@ -24,11 +24,13 @@ type Door interface {
 // and every method run on the main thread; hub calls run in goroutines and
 // come back through Update. Only status is called without a user action.
 type App struct {
-	Door    Door
-	Update  func(func())
-	Now     func() time.Time
-	OpenTab func(server string) (*terminal.Terminal, error)
-	Shell   Shell
+	Door   Door
+	Update func(func())
+	Now    func() time.Time
+	// Dial opens hub terminal id on server, off the main thread; trust is
+	// nil except on the retry after a host-key prompt.
+	Dial  func(ctx context.Context, id, server string, trust *hubapi.Trust) (*termconn.Conn, error)
+	Shell Shell
 
 	hubState                                model.HubState
 	hubSince                                time.Time // when restarting began, for the countdown
@@ -58,9 +60,8 @@ type App struct {
 	busy                   bool   // unlock, create vault or stop-and-lock in flight
 	password, newPw, again string // field values
 	query                  string // host search
-	page                   string // "home" or "term"
-	term                   *terminal.Terminal
-	termServer             string
+	tabs                   model.TabSet
+	terms                  map[string]*termTab // by tab id
 }
 
 // callTimeout matches Electron's hubProcess.ts: a hung but running hub
@@ -109,7 +110,7 @@ func (a *App) init() {
 		a.itemBusy, a.itemErr = map[string]bool{}, map[string]string{}
 		a.hubState = model.HubState{Kind: "starting"}
 		a.screen = model.ScreenHub
-		a.page = "home"
+		a.terms = map[string]*termTab{}
 	}
 }
 
@@ -123,10 +124,7 @@ func (a *App) HubState(st hubproc.State) {
 	}
 	if st.Kind != "running" {
 		a.hubGen++
-		if old := a.term; old != nil {
-			go old.Close() // term.close may wait on the dead hub
-		}
-		a.term, a.termServer, a.page = nil, "", "home"
+		a.endTabs()
 		a.status, a.unlockErr, a.lockReason, a.seedErr = nil, "", "", ""
 		a.lockHosts, a.items, a.feed = []string{}, nil, nil
 		a.decidedSince, a.pendingSince, a.seen = map[string]bool{}, map[string]bool{}, map[string]bool{}
@@ -173,6 +171,7 @@ func (a *App) setScreen() {
 	case model.ScreenReady:
 		a.reloadServers()
 		a.seed()
+		a.focusActive() // after unlock: nothing restores focus by itself
 	case model.ScreenCreateVault:
 		a.reloadServers()
 	default:
@@ -399,27 +398,6 @@ func (a *App) stopAll() {
 			}
 			a.reloadServers()
 			a.refresh()
-		})
-	}()
-}
-
-// openHost dials off the main thread; a terminal it replaces is closed
-// there too (term.close may wait up to 5 s on a hung hub).
-func (a *App) openHost(name string) {
-	if a.OpenTab == nil {
-		return
-	}
-	go func() {
-		t, err := a.OpenTab(name)
-		a.Update(func() {
-			if err != nil {
-				a.alert = err.Error()
-				return
-			}
-			if old := a.term; old != nil {
-				go old.Close()
-			}
-			a.term, a.termServer, a.page = t, name, "term"
 		})
 	}()
 }

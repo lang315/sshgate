@@ -6,7 +6,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/model"
 )
@@ -29,13 +28,10 @@ func (a *App) buildReady(c *ui.Context) {
 	liveAuto := autoN - len(model.PausedHosts(a.servers))
 	ui.Column(c).Fill().Children(func() {
 		ui.Row(c).Gap(8).Padding(8).Children(func() {
-			if ui.Button(c, "Hosts").Clicked() {
-				a.page = "home"
+			if ui.Button(c, "Hosts").Selected(a.tabs.Active == "").Clicked() {
+				a.tabs.ShowHome()
 			}
-			if a.term != nil && ui.Button(c, model.DisplayText(a.termServer)).Clicked() {
-				a.page = "term"
-			}
-			ui.Spacer(c)
+			a.buildTabStrip(c) // grows, so AI and Lock stay at the right
 			if a.aiOpen || len(a.items) > 0 || autoN > 0 {
 				label := fmt.Sprintf("AI %d", len(a.items))
 				if autoN > 0 {
@@ -77,8 +73,8 @@ func (a *App) buildReady(c *ui.Context) {
 						}
 					})
 				}
-				if a.page == "term" && a.term != nil {
-					terminal.View(c, a.term).Fill()
+				if t, ok := a.tabs.Get(a.tabs.Active); ok {
+					a.buildTab(c, t)
 					return
 				}
 				a.buildHosts(c)
@@ -107,7 +103,7 @@ func (a *App) buildHosts(c *ui.Context) {
 				name := s.Name
 				shownName := model.DisplayText(name)
 				ui.Column(c.Key("host-"+name)).Width(240).Gap(8).Padding(12).Radius(10).Border(1, t.Border).Background(t.Surface).Children(func() {
-					if ui.Button(c, "").Label(shownName).Children(func() {
+					if ui.Button(c, "").Label("Open " + shownName).Children(func() {
 						ui.Row(c).Gap(8).Children(func() {
 							ui.Text(c, model.Tile(shownName)).Bold()
 							ui.Column(c).Children(func() {
@@ -116,7 +112,7 @@ func (a *App) buildHosts(c *ui.Context) {
 							})
 						})
 					}).Clicked() {
-						a.openHost(name)
+						a.openTab(name)
 					}
 					ui.Row(c).Gap(6).Wrap().Children(func() {
 						if s.AIVisible {

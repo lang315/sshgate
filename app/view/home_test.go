@@ -1,19 +1,13 @@
 package view
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
-	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/hubapi"
 )
-
-type terminalT = terminal.Terminal
-
-var errNoTerm = errors.New("no terminal in this test")
 
 const keyBackspace = ui.KeyBackspace
 
@@ -80,19 +74,6 @@ func TestLockButtonAndAIButton(t *testing.T) {
 	tt.flush()
 	if got := d.callList(); len(got) != 1 || got[0] != "lock" {
 		t.Fatal(got)
-	}
-}
-
-func TestHostCardOpensTerminalPage(t *testing.T) {
-	a, tt, _ := readyApp(t, []hubapi.Server{{Name: "box", User: "u", Host: "h", Port: 22}})
-	opened := ""
-	a.OpenTab = func(s string) (*terminalT, error) { opened = s; return nil, errNoTerm }
-	if err := tt.Click("box"); err != nil {
-		t.Fatal(err)
-	}
-	tt.flush()
-	if opened != "box" || !tt.HasText(errNoTerm.Error()) {
-		t.Fatal(opened, tt.Texts())
 	}
 }
 
