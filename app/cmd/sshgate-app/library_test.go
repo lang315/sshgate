@@ -31,4 +31,8 @@ func TestCheckLibrary(t *testing.T) {
 	if checkLibrary(filepath.Join(res, "..", filepath.Base(filepath.Dir(other)), "x"), res, good) == nil {
 		t.Fatal("path escaping Resources accepted")
 	}
+	t.Chdir(res) // "" would otherwise resolve to the cwd, which holds lib
+	if checkLibrary(lib, "", good) == nil {
+		t.Fatal("empty resources accepted")
+	}
 }

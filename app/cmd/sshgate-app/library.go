@@ -22,6 +22,9 @@ func checkLibrary(path, resources, want string) error {
 	if want == "" {
 		return errors.New("no libghostty-vt hash was embedded at build time")
 	}
+	if resources == "" {
+		return errors.New("no resources directory")
+	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return err

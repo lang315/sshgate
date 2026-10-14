@@ -28,7 +28,11 @@ import (
 
 func main() {
 	packaged := mygo.App.IsPackaged()
-	resources, _ := mygo.App.Path(mygo.PathResources)
+	resources, err := mygo.App.Path(mygo.PathResources)
+	if packaged && (err != nil || resources == "") {
+		// "" would resolve to the cwd: the hub that gets the master password must not come from there
+		log.Fatalf("cannot find the app's Resources directory: %v", err)
+	}
 	if err := prepareLibrary(packaged, resources); err != nil {
 		log.Fatal(err)
 	}
@@ -96,7 +100,7 @@ func main() {
 		go func() { defer close(supDone); sup.Run(ctx) }()
 	})
 	go func() { <-ctx.Done(); mygo.App.Quit() }() // SIGTERM quits like Cmd+Q
-	err := mygo.App.Run()
+	err = mygo.App.Run()
 	stop() // ends the supervisor, which stops the hub
 	select {
 	case <-supDone:
