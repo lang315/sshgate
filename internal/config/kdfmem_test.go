@@ -35,7 +35,7 @@ func TestArgon2KeyReleasesWorkArea(t *testing.T) {
 }
 
 // Overlapping derives with different parallelism must not leave a stale
-// GOMAXPROCS behind (A lowers 10 to 4, B lowers 4 to 2, A restores 10, B
+// GOMAXPROCS behind (A lowers 8 to 4, B lowers 4 to 2, A restores 8, B
 // restores 4).
 func TestArgon2KeyConcurrentRestoresGOMAXPROCS(t *testing.T) {
 	if runtime.GOOS != "darwin" {
