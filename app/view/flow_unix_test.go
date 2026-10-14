@@ -196,9 +196,29 @@ func (f *flowT) audited(cmd string) auditRec {
 	return rec
 }
 
-// auditRec is the part of an exec audit record the tests check.
+// auditRec is the part of an audit record the tests check.
 type auditRec struct {
 	Kind, Command, Outcome, Reason, Approval string
+	Action, Server                           string // config records
+}
+
+// auditedConfig waits for box's config record with this action.
+func (f *flowT) auditedConfig(action string) {
+	f.t.Helper()
+	f.until(func() bool {
+		file, err := os.Open(f.audit)
+		if err != nil {
+			return false
+		}
+		defer file.Close()
+		for sc := bufio.NewScanner(file); sc.Scan(); {
+			var r auditRec
+			if json.Unmarshal(sc.Bytes(), &r) == nil && r.Kind == "config" && r.Action == action && r.Server == "box" {
+				return true
+			}
+		}
+		return false
+	}, "box's "+action+" config record")
 }
 
 func (f *flowT) wantAudit(cmd, outcome, reason string) {

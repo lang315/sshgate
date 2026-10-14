@@ -3,6 +3,8 @@
 package view
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -133,4 +135,88 @@ func TestFlowShortcutOpensACollapsedColumn(t *testing.T) {
 	f.tt.Key(0, ui.KeyEnter)
 	f.denied(k3, "Denied by user")
 	f.wantAudit("echo k3", "denied", "")
+}
+
+// TestFlowHostKeyPrompt: an unpinned box (servers.forgetHostKey, test-side
+// setup until slice 3's host editor) asks before it connects; Trust pins
+// the key, Cancel ends the tab.
+func TestFlowHostKeyPrompt(t *testing.T) {
+	needLib(t)
+	f := flow(t)
+	f.unlock()
+	ctx := context.Background()
+	if err := f.h.ForgetHostKey(ctx, "box"); err != nil {
+		t.Fatal(err)
+	}
+	f.a.Update(f.a.reloadServers) // as slice 3's editor will after its Forget
+	f.until(func() bool { return f.tt.HasText("New key") }, "box unpinned in the host list")
+	f.click("Open box")
+	f.until(func() bool { return f.tt.HasText("Trust this host key?") }, "the host-key prompt")
+	for _, s := range []string{"SHA256:", "test@127.0.0.1:", " fingerprint"} {
+		if !f.tt.HasText(s) {
+			t.Fatalf("missing %q in %q", s, f.tt.Texts())
+		}
+	}
+	if !f.tt.Focused("Cancel") {
+		t.Fatal("Cancel is not the default")
+	}
+	f.click("Trust and connect")
+	f.tt.flush()
+	if !f.tt.HasText("Trust this host key?") {
+		t.Fatal("Trust worked before 500 ms")
+	}
+	f.pass()
+	f.click("Trust and connect")
+	id := f.a.tabs.Active
+	f.until(func() bool {
+		return !f.tt.HasText("Trust this host key?") && tabState(f.a, id) == "open" && f.tt.Focused("Terminal box")
+	}, "the trusted tab")
+	f.until(func() bool { s := f.a.Servers(); return len(s) == 1 && s[0].HostKey != "" }, "the host list reloaded with the pin")
+	f.auditedConfig("trust")
+	f.tt.Type("echo pinned")
+	f.shows(id, "echo pinned")
+
+	// Forgetting the key ends the open tab; the next open asks again, and Cancel ends it.
+	if err := f.h.ForgetHostKey(ctx, "box"); err != nil {
+		t.Fatal(err)
+	}
+	f.until(func() bool { return tabState(f.a, id) == "exited" && strings.Contains(termText(f.a, id), "[exited: ") }, "the tab to end")
+	f.click("Hosts")
+	f.click("Open box")
+	f.until(func() bool { return f.tt.HasText("Trust this host key?") }, "the prompt again")
+	f.tt.Key(0, ui.KeyEnter) // Cancel
+	f.until(func() bool { return f.tt.HasText("[exited: open failed: host key not trusted]") }, "the cancelled tab")
+}
+
+// TestFlowSendToTab: Send to tab opens a box tab, pastes once the shell
+// printed, and the AI gets the sent_to_tab answer; the next one goes to
+// the same tab.
+func TestFlowSendToTab(t *testing.T) {
+	needLib(t)
+	f := flow(t)
+	f.unlock()
+	s1 := f.exec("s1", "echo sent")
+	f.until(func() bool { return f.tt.HasText("echo sent") }, "s1 in the column")
+	f.pass()
+	f.click("Send to tab")
+	f.until(func() bool {
+		return len(f.a.tabs.Tabs) == 1 && tabState(f.a, f.a.tabs.Active) == "open" && f.tt.Focused("Terminal box")
+	}, "a new box tab")
+	id := f.a.tabs.Active
+	f.stillPending(s1, 300*time.Millisecond, "Send to tab before the shell printed anything")
+	f.tt.Type("x") // sshtestd prints nothing until it echoes input
+	f.shows(id, "xecho sent")
+	if r := f.result(s1); r.Err != nil || !strings.Contains(r.Stdout, "User chose to run this in their terminal") {
+		t.Fatalf("s1: %+v", r)
+	}
+	f.wantAudit("echo sent", "sent_to_tab", "")
+
+	s2 := f.exec("s2", "echo again")
+	f.until(func() bool { return f.tt.HasText("echo again") }, "s2 in the column")
+	f.pass()
+	f.click("Send to tab")
+	f.shows(id, "xecho sentecho again")
+	if r := f.result(s2); r.Err != nil || len(f.a.tabs.Tabs) != 1 {
+		t.Fatalf("s2: %+v, tabs %d", r, len(f.a.tabs.Tabs))
+	}
 }
