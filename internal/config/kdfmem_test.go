@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"runtime"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -30,5 +31,28 @@ func TestArgon2KeyReleasesWorkArea(t *testing.T) {
 		if held := m.HeapIdle - m.HeapReleased; held >= 8<<20 {
 			t.Fatalf("run %d: %d MiB idle heap not returned to the OS", i, held>>20)
 		}
+	}
+}
+
+// Overlapping derives with different parallelism must not leave a stale
+// GOMAXPROCS behind (A lowers 10 to 4, B lowers 4 to 2, A restores 10, B
+// restores 4).
+func TestArgon2KeyConcurrentRestoresGOMAXPROCS(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the GOMAXPROCS cap in argon2Key is darwin-only")
+	}
+	before := runtime.GOMAXPROCS(0)
+	if before <= 4 {
+		t.Skipf("GOMAXPROCS %d: no cap to test", before)
+	}
+	pw, salt := []byte("master password"), []byte("0123456789abcdef")
+	done := make(chan struct{}, 2)
+	go func() { argon2Key(pw, salt, 3, 32768, 4, 32); done <- struct{}{} }()
+	time.Sleep(5 * time.Millisecond)
+	go func() { argon2Key(pw, salt, 3, 65536, 2, 32); done <- struct{}{} }()
+	<-done
+	<-done
+	if after := runtime.GOMAXPROCS(0); after != before {
+		t.Fatalf("GOMAXPROCS %d after overlapping derives, was %d", after, before)
 	}
 }

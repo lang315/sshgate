@@ -11,6 +11,7 @@ import (
 	"io"
 	"runtime"
 	"runtime/debug"
+	"sync"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/hkdf"
@@ -63,15 +64,25 @@ func (k KDF) DeriveKey(masterPw string) ([]byte, error) {
 	return argon2Key([]byte(masterPw), salt, k.Time, k.MemoryKiB, uint8(k.Parallelism), k.KeyLen), nil
 }
 
+// argon2Mu serializes argon2Key: overlapping derives would otherwise restore
+// a stale GOMAXPROCS.
+var argon2Mu sync.Mutex
+
 // argon2Key is argon2.IDKey, then hands its work area (memKiB) back to the
 // OS; the long-running hub would otherwise keep it as idle heap after unlock.
 // The released memory is not zeroed, same as any freed heap.
 func argon2Key(pw, salt []byte, t, memKiB uint32, par uint8, keyLen uint32) []byte {
-	// macOS: with more than ~4 Ps running, the OS often ignores the Go
-	// runtime's release of the work area (measured: 30% released in the hub,
-	// 93% with this cap). par Ps is all Argon2 can use anyway.
+	argon2Mu.Lock()
+	defer argon2Mu.Unlock()
+	// macOS, empirical, mechanism unknown: the OS often ignores the runtime's
+	// release of the work area unless GOMAXPROCS is at most par during the
+	// derive and the release (hub: 30% released without the cap, 80 of 80
+	// with it). Argon2 uses at most par Ps; the rest of the hub also gets
+	// only par Ps for the ~40 ms derive.
 	if prev := runtime.GOMAXPROCS(0); runtime.GOOS == "darwin" && prev > int(par) {
 		runtime.GOMAXPROCS(int(par))
+		// Setting GOMAXPROCS turns off Go's automatic updates of it (Go 1.25+);
+		// acceptable on macOS, which has a fixed CPU count and no cgroup limits.
 		defer runtime.GOMAXPROCS(prev)
 	}
 	key := argon2.IDKey(pw, salt, t, memKiB, par, keyLen)

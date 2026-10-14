@@ -30,7 +30,7 @@ In:
 - Small changes to the `lang315/mygo` fork where this spec names them (Terminal security, Terminal).
 
 Out:
-- Any change to `internal/hub`, the UI door protocol (12), the MCP door, the bridge, the vault, the audit format or `hub --cli`. One exception, approved 2026-10-14: `internal/config`'s KDF returns Argon2id's work area to the OS after each derive (`debug.FreeOSMemory`), because the hub otherwise keeps about 71 MiB after unlock in both desktop apps; derived keys and the vault format are unchanged.
+- Any change to `internal/hub`, the UI door protocol (12), the MCP door, the bridge, the vault, the audit format or `hub --cli`. One exception, approved 2026-10-14: `internal/config`'s KDF returns Argon2id's work area to the OS after each derive (`debug.FreeOSMemory`), because the hub otherwise keeps about 71 MiB after unlock in both desktop apps; on darwin, `GOMAXPROCS` is lowered to the KDF parallelism around the derive and release (empirical; mechanism unknown), serialized by a mutex; derived keys and the vault format are unchanged.
 - Packaging or shipping the mygo app on Windows or Linux. Electron stays the desktop app there until a later spec.
 - Deleting `desktop/`. Decided separately after slice 7.
 - Moving door-only policy into `*hub.Hub`, so the UI door, the CLI approver and any future in-process caller share it. Worth doing, but it is a separate refactor. Today the UI door refuses Allow while locked (`internal/hub/uidoor.go:341`) and the CLI approver does not (`internal/hub/cliui.go:58`). That is not a hole, since `resolveForAI` re-checks after approval, but it is the kind of divergence that refactor would end.
