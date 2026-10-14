@@ -152,7 +152,17 @@ func (a *App) buildItem(c *ui.Context, it model.PendingItem, now time.Time) {
 			if ui.Button(c, "Deny").Disabled(busy).Clicked() {
 				a.decide(id, hubapi.Denied, *reason)
 			}
-			MouseButton(c, "Send to tab", false) // slice 2 brings tabs
+			sendOK := r.Stdin == "" && model.ClickAllowed(it, now, a.col.lc.At, busy)
+			send := func() {
+				if MouseButton(c, "Send to tab", sendOK) && model.ClickAllowed(it, a.Now(), a.col.lc.At, a.itemBusy[id]) {
+					a.sendToTab(r)
+				}
+			}
+			if r.Stdin != "" {
+				ui.Row(c).Tooltip("Not available: the command has stdin").Children(send)
+			} else {
+				send()
+			}
 			enabled := model.ClickAllowed(it, now, a.col.lc.At, busy)
 			if MouseButton(c, "Allow", enabled) && model.ClickAllowed(it, a.Now(), a.col.lc.At, a.itemBusy[id]) {
 				a.decide(id, hubapi.Allowed, "")

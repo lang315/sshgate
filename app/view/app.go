@@ -65,6 +65,8 @@ type App struct {
 	prompts                model.HostKeyPrompts
 	mismatch               *hubapi.HostKey
 	hk                     hkState
+	sends                  []pendingSend
+	sendSeq                int // numbers Send to tab attempts
 }
 
 // callTimeout matches Electron's hubProcess.ts: a hung but running hub
@@ -128,7 +130,7 @@ func (a *App) HubState(st hubproc.State) {
 	if st.Kind != "running" {
 		a.hubGen++
 		a.endTabs()
-		a.prompts, a.mismatch = model.HostKeyPrompts{}, nil
+		a.prompts, a.mismatch, a.sends = model.HostKeyPrompts{}, nil, nil
 		a.status, a.unlockErr, a.lockReason, a.seedErr = nil, "", "", ""
 		a.lockHosts, a.items, a.feed = []string{}, nil, nil
 		a.decidedSince, a.pendingSince, a.seen = map[string]bool{}, map[string]bool{}, map[string]bool{}

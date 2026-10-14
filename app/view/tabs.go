@@ -79,6 +79,13 @@ func (a *App) opened(gen int, id string, conn *termconn.Conn, err error, trusted
 	tab := a.terms[id]
 	tab.term, tab.conn = term, conn
 	a.tabs.Opened(id)
+	go func() { // Send to tab pastes once the remote printed something
+		select {
+		case <-conn.Output():
+			a.Update(func() { a.tabs.Output(id); a.flushSends(id) })
+		case <-term.Done():
+		}
+	}()
 	if trusted {
 		a.reloadServers() // the card's New key goes
 	}
@@ -98,6 +105,7 @@ func (a *App) exited(id, reason string) {
 	}
 	a.tabs.Exited(id, reason)
 	a.prompts.Drop(id)
+	a.flushSends(id)
 }
 
 func (a *App) activate(id string) {
@@ -122,6 +130,7 @@ func (a *App) closeTab(id string) {
 		go t.term.Close()
 	}
 	delete(a.terms, id)
+	a.flushSends(id)
 	a.focusActive()
 }
 

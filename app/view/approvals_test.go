@@ -140,10 +140,12 @@ func TestReopeningRestartsTheDelay(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
+	a.Dial = (&dialRec{}).dial
 	_ = tt.Click("Allow")
+	_ = tt.Click("Send to tab")
 	tt.flush()
-	if decided(d) != "" {
-		t.Fatal("Allow worked right after the column reopened")
+	if decided(d) != "" || len(a.tabs.Tabs) != 0 {
+		t.Fatal("Allow or Send to tab worked right after the column reopened")
 	}
 }
 
@@ -187,10 +189,11 @@ func TestStdinRequestDisablesSendToTabOnly(t *testing.T) {
 	}
 	c.add(time.Second)
 	tt.Frame()
+	a.Dial = (&dialRec{}).dial
 	_ = tt.Click("Send to tab")
 	tt.flush()
-	if decided(d) != "" {
-		t.Fatal("Send to tab is not available in slice 1")
+	if decided(d) != "" || len(a.tabs.Tabs) != 0 || tt.HasText("Send to tab is not available for a command with stdin") {
+		t.Fatal("Send to tab must stay disabled for a command with stdin")
 	}
 	if err := tt.Click("Allow"); err != nil {
 		t.Fatal(err)
