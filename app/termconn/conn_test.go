@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/lang315/sshgate/app/door"
 )
 
 // fakeDoor records notifications and answers term.open.
@@ -17,11 +19,19 @@ type fakeDoor struct {
 		params map[string]any
 	}
 	openStatus string
+	openErr    error
 	fail       bool
+	calls      []string
 }
 
 func (f *fakeDoor) Call(_ context.Context, method string, params, result any) error {
+	f.mu.Lock()
+	f.calls = append(f.calls, method)
+	f.mu.Unlock()
 	if method == "term.open" {
+		if f.openErr != nil {
+			return f.openErr
+		}
 		st := f.openStatus
 		if st == "" {
 			st = "open"
@@ -169,13 +179,16 @@ func TestCloseSendsTermCloseOnce(t *testing.T) {
 	c.Close()
 	c.Close()
 	n := 0
-	for _, x := range d.notes {
-		if x.method == "term.close" {
+	for _, x := range d.calls {
+		if x == "term.close" {
 			n++
 		}
 	}
 	if n != 1 {
-		t.Fatalf("term.close sent %d times", n)
+		t.Fatalf("term.close called %d times", n)
+	}
+	if d.last("term.close") != nil {
+		t.Fatal("term.close sent as a notification; the hub ignores it")
 	}
 	note(m, "term.data", map[string]any{"id": "t1", "data": []byte("late")}) // dropped, no panic
 	if _, err := c.Read(make([]byte, 4)); err != io.EOF {
@@ -198,5 +211,42 @@ func TestOpenRefusedStatus(t *testing.T) {
 	oe, ok := err.(*OpenError)
 	if !ok || oe.Status != "hostKeyUnknown" {
 		t.Fatalf("err %v", err)
+	}
+}
+
+func TestOpenDuplicateIDKeepsFirst(t *testing.T) {
+	d := &fakeDoor{}
+	c, m := open(t, d)
+	if _, err := Open(context.Background(), d, m, "t1", "box", 24, 80); err == nil {
+		t.Fatal("second Open with a live id succeeded")
+	}
+	for _, x := range d.calls {
+		if x == "term.close" {
+			t.Fatal("duplicate Open closed the first terminal")
+		}
+	}
+	note(m, "term.data", map[string]any{"id": "t1", "data": []byte("hi")})
+	buf := make([]byte, 8)
+	if n, err := c.Read(buf); err != nil || string(buf[:n]) != "hi" {
+		t.Fatalf("first conn lost its registration: %q, %v", buf[:n], err)
+	}
+}
+
+func TestOpenCancelledClosesHubTerminal(t *testing.T) {
+	d := &fakeDoor{openErr: context.Canceled}
+	m := NewMux()
+	if _, err := Open(context.Background(), d, m, "t1", "box", 24, 80); err == nil {
+		t.Fatal("want error")
+	}
+	if got := d.calls; len(got) != 2 || got[1] != "term.close" {
+		t.Fatalf("calls %v, want term.open then term.close", got)
+	}
+}
+
+func TestOpenHubRefusalDoesNotClose(t *testing.T) {
+	d := &fakeDoor{openErr: &door.Error{Message: "already open"}}
+	Open(context.Background(), d, NewMux(), "t1", "box", 24, 80)
+	if len(d.calls) != 1 {
+		t.Fatalf("calls %v, want only term.open", d.calls)
 	}
 }

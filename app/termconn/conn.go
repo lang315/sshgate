@@ -3,9 +3,12 @@ package termconn
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"sync"
 	"time"
+
+	"github.com/lang315/sshgate/app/door"
 )
 
 // UserWindow is how long after a real key, paste or input-method commit a
@@ -53,11 +56,18 @@ type Conn struct {
 // Open asks the hub for a terminal on server and registers it with m.
 func Open(ctx context.Context, d Door, m *Mux, id, server string, rows, cols int) (*Conn, error) {
 	c := &Conn{d: d, m: m, id: id, now: time.Now, ready: make(chan struct{}, 1)}
-	m.add(c) // before term.open: data may arrive before its reply
+	if !m.add(c) { // before term.open: data may arrive before its reply
+		return nil, errors.New("terminal id already in use")
+	}
 	var res json.RawMessage
 	err := d.Call(ctx, "term.open", map[string]any{"id": id, "server": server, "rows": clamp(rows), "cols": clamp(cols)}, &res)
 	if err != nil {
 		m.remove(id)
+		var he *door.Error
+		if !errors.As(err, &he) {
+			// No hub answer (ctx ended, door closed): the hub may still have opened it.
+			c.hubClose()
+		}
 		return nil, err
 	}
 	var st struct{ Status string }
@@ -161,6 +171,14 @@ func (c *Conn) Close() error {
 	c.mu.Unlock()
 	c.m.remove(c.id)
 	c.signal()
-	c.d.Notify("term.close", map[string]any{"id": c.id})
+	c.hubClose()
 	return nil
+}
+
+// hubClose ends the hub terminal. term.close is request-only on the hub, so
+// a notification would be ignored. Best effort, never under c.mu.
+func (c *Conn) hubClose() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = c.d.Call(ctx, "term.close", map[string]any{"id": c.id}, nil)
 }

@@ -42,7 +42,12 @@ func TestFloodThroughHub(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	closed := false
+	defer func() {
+		if !closed {
+			c.Close()
+		}
+	}()
 	c.MarkUser()
 	start := time.Now()
 	c.Write([]byte("flood " + strconv.Itoa(n) + "\n"))
@@ -65,5 +70,13 @@ func TestFloodThroughHub(t *testing.T) {
 	if total < n {
 		t.Fatalf("got %d bytes, want at least %d", total, n)
 	}
+	// Close must end the hub terminal: the same id opens again.
+	c.Close()
+	closed = true
+	c2, err := Open(ctx, p.Client(), mux, "t1", "box", 40, 120)
+	if err != nil {
+		t.Fatalf("reopen after Close: %v", err)
+	}
+	c2.Close()
 	t.Logf("flood through hub: %d bytes in %s = %.0f MB/s", total, el, float64(total)/1e6/el.Seconds())
 }

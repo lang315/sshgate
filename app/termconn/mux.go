@@ -16,7 +16,17 @@ type Mux struct {
 
 func NewMux() *Mux { return &Mux{conns: map[string]*Conn{}} }
 
-func (m *Mux) add(c *Conn)      { m.mu.Lock(); m.conns[c.id] = c; m.mu.Unlock() }
+// add registers c unless its id is taken.
+func (m *Mux) add(c *Conn) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.conns[c.id]; ok {
+		return false
+	}
+	m.conns[c.id] = c
+	return true
+}
+
 func (m *Mux) remove(id string) { m.mu.Lock(); delete(m.conns, id); m.mu.Unlock() }
 
 // Note handles a term.* notification and reports whether it was one.
