@@ -180,7 +180,7 @@ func (d *hubDoor) closed() bool {
 func hubTerm(t *testing.T) (*terminal.Terminal, *ui.Tester, *hubDoor) {
 	t.Helper()
 	d := &hubDoor{}
-	conn, err := termconn.Open(context.Background(), d, termconn.NewMux(), "t1", "box", 24, 80)
+	conn, err := termconn.Open(context.Background(), d, termconn.NewMux(), "t1", "box", 24, 80, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

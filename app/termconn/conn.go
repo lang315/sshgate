@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/lang315/sshgate/app/door"
+	"github.com/lang315/sshgate/app/hubapi"
 )
 
 // UserWindow is how long after a real key, paste or input-method commit a
@@ -25,13 +28,20 @@ type Door interface {
 }
 
 // OpenError is a term.open the hub answered with another status than
-// "open", as hostKeyUnknown or hostKeyMismatch.
+// "open": hostKeyUnknown or hostKeyMismatch, with the hub's details in Key.
 type OpenError struct {
 	Status string
-	Result json.RawMessage
+	Key    hubapi.HostKey
 }
 
 func (e *OpenError) Error() string { return "terminal not opened: " + e.Status }
+
+// chunk is output for the terminal: from the hub (acked once read), or a
+// line the app writes itself (never acked: the hub did not send it).
+type chunk struct {
+	b     []byte
+	local bool
+}
 
 // Conn is a hub terminal as an io.ReadWriteCloser for terminal.Options.Conn.
 // Read returns what the hub sent and acks it, so the hub's reader stalls at
@@ -41,26 +51,35 @@ type Conn struct {
 	m   *Mux
 	id  string
 	now func() time.Time
+	out chan struct{} // closed at the hub's first output
 
-	mu       sync.Mutex
-	queue    [][]byte
-	buf      []byte
-	ended    bool
-	closed   bool
-	reason   string
-	drop     int
-	lastUser time.Time
-	ready    chan struct{} // a token when queue or ended changed
+	mu        sync.Mutex
+	queue     []chunk
+	buf       []byte
+	bufLocal  bool
+	ended     bool
+	closed    bool
+	sawOutput bool
+	reason    string
+	drop      int
+	lastUser  time.Time
+	ready     chan struct{} // a token when queue or ended changed
 }
 
 // Open asks the hub for a terminal on server and registers it with m.
-func Open(ctx context.Context, d Door, m *Mux, id, server string, rows, cols int) (*Conn, error) {
-	c := &Conn{d: d, m: m, id: id, now: time.Now, ready: make(chan struct{}, 1)}
+// trust is nil, or the key the person accepted on a hostKeyUnknown answer,
+// sent with the same id (the hub released it).
+func Open(ctx context.Context, d Door, m *Mux, id, server string, rows, cols int, trust *hubapi.Trust) (*Conn, error) {
+	c := &Conn{d: d, m: m, id: id, now: time.Now, out: make(chan struct{}), ready: make(chan struct{}, 1)}
 	if !m.add(c) { // before term.open: data may arrive before its reply
 		return nil, errors.New("terminal id already in use")
 	}
+	p := map[string]any{"id": id, "server": server, "rows": clamp(rows), "cols": clamp(cols)}
+	if trust != nil {
+		p["trustHostKey"] = trust
+	}
 	var res json.RawMessage
-	err := d.Call(ctx, "term.open", map[string]any{"id": id, "server": server, "rows": clamp(rows), "cols": clamp(cols)}, &res)
+	err := d.Call(ctx, "term.open", p, &res)
 	if err != nil {
 		m.remove(id)
 		var he *door.Error
@@ -70,16 +89,27 @@ func Open(ctx context.Context, d Door, m *Mux, id, server string, rows, cols int
 		}
 		return nil, err
 	}
-	var st struct{ Status string }
-	json.Unmarshal(res, &st)
-	if st.Status != "open" {
+	var k hubapi.HostKey
+	json.Unmarshal(res, &k)
+	if k.Status != "open" {
 		m.remove(id)
-		return nil, &OpenError{Status: st.Status, Result: res}
+		return nil, &OpenError{Status: k.Status, Key: k}
 	}
 	return c, nil
 }
 
 func clamp(n int) int { return max(1, min(n, maxDim)) }
+
+// printable drops C0, DEL and C1 controls, so a reason the hub relays from
+// the remote cannot drive the terminal it is written into.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r >= 0x7f && r <= 0x9f {
+			return -1
+		}
+		return r
+	}, s)
+}
 
 func (c *Conn) signal() {
 	select {
@@ -91,38 +121,67 @@ func (c *Conn) signal() {
 func (c *Conn) push(b []byte) {
 	c.mu.Lock()
 	if !c.ended {
-		c.queue = append(c.queue, b)
+		c.queue = append(c.queue, chunk{b: b})
+		if !c.sawOutput {
+			c.sawOutput = true
+			close(c.out)
+		}
 	}
 	c.mu.Unlock()
 	c.signal()
 }
 
+// Output is closed once the hub sent the first output: the remote is up.
+func (c *Conn) Output() <-chan struct{} { return c.out }
+
+// exit ends the terminal once, after what the hub sent, with the reason
+// written into it as the Electron app writes it.
 func (c *Conn) exit(reason string) {
 	c.mu.Lock()
-	c.ended, c.reason = true, reason
+	if !c.ended {
+		c.ended, c.reason = true, reason
+		c.queue = append(c.queue, chunk{b: []byte("\r\n[exited: " + printable(reason) + "]\r\n"), local: true})
+	}
 	c.mu.Unlock()
 	c.signal()
 }
 
-func (c *Conn) dropped(n int) { c.mu.Lock(); c.drop += n; c.mu.Unlock() }
+// End ends the terminal without asking the hub, as when the hub stopped.
+func (c *Conn) End(reason string) {
+	c.exit(reason)
+	c.m.remove(c.id)
+}
+
+func (c *Conn) dropped(n int) {
+	c.mu.Lock()
+	c.drop += n
+	if !c.ended {
+		c.queue = append(c.queue, chunk{b: fmt.Appendf(nil, "\r\n[input dropped: %d bytes]\r\n", n), local: true})
+	}
+	c.mu.Unlock()
+	c.signal()
+}
 
 // Dropped is how many bytes of input the hub dropped (its queue was full).
 func (c *Conn) Dropped() int { c.mu.Lock(); defer c.mu.Unlock(); return c.drop }
 
-// ExitReason is the reason term.exit gave, empty before it.
+// ExitReason is the reason the terminal ended with, empty before it.
 func (c *Conn) ExitReason() string { c.mu.Lock(); defer c.mu.Unlock(); return c.reason }
 
 func (c *Conn) Read(p []byte) (int, error) {
 	for {
 		c.mu.Lock()
 		if len(c.buf) == 0 && len(c.queue) > 0 {
-			c.buf, c.queue = c.queue[0], c.queue[1:]
+			c.buf, c.bufLocal, c.queue = c.queue[0].b, c.queue[0].local, c.queue[1:]
 		}
 		if len(c.buf) > 0 {
 			n := copy(p, c.buf)
 			c.buf = c.buf[n:]
+			local := c.bufLocal
 			c.mu.Unlock()
-			c.d.Notify("term.ack", map[string]any{"id": c.id, "n": n})
+			if !local {
+				c.d.Notify("term.ack", map[string]any{"id": c.id, "n": n})
+			}
 			return n, nil
 		}
 		if c.ended {
@@ -160,18 +219,22 @@ func (c *Conn) Resize(cols, rows int) error {
 	return nil
 }
 
-// Close ends the hub terminal once.
+// Close ends the hub terminal once. One that already ended (term.exit, or
+// End) is gone from the hub, so nothing is sent.
 func (c *Conn) Close() error {
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
 		return nil
 	}
+	ended := c.ended
 	c.closed, c.ended = true, true
 	c.mu.Unlock()
 	c.m.remove(c.id)
 	c.signal()
-	c.hubClose()
+	if !ended {
+		c.hubClose()
+	}
 	return nil
 }
 

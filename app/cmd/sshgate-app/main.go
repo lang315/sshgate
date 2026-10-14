@@ -59,7 +59,7 @@ func main() {
 		if c == nil {
 			return nil, errors.New("the hub is not running")
 		}
-		conn, err := termconn.Open(context.Background(), c, mux, fmt.Sprintf("t%d", tabs.Add(1)), server, 24, 80)
+		conn, err := termconn.Open(context.Background(), c, mux, fmt.Sprintf("t%d", tabs.Add(1)), server, 24, 80, nil)
 		if err != nil {
 			return nil, err
 		}

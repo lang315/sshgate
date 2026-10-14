@@ -38,7 +38,7 @@ func TestFloodThroughHub(t *testing.T) {
 	if err := p.Client().Call(ctx, "unlock", map[string]string{"password": hubtest.Password}, nil); err != nil {
 		t.Fatal(err)
 	}
-	c, err := Open(ctx, p.Client(), mux, "t1", "box", 40, 120)
+	c, err := Open(ctx, p.Client(), mux, "t1", "box", 40, 120, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestFloodThroughHub(t *testing.T) {
 	// Close must end the hub terminal: the same id opens again.
 	c.Close()
 	closed = true
-	c2, err := Open(ctx, p.Client(), mux, "t1", "box", 40, 120)
+	c2, err := Open(ctx, p.Client(), mux, "t1", "box", 40, 120, nil)
 	if err != nil {
 		t.Fatalf("reopen after Close: %v", err)
 	}

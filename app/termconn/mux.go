@@ -4,6 +4,7 @@ package termconn
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 )
@@ -41,6 +42,7 @@ func (m *Mux) Note(method string, params json.RawMessage) bool {
 		Data   []byte `json:"data"`
 		Bytes  int    `json:"bytes"`
 		Reason string `json:"reason"`
+		Code   int    `json:"code"`
 	}
 	if json.Unmarshal(params, &p) != nil {
 		return true
@@ -55,7 +57,11 @@ func (m *Mux) Note(method string, params json.RawMessage) bool {
 	case "term.data":
 		c.push(p.Data)
 	case "term.exit":
-		c.exit(p.Reason)
+		r := p.Reason
+		if r == "" {
+			r = fmt.Sprintf("code %d", p.Code) // the Electron app's end(reason || `code ${code}`)
+		}
+		c.exit(r)
 		m.remove(p.ID)
 	case "term.dropped":
 		c.dropped(p.Bytes)
