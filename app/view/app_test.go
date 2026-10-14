@@ -396,7 +396,7 @@ func TestRepliesFromStoppedHubDropped(t *testing.T) {
 func TestStaleStatusReplyIgnored(t *testing.T) {
 	d := &fakeDoor{status: hubapi.Status{HasVault: true, Locked: true, AutoHosts: []string{"box", "db"}}}
 	a, tt, _, _ := newApp(t, d)
-	gate := make(chan struct{})
+	gate, arrived := make(chan struct{}), make(chan struct{})
 	var mu sync.Mutex
 	calls := 0
 	d.set(func() {
@@ -406,6 +406,7 @@ func TestStaleStatusReplyIgnored(t *testing.T) {
 			n := calls
 			mu.Unlock()
 			if n == 1 { // the older call: answered last, from before box's grant ended and the unlock
+				close(arrived)
 				<-gate
 				return hubapi.Status{HasVault: true, Locked: true, AutoHosts: []string{"box", "db"}}
 			}
@@ -414,6 +415,7 @@ func TestStaleStatusReplyIgnored(t *testing.T) {
 	})
 	a.Update(func() { a.refresh() })
 	tt.flushOnce()
+	<-arrived // calls are numbered on arrival: the newer refresh must not reach the door first
 	a.Update(func() { a.Note("autoAllow.off", json.RawMessage(`{"server":"box","reason":"expired"}`)) })
 	a.Update(func() { a.refresh() })
 	tt.flush()
