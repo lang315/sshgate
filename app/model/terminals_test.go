@@ -1,0 +1,110 @@
+package model
+
+import (
+	"reflect"
+	"regexp"
+	"testing"
+)
+
+func TestTabIDsFollowTheHubRule(t *testing.T) {
+	var s TabSet
+	a, b := s.Open("box"), s.Open("box")
+	rule := regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	if !rule.MatchString(a) || !rule.MatchString(b) || a == b {
+		t.Fatalf("ids %q %q", a, b)
+	}
+}
+
+func TestTabSetCountsOpenTabsPerServer(t *testing.T) {
+	var s TabSet
+	a := s.Open("box")
+	s.Open("box")
+	s.Open("other")
+	s.Exited(a, "bye")
+	if s.OpenCount("box") != 1 || s.OpenCount("none") != 0 {
+		t.Fatal(s.OpenCount("box"), s.OpenCount("none"))
+	}
+}
+
+func TestTabSetLifecycleAndActivationOrder(t *testing.T) {
+	var s TabSet
+	a, b, c := s.Open("box"), s.Open("box"), s.Open("other")
+	if s.Active != c {
+		t.Fatal(s.Active)
+	}
+	s.Activate(a)
+	if s.MostRecentFor("box") != a {
+		t.Fatal(s.MostRecentFor("box"))
+	}
+	s.Opened(a)
+	s.Output(a)
+	if got, _ := s.Get(a); got.State != "open" || !got.SawOutput {
+		t.Fatalf("%+v", got)
+	}
+	s.Exited(a, "bye")
+	if s.MostRecentFor("box") != b {
+		t.Fatal("an exited tab is not a Send to tab target")
+	}
+	s.Activate(c)
+	s.Close(c)
+	ids := []string{}
+	for _, x := range s.Tabs {
+		ids = append(ids, x.ID)
+	}
+	if !reflect.DeepEqual(ids, []string{a, b}) || s.Active != a {
+		t.Fatalf("tabs %v active %q: want the previous in activation order", ids, s.Active)
+	}
+	s.Opened(a) // exited stays exited
+	if got, _ := s.Get(a); got.State != "exited" || got.ExitReason != "bye" {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestTabSetHostsHome(t *testing.T) {
+	var s TabSet
+	a := s.Open("box")
+	if s.Active != a {
+		t.Fatal(s.Active)
+	}
+	s.ShowHome()
+	if s.Active != "" {
+		t.Fatal(s.Active)
+	}
+	s.Activate(a)
+	s.Close(a)
+	if s.Active != "" {
+		t.Fatal("closing the last tab must show the Hosts home:", s.Active)
+	}
+}
+
+func TestTabSetAuditIsNeverInTheActivationOrder(t *testing.T) {
+	var s TabSet
+	a := s.Open("box")
+	s.ShowAudit()
+	if s.Active != AuditTab {
+		t.Fatal(s.Active)
+	}
+	s.Close(a)
+	if s.Active != AuditTab {
+		t.Fatal("closing a tab behind Audit left Audit:", s.Active)
+	}
+	b := s.Open("box")
+	s.ShowAudit()
+	s.Activate(b)
+	s.Close(b)
+	if s.Active != "" {
+		t.Fatal("want the Hosts home, not Audit:", s.Active)
+	}
+}
+
+func TestTabSetClosingAnotherTabKeepsActive(t *testing.T) {
+	var s TabSet
+	a, b := s.Open("box"), s.Open("db")
+	s.Close(a)
+	if s.Active != b {
+		t.Fatal(s.Active)
+	}
+	if _, ok := s.Get(a); ok {
+		t.Fatal("closed tab still there")
+	}
+}
