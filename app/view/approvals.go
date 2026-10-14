@@ -19,7 +19,39 @@ type colState struct {
 	feed    ui.ScrollState // the Auto-allowed list's own scroll
 	lastY   float32
 	reasons map[string]*string
+	reasonH map[string]*ui.Handle // each reason field's focus, for Cmd+Shift+A
 	mounted bool
+}
+
+// approvalsChord is the shortcut from a terminal to the AI requests:
+// Cmd+Shift+A on macOS, Ctrl+Shift+A elsewhere (Electron's approvalsKey).
+// mygo matches it by key position on a layout that does not type an A.
+func approvalsChord(goos string) ui.Modifiers {
+	if goos == "darwin" {
+		return ui.Super | ui.Shift
+	}
+	return ui.Ctrl | ui.Shift
+}
+
+// focusApprovals opens the AI column and focuses the oldest request's
+// reason field; a collapsed column builds it first, and the focus waits.
+func (a *App) focusApprovals() {
+	a.aiOpen = true
+	if len(a.items) > 0 {
+		a.reasonHandle(a.items[0].Request.ID).Focus()
+	}
+}
+
+func (a *App) reasonHandle(id string) *ui.Handle {
+	if a.col.reasonH == nil {
+		a.col.reasonH = map[string]*ui.Handle{}
+	}
+	h := a.col.reasonH[id]
+	if h == nil {
+		h = new(ui.Handle)
+		a.col.reasonH[id] = h
+	}
+	return h
 }
 
 // segments draws a command or stdin with its non-ASCII runs marked; a
@@ -79,6 +111,7 @@ func (a *App) buildColumn(c *ui.Context) {
 			}
 			if ui.Button(c, "×").Label("Close AI requests").Clicked() {
 				a.aiOpen = false
+				a.focusActive()
 			}
 		})
 		ui.Text(c, "Commands wait for you unless their host is on auto-allow. Enter in a request denies; Allow takes a mouse click.").TextColor(t.TextMuted)
@@ -144,9 +177,12 @@ func (a *App) buildItem(c *ui.Context, it model.PendingItem, now time.Time) {
 			ui.Text(c, model.DisplayText(r.Description)).MaxLines(4)
 		}
 		ui.Text(c, fmt.Sprintf("timeout %ds · client %s (unverified)", r.TimeoutSec, model.DisplayText(r.Client))).TextColor(t.TextMuted)
-		in := ui.TextInput(c.Key("why-"+id), reason).Placeholder("Reason (optional)").Label("Reason (optional)")
+		in := ui.TextInput(c.Key("why-"+id), reason).Placeholder("Reason (optional)").Label("Reason (optional)").Bind(a.reasonHandle(id))
 		if in.Submitted() {
 			a.decide(id, hubapi.Denied, *reason)
+		}
+		if in.Shortcut(0, ui.KeyEscape) {
+			a.focusActive() // back to the active tab's terminal; none: stay here
 		}
 		ui.Row(c).Gap(8).Children(func() {
 			if ui.Button(c, "Deny").Disabled(busy).Clicked() {

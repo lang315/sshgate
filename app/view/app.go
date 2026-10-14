@@ -370,6 +370,11 @@ func (a *App) prune() {
 			delete(a.col.reasons, id)
 		}
 	}
+	for id := range a.col.reasonH {
+		if !shown[id] {
+			delete(a.col.reasonH, id)
+		}
+	}
 	if len(a.items) == 0 {
 		a.denyAllErr = ""
 	}

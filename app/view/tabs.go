@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
@@ -198,7 +199,12 @@ func (a *App) buildTab(c *ui.Context, t model.Tab) {
 		}
 		return
 	}
-	ui.Box(c).Fill().Children(func() {
+	// The chord is claimed around the terminal only: a window shortcut would
+	// take the key from the remote wherever the focus is.
+	box := ui.Box(c).Fill().Children(func() {
 		terminal.View(c.Key("term-"+t.ID), tt.term).Fill().Label("Terminal " + model.DisplayText(t.Server)).Bind(&tt.h)
 	})
+	if box.Shortcut(approvalsChord(runtime.GOOS), ui.KeyA) {
+		a.focusApprovals()
+	}
 }
