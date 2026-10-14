@@ -30,13 +30,16 @@ func (r *rec) Write(p []byte) (int, error) {
 func (r *rec) Close() error { return nil }
 
 // waitWrites waits up to 2 s for ok(everything written so far): the terminal
-// writes its input from a queue goroutine, not during the frame.
+// writes its input from a queue goroutine, not during the frame. Once ok holds
+// it waits another 100 ms, so a late duplicate write lands before the caller
+// asserts on the settled writes.
 func (r *rec) waitWrites(ok func(string) bool) {
 	for end := time.Now().Add(2 * time.Second); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
 		r.mu.Lock()
 		done := ok(strings.Join(r.writes, ""))
 		r.mu.Unlock()
 		if done {
+			time.Sleep(100 * time.Millisecond)
 			return
 		}
 	}
@@ -62,7 +65,7 @@ func TestIMECommitSentOnceAsUser(t *testing.T) {
 	tt.Compose("tiến", 4)
 	tt.Type("tiếng")
 	tt.Frame()
-	r.waitWrites(func(got string) bool { return len(got) >= len("tiếng") }) // a duplicate commit makes it longer, so the check below still catches it
+	r.waitWrites(func(got string) bool { return len(got) >= len("tiếng") })
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if got := strings.Join(r.writes, ""); got != "tiếng" {
