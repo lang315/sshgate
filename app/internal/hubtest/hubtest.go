@@ -104,7 +104,15 @@ func SSHD(t *testing.T) string {
 	return store
 }
 
+// Runtime is Env plus the runtime directory, where the hub puts its MCP
+// door socket (MCPSocket).
+func Runtime(t *testing.T) ([]string, string) {
+	dir := RuntimeDir(t)
+	return append(os.Environ(), "SSHGATE_RUNTIME_DIR="+dir), dir
+}
+
 // Env is the environment for a hub under test.
 func Env(t *testing.T) []string {
-	return append(os.Environ(), "SSHGATE_RUNTIME_DIR="+RuntimeDir(t))
+	env, _ := Runtime(t)
+	return env
 }
