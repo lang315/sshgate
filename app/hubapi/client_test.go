@@ -25,6 +25,7 @@ func (r *rec) Call(_ context.Context, method string, params, result any) error {
 
 func TestCallShapes(t *testing.T) {
 	ctx := context.Background()
+	pw1, empty := "pw1", ""
 	for _, tc := range []struct {
 		name, method, params string
 		call                 func(*Client) error
@@ -37,6 +38,17 @@ func TestCallShapes(t *testing.T) {
 		{"create", "vault.create", `{"password":"password1"}`, func(c *Client) error { return c.CreateVault(ctx, "password1") }},
 		{"auto off", "servers.setAutoAllow", `{"mode":"off","server":"box"}`, func(c *Client) error { return c.SetAutoAllow(ctx, "box", "off") }},
 		{"forget key", "servers.forgetHostKey", `{"name":"box"}`, func(c *Client) error { return c.ForgetHostKey(ctx, "box") }},
+		{"save new", "servers.save", `{"server":{"name":"web","host":"10.0.0.5","port":22,"user":"u","auth":"password","keyPath":"","aiVisible":false,"autoAllowRoot":false,"autoAllowSudo":false,"password":"pw1"},"autoAllow":"off"}`,
+			func(c *Client) error {
+				return c.SaveServer(ctx, "", ServerInput{Name: "web", Host: "10.0.0.5", Port: 22, User: "u", Auth: "password", Password: &pw1}, "off")
+			}},
+		{"save edit", "servers.save", `{"original":"box","server":{"name":"box","host":"h","port":2222,"user":"u","auth":"key","keyPath":"~/.ssh/id","aiVisible":true,"autoAllowRoot":true,"autoAllowSudo":false,"keyPassphrase":""},"autoAllow":"forever"}`,
+			func(c *Client) error {
+				return c.SaveServer(ctx, "box", ServerInput{Name: "box", Host: "h", Port: 2222, User: "u", Auth: "key", KeyPath: "~/.ssh/id", AIVisible: true, AutoAllowRoot: true, KeyPassphrase: &empty}, "forever")
+			}},
+		{"delete", "servers.delete", `{"name":"box"}`, func(c *Client) error { return c.DeleteServer(ctx, "box") }},
+		{"import scan", "import.scan", `null`, func(c *Client) error { _, err := c.ImportScan(ctx); return err }},
+		{"import apply", "import.apply", `{"aliases":["work","db"]}`, func(c *Client) error { _, err := c.ImportApply(ctx, []string{"work", "db"}); return err }},
 	} {
 		r := &rec{}
 		if err := tc.call(New(r)); err != nil {
@@ -68,5 +80,31 @@ func TestPendingAndServersNeverNil(t *testing.T) {
 	s, err := New(&rec{result: `null`}).Servers(context.Background())
 	if err != nil || s == nil {
 		t.Fatalf("servers %v %v", s, err)
+	}
+}
+
+func TestServerDecodesSecretFlagsAndOptIns(t *testing.T) {
+	r := &rec{result: `[{"name":"box","hasPassword":true,"hasSuPassword":false,"hasSudoPassword":true,"hasKeyPassphrase":true,"autoAllowRoot":true,"autoAllowSudo":true}]`}
+	s, err := New(r).Servers(context.Background())
+	if err != nil || len(s) != 1 {
+		t.Fatal(s, err)
+	}
+	if b := s[0]; !b.HasPassword || b.HasSuPassword || !b.HasSudoPassword || !b.HasKeyPassphrase || !b.AutoAllowRoot || !b.AutoAllowSudo {
+		t.Fatalf("%+v", b)
+	}
+}
+
+func TestImportRepliesDecode(t *testing.T) {
+	s, err := New(&rec{result: `{"candidates":null,"note":"No ~/.ssh/config"}`}).ImportScan(context.Background())
+	if err != nil || s.Candidates == nil || len(s.Candidates) != 0 || s.Note != "No ~/.ssh/config" {
+		t.Fatalf("%+v %v", s, err)
+	}
+	s, err = New(&rec{result: `{"candidates":[{"alias":"web","host":"10.0.0.5","port":2200,"user":"deploy","auth":"key","keyPath":"~/.ssh/id_web","needsPassphrase":true,"hostKey":"SHA256:abc","hostKeyAlgo":"ssh-ed25519","status":"ready"}]}`}).ImportScan(context.Background())
+	if c := s.Candidates; err != nil || len(c) != 1 || c[0].Port != 2200 || !c[0].NeedsPassphrase || c[0].HostKeyAlgo != "ssh-ed25519" || c[0].Status != "ready" {
+		t.Fatalf("%+v %v", s, err)
+	}
+	res, err := New(&rec{result: `{"imported":["web"],"skipped":[{"alias":"jump","reason":"needs ProxyJump"}]}`}).ImportApply(context.Background(), []string{"web", "jump"})
+	if err != nil || len(res.Imported) != 1 || res.Skipped[0] != (ImportSkip{"jump", "needs ProxyJump"}) {
+		t.Fatalf("%+v %v", res, err)
 	}
 }

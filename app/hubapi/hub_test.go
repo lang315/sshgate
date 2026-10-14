@@ -2,6 +2,9 @@ package hubapi
 
 import (
 	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/lang315/sshgate/app/hubproc"
@@ -55,5 +58,67 @@ func TestAgainstRealHub(t *testing.T) {
 	}
 	if s, _ := h.Status(ctx); !s.Locked {
 		t.Fatal("not locked after Lock")
+	}
+}
+
+// TestHostWritesAgainstRealHub: servers.save, servers.delete and import
+// answer with the hub's texts; secrets come back as flags only.
+func TestHostWritesAgainstRealHub(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	if _, err := exec.LookPath("ssh"); err != nil {
+		t.Skip("import needs the OpenSSH client")
+	}
+	store := hubtest.SSHD(t)
+	bin, _ := hubtest.Binaries(t)
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "ssh_config")
+	// Host * keeps ssh -G away from the real ~/.ssh.
+	conf := "Host jump\n  HostName 127.0.0.1\n  ProxyJump other\nHost *\n  IdentityFile " + filepath.Join(dir, "missing") + "\n  UserKnownHostsFile " + filepath.Join(dir, "known_hosts") + "\n"
+	if err := os.WriteFile(cfg, []byte(conf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := hubproc.Start(context.Background(), hubproc.Launch{Command: bin, Args: []string{"hub", "--store=" + store, "--sshConfig=" + cfg}, Env: hubtest.Env(t)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Stop()
+	ctx := context.Background()
+	h := New(p.Client())
+	if _, err := h.Unlock(ctx, hubtest.Password); err != nil {
+		t.Fatal(err)
+	}
+	pw := "secret"
+	in := ServerInput{Name: "web", Host: "10.0.0.5", Port: 22, User: "u", Auth: "password", Password: &pw}
+	if err := h.SaveServer(ctx, "", in, "off"); err != nil {
+		t.Fatal(err)
+	}
+	servers, err := h.Servers(ctx)
+	if err != nil || len(servers) != 2 || servers[1].Name != "web" || !servers[1].HasPassword || servers[1].HasSuPassword || servers[1].AIVisible {
+		t.Fatalf("servers %+v %v", servers, err)
+	}
+	in.Name = "box"
+	if err := h.SaveServer(ctx, "", in, "off"); err == nil || err.Error() != `a server named "box" already exists` {
+		t.Fatalf("duplicate: %v", err)
+	}
+	in.Name, in.Port = "web2", 0
+	if err := h.SaveServer(ctx, "", in, "off"); err == nil || err.Error() != "port: must be 1-65535" {
+		t.Fatalf("port 0: %v", err)
+	}
+	if err := h.DeleteServer(ctx, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.DeleteServer(ctx, "web"); err == nil || err.Error() != `server "web" not found` {
+		t.Fatalf("delete twice: %v", err)
+	}
+	scan, err := h.ImportScan(ctx)
+	if err != nil || len(scan.Candidates) != 1 || scan.Candidates[0].Alias != "jump" || scan.Candidates[0].Status != "skipped" || scan.Candidates[0].Reason != "needs ProxyJump" {
+		t.Fatalf("scan %+v %v", scan, err)
+	}
+	res, err := h.ImportApply(ctx, []string{"jump", "nope"})
+	if err != nil || len(res.Imported) != 0 || len(res.Skipped) != 2 ||
+		res.Skipped[0] != (ImportSkip{"nope", "not in the SSH config"}) || res.Skipped[1] != (ImportSkip{"jump", "needs ProxyJump"}) {
+		t.Fatalf("apply %+v %v", res, err)
 	}
 }

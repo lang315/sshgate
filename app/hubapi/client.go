@@ -76,3 +76,40 @@ func (h *Client) SetAutoAllow(ctx context.Context, server, mode string) error {
 func (h *Client) ForgetHostKey(ctx context.Context, name string) error {
 	return h.c.Call(ctx, "servers.forgetHostKey", map[string]string{"name": name}, nil)
 }
+
+// SaveServer creates a server (original "") or updates the one named
+// original. autoAllow is the grant to arm after the write ("off" arms none);
+// the hub ends the server's old grant on every save.
+func (h *Client) SaveServer(ctx context.Context, original string, in ServerInput, autoAllow string) error {
+	p := struct {
+		Original  string      `json:"original,omitempty"`
+		Server    ServerInput `json:"server"`
+		AutoAllow string      `json:"autoAllow"`
+	}{original, in, autoAllow}
+	return h.c.Call(ctx, "servers.save", p, nil)
+}
+
+func (h *Client) DeleteServer(ctx context.Context, name string) error {
+	return h.c.Call(ctx, "servers.delete", map[string]string{"name": name}, nil)
+}
+
+// ImportScan lists the aliases of the hub's SSH config; it never dials.
+func (h *Client) ImportScan(ctx context.Context) (ImportScan, error) {
+	var s ImportScan
+	if err := h.c.Call(ctx, "import.scan", nil, &s); err != nil {
+		return ImportScan{}, err
+	}
+	if s.Candidates == nil {
+		s.Candidates = []Candidate{}
+	}
+	return s, nil
+}
+
+// ImportApply sends alias names only: the hub recomputes every field.
+func (h *Client) ImportApply(ctx context.Context, aliases []string) (ImportResult, error) {
+	var r ImportResult
+	if err := h.c.Call(ctx, "import.apply", map[string][]string{"aliases": aliases}, &r); err != nil {
+		return ImportResult{}, err
+	}
+	return r, nil
+}
