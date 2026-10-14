@@ -15,6 +15,11 @@ func TestDisplayText(t *testing.T) {
 		"bom\ufeff":       "bom\\ufeff",
 		"ls\u2028":        "ls\\u2028",
 		"tiếng":           "tiếng",
+		"rlm\u200f":       "rlm\\u200f",
+		"wj\u2060":        "wj\\u2060",
+		"ip\u2064":        "ip\\u2064",
+		"ps\u2029":        "ps\\u2029",
+		"c1\u009f":        "c1\\u009f",
 	} {
 		if got := DisplayText(in); got != want {
 			t.Errorf("DisplayText(%q) = %q, want %q", in, got, want)

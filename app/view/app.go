@@ -3,6 +3,7 @@ package view
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -32,6 +33,7 @@ type App struct {
 	hubState                                model.HubState
 	hubSince                                time.Time // when restarting began, for the countdown
 	hubGen                                  int       // bumped when the hub stops: replies from the old one are dropped
+	refreshGen, refreshApplied              int       // status calls issued, and the newest whose reply was applied
 	status                                  *hubapi.Status
 	screen                                  model.Screen
 	servers                                 []hubapi.Server
@@ -61,7 +63,23 @@ type App struct {
 	termServer             string
 }
 
-func (a *App) hub() *hubapi.Client { return hubapi.New(a.Door) }
+// callTimeout matches Electron's hubProcess.ts: a hung but running hub
+// cannot hold an action (and busy) forever. A var so tests can shorten it.
+var callTimeout = 60 * time.Second
+
+func (a *App) hub() *hubapi.Client { return hubapi.New(timeoutDoor{a.Door}) }
+
+type timeoutDoor struct{ Door }
+
+func (d timeoutDoor) Call(ctx context.Context, method string, params, result any) error {
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	err := d.Door.Call(ctx, method, params, result)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("hub did not answer in %d s", int(callTimeout.Seconds()))
+	}
+	return err
+}
 
 func (a *App) Screen() model.Screen       { return a.screen }
 func (a *App) Items() []model.PendingItem { return a.items }
@@ -105,6 +123,10 @@ func (a *App) HubState(st hubproc.State) {
 	}
 	if st.Kind != "running" {
 		a.hubGen++
+		if old := a.term; old != nil {
+			go old.Close() // term.close may wait on the dead hub
+		}
+		a.term, a.termServer, a.page = nil, "", "home"
 		a.status, a.unlockErr, a.lockReason, a.seedErr = nil, "", "", ""
 		a.lockHosts, a.items, a.feed = []string{}, nil, nil
 		a.decidedSince, a.pendingSince, a.seen = map[string]bool{}, map[string]bool{}, map[string]bool{}
@@ -120,13 +142,15 @@ func (a *App) HubState(st hubproc.State) {
 // refresh is the one call allowed without a user action.
 func (a *App) refresh() {
 	a.dropped = map[string]bool{}
-	gen := a.hubGen
+	a.refreshGen++
+	gen, rgen := a.hubGen, a.refreshGen
 	go func() {
 		s, err := a.hub().Status(context.Background())
 		a.Update(func() {
-			if gen != a.hubGen {
-				return
+			if gen != a.hubGen || rgen < a.refreshApplied {
+				return // the hub serves calls concurrently: an older reply may land last
 			}
+			a.refreshApplied = rgen
 			if err != nil {
 				a.status, a.lockHosts = nil, []string{}
 			} else {
@@ -340,6 +364,9 @@ func (a *App) prune() {
 		if !shown[id] {
 			delete(a.col.reasons, id)
 		}
+	}
+	if len(a.items) == 0 {
+		a.denyAllErr = ""
 	}
 }
 

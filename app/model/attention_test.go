@@ -31,6 +31,15 @@ func TestNotificationText(t *testing.T) {
 	if title, _ := NotificationText(hubapi.Request{Server: "box", Command: "ls"}); title != "AI wants to run a command" {
 		t.Fatal(title)
 	}
+	// Server and command go through DisplayText: no raw bidi or zero-width rune.
+	for _, tc := range []struct{ server, command, want string }{
+		{"bo\u202ex", "ls", `bo\u202ex: ls`},
+		{"box", "rm \u202etxt.exe\u200b", `box: rm \u202etxt.exe\u200b`},
+	} {
+		if _, body := NotificationText(hubapi.Request{Server: tc.server, Command: tc.command}); body != tc.want {
+			t.Errorf("NotificationText(%q, %q) body = %q, want %q", tc.server, tc.command, body, tc.want)
+		}
+	}
 }
 
 func TestPendingCounter(t *testing.T) {

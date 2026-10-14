@@ -21,13 +21,14 @@ func TrayTooltip(n int) string {
 	return fmt.Sprintf("sshgate: %d request%s waiting", n, plural(n))
 }
 
-// NotificationText never includes the description or stdin.
+// NotificationText never includes the description or stdin; server and
+// command are escaped like every other server-sourced text.
 func NotificationText(r hubapi.Request) (title, body string) {
 	title = "AI wants to run a command"
 	if r.Sudo {
 		title = "AI wants to run a command with sudo"
 	}
-	full := []rune(r.Server + ": " + r.Command)
+	full := []rune(DisplayText(r.Server) + ": " + DisplayText(r.Command))
 	if len(full) > 120 {
 		return title, string(full[:120]) + "…"
 	}

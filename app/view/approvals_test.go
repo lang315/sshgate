@@ -1,7 +1,9 @@
 package view
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -276,6 +278,9 @@ func TestLockAndUnlockRestartTheDelay(t *testing.T) {
 	if !tt.HasText("Master password") {
 		t.Fatal("not locked:", tt.Texts())
 	}
+	if a.col.mounted {
+		t.Fatal("the column is still mounted on the locked screen")
+	}
 	d.set(func() { d.status.Locked = false })
 	a.Update(func() { a.refresh() })
 	tt.flush()
@@ -294,6 +299,79 @@ func TestLockAndUnlockRestartTheDelay(t *testing.T) {
 	}
 	tt.flush()
 	if decided(d) != `{"id":"l1","outcome":"allowed","reason":""}` {
+		t.Fatal(decided(d))
+	}
+}
+
+// TestFullFeedLeavesRequestReachable: 50 auto runs must not push a pending
+// request out of the column (Electron caps .autofeed at 45% and scrolls it).
+func TestFullFeedLeavesRequestReachable(t *testing.T) {
+	a, tt, c, d := colApp(t)
+	tt.SetSize(1000, 640)
+	a.Update(func() {
+		for i := 0; i < 50; i++ {
+			b, _ := json.Marshal(map[string]any{"server": "box", "command": fmt.Sprintf("echo auto-%d", i), "description": "", "exitCode": 0, "time": "2026-10-15T12:00:00Z"})
+			a.Note("autoAllow.ran", b)
+		}
+	})
+	tt.flush()
+	note(t, a, tt, "pending", map[string]any{"request": reqN("f1", "box", "echo f1")})
+	c.add(time.Second)
+	tt.Frame()
+	allow, ok := tt.Find("Allow")
+	if !ok || allow.H <= 0 || allow.Y < 0 || allow.Y+allow.H > 640 {
+		t.Fatalf("Allow not reachable: %+v %v", allow, ok)
+	}
+	if a.col.feed.MaxY <= 0 {
+		t.Fatal("the feed does not scroll")
+	}
+	r, ok := tt.Find("echo auto-49")
+	if !ok {
+		t.Fatal("newest feed entry not shown")
+	}
+	tt.Move(r.X, r.Y)
+	tt.Scroll(r.X, r.Y, 0, 300)
+	tt.Frame()
+	if a.col.feed.Y == 0 || a.col.scroll.Y != 0 {
+		t.Fatalf("feed Y %v request list Y %v: the wheel must scroll the feed only", a.col.feed.Y, a.col.scroll.Y)
+	}
+	if moved, _ := tt.Find("Allow"); moved != allow {
+		t.Fatalf("scrolling the feed moved Allow: %+v -> %+v", allow, moved)
+	}
+	if err := tt.Click("Allow"); err != nil {
+		t.Fatal(err)
+	}
+	tt.flush()
+	if decided(d) != `{"id":"f1","outcome":"allowed","reason":""}` {
+		t.Fatal(decided(d))
+	}
+}
+
+// TestBannersNeverMoveAllow: the alert and store-error banners sit beside
+// the column, so one appearing cannot shift Allow under the cursor without
+// restarting the delay.
+func TestBannersNeverMoveAllow(t *testing.T) {
+	a, tt, c, d := colApp(t)
+	note(t, a, tt, "pending", map[string]any{"request": reqN("b1", "box", "echo b1")})
+	c.add(time.Second)
+	tt.Frame()
+	before, _ := tt.Find("Allow")
+	a.Update(func() {
+		a.alert = "could not open box"
+		a.status.StoreError = "the vault file could not be read"
+	})
+	tt.flushOnce()
+	if !tt.HasText("could not open box") || !tt.HasText("The vault file could not be read") {
+		t.Fatal(tt.Texts())
+	}
+	if after, _ := tt.Find("Allow"); after != before {
+		t.Fatalf("a banner moved Allow: %+v -> %+v", before, after)
+	}
+	if err := tt.Click("Allow"); err != nil {
+		t.Fatal(err)
+	}
+	tt.flush()
+	if decided(d) != `{"id":"b1","outcome":"allowed","reason":""}` {
 		t.Fatal(decided(d))
 	}
 }

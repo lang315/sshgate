@@ -16,6 +16,7 @@ type colState struct {
 	lc      *model.ListChanges
 	listH   ui.Handle
 	scroll  ui.ScrollState
+	feed    ui.ScrollState // the Auto-allowed list's own scroll
 	lastY   float32
 	reasons map[string]*string
 	mounted bool
@@ -166,7 +167,10 @@ func (a *App) buildItem(c *ui.Context, it model.PendingItem, now time.Time) {
 func (a *App) buildFeed(c *ui.Context) {
 	t := c.Theme()
 	autoN := len(model.AutoHostNames(a.servers, a.Now()))
-	ui.Column(c).Gap(6).Children(func() {
+	// Electron's .autofeed { flex: none; max-height: 45% }, so runs never push
+	// requests out of reach. MinHeight(0): mygo's automatic minimum (the
+	// content's height) is not clamped by the max height.
+	ui.Column(c).Gap(6).MinHeight(0).Shrink(0).MaxHeightPercent(45).Children(func() {
 		ui.Row(c).Gap(8).Children(func() {
 			ui.Text(c, "Auto-allowed").Bold().Grow(1)
 			if ui.Button(c, "Stop all auto-allow").Disabled(autoN == 0).Clicked() {
@@ -177,37 +181,39 @@ func (a *App) buildFeed(c *ui.Context) {
 			ui.Text(c, "Nothing ran on auto-allow.").TextColor(t.TextMuted)
 			return
 		}
-		for i, r := range a.feed {
-			ui.Column(c.Key(fmt.Sprintf("%s-%d", r.Time, i))).Gap(4).Padding(8).Radius(6).Border(1, t.Border).Children(func() {
-				ui.Row(c).Gap(6).Children(func() {
-					ui.Text(c, model.DisplayText(r.Server)).Bold()
-					if r.Sudo {
-						ui.Text(c, "sudo").TextColor(t.Danger)
-					}
-					if r.StdinBytes > 0 {
-						ui.Text(c, fmt.Sprintf("stdin %d B", r.StdinBytes)).TextColor(t.TextMuted)
-					}
-					status, col := "error", t.Danger
-					if r.Error == "" && r.ExitCode != nil {
-						status, col = fmt.Sprintf("exit %d", *r.ExitCode), t.Success
-						if *r.ExitCode != 0 {
-							col = t.Warning
+		ui.Scroll(c).Grow(1).Gap(6).TrackScroll(&a.col.feed).Children(func() {
+			for i, r := range a.feed {
+				ui.Column(c.Key(fmt.Sprintf("%s-%d", r.Time, i))).Gap(4).Padding(8).Radius(6).Border(1, t.Border).Children(func() {
+					ui.Row(c).Gap(6).Children(func() {
+						ui.Text(c, model.DisplayText(r.Server)).Bold()
+						if r.Sudo {
+							ui.Text(c, "sudo").TextColor(t.Danger)
 						}
+						if r.StdinBytes > 0 {
+							ui.Text(c, fmt.Sprintf("stdin %d B", r.StdinBytes)).TextColor(t.TextMuted)
+						}
+						status, col := "error", t.Danger
+						if r.Error == "" && r.ExitCode != nil {
+							status, col = fmt.Sprintf("exit %d", *r.ExitCode), t.Success
+							if *r.ExitCode != 0 {
+								col = t.Warning
+							}
+						}
+						ui.Text(c, status).TextColor(col)
+						ui.Spacer(c)
+						if ts, err := time.Parse(time.RFC3339, r.Time); err == nil {
+							ui.Text(c, ts.Local().Format("15:04:05")).Font("monospace").TextColor(t.TextMuted)
+						}
+					})
+					segments(c, model.HighlightNonASCII(model.CommandLabel(r), ""))
+					if r.Error != "" {
+						ui.Text(c, model.DisplayText(r.Error)).TextColor(t.Danger)
 					}
-					ui.Text(c, status).TextColor(col)
-					ui.Spacer(c)
-					if ts, err := time.Parse(time.RFC3339, r.Time); err == nil {
-						ui.Text(c, ts.Local().Format("15:04:05")).Font("monospace").TextColor(t.TextMuted)
+					if r.Description != "" {
+						ui.Text(c, model.DisplayText(r.Description)).MaxLines(2).TextColor(t.TextMuted)
 					}
 				})
-				segments(c, model.HighlightNonASCII(model.CommandLabel(r), ""))
-				if r.Error != "" {
-					ui.Text(c, model.DisplayText(r.Error)).TextColor(t.Danger)
-				}
-				if r.Description != "" {
-					ui.Text(c, model.DisplayText(r.Description)).MaxLines(2).TextColor(t.TextMuted)
-				}
-			})
-		}
+			}
+		})
 	})
 }

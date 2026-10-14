@@ -59,22 +59,24 @@ func (a *App) buildReady(c *ui.Context) {
 				a.lock()
 			}
 		})
-		if a.status != nil && a.status.StoreError != "" {
-			ui.Row(c).Padding(8, 12).Background(t.Danger.Alpha(0.15)).Role(ui.RoleStatus).Children(func() {
-				ui.Text(c, capFirst(model.DisplayText(a.status.StoreError)))
-			})
-		}
-		if a.alert != "" {
-			ui.Row(c).Gap(8).Padding(8, 12).Background(t.Warning.Alpha(0.15)).Children(func() {
-				ui.Text(c, model.DisplayText(a.alert)).Grow(1)
-				if ui.Button(c, "Dismiss").Clicked() {
-					a.alert = ""
-				}
-			})
-		}
 		ui.Row(c).Grow(1).Children(func() {
 			// HeightPercent bounds the column so the host list's Scroll scrolls.
+			// Banners sit here, beside the AI column (Electron's main.work), so
+			// one appearing never moves Allow.
 			ui.Column(c).Grow(1).HeightPercent(100).Children(func() {
+				if a.status != nil && a.status.StoreError != "" {
+					ui.Row(c).Padding(8, 12).Background(t.Danger.Alpha(0.15)).Role(ui.RoleStatus).Children(func() {
+						ui.Text(c, capFirst(model.DisplayText(a.status.StoreError)))
+					})
+				}
+				if a.alert != "" {
+					ui.Row(c).Gap(8).Padding(8, 12).Background(t.Warning.Alpha(0.15)).Children(func() {
+						ui.Text(c, model.DisplayText(a.alert)).Grow(1)
+						if ui.Button(c, "Dismiss").Clicked() {
+							a.alert = ""
+						}
+					})
+				}
 				if a.page == "term" && a.term != nil {
 					terminal.View(c, a.term).Fill()
 					return

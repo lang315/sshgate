@@ -27,9 +27,10 @@ type fakeDoor struct {
 	pendGate chan struct{} // when set, pending waits on it
 	errs     map[string]error
 	params   map[string]string
+	hang     map[string]bool // these methods never answer: they wait for ctx
 }
 
-func (d *fakeDoor) Call(_ context.Context, method string, params, result any) error {
+func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) error {
 	d.mu.Lock()
 	d.calls = append(d.calls, method)
 	if d.params == nil {
@@ -37,13 +38,17 @@ func (d *fakeDoor) Call(_ context.Context, method string, params, result any) er
 	}
 	b, _ := json.Marshal(params)
 	d.params[method] = string(b)
-	err := d.errs[method]
+	err, hang := d.errs[method], d.hang[method]
 	st, stFn := d.status, d.statusFn
 	gate := d.pendGate
 	srv, pend := d.servers, d.pending
 	d.mu.Unlock()
 	if err != nil {
 		return err
+	}
+	if hang {
+		<-ctx.Done()
+		return ctx.Err()
 	}
 	var out any
 	switch method {
@@ -383,5 +388,82 @@ func TestRepliesFromStoppedHubDropped(t *testing.T) {
 	running(a, tt)
 	if it := a.Items(); len(it) != 1 || it[0].Request.ID != "new" {
 		t.Fatalf("items after restart %+v", it)
+	}
+}
+
+// TestStaleStatusReplyIgnored: the hub serves calls concurrently, so a
+// status reply can land after a newer one; it must not undo the newer one.
+func TestStaleStatusReplyIgnored(t *testing.T) {
+	d := &fakeDoor{status: hubapi.Status{HasVault: true, Locked: true, AutoHosts: []string{"box", "db"}}}
+	a, tt, _, _ := newApp(t, d)
+	gate := make(chan struct{})
+	var mu sync.Mutex
+	calls := 0
+	d.set(func() {
+		d.statusFn = func() hubapi.Status {
+			mu.Lock()
+			calls++
+			n := calls
+			mu.Unlock()
+			if n == 1 { // the older call: answered last, from before box's grant ended and the unlock
+				<-gate
+				return hubapi.Status{HasVault: true, Locked: true, AutoHosts: []string{"box", "db"}}
+			}
+			return hubapi.Status{HasVault: true}
+		}
+	})
+	a.Update(func() { a.refresh() })
+	tt.flushOnce()
+	a.Update(func() { a.Note("autoAllow.off", json.RawMessage(`{"server":"box","reason":"expired"}`)) })
+	a.Update(func() { a.refresh() })
+	tt.flush()
+	if a.Screen() != model.ScreenReady {
+		t.Fatal("the newer reply did not apply:", a.Screen())
+	}
+	close(gate)
+	tt.flush()
+	if a.Screen() != model.ScreenReady || len(a.LockHosts()) != 0 {
+		t.Fatalf("screen %s lock hosts %v: the older reply landed last and applied", a.Screen(), a.LockHosts())
+	}
+}
+
+// TestHungHubCallTimesOut: a running hub that never answers must not leave
+// Unlock disabled; the call fails like any other failure.
+func TestHungHubCallTimesOut(t *testing.T) {
+	old := callTimeout
+	callTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { callTimeout = old })
+	d := &fakeDoor{status: hubapi.Status{HasVault: true, Locked: true}, pw: "right", hang: map[string]bool{"unlock": true}}
+	a, tt, _, _ := newApp(t, d)
+	a.Update(func() { a.unlock("right") })
+	tt.flush()
+	if a.busy || a.UnlockErr() != "hub did not answer in 0 s" {
+		t.Fatalf("busy %v err %q after the timeout", a.busy, a.UnlockErr())
+	}
+	d.set(func() { d.hang = nil })
+	a.Update(func() { a.unlock("right") })
+	tt.flush()
+	if a.Screen() != model.ScreenReady {
+		t.Fatal("Unlock not usable after a timeout:", a.Screen(), a.UnlockErr())
+	}
+}
+
+// TestDenyAllErrorClearsWhenListEmpties is M5.
+func TestDenyAllErrorClearsWhenListEmpties(t *testing.T) {
+	d := &fakeDoor{status: hubapi.Status{HasVault: true}, errs: map[string]error{"denyAll": errors.New("deny all failed")}}
+	a, tt, _, _ := newApp(t, d)
+	for _, id := range []string{"r1", "r2"} {
+		note(t, a, tt, "pending", map[string]any{"request": reqN(id, "box", "ls")})
+	}
+	a.Update(func() { a.denyAll() })
+	tt.flush()
+	if !tt.HasText("deny all failed") {
+		t.Fatal(tt.Texts())
+	}
+	for _, id := range []string{"r1", "r2"} {
+		note(t, a, tt, "decided", map[string]any{"request": reqN(id, "box", "ls"), "decision": map[string]string{"outcome": "denied"}})
+	}
+	if tt.HasText("deny all failed") {
+		t.Fatal("the Deny all error outlived the list")
 	}
 }
