@@ -51,6 +51,7 @@ type App struct {
 	denyAllErr   string
 	feed         []hubapi.AutoRan
 	counter      model.PendingCounter
+	col          colState
 
 	busy                   bool   // unlock, create vault or stop-and-lock in flight
 	password, newPw, again string // field values
@@ -107,6 +108,7 @@ func (a *App) HubState(st hubproc.State) {
 		a.status, a.unlockErr, a.lockReason, a.seedErr = nil, "", "", ""
 		a.lockHosts, a.items, a.feed = []string{}, nil, nil
 		a.decidedSince, a.pendingSince, a.seen = map[string]bool{}, map[string]bool{}, map[string]bool{}
+		a.prune()
 		a.counter.Reset()
 		a.shell().SetPending(0)
 		a.setScreen()
@@ -185,6 +187,7 @@ func (a *App) seed() {
 				return
 			}
 			a.items = model.MergeSeed(a.items, p, a.decidedSince, a.pendingSince, a.Now())
+			a.prune()
 			a.seedErr = ""
 			for _, r := range p {
 				a.seen[r.ID] = true
@@ -233,6 +236,7 @@ func (a *App) Note(method string, params json.RawMessage) {
 		id := e.Request.ID
 		a.decidedSince[id] = true
 		a.items = model.RemoveDecided(a.items, id)
+		a.prune()
 		a.counter.Remove(id)
 		a.shell().SetPending(a.counter.Count())
 	}
@@ -311,12 +315,32 @@ func (a *App) decide(id, outcome, reason string) {
 	go func() {
 		err := a.hub().Decide(context.Background(), id, outcome, reason)
 		a.Update(func() {
-			a.itemBusy[id] = false
+			delete(a.itemBusy, id)
 			if err != nil {
 				a.itemErr[id] = err.Error()
 			}
+			a.prune()
 		})
 	}()
+}
+
+// prune drops per-request state of requests no longer shown. seen is
+// kept: a late duplicate pending for a decided id must not reopen the column.
+func (a *App) prune() {
+	shown := map[string]bool{}
+	for _, it := range a.items {
+		shown[it.Request.ID] = true
+	}
+	for id := range a.itemErr {
+		if !shown[id] {
+			delete(a.itemErr, id)
+		}
+	}
+	for id := range a.col.reasons {
+		if !shown[id] {
+			delete(a.col.reasons, id)
+		}
+	}
 }
 
 func (a *App) denyAll() {

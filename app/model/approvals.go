@@ -38,11 +38,17 @@ func RemoveDecided(items []PendingItem, id string) []PendingItem {
 }
 
 func DelayElapsed(opened, changed, now time.Time) bool {
+	return DelayRemaining(opened, changed, now) == 0
+}
+
+// DelayRemaining is how long until AllowDelay has passed since the later
+// of opened and changed; 0 once it has.
+func DelayRemaining(opened, changed, now time.Time) time.Duration {
 	from := opened
 	if changed.After(from) {
 		from = changed
 	}
-	return now.Sub(from) >= AllowDelay
+	return max(0, AllowDelay-now.Sub(from))
 }
 
 func AllowEnabled(it PendingItem, now, changedAt time.Time) bool {

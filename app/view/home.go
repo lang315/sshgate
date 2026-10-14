@@ -20,6 +20,9 @@ func capFirst(s string) string {
 }
 
 func (a *App) buildReady(c *ui.Context) {
+	if !a.aiOpen {
+		a.col.mounted = false
+	}
 	t := c.Theme()
 	now := a.Now()
 	autoN := len(model.AutoHostNames(a.servers, now))
@@ -79,7 +82,7 @@ func (a *App) buildReady(c *ui.Context) {
 				a.buildHosts(c)
 			})
 			if a.aiOpen {
-				ui.Column(c).Width(380).Children(func() { a.buildColumn(c) })
+				ui.Column(c).Fill().Width(380).Children(func() { a.buildColumn(c) })
 			}
 		})
 	})
@@ -134,6 +137,3 @@ func (a *App) buildHosts(c *ui.Context) {
 		ui.Text(c, "Vault file: "+model.DisplayText(path)+" — copy it to back up.").TextColor(t.TextMuted)
 	})
 }
-
-// buildColumn is Task 8's; until then the column is empty.
-func (a *App) buildColumn(c *ui.Context) {}

@@ -5,48 +5,26 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/lang315/sshgate/app/model"
 )
-
-func TestGuardRestartsOnChange(t *testing.T) {
-	var g Guard
-	t0 := time.Unix(0, 0)
-	g.Note("a", t0)
-	if g.Ready(t0.Add(499 * time.Millisecond)) {
-		t.Fatal("ready before 500 ms")
-	}
-	g.Note("a", t0.Add(400*time.Millisecond)) // same key: no restart
-	if !g.Ready(t0.Add(500 * time.Millisecond)) {
-		t.Fatal("not ready at 500 ms")
-	}
-	g.Note("b", t0.Add(600*time.Millisecond)) // changed: restart
-	if g.Ready(t0.Add(1000 * time.Millisecond)) {
-		t.Fatal("ready 400 ms after a change")
-	}
-	if r := g.Remaining(t0.Add(1000 * time.Millisecond)); r != 100*time.Millisecond {
-		t.Fatalf("remaining %s", r)
-	}
-}
-
-func TestGuardNeverNotedIsNotReady(t *testing.T) {
-	var g Guard
-	if g.Ready(time.Unix(0, 0)) || g.Ready(time.Unix(1<<40, 0)) {
-		t.Fatal("a Guard that never saw Note is ready")
-	}
-}
 
 // guardedView shows one guarded mouse-only button, as the approval column will.
 type guardedView struct {
-	g       Guard
+	lc      *model.ListChanges
 	now     time.Time
 	key     string
 	clicked int
 }
 
 func (v *guardedView) build(c *ui.Context) {
-	v.g.Note(v.key, v.now)
-	ready := v.g.Ready(v.now)
+	if v.lc == nil {
+		v.lc = model.NewListChanges(v.key, v.now)
+	}
+	v.lc.SetKey(v.key, v.now)
+	wait := model.DelayRemaining(v.lc.At, v.lc.At, v.now)
+	ready := wait == 0
 	if !ready {
-		c.After(v.g.Remaining(v.now))
+		c.After(wait)
 	}
 	if MouseButton(c, "Allow", ready) {
 		v.clicked++

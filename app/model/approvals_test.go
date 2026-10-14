@@ -53,6 +53,27 @@ func TestAllowEnabled(t *testing.T) {
 	}
 }
 
+func TestDelayRemaining(t *testing.T) {
+	for _, c := range []struct {
+		opened, changed, now time.Time
+		want                 time.Duration
+	}{
+		{ms(1000), time.Time{}, ms(1000), 500 * time.Millisecond},
+		{ms(1000), time.Time{}, ms(1300), 200 * time.Millisecond},
+		{ms(1000), time.Time{}, ms(1500), 0},
+		{ms(1000), time.Time{}, ms(9000), 0},
+		{ms(0), ms(4800), ms(5000), 300 * time.Millisecond},
+		{ms(1000), ms(900), ms(1400), 100 * time.Millisecond},
+	} {
+		if got := DelayRemaining(c.opened, c.changed, c.now); got != c.want {
+			t.Errorf("DelayRemaining(%v, %v, %v) = %v, want %v", c.opened, c.changed, c.now, got, c.want)
+		}
+		if DelayElapsed(c.opened, c.changed, c.now) != (c.want == 0) {
+			t.Errorf("DelayElapsed disagrees at %v", c.now)
+		}
+	}
+}
+
 func TestClickAllowed(t *testing.T) {
 	young := PendingItem{ShownAt: ms(4900)}
 	old := PendingItem{ShownAt: ms(0)}

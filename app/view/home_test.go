@@ -119,9 +119,9 @@ func TestHostListScrolls(t *testing.T) {
 }
 
 func TestHostNameIsDisplayText(t *testing.T) {
-	_, tt, _ := readyApp(t, []hubapi.Server{{Name: "‮evil", User: "u", Host: "h", Port: 22}})
+	_, tt, _ := readyApp(t, []hubapi.Server{{Name: "\u202eevil", User: "u", Host: "h", Port: 22}})
 	for _, s := range tt.Texts() {
-		if strings.ContainsRune(s, '‮') {
+		if strings.ContainsRune(s, '\u202e') {
 			t.Fatalf("raw U+202E in %q", s)
 		}
 	}
