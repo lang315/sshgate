@@ -263,3 +263,37 @@ func TestAutoFeedAndStopAll(t *testing.T) {
 		t.Fatal(d.params["servers.setAutoAllow"])
 	}
 }
+
+func TestLockAndUnlockRestartTheDelay(t *testing.T) {
+	a, tt, c, d := colApp(t)
+	r := reqN("l1", "box", "echo l1")
+	d.set(func() { d.pending = []hubapi.Request{r} })
+	note(t, a, tt, "pending", map[string]any{"request": r})
+	c.add(time.Second)
+	tt.Frame()
+	d.set(func() { d.status.Locked = true })
+	note(t, a, tt, "locked", map[string]string{"reason": "manual"})
+	if !tt.HasText("Master password") {
+		t.Fatal("not locked:", tt.Texts())
+	}
+	d.set(func() { d.status.Locked = false })
+	a.Update(func() { a.refresh() })
+	tt.flush()
+	if !tt.HasText("echo l1") {
+		t.Fatal("request not shown after unlock:", tt.Texts())
+	}
+	_ = tt.Click("Allow")
+	tt.flush()
+	if decided(d) != "" {
+		t.Fatal("Allow worked right after unlock")
+	}
+	c.add(600 * time.Millisecond)
+	tt.Frame()
+	if err := tt.Click("Allow"); err != nil {
+		t.Fatal(err)
+	}
+	tt.flush()
+	if decided(d) != `{"id":"l1","outcome":"allowed","reason":""}` {
+		t.Fatal(decided(d))
+	}
+}

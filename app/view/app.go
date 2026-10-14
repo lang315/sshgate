@@ -400,6 +400,9 @@ func (a *App) openHost(name string) {
 // Build routes to the screen ScreenFor picks; Tasks 6-8 draw them.
 func (a *App) Build(c *ui.Context) {
 	a.init()
+	if a.screen != model.ScreenReady {
+		a.col.mounted = false // re-entering ready is a fresh mount: the Allow delay restarts
+	}
 	switch a.screen {
 	case model.ScreenHub:
 		a.buildHub(c)

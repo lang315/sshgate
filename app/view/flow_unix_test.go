@@ -16,6 +16,7 @@ import (
 	"github.com/lang315/sshgate/app/hubapi"
 	"github.com/lang315/sshgate/app/hubproc"
 	"github.com/lang315/sshgate/app/internal/hubtest"
+	"github.com/lang315/sshgate/app/model"
 )
 
 // flowT drives the App against a real hub and sshtestd: AI requests go in
@@ -262,4 +263,87 @@ func TestFlowKeyboardOnlyDenies(t *testing.T) {
 	if r := f.audited("echo k1"); r.Outcome != "denied" {
 		t.Fatalf("audit of k1: %+v", r)
 	}
+}
+
+// ran fails unless the exec succeeded and printed out.
+func (f *flowT) ran(ch <-chan hubtest.ExecResult, out string) {
+	f.t.Helper()
+	if r := f.result(ch); r.Err != nil || r.ExitCode != 0 || !strings.Contains(r.Stdout, out) {
+		f.t.Fatalf("want a run printing %q, got %+v", out, r)
+	}
+}
+
+// auto fails unless cmd's audit record says it ran without approval.
+func (f *flowT) auto(cmd string) {
+	f.t.Helper()
+	if r := f.audited(cmd); r.Outcome != "allowed" || r.Approval != "auto" {
+		f.t.Fatalf("audit of %q: %+v, want an auto-allowed run", cmd, r)
+	}
+}
+
+// idleLocked waits for the idle lock. The wait makes no door call but
+// status, so it cannot hold the vault open.
+func (f *flowT) idleLocked(hosts string) {
+	f.t.Helper()
+	f.until(func() bool {
+		return f.tt.HasText("Master password") && f.tt.HasText("Locked after inactivity.") &&
+			(hosts == "" || f.tt.HasText("AI auto-allow is still running on: "+hosts))
+	}, "the idle lock")
+}
+
+func TestFlowIdleLockWaitsForPendingRequests(t *testing.T) {
+	f := flow(t, "--idleLock=1s")
+	f.unlock()
+	f.idleLocked("")
+
+	f.unlock()
+	i1 := f.exec("i1", "echo idle")
+	f.until(func() bool { return f.tt.HasText("echo idle") }, "i1 in the column")
+	time.Sleep(2500 * time.Millisecond) // negative check: real time past the 1 s idle lock
+	f.tt.flush()
+	if f.a.Screen() != model.ScreenReady || !f.tt.HasText("echo idle") {
+		t.Fatalf("locked while a request was pending; screen shows %q", f.tt.Texts())
+	}
+
+	f.click("Deny")
+	f.denied(i1, "Denied by user")
+	f.until(func() bool { return f.tt.HasText("Master password") }, "the idle lock after the decision")
+}
+
+func TestFlowManualLockKeepsAutoAllow(t *testing.T) {
+	f := flow(t)
+	f.unlock()
+	if err := f.h.SetAutoAllow(context.Background(), "box", "forever"); err != nil {
+		t.Fatal(err)
+	}
+
+	f.click("Lock")
+	f.until(func() bool {
+		return f.tt.HasText("Master password") && f.tt.HasText("AI auto-allow is still running on: box")
+	}, "the soft-lock screen")
+
+	f.ran(f.exec("m1", "echo manual-1"), "manual-1")
+	f.auto("echo manual-1")
+}
+
+func TestFlowSoftLockAndStop(t *testing.T) {
+	f := flow(t, "--idleLock=2s")
+	f.unlock()
+	if err := f.h.SetAutoAllow(context.Background(), "box", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	f.idleLocked("box")
+	f.ran(f.exec("s1", "echo soft-1"), "soft-1")
+	f.auto("echo soft-1")
+
+	f.unlock()
+	f.ran(f.exec("s2", "echo soft-2"), "soft-2")
+	f.auto("echo soft-2")
+
+	f.idleLocked("box")
+	f.click("Stop auto-allow and lock")
+	f.until(func() bool {
+		return f.tt.HasText("Master password") && !f.tt.HasText("AI auto-allow is still running on: box")
+	}, "the auto-allow list to go")
+	f.denied(f.exec("s3", "echo soft-3"), "Vault is locked")
 }
