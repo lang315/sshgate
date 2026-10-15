@@ -71,6 +71,8 @@ type App struct {
 	tabs                   model.TabSet
 	terms                  map[string]*termTab  // by tab id
 	files                  map[string]*filesTab // by tab id
+	jobs                   map[string]*fileJob  // the live file jobs, by job id
+	jobSeq                 int                  // numbers the jobs: f1, f2, …
 	lastFolder             map[string]string    // by server: the folder a new Files tab lists, this run only
 	showHidden             bool                 // every Files tab's Show hidden files
 	prompts                model.HostKeyPrompts
@@ -144,7 +146,7 @@ func (a *App) init() {
 		a.hubState = model.HubState{Kind: "starting"}
 		a.screen = model.ScreenHub
 		a.terms = map[string]*termTab{}
-		a.files, a.lastFolder = map[string]*filesTab{}, map[string]string{}
+		a.files, a.lastFolder, a.jobs = map[string]*filesTab{}, map[string]string{}, map[string]*fileJob{}
 		a.theme = LoadTheme(a.ThemeFile) // main applied it before the window opened
 	}
 }
@@ -214,6 +216,7 @@ func (a *App) setScreen() {
 	default:
 		a.servers, a.ranLocked = nil, nil
 		a.dropDialogs()
+		a.dropConfirms()
 	}
 }
 
@@ -260,7 +263,8 @@ func (a *App) seed() {
 	}()
 }
 
-// Note handles a hub notification; nothing here calls the hub but status.
+// Note handles a hub notification; nothing here calls the hub but status,
+// and fileNote's bounded follow-ups of a job the person started.
 func (a *App) Note(method string, params json.RawMessage) {
 	a.init()
 	ev, ok := hubapi.Decode(method, params)
@@ -294,6 +298,8 @@ func (a *App) Note(method string, params json.RawMessage) {
 		title, body := model.NotificationText(e.Request)
 		a.shell().Notify(id, title, body)
 		a.refresh() // a refused vault reload shows before the decision
+	case hubapi.FilesPlanned, hubapi.FilesProgress, hubapi.FilesDone:
+		a.fileNote(e)
 	case hubapi.DecidedEvent:
 		id := e.Request.ID
 		a.decidedSince[id] = true

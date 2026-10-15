@@ -135,7 +135,15 @@ func (a *App) closeTab(id string) {
 		go t.term.Close()
 	}
 	delete(a.terms, id)
-	delete(a.files, id)
+	if v := a.files[id]; v != nil {
+		for _, j := range v.jobs { // closing the tab cancels its jobs
+			if j.state != "done" {
+				a.filesCancel(j.id)
+				delete(a.jobs, j.id)
+			}
+		}
+		delete(a.files, id)
+	}
 	a.flushSends(id)
 	a.focusActive()
 }

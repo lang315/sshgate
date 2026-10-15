@@ -306,10 +306,18 @@ func TestNotificationsCallOnlyStatus(t *testing.T) {
 	note(t, a, tt, "autoAllow.ran", map[string]any{"server": "box", "command": "ls", "description": "", "exitCode": 0, "time": "2026-10-15T12:00:00Z"})
 	note(t, a, tt, "autoAllow.off", map[string]string{"server": "box", "reason": "expired"})
 	note(t, a, tt, "audit.appended", map[string]any{"seq": 1, "record": map[string]any{}})
+	// File jobs this app never planned: nothing follows (TestUploadRunsThenRelistsOnce
+	// and TestLockCancelsWhatWaitsForTheDialog bound the follow-ups of planned ones).
+	note(t, a, tt, "files.planned", map[string]any{"id": "f1", "conflicts": map[string]any{"count": 0, "sample": []string{}}, "errors": []string{}})
+	note(t, a, tt, "files.progress", map[string]any{"id": "f1", "file": "a", "done": 1, "total": 2})
+	note(t, a, tt, "files.done", map[string]any{"id": "f1", "op": "upload", "errors": []string{}})
 	for _, m := range d.callList() {
 		if m != "status" {
 			t.Fatalf("a notification called %q; only status is free (calls: %v)", m, d.callList())
 		}
+	}
+	if len(d.sentList()) != 0 {
+		t.Fatalf("a notification sent %v", d.sentList())
 	}
 	if len(a.Feed()) != 1 {
 		t.Fatal("autoAllow.ran not in the feed")

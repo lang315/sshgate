@@ -13,9 +13,15 @@ import (
 // never takes the focus. It reports a click only while enabled; disabled
 // is set before the click is read.
 func MouseButton(c *ui.Context, label string, enabled bool) bool {
+	return mouseButtonNamed(c, label, label, enabled)
+}
+
+// mouseButtonNamed is MouseButton showing text, named name: the delete
+// dialog's "Delete" is "Delete for good", apart from the toolbar's Delete.
+func mouseButtonNamed(c *ui.Context, text, name string, enabled bool) bool {
 	t := c.Theme()
-	b := ui.Row(c).Role(ui.RoleButton).Label(label).Padding(6, 12).Radius(6).Border(1, t.Border).Disabled(!enabled)
-	b.Children(func() { ui.Text(c, label) })
+	b := ui.Row(c).Role(ui.RoleButton).Label(name).Padding(6, 12).Radius(6).Border(1, t.Border).Disabled(!enabled)
+	b.Children(func() { ui.Text(c, text) })
 	return enabled && b.Clicked()
 }
 

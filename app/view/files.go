@@ -31,6 +31,8 @@ type filesTab struct {
 	selection                ui.Selection[string]
 	sort                     ui.SortOrder
 	name                     *nameDialog
+	jobs                     []*fileJob         // in start order, done ones until dismissed
+	confirm                  *model.ListChanges // the shown job dialog's delay; nil while none shows
 }
 
 // nameDialog is New folder or Rename. folder is the folder shown when it
@@ -170,9 +172,12 @@ func (a *App) openEntry(id string, x hubapi.FileEntry) {
 	}
 }
 
-// endFiles is a hub stop for the Files tabs: a load in flight will get no
-// reply, and a name dialog's request none either.
+// endFiles is a hub stop for the Files tabs: their jobs died with it, a
+// load in flight will get no reply, and a name dialog's request none either.
 func (a *App) endFiles() {
+	for _, j := range a.jobs {
+		a.finishJob(j, nil, "hub restarted")
+	}
 	for _, v := range a.files {
 		if v.loading {
 			v.loading, v.relist = false, ""
@@ -217,8 +222,21 @@ func (a *App) buildFiles(c *ui.Context, t model.Tab) {
 			if ui.Button(c, "New folder").Disabled(!ready).Clicked() {
 				act = func() { v.name = &nameDialog{folder: v.shown} }
 			}
+			// mygo's picker takes files or folders, not both: two buttons (plan Decision 4).
+			if ui.Button(c, "Upload files").Disabled(!ready).Clicked() {
+				act = func() { a.pickUpload(id, false) }
+			}
+			if ui.Button(c, "Upload folder").Disabled(!ready).Clicked() {
+				act = func() { a.pickUpload(id, true) }
+			}
+			if ui.Button(c, "Download").Disabled(!ready || len(sel) == 0).Clicked() {
+				act = func() { a.pickDownload(id) }
+			}
 			if ui.Button(c, "Rename").Disabled(!ready || len(sel) != 1).Clicked() {
 				act = func() { v.name = &nameDialog{rename: true, from: sel[0].Name, value: sel[0].Name, folder: v.shown} }
+			}
+			if ui.Button(c, "Delete").Disabled(!ready || len(sel) == 0).Clicked() {
+				act = func() { a.removeFiles(id) }
 			}
 		})
 		if v.err != "" {
@@ -230,7 +248,11 @@ func (a *App) buildFiles(c *ui.Context, t model.Tab) {
 		if v.listing != nil && v.listing.Bad > 0 {
 			ui.Text(c, model.BadNote(v.listing.Bad)).TextColor(th.TextMuted)
 		}
-		ui.Column(c).Grow(1).Children(func() {
+		zone := ui.Column(c).Grow(1)
+		if zone.FileDragOver() {
+			zone.Border(2, th.Accent)
+		}
+		zone.Children(func() {
 			rows := v.rows
 			v.ls.Selected, v.ls.Selection, v.ls.Sort = &v.sel, &v.selection, &v.sort
 			v.ls.Key = func(i int) any { return rows[i].Name }
@@ -250,14 +272,26 @@ func (a *App) buildFiles(c *ui.Context, t model.Tab) {
 			if tb.Shortcut(0, ui.KeyF2) && ready && len(sel) == 1 {
 				act = func() { v.name = &nameDialog{rename: true, from: sel[0].Name, value: sel[0].Name, folder: v.shown} }
 			}
+			if tb.Shortcut(0, ui.KeyDelete) && ready {
+				act = func() { a.removeFiles(id) }
+			}
 			if v.listing != nil && len(rows) == 0 {
 				ui.Text(c, "Empty folder.").TextColor(th.TextMuted)
 			}
 		})
+		// The OS hands over the paths; dropFiles checks them. The Tester
+		// cannot drop, so this line is checked by hand (plan Decision 5).
+		if p := zone.DroppedFiles(); p != nil {
+			act = func() { a.dropFiles(id, p) }
+		}
+		if len(v.jobs) > 0 {
+			a.buildTransfers(c, v)
+		}
 	})
 	if v.name != nil {
 		a.buildNameDialog(c, id, v)
 	}
+	a.buildFileConfirm(c, v)
 	if act != nil {
 		act()
 	}
