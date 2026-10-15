@@ -9,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/hubapi"
 	"github.com/lang315/sshgate/app/hubproc"
+	"github.com/lang315/sshgate/app/model"
 	"github.com/lang315/sshgate/app/termconn"
 )
 
@@ -57,6 +58,32 @@ func TestForgetReplyAfterAHubStopChangesNothing(t *testing.T) {
 	tt.flush()
 	if a.editor != nil || a.alert != "" || hasCall(d, "servers") {
 		t.Fatalf("editor %v, alert %q, calls %v after the dead hub's reply", a.editor != nil, a.alert, d.callList())
+	}
+}
+
+// lockNow locks the hub under the app, as a lock from elsewhere does.
+func lockNow(t *testing.T, a *App, tt *tester, d *fakeDoor) {
+	t.Helper()
+	d.set(func() { d.status.Locked = true })
+	note(t, a, tt, "locked", map[string]string{"reason": "manual"})
+	if a.Screen() != model.ScreenLocked {
+		t.Fatal(a.Screen())
+	}
+}
+
+// A forget reply that lands behind the lock screen asks the locked hub for
+// nothing.
+func TestForgetReplyAfterALockChangesNothing(t *testing.T) {
+	a, tt, d := editBox(t, boxServer)
+	gate := make(chan struct{})
+	d.set(func() { d.gates = map[string]chan struct{}{"servers.forgetHostKey": gate} })
+	clickT(t, tt, "Forget host key")
+	lockNow(t, a, tt, d)
+	d.resetCalls()
+	close(gate)
+	tt.flush()
+	if a.editor != nil || a.alert != "" || hasCall(d, "servers") {
+		t.Fatalf("editor %v, alert %q, calls %v after a reply behind the lock", a.editor != nil, a.alert, d.callList())
 	}
 }
 
@@ -142,6 +169,25 @@ func TestDeleteReplyAfterAHubStopChangesNothing(t *testing.T) {
 	tt.flush()
 	if a.del != nil || a.alert != "" || hasCall(d, "servers") {
 		t.Fatalf("confirm %v, alert %q, calls %v after the dead hub's reply", a.del != nil, a.alert, d.callList())
+	}
+}
+
+// A delete refusal that lands behind the lock screen alerts nothing and
+// asks the locked hub for nothing.
+func TestDeleteReplyAfterALockChangesNothing(t *testing.T) {
+	gate := make(chan struct{})
+	d := &fakeDoor{status: hubapi.Status{HasVault: true}, servers: []hubapi.Server{boxServer},
+		gates: map[string]chan struct{}{"servers.delete": gate}, errs: map[string]error{"servers.delete": errors.New(`server "box" not found`)}}
+	a, tt, c := openDelete(t, d)
+	c.add(600 * time.Millisecond)
+	tt.Frame()
+	clickT(t, tt, "Delete host")
+	lockNow(t, a, tt, d)
+	d.resetCalls()
+	close(gate)
+	tt.flush()
+	if a.del != nil || a.alert != "" || hasCall(d, "servers") {
+		t.Fatalf("confirm %v, alert %q, calls %v after a reply behind the lock", a.del != nil, a.alert, d.callList())
 	}
 }
 

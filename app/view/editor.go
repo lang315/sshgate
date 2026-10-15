@@ -314,7 +314,8 @@ func (a *App) buildAIAccess(c *ui.Context, s *hubapi.Server) {
 
 // forgetKey unpins the edited server's host key at once, as Electron does,
 // with no confirm; the editor stays open and shows it unpinned once the
-// host list is back. The hub closes the server's connection.
+// host list is back. The hub closes the server's connection. The reply is
+// dropped if its hub stopped or the ready screen went (a lock).
 func (a *App) forgetKey() {
 	ed := a.editor
 	if ed == nil || ed.busy {
@@ -325,7 +326,7 @@ func (a *App) forgetKey() {
 	go func() {
 		err := a.hub().ForgetHostKey(context.Background(), ed.name)
 		a.Update(func() {
-			if gen != a.hubGen {
+			if gen != a.hubGen || a.screen != model.ScreenReady {
 				return
 			}
 			ed.busy = false
@@ -389,13 +390,14 @@ func (a *App) buildDeleteConfirm(c *ui.Context) {
 }
 
 // deleteHost sends servers.delete; a refusal shows in the alert row, and
-// the host list is read again either way.
+// the host list is read again either way. The reply is dropped if its hub
+// stopped or the ready screen went (a lock).
 func (a *App) deleteHost(name string) {
 	gen := a.hubGen
 	go func() {
 		err := a.hub().DeleteServer(context.Background(), name)
 		a.Update(func() {
-			if gen != a.hubGen {
+			if gen != a.hubGen || a.screen != model.ScreenReady {
 				return
 			}
 			if err != nil {

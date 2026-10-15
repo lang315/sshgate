@@ -416,7 +416,7 @@ func TestSaveIsReachableWithEveryFoldOpen(t *testing.T) {
 	if !ok || r.Y < 0 || r.Y+r.H > 500 {
 		t.Fatalf("Save at %+v in a 500-high window", r)
 	}
-	// The body really scrolls: the pin, last in it, starts below the window
+	// The body really scrolls: the pin, near its end, starts below the window
 	// and comes into it.
 	pin := "ssh-ed25519 SHA256:x"
 	if r, _ := tt.Find(pin); r.Y+r.H <= 500 {
