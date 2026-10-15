@@ -134,6 +134,9 @@ func TestFlowFiles(t *testing.T) {
 	if !f.tt.HasText("Delete for good?") {
 		t.Fatal("Delete worked without the typed word")
 	}
+	if _, err := os.Stat(filepath.Join(f.sftp, "home", "proj2")); err != nil {
+		t.Fatalf("Delete without the typed word removed proj2: %v", err)
+	}
 	f.tt.Type("delete")
 	f.click("Delete for good")
 	f.row("proj2", false)
@@ -160,7 +163,7 @@ func TestFlowFilesNewFolderStays(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(f.sftp, "home", "elsewhere", "trap")); !os.IsNotExist(err) {
 		t.Fatal("made in the folder navigated to")
 	}
-	f.tt.flush()
+	f.until(func() bool { return v.name == nil && !v.loading }, "the dialog closed and the relist done")
 	if v.pathIn != "/home/elsewhere" || count(f.tt.Texts(), "trap") != 0 {
 		t.Fatalf("pulled back: %q %q", v.pathIn, f.tt.Texts())
 	}
