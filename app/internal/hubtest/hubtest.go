@@ -129,25 +129,35 @@ func Start(t *testing.T, o Options) Server {
 func SSHD(t *testing.T) string { return Start(t, Options{}).Store }
 
 // Runtime is Env plus the runtime directory, where the hub puts its MCP
-// door socket (MCPSocket).
-func Runtime(t *testing.T) ([]string, string) {
-	dir := RuntimeDir(t)
+// door socket (MCPSocket), and the hub's temp home.
+func Runtime(t *testing.T) (env []string, dir, home string) {
 	// A temp home, so the hub never reads the real ~/.ssh/known_hosts for
 	// the trust hint. No SSH_AUTH_SOCK: no test hub may use the real agent.
 	// shortcut: ssh -G and the default ~/.ssh/config of import.scan find
-	// home from the account database, not HOME; tests pass --sshConfig, and
-	// an import test's config must set UserKnownHostsFile, or ssh -G reads
-	// the real ~/.ssh/known_hosts.
-	home := t.TempDir()
-	env := append(os.Environ(), "SSHGATE_RUNTIME_DIR="+dir, "HOME="+home, "SSH_AUTH_SOCK=")
+	// home from the account database, not HOME; tests pass --sshConfig
+	// written by SSHConfig, or ssh -G reads the real ~/.ssh.
+	dir = RuntimeDir(t)
+	home = t.TempDir()
+	env = append(os.Environ(), "SSHGATE_RUNTIME_DIR="+dir, "HOME="+home, "SSH_AUTH_SOCK=")
 	if runtime.GOOS == "windows" {
 		env = append(env, "USERPROFILE="+home)
 	}
-	return env, dir
+	return env, dir, home
 }
 
 // Env is the environment for a hub under test.
 func Env(t *testing.T) []string {
-	env, _ := Runtime(t)
+	env, _, _ := Runtime(t)
 	return env
+}
+
+// SSHConfig writes body to path as an ssh config for import.scan, ending
+// with a Host * stanza that keeps ssh -G away from the real ~/.ssh: no
+// default identity, and knownHosts as the user known_hosts file.
+func SSHConfig(t *testing.T, path, body, knownHosts string) {
+	t.Helper()
+	body += "Host *\n  IdentityFile " + filepath.Join(filepath.Dir(path), "missing") + "\n  UserKnownHostsFile " + knownHosts + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }

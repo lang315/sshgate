@@ -69,7 +69,7 @@ func flowWith(t *testing.T, o hubtest.Options, extraArgs ...string) *flowT {
 	srv := hubtest.Start(t, o)
 	store := srv.Store
 	bin, _ := hubtest.Binaries(t)
-	env, dir := hubtest.Runtime(t)
+	env, dir, _ := hubtest.Runtime(t)
 	c := &clock{t: time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)}
 	a := &App{Now: c.now}
 	tt := newTester(t, a) // sets a.Update before the hub can send a note

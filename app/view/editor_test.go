@@ -2,6 +2,7 @@ package view
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -43,14 +44,7 @@ func count(texts []string, s string) int {
 	return n
 }
 
-func hasCall(d *fakeDoor, method string) bool {
-	for _, m := range d.callList() {
-		if m == method {
-			return true
-		}
-	}
-	return false
-}
+func hasCall(d *fakeDoor, method string) bool { return slices.Contains(d.callList(), method) }
 
 // params is the JSON params of the last call the door saw for method.
 func params(d *fakeDoor, method string) string {
@@ -371,11 +365,7 @@ func TestSaveReplyAfterALockChangesNothing(t *testing.T) {
 		d.errs = map[string]error{"servers.save": errors.New("saved, but auto-allow was not turned on: server changed; try again")}
 	})
 	clickT(t, tt, "Save")
-	d.set(func() { d.status.Locked = true })
-	note(t, a, tt, "locked", map[string]string{"reason": "manual"})
-	if a.Screen() != model.ScreenLocked {
-		t.Fatal(a.Screen())
-	}
+	lockNow(t, a, tt, d)
 	d.resetCalls()
 	close(gate)
 	tt.flush()

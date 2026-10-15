@@ -3,7 +3,6 @@ package view
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -14,7 +13,6 @@ import (
 // importState is the open import sheet (Electron's ImportSheet.tsx). scan
 // is nil until the first import.scan answers.
 type importState struct {
-	seq     int
 	scan    *hubapi.ImportScan
 	checked map[string]bool // aliases; only ready ones are ever set
 	busy    bool
@@ -25,7 +23,7 @@ type importState struct {
 func (a *App) openImport() {
 	a.sheetSeq++
 	a.editor = nil
-	a.imp = &importState{seq: a.sheetSeq}
+	a.imp = &importState{}
 	a.scanImport(false)
 }
 
@@ -38,7 +36,7 @@ func (a *App) scanImport(rescan bool) {
 	go func() {
 		s, err := a.hub().ImportScan(context.Background())
 		a.Update(func() {
-			if gen != a.hubGen || a.screen != model.ScreenReady || a.imp != imp {
+			if !a.ready(gen) || a.imp != imp {
 				return
 			}
 			imp.busy = false
@@ -83,7 +81,7 @@ func (a *App) applyImport() {
 	go func() {
 		r, err := a.hub().ImportApply(context.Background(), names)
 		a.Update(func() {
-			if gen != a.hubGen || a.screen != model.ScreenReady {
+			if !a.ready(gen) {
 				return
 			}
 			imp.busy = false
@@ -114,53 +112,38 @@ func (a *App) buildImport(c *ui.Context) {
 	imp := a.imp
 	n := len(imp.importAliases())
 	closed, submit := false, false
-	sheet := ui.Column(c.Key("import-"+strconv.Itoa(imp.seq))).Fill().Width(420).Background(t.Surface).BorderWidth(0, 0, 0, 1).BorderColor(t.Border).
-		Role(ui.RoleDialog).Label("Import from SSH config")
-	sheet.Children(func() {
-		ui.Row(c).Gap(8).Padding(12, 16).Children(func() {
-			ui.Text(c, "Import from SSH config").Bold().FontSize(16).Grow(1)
-			if ui.Button(c, "×").Label("Close import").Tooltip("Close").Clicked() {
-				closed = true
-			}
-		})
-		ui.Scroll(c).Grow(1).Children(func() {
-			ui.Column(c).Gap(12).Padding(8, 16).Children(func() {
-				ui.RichText(c,
-					ui.Span{Text: "Host keys come from your known_hosts. With "},
-					ui.Span{Text: "StrictHostKeyChecking accept-new", Font: "monospace"},
-					ui.Span{Text: ", OpenSSH accepted them without asking you; compare them with the server if unsure."}).TextColor(t.TextMuted)
-				switch {
-				case imp.scan == nil && imp.busy:
-					ui.Text(c, "Reading your SSH config…").TextColor(t.TextMuted)
-				case imp.scan != nil:
-					if imp.scan.Note != "" {
-						ui.Text(c, model.DisplayText(imp.scan.Note)).TextColor(t.TextMuted)
-					}
-					for _, cand := range imp.scan.Candidates {
-						a.buildImportRow(c, cand)
-					}
+	if a.buildSheet(c, "import", "Import from SSH config", "Import from SSH config", "Close import", imp.err, imp.busy, func() {
+		ui.Column(c).Gap(12).Padding(8, 16).Children(func() {
+			ui.RichText(c,
+				ui.Span{Text: "Host keys come from your known_hosts. With "},
+				ui.Span{Text: "StrictHostKeyChecking accept-new", Font: "monospace"},
+				ui.Span{Text: ", OpenSSH accepted them without asking you; compare them with the server if unsure."}).TextColor(t.TextMuted)
+			switch {
+			case imp.scan == nil && imp.busy:
+				ui.Text(c, "Reading your SSH config…").TextColor(t.TextMuted)
+			case imp.scan != nil:
+				if imp.scan.Note != "" {
+					ui.Text(c, model.DisplayText(imp.scan.Note)).TextColor(t.TextMuted)
 				}
-			})
-		})
-		ui.Row(c).Gap(8).Padding(12, 16).Justify(ui.End).Children(func() {
-			if imp.err != "" {
-				ui.Text(c, model.DisplayText(imp.err)).TextColor(t.Danger).Grow(1)
-			}
-			// Keyed: the error above comes and goes, and would re-mount (and
-			// re-focus) them.
-			if ui.Button(c.Key("close"), "Close").AutoFocus().Clicked() {
-				closed = true
-			}
-			label := fmt.Sprintf("Import %d hosts", n)
-			if n == 1 {
-				label = "Import 1 host"
-			}
-			if ui.PrimaryButton(c.Key("import"), label).Disabled(imp.busy || n == 0).Clicked() {
-				submit = true
+				for _, cand := range imp.scan.Candidates {
+					a.buildImportRow(c, cand)
+				}
 			}
 		})
-	})
-	if sheet.Shortcut(0, ui.KeyEscape) && !imp.busy {
+	}, func() {
+		// Keyed: the error before them comes and goes, and would re-mount (and
+		// re-focus) them.
+		if ui.Button(c.Key("close"), "Close").AutoFocus().Clicked() {
+			closed = true
+		}
+		label := fmt.Sprintf("Import %d hosts", n)
+		if n == 1 {
+			label = "Import 1 host"
+		}
+		if ui.PrimaryButton(c.Key("import"), label).Disabled(imp.busy || n == 0).Clicked() {
+			submit = true
+		}
+	}) {
 		closed = true
 	}
 	switch {
@@ -187,14 +170,14 @@ func (a *App) buildImportRow(c *ui.Context, cand hubapi.Candidate) {
 			} else {
 				ui.Text(c, alias).Bold()
 			}
-			status, col := map[string]string{"ready": "Ready", "exists": "Already in vault"}[cand.Status], t.Warning
-			if status == "" {
-				status = "Skipped"
+			switch cand.Status {
+			case "ready":
+				ui.Text(c, "Ready").TextColor(t.Success)
+			case "exists":
+				ui.Text(c, "Already in vault").TextColor(t.Warning)
+			default:
+				ui.Text(c, "Skipped").TextColor(t.Warning)
 			}
-			if cand.Status == "ready" {
-				col = t.Success
-			}
-			ui.Text(c, status).TextColor(col)
 		})
 		if cand.Status == "skipped" {
 			ui.Text(c, model.DisplayText(cand.Reason)).TextColor(t.TextMuted)

@@ -4,7 +4,6 @@ package view
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -22,10 +21,7 @@ import (
 // fill replaces a field's text, as the e2e's fill does.
 func (f *flowT) fill(label, text string) {
 	f.t.Helper()
-	f.click(label)
-	f.tt.Key(ui.Cmd, ui.KeyA)
-	f.tt.Type(text)
-	f.tt.Frame()
+	fill(f.t, f.tt, label, text)
 }
 
 func (f *flowT) createVault() {
@@ -137,9 +133,8 @@ func TestFlowHostsCreateTrustEditForgetDelete(t *testing.T) {
 	f.configRecords("box", "delete", 1)
 }
 
-// TestFlowImportPinsFromKnownHosts: import.spec.ts. The config's last
-// stanza points IdentityFile and UserKnownHostsFile into the test's own
-// folder, so ssh -G never reads the real ~/.ssh.
+// TestFlowImportPinsFromKnownHosts: import.spec.ts. hubtest.SSHConfig keeps
+// ssh -G away from the real ~/.ssh.
 func TestFlowImportPinsFromKnownHosts(t *testing.T) {
 	needLib(t)
 	for _, bin := range []string{"ssh", "ssh-keygen"} {
@@ -153,14 +148,10 @@ func TestFlowImportPinsFromKnownHosts(t *testing.T) {
 		t.Fatalf("ssh-keygen: %v %s", err, out)
 	}
 	f := flowWith(t, hubtest.Options{KnownHosts: kh}, "--sshConfig="+cfg)
-	conf := strings.Join([]string{
+	hubtest.SSHConfig(t, cfg, strings.Join([]string{
 		"Host work", "  HostName 127.0.0.1", fmt.Sprintf("  Port %d", f.port), "  User test", "  IdentityFile " + key,
-		"Host viaproxy", "  HostName 127.0.0.1", "  ProxyCommand nc %h %p",
-		"Host *", "  IdentityFile " + filepath.Join(dir, "missing"), "  UserKnownHostsFile " + kh, "",
-	}, "\n")
-	if err := os.WriteFile(cfg, []byte(conf), 0o600); err != nil {
-		t.Fatal(err)
-	}
+		"Host viaproxy", "  HostName 127.0.0.1", "  ProxyCommand nc %h %p", "",
+	}, "\n"), kh)
 	f.unlock()
 	f.tt.SetSize(1000, 900)
 	f.click("Import from SSH config")

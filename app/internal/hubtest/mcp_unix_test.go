@@ -19,7 +19,7 @@ func TestExecWaitsForApprovalThenRuns(t *testing.T) {
 	}
 	store := hubtest.SSHD(t)
 	bin, _ := hubtest.Binaries(t)
-	env, dir := hubtest.Runtime(t)
+	env, dir, _ := hubtest.Runtime(t)
 	p, err := hubproc.Start(context.Background(), hubproc.Launch{Command: bin, Args: []string{"hub", "--store=" + store}, Env: env}, nil)
 	if err != nil {
 		t.Fatal(err)

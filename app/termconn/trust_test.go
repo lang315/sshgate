@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -24,19 +23,7 @@ func TestTrustThroughHub(t *testing.T) {
 	}
 	// The hub gets a temp home: the prompt's known_hosts hint comes from
 	// its .ssh, never from the real one.
-	env, homeVar := hubtest.Env(t), "HOME="
-	if runtime.GOOS == "windows" {
-		homeVar = "USERPROFILE="
-	}
-	home := ""
-	for _, kv := range env {
-		if strings.HasPrefix(kv, homeVar) {
-			home = strings.TrimPrefix(kv, homeVar) // the last one wins, as in exec
-		}
-	}
-	if real, _ := os.UserHomeDir(); home == "" || home == real {
-		t.Fatalf("the hub's home is %q, the real one", home)
-	}
+	env, _, home := hubtest.Runtime(t)
 	if err := os.MkdirAll(filepath.Join(home, ".ssh"), 0o700); err != nil {
 		t.Fatal(err)
 	}

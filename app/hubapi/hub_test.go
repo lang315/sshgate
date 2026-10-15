@@ -2,7 +2,6 @@ package hubapi
 
 import (
 	"context"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -74,11 +73,7 @@ func TestHostWritesAgainstRealHub(t *testing.T) {
 	bin, _ := hubtest.Binaries(t)
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "ssh_config")
-	// Host * keeps ssh -G away from the real ~/.ssh.
-	conf := "Host jump\n  HostName 127.0.0.1\n  ProxyJump other\nHost *\n  IdentityFile " + filepath.Join(dir, "missing") + "\n  UserKnownHostsFile " + filepath.Join(dir, "known_hosts") + "\n"
-	if err := os.WriteFile(cfg, []byte(conf), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	hubtest.SSHConfig(t, cfg, "Host jump\n  HostName 127.0.0.1\n  ProxyJump other\n", filepath.Join(dir, "known_hosts"))
 	p, err := hubproc.Start(context.Background(), hubproc.Launch{Command: bin, Args: []string{"hub", "--store=" + store, "--sshConfig=" + cfg}, Env: hubtest.Env(t)}, nil)
 	if err != nil {
 		t.Fatal(err)

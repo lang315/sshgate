@@ -143,14 +143,8 @@ func ClosesTabs(s *hubapi.Server, d HostDraft) bool {
 }
 
 func CloseWarning(openTabs, transfers int) string {
-	plural := func(n int, one, many string) string {
-		if n == 1 {
-			return one
-		}
-		return many
-	}
-	tabs := fmt.Sprintf("close %d open %s", openTabs, plural(openTabs, "tab", "tabs"))
-	jobs := fmt.Sprintf("cancel %d %s", transfers, plural(transfers, "transfer", "transfers"))
+	tabs := fmt.Sprintf("close %d open tab%s", openTabs, plural(openTabs))
+	jobs := fmt.Sprintf("cancel %d transfer%s", transfers, plural(transfers))
 	switch {
 	case openTabs > 0 && transfers > 0:
 		return "Saving will " + tabs + " and " + jobs + "."

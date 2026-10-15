@@ -20,7 +20,6 @@ const savedBut = "saved, but auto-allow was not turned on: "
 // the server edited, "" for New host. A typed secret lives only in draft,
 // which goes when the editor closes.
 type editorState struct {
-	seq             int // keys the sheet: each editor is a new mount, so AutoFocus runs again
 	name            string
 	draft           model.HostDraft
 	showAuth        bool // the Auth radios instead of "+ Key or agent"
@@ -47,12 +46,16 @@ func (a *App) openEditor(name string, focusForget bool) {
 	s := a.server(name)
 	a.sheetSeq++
 	a.imp = nil
-	a.editor = &editorState{seq: a.sheetSeq, name: name, draft: model.DraftFrom(s), showAuth: s != nil && s.Auth != "password", focusForget: focusForget}
+	a.editor = &editorState{name: name, draft: model.DraftFrom(s), showAuth: s != nil && s.Auth != "password", focusForget: focusForget}
 }
 
 // dropDialogs closes the host dialogs when the ready screen goes (lock, hub
 // stop): a typed secret must not outlive it, and an unlock opens none again.
 func (a *App) dropDialogs() { a.editor, a.imp, a.del = nil, nil, nil }
+
+// ready reports whether a host write's reply, sent while hub generation gen
+// ran, still applies: no hub stop since, and the ready screen shows (no lock).
+func (a *App) ready(gen int) bool { return gen == a.hubGen && a.screen == model.ScreenReady }
 
 // closeSheet drops the open sheet, and any typed secret with it, but not a
 // delete confirm a late save reply finds open. mygo restores no focus: the
@@ -64,6 +67,35 @@ func (a *App) closeSheet() {
 		return
 	}
 	a.searchH.Focus()
+}
+
+// buildSheet is the frame both sheets share: a column beside the content,
+// not a modal, so the AI requests column stays usable; a title row with ×,
+// a scrolling body, and a footer that starts with the error, then footer's
+// buttons. Each sheet is a new mount (keyed by sheetSeq), so AutoFocus runs
+// again. It reports × and Esc, which closes it only while the focus is
+// inside it, and not while busy.
+func (a *App) buildSheet(c *ui.Context, key, title, label, closeLabel, errText string, busy bool, body, footer func()) (closed bool) {
+	t := c.Theme()
+	sheet := ui.Column(c.Key(key+"-"+strconv.Itoa(a.sheetSeq))).Fill().Width(420).Background(t.Surface).BorderWidth(0, 0, 0, 1).BorderColor(t.Border).
+		Role(ui.RoleDialog).Label(label)
+	sheet.Children(func() {
+		ui.Row(c).Gap(8).Padding(12, 16).Children(func() {
+			ui.Text(c, title).Bold().FontSize(16).Grow(1)
+			if ui.Button(c, "×").Label(closeLabel).Tooltip("Close").Clicked() {
+				closed = true
+			}
+		})
+		ui.Scroll(c).Grow(1).Children(body)
+		ui.Row(c).Gap(8).Padding(12, 16).Justify(ui.End).Children(func() {
+			if errText != "" {
+				ui.Text(c, model.DisplayText(errText)).TextColor(t.Danger).Grow(1)
+			}
+			footer()
+		})
+	})
+	esc := sheet.Shortcut(0, ui.KeyEscape)
+	return closed || esc && !busy
 }
 
 // keptMode is the autoAllow a save sends while the editor has no Auto-allow
@@ -92,7 +124,7 @@ func (a *App) saveHost() {
 	go func() {
 		err := a.hub().SaveServer(context.Background(), ed.name, in, mode)
 		a.Update(func() {
-			if gen != a.hubGen || a.screen != model.ScreenReady {
+			if !a.ready(gen) {
 				return
 			}
 			ed.busy = false
@@ -111,11 +143,8 @@ func (a *App) saveHost() {
 	}()
 }
 
-// buildEditor is the host editor: a column beside the content, not a modal,
-// so the AI requests column stays usable. Esc closes it only while the
-// focus is inside it, and not while a save runs.
+// buildEditor is the host editor sheet; Enter in a text field saves.
 func (a *App) buildEditor(c *ui.Context) {
-	t := c.Theme()
 	ed := a.editor
 	s := a.server(ed.name)
 	portErr := model.PortError(ed.draft.Port)
@@ -123,35 +152,20 @@ func (a *App) buildEditor(c *ui.Context) {
 	if ed.name != "" {
 		title = "Edit " + model.DisplayText(ed.name)
 	}
-	submit, closed := false, false
-	sheet := ui.Column(c.Key("editor-"+strconv.Itoa(ed.seq))).Fill().Width(420).Background(t.Surface).BorderWidth(0, 0, 0, 1).BorderColor(t.Border).
-		Role(ui.RoleDialog).Label("Host editor")
-	sheet.Children(func() {
-		ui.Row(c).Gap(8).Padding(12, 16).Children(func() {
-			ui.Text(c, title).Bold().FontSize(16).Grow(1)
-			if ui.Button(c, "×").Label("Close host editor").Tooltip("Close").Clicked() {
-				closed = true
-			}
+	closed, submit := false, false
+	if a.buildSheet(c, "editor", title, "Host editor", "Close host editor", ed.err, ed.busy, func() {
+		ui.Column(c).Gap(14).Padding(8, 16).Children(func() {
+			submit = a.buildEditorBody(c, s, portErr)
 		})
-		ui.Scroll(c).Grow(1).Children(func() {
-			ui.Column(c).Gap(14).Padding(8, 16).Children(func() {
-				submit = a.buildEditorBody(c, s, portErr)
-			})
-		})
-		ui.Row(c).Gap(8).Padding(12, 16).Justify(ui.End).Children(func() {
-			if ed.err != "" {
-				ui.Text(c, model.DisplayText(ed.err)).TextColor(t.Danger).Grow(1)
-			}
-			// Keyed: the error above comes and goes, and would re-mount them.
-			if ui.Button(c.Key("close"), "Close").Clicked() {
-				closed = true
-			}
-			if ui.PrimaryButton(c.Key("save"), "Save").Disabled(ed.busy || portErr != "").Clicked() {
-				submit = true
-			}
-		})
-	})
-	if sheet.Shortcut(0, ui.KeyEscape) && !ed.busy {
+	}, func() {
+		// Keyed: the error before them comes and goes, and would re-mount them.
+		if ui.Button(c.Key("close"), "Close").Clicked() {
+			closed = true
+		}
+		if ui.PrimaryButton(c.Key("save"), "Save").Disabled(ed.busy || portErr != "").Clicked() {
+			submit = true
+		}
+	}) {
 		closed = true
 	}
 	switch {
@@ -335,7 +349,7 @@ func (a *App) forgetKey() {
 	go func() {
 		err := a.hub().ForgetHostKey(context.Background(), ed.name)
 		a.Update(func() {
-			if gen != a.hubGen || a.screen != model.ScreenReady {
+			if !a.ready(gen) {
 				return
 			}
 			ed.busy = false
@@ -406,7 +420,7 @@ func (a *App) deleteHost(name string) {
 	go func() {
 		err := a.hub().DeleteServer(context.Background(), name)
 		a.Update(func() {
-			if gen != a.hubGen || a.screen != model.ScreenReady {
+			if !a.ready(gen) {
 				return
 			}
 			if err != nil {
