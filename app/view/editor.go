@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/hubapi"
@@ -50,7 +51,7 @@ func (a *App) openEditor(name string, focusForget bool) {
 
 // dropDialogs closes the host dialogs when the ready screen goes (lock, hub
 // stop): a typed secret must not outlive it, and an unlock opens none again.
-func (a *App) dropDialogs() { a.editor = nil }
+func (a *App) dropDialogs() { a.editor, a.del = nil, nil }
 
 // closeSheet drops the open sheet, and any typed secret with it. mygo
 // restores no focus: the active terminal gets it, else the host search.
@@ -276,6 +277,16 @@ func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (
 		ui.Text(c, "Host key").Bold()
 		if s.HostKey != "" {
 			ui.Text(c, model.DisplayText(strings.TrimSpace(s.HostKeyAlgo+" "+s.HostKey))).Font("monospace").Selectable()
+			ui.Row(c).Gap(8).Children(func() {
+				forget := ui.Button(c, "Forget host key").Disabled(ed.busy)
+				if ed.focusForget {
+					forget.AutoFocus()
+				}
+				if forget.Clicked() {
+					a.forgetKey()
+				}
+				ui.Text(c, "Takes effect immediately.").TextColor(t.TextMuted)
+			})
 		} else {
 			ui.Text(c, "Not pinned. You will be asked to confirm it on the next connect.").TextColor(t.TextMuted)
 		}
@@ -299,4 +310,98 @@ func (a *App) buildAIAccess(c *ui.Context, s *hubapi.Server) {
 	if s == nil || s.HostKey == "" {
 		ui.Text(c, "Needs a pinned host key.").TextColor(t.TextMuted)
 	}
+}
+
+// forgetKey unpins the edited server's host key at once, as Electron does,
+// with no confirm; the editor stays open and shows it unpinned once the
+// host list is back. The hub closes the server's connection.
+func (a *App) forgetKey() {
+	ed := a.editor
+	if ed == nil || ed.busy {
+		return
+	}
+	ed.busy, ed.err = true, ""
+	gen := a.hubGen
+	go func() {
+		err := a.hub().ForgetHostKey(context.Background(), ed.name)
+		a.Update(func() {
+			if gen != a.hubGen {
+				return
+			}
+			ed.busy = false
+			if err != nil {
+				ed.err = err.Error()
+				return
+			}
+			a.reloadServers()
+		})
+	}()
+}
+
+// deleteState is the delete confirm for name, shown at at: its Delete
+// waits AllowDelay, so a double click on the card cannot confirm it.
+type deleteState struct {
+	name string
+	at   time.Time
+}
+
+func (a *App) askDelete(name string) { a.del = &deleteState{name: name, at: a.Now()} }
+
+// buildDeleteConfirm is Electron's window.confirm before servers.delete:
+// Cancel has the focus, so Enter and Esc keep the host, and Delete host is
+// mouse-only.
+func (a *App) buildDeleteConfirm(c *ui.Context) {
+	del := a.del
+	if del == nil {
+		return
+	}
+	now := a.Now()
+	ok := model.TrustEnabled(del.at, now)
+	if !ok {
+		c.After(del.at.Add(model.AllowDelay).Sub(now))
+	}
+	answer := 0 // 1 delete, 2 cancel
+	open := true
+	m := ui.Modal(c.Key("del-"+del.name), &open, func() {
+		ui.Column(c).Width(420).Gap(12).Padding(20).Children(func() {
+			ui.Text(c, "Delete "+model.DisplayText(del.name)+"? Its saved passwords and host key are removed and its open tabs close.")
+			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+				if ui.Button(c, "Cancel").AutoFocus().Clicked() {
+					answer = 2
+				}
+				if MouseButton(c, "Delete host", ok) && model.TrustEnabled(del.at, a.Now()) {
+					answer = 1
+				}
+			})
+		})
+	}).Label("Confirm delete")
+	if m.Dismissed() {
+		answer = 2
+	}
+	if answer == 0 {
+		return
+	}
+	a.del = nil
+	if answer == 1 {
+		a.deleteHost(del.name)
+	}
+	a.searchH.Focus()
+}
+
+// deleteHost sends servers.delete; a refusal shows in the alert row, and
+// the host list is read again either way.
+func (a *App) deleteHost(name string) {
+	gen := a.hubGen
+	go func() {
+		err := a.hub().DeleteServer(context.Background(), name)
+		a.Update(func() {
+			if gen != a.hubGen {
+				return
+			}
+			if err != nil {
+				a.alert = err.Error()
+			}
+			a.reloadServers()
+		})
+	}()
 }

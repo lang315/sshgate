@@ -88,6 +88,7 @@ func (a *App) buildReady(c *ui.Context) {
 		})
 	})
 	a.buildHostKeyDialogs(c)
+	a.buildDeleteConfirm(c)
 }
 
 func (a *App) buildHosts(c *ui.Context) {
@@ -137,6 +138,9 @@ func (a *App) buildHosts(c *ui.Context) {
 						})
 						if ui.Button(c, "Edit").Label("Edit " + shownName).Tooltip("Edit").Clicked() {
 							a.openEditor(name, false)
+						}
+						if ui.Button(c, "Delete").Label("Delete " + shownName).Tooltip("Delete").Clicked() {
+							a.askDelete(name)
 						}
 					})
 				})

@@ -232,7 +232,7 @@ func TestKnownHostsHints(t *testing.T) {
 	}
 }
 
-func TestMismatchShowsBothKeysAndOnlyCloses(t *testing.T) {
+func TestMismatchShowsBothKeysAndCloses(t *testing.T) {
 	mis := hubapi.HostKey{Status: "hostKeyMismatch", Server: "box", Host: "127.0.0.1", Port: 2222, User: "test", Pinned: "SHA256:old", Presented: "SHA256:new"}
 	k := &keyDial{answer: func(int) (*termconn.Conn, error) { return nil, &termconn.OpenError{Status: mis.Status, Key: mis} }}
 	a, tt, _, _ := hkApp(t, k)
@@ -243,8 +243,8 @@ func TestMismatchShowsBothKeysAndOnlyCloses(t *testing.T) {
 			t.Fatalf("missing %q in %q", s, tt.Texts())
 		}
 	}
-	if tt.HasText("Trust and connect") || !tt.Focused("Close") {
-		t.Fatal("the mismatch dialog offers only Close:", tt.Texts())
+	if tt.HasText("Trust and connect") || !tt.HasText("Open host editor") || !tt.Focused("Close") {
+		t.Fatal("the mismatch dialog offers Open host editor and Close, never Trust:", tt.Texts())
 	}
 	tt.Key(0, ui.KeyEnter)
 	tt.flush()
