@@ -78,19 +78,21 @@ func TestLiveFiles(t *testing.T) {
 	portChanged := false
 	t.Cleanup(func() {
 		t.Logf(">>> if this cleanup fails, remove %s on %s by hand", remote, host)
+		// End this run's transfers first, on the hub that holds them: a
+		// Windows host cannot delete a file a live download keeps open.
+		live := func(j *fileJob) bool { return j.state == "planning" || j.state == "running" }
+		for _, j := range v.jobs {
+			if live(j) {
+				id := j.id
+				f.a.Update(func() { f.a.filesCancel(id) })
+			}
+		}
+		f.untilFor(time.Minute, func() bool { return !slices.ContainsFunc(v.jobs, live) }, "the transfers to end")
 		g, w := f, v
 		if portChanged { // this vault copy no longer reaches the host: a fresh copy does
 			g, _ = liveFlow(t, src, pw)
 			_, w = g.openFilesOn(host, time.Minute)
 		}
-		for _, j := range w.jobs {
-			if j.state == "planning" || j.state == "running" {
-				g.click("Cancel " + j.title())
-			}
-		}
-		g.untilFor(time.Minute, func() bool {
-			return !slices.ContainsFunc(w.jobs, func(j *fileJob) bool { return j.state == "planning" || j.state == "running" })
-		}, "the transfers to end")
 		g.goTo(w, home, false)
 		g.deleteByName(w, scratch)
 		t.Logf("removed %s", remote)
@@ -235,8 +237,16 @@ func TestLiveFiles(t *testing.T) {
 	if s := f.a.server(host); s != nil {
 		port = s.Port
 	}
+	f.tt.SetSize(1000, 1200) // the whole editor in view: the Tester clicks where an element is
 	f.click("Hosts")
 	f.click("Edit " + model.DisplayText(host))
+	f.until(func() bool { return f.a.editor != nil }, "the host editor")
+	// A host on auto-allow (even paused) would ask the Auto-allow dialog on
+	// Save; turn it off in this vault copy so Save only saves.
+	if d := &f.a.editor.draft; d.AutoAllow != "" {
+		openAI(f.t, f.tt)
+		choose(f.t, f.tt, autoLabel(d.AutoAllow), "Off")
+	}
 	f.click("Port")
 	f.tt.Key(ui.Cmd, ui.KeyA)
 	f.tt.Type(strconv.Itoa(port + 1))
