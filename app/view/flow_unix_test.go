@@ -33,7 +33,9 @@ type flowT struct {
 	h      *hubapi.Client // setup only; a test never decides through it
 	audit  string
 	writes *countDoor
-	port   int // sshtestd's
+	port   int             // sshtestd's
+	env    []string        // the hub's environment: the bridge runs in it
+	ai     *hubtest.Bridge // started by the first tool call
 }
 
 // countDoor is the door terminals use, counting the bytes of term.write
@@ -70,7 +72,8 @@ func flowWith(t *testing.T, o hubtest.Options, extraArgs ...string) *flowT {
 	store := srv.Store
 	bin, _ := hubtest.Binaries(t)
 	env, dir, _ := hubtest.Runtime(t)
-	c := &clock{t: time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)}
+	// The real time: the hub dates a timed grant's end by its own clock.
+	c := &clock{t: time.Now()}
 	a := &App{Now: c.now}
 	tt := newTester(t, a) // sets a.Update before the hub can send a note
 	mux := termconn.NewMux()
@@ -91,7 +94,7 @@ func flowWith(t *testing.T, o hubtest.Options, extraArgs ...string) *flowT {
 		return termconn.Open(ctx, writes, mux, id, server, 24, 80, trust)
 	}
 	running(a, tt)
-	return &flowT{t: t, a: a, tt: tt, c: c, sock: hubtest.MCPSocket(dir), h: hubapi.New(p.Client()), audit: filepath.Join(filepath.Dir(store), "audit.jsonl"), writes: writes, port: srv.Port}
+	return &flowT{t: t, a: a, tt: tt, c: c, sock: hubtest.MCPSocket(dir), h: hubapi.New(p.Client()), audit: filepath.Join(filepath.Dir(store), "audit.jsonl"), writes: writes, port: srv.Port, env: env}
 }
 
 // until flushes the UI until cond holds, failing after 10 s.
@@ -128,8 +131,8 @@ func (f *flowT) unlock() {
 	f.click("Master password")
 	f.tt.Type(hubtest.Password)
 	f.tt.Key(0, ui.KeyEnter)
-	// Not "Hosts · 1": a terminal tab may cover the host list.
-	f.until(func() bool { return f.a.Screen() == model.ScreenReady && len(f.a.Servers()) == 1 }, "the ready screen")
+	// Not "Hosts · N": a terminal tab may cover the host list.
+	f.until(func() bool { return f.a.Screen() == model.ScreenReady && len(f.a.Servers()) > 0 }, "the ready screen")
 }
 
 // openBox opens a box tab from its card, as the e2e's waitOpen does, and
@@ -207,7 +210,88 @@ func (f *flowT) audited(cmd string) auditRec {
 // auditRec is the part of an audit record the tests check.
 type auditRec struct {
 	Kind, Command, Outcome, Reason, Approval string
+	Sudo                                     bool
+	Stdin                                    string
+	WaitMs                                   int64
 	Action, Server                           string // config records
+	Until, Limit                             string
+	Forever                                  bool
+	Changed, Servers                         []string
+}
+
+// records reads the hub's audit log, oldest first.
+func (f *flowT) records() []auditRec {
+	f.t.Helper()
+	b, err := os.ReadFile(f.audit)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	var out []auditRec
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		var r auditRec
+		if err := json.Unmarshal([]byte(line), &r); err != nil {
+			f.t.Fatalf("audit line %q: %v", line, err)
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// last is the index of the newest record that match accepts, or -1.
+func last(recs []auditRec, match func(auditRec) bool) int {
+	for i := len(recs) - 1; i >= 0; i-- {
+		if match(recs[i]) {
+			return i
+		}
+	}
+	return -1
+}
+
+// lastConfig waits for, and returns, server's newest config record with
+// this action.
+func (f *flowT) lastConfig(server, action string) auditRec {
+	f.t.Helper()
+	var rec auditRec
+	f.until(func() bool {
+		recs := f.records()
+		i := last(recs, func(r auditRec) bool { return r.Kind == "config" && r.Action == action && r.Server == server })
+		if i >= 0 {
+			rec = recs[i]
+		}
+		return i >= 0
+	}, fmt.Sprintf("a %s config record of %s", action, server))
+	return rec
+}
+
+// lastExec waits for, and returns, cmd's newest exec record.
+func (f *flowT) lastExec(cmd string) auditRec {
+	f.t.Helper()
+	var rec auditRec
+	f.until(func() bool {
+		recs := f.records()
+		i := last(recs, func(r auditRec) bool { return r.Kind == "" && r.Command == cmd })
+		if i >= 0 {
+			rec = recs[i]
+		}
+		return i >= 0
+	}, "the audit record of "+cmd)
+	return rec
+}
+
+// tool runs an MCP tool through the real bridge, as an AI client does.
+func (f *flowT) tool(name string, args map[string]any) <-chan hubtest.ExecResult {
+	if f.ai == nil {
+		f.ai = hubtest.StartBridge(f.t, f.env)
+	}
+	return f.ai.Tool(name, args)
+}
+
+func (f *flowT) aiExec(server, cmd string) <-chan hubtest.ExecResult {
+	return f.tool("exec", map[string]any{"server": server, "command": cmd, "description": "flow"})
+}
+
+func (f *flowT) aiSudo(server, cmd string) <-chan hubtest.ExecResult {
+	return f.tool("sudo-exec", map[string]any{"server": server, "command": cmd, "description": "flow"})
 }
 
 // auditedConfig waits for box's config record with this action.
