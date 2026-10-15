@@ -111,8 +111,9 @@ func (a *App) buildSettings(c *ui.Context) {
 func (a *App) saveSettings(st *settingsState) {
 	st.busy, st.err = true, ""
 	gen := a.hubGen
+	limit := st.chosen
 	go func() {
-		err := a.hub().SetSoftLockLimit(context.Background(), st.chosen)
+		err := a.hub().SetSoftLockLimit(context.Background(), limit)
 		a.Update(func() {
 			if !a.ready(gen) || a.settings != st {
 				return
