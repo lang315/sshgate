@@ -160,3 +160,11 @@ type ImportResult struct {
 	Imported []string     `json:"imported"`
 	Skipped  []ImportSkip `json:"skipped"`
 }
+
+// AutoCheck is servers.autoAllowCheck's answer: the uid the server's login
+// runs as, and whether sudo asks it no password. Advice for the Auto-allow
+// dialog's root warning, never a gate.
+type AutoCheck struct {
+	UID              int  `json:"uid"`
+	PasswordlessSudo bool `json:"passwordlessSudo"`
+}

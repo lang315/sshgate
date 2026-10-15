@@ -113,3 +113,17 @@ func (h *Client) ImportApply(ctx context.Context, aliases []string) (ImportResul
 	}
 	return r, nil
 }
+
+// AutoAllowCheck runs the hub's root check on the server's pinned
+// connection; a host it cannot read answers "could not check this host".
+func (h *Client) AutoAllowCheck(ctx context.Context, server string) (AutoCheck, error) {
+	var c AutoCheck
+	err := h.c.Call(ctx, "servers.autoAllowCheck", map[string]string{"server": server}, &c)
+	return c, err
+}
+
+// SetSoftLockLimit stores how long auto-allow may run under a soft lock:
+// "24h", "3d", "7d" or "none".
+func (h *Client) SetSoftLockLimit(ctx context.Context, limit string) error {
+	return h.c.Call(ctx, "settings.setSoftLockLimit", map[string]string{"limit": limit}, nil)
+}
