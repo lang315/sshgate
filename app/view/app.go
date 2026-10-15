@@ -76,6 +76,7 @@ type App struct {
 	editor                 *editorState
 	imp                    *importState
 	del                    *deleteState
+	settings               *settingsState
 	sheetSeq               int       // numbers the sheets opened; keys the open one
 	searchH                ui.Handle // the host search: the focus after a sheet closes on Hosts
 	theme                  string    // "dark", "light" or "auto"

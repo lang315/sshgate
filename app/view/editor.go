@@ -52,7 +52,7 @@ func (a *App) openEditor(name string, focusForget bool) {
 
 // dropDialogs closes the host dialogs when the ready screen goes (lock, hub
 // stop): a typed secret must not outlive it, and an unlock opens none again.
-func (a *App) dropDialogs() { a.editor, a.imp, a.del = nil, nil, nil }
+func (a *App) dropDialogs() { a.editor, a.imp, a.del, a.settings = nil, nil, nil, nil }
 
 // ready reports whether a host write's reply, sent while hub generation gen
 // ran, still applies: no hub stop since, and the ready screen shows (no lock).
