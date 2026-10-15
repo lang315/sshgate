@@ -8,10 +8,15 @@ import (
 // AuditTab is TabSet.Active while the fixed Audit tab shows (slice 6).
 const AuditTab = "audit"
 
-// Tab is one terminal tab (desktop/src/renderer/terminals.ts). Files and
-// tunnels tabs, and their kind, come with slices 4 and 5.
+// FilesKind is Tab.Kind of a Files tab; a terminal tab's Kind is "".
+const FilesKind = "files"
+
+// Tab is one tab (desktop/src/renderer/terminals.ts): a terminal, or a
+// Files tab (Kind FilesKind), which is open from the start and never
+// exits. Tunnels tabs come with slice 5.
 type Tab struct {
 	ID, Server string
+	Kind       string
 	State      string // "opening", "open" or "exited"
 	ExitReason string
 	SawOutput  bool // the remote printed something: Send to tab may paste
@@ -32,6 +37,16 @@ func (s *TabSet) Open(server string) string {
 	s.next++
 	id := fmt.Sprintf("t%d", s.next)
 	s.Tabs = append(s.Tabs, Tab{ID: id, Server: server, State: "opening"})
+	s.Activate(id)
+	return id
+}
+
+// OpenFiles adds a Files tab at the end and activates it; every call opens
+// a new one, as Electron's does.
+func (s *TabSet) OpenFiles(server string) string {
+	s.next++
+	id := fmt.Sprintf("t%d", s.next)
+	s.Tabs = append(s.Tabs, Tab{ID: id, Server: server, Kind: FilesKind, State: "open"})
 	s.Activate(id)
 	return id
 }
@@ -94,22 +109,22 @@ func (s *TabSet) Close(id string) {
 	}
 }
 
-// MostRecentFor is the server's most recently activated tab that has not
+// MostRecentFor is the server's most recently activated terminal tab that has not
 // exited (an opening one counts), or "".
 func (s *TabSet) MostRecentFor(server string) string {
 	for i := len(s.order) - 1; i >= 0; i-- {
-		if t := s.find(s.order[i]); t != nil && t.Server == server && t.State != "exited" {
+		if t := s.find(s.order[i]); t != nil && t.Server == server && t.Kind == "" && t.State != "exited" {
 			return t.ID
 		}
 	}
 	return ""
 }
 
-// OpenCount is how many of the server's tabs have not exited.
+// OpenCount is how many of the server's terminal tabs have not exited.
 func (s *TabSet) OpenCount(server string) int {
 	n := 0
 	for _, t := range s.Tabs {
-		if t.Server == server && t.State != "exited" {
+		if t.Server == server && t.Kind == "" && t.State != "exited" {
 			n++
 		}
 	}
