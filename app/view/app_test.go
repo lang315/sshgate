@@ -111,6 +111,13 @@ type fakeShell struct {
 	mu      sync.Mutex
 	pending []int
 	notes   []string
+	themes  []string
+}
+
+func (s *fakeShell) SetTheme(pref string) {
+	s.mu.Lock()
+	s.themes = append(s.themes, pref)
+	s.mu.Unlock()
 }
 
 func (s *fakeShell) SetPending(n int) { s.mu.Lock(); s.pending = append(s.pending, n); s.mu.Unlock() }

@@ -31,6 +31,8 @@ type App struct {
 	// nil except on the retry after a host-key prompt.
 	Dial  func(ctx context.Context, id, server string, trust *hubapi.Trust) (*termconn.Conn, error)
 	Shell Shell
+	// ThemeFile keeps the theme choice across launches; "" keeps it in memory.
+	ThemeFile string
 
 	hubState                                model.HubState
 	hubSince                                time.Time // when restarting began, for the countdown
@@ -72,6 +74,7 @@ type App struct {
 	del                    *deleteState
 	sheetSeq               int       // numbers the sheets opened
 	searchH                ui.Handle // the host search: the focus after a sheet closes on Hosts
+	theme                  string    // "dark", "light" or "auto"
 }
 
 // callTimeout matches Electron's hubProcess.ts: a hung but running hub
@@ -112,6 +115,7 @@ type noShell struct{}
 
 func (noShell) SetPending(int)                {}
 func (noShell) Notify(string, string, string) {}
+func (noShell) SetTheme(string)               {}
 
 func (a *App) init() {
 	if a.dropped == nil {
@@ -121,6 +125,7 @@ func (a *App) init() {
 		a.hubState = model.HubState{Kind: "starting"}
 		a.screen = model.ScreenHub
 		a.terms = map[string]*termTab{}
+		a.theme = LoadTheme(a.ThemeFile) // main applied it before the window opened
 	}
 }
 

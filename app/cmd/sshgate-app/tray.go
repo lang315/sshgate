@@ -68,3 +68,17 @@ func (s *trayShell) Notify(id, title, body string) {
 		}
 	}()
 }
+
+// SetTheme applies the theme control's choice app-wide, native chrome
+// included; Auto follows the system.
+func (s *trayShell) SetTheme(pref string) { mygo.Theme.SetSource(themeSource(pref)) }
+
+func themeSource(pref string) mygo.ThemeSource {
+	switch pref {
+	case "dark":
+		return mygo.ThemeDark
+	case "light":
+		return mygo.ThemeLight
+	}
+	return mygo.ThemeSystem
+}

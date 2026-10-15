@@ -47,6 +47,7 @@ func (a *App) buildReady(c *ui.Context) {
 					a.aiOpen = !a.aiOpen
 				}
 			}
+			a.buildThemeControl(c)
 			lock := ui.Button(c, "Lock")
 			if tip := model.LockTitle(liveAuto); tip != "" {
 				lock.Tooltip(tip)
