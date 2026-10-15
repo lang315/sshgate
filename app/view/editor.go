@@ -74,11 +74,13 @@ func keptMode(s *hubapi.Server, d model.HostDraft) string {
 	return "off"
 }
 
-// saveHost sends servers.save. The reply is dropped if its hub stopped; it
+// saveHost sends servers.save. A bad port is never sent: typed text reaches
+// the draft only in the next build, after the check buildEditor drew. The
+// reply is dropped if its hub stopped or the ready screen went (a lock); it
 // touches this editor only, never one opened since.
 func (a *App) saveHost() {
 	ed := a.editor
-	if ed == nil || ed.busy {
+	if ed == nil || ed.busy || model.PortError(ed.draft.Port) != "" {
 		return
 	}
 	in, mode := model.ToInput(ed.draft), keptMode(a.server(ed.name), ed.draft)
@@ -87,7 +89,7 @@ func (a *App) saveHost() {
 	go func() {
 		err := a.hub().SaveServer(context.Background(), ed.name, in, mode)
 		a.Update(func() {
-			if gen != a.hubGen {
+			if gen != a.hubGen || a.screen != model.ScreenReady {
 				return
 			}
 			ed.busy = false
@@ -151,7 +153,7 @@ func (a *App) buildEditor(c *ui.Context) {
 	switch {
 	case closed:
 		a.closeSheet()
-	case submit && portErr == "":
+	case submit:
 		a.saveHost()
 	}
 }

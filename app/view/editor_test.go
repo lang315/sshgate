@@ -229,6 +229,21 @@ func TestBadPortIsNeverSent(t *testing.T) {
 	}
 }
 
+// A keystroke reaches the draft only in the next build, so a submit in the
+// same frame sees the port the last build checked: saveHost checks again.
+func TestSaveRefusesABadPortTheLastBuildDidNotSee(t *testing.T) {
+	a, tt, d := editBox(t, boxServer)
+	d.resetCalls()
+	a.Update(func() {
+		a.editor.draft.Port = "70000"
+		a.saveHost()
+	})
+	tt.flush()
+	if hasCall(d, "servers.save") || a.editor == nil || a.editor.busy {
+		t.Fatalf("calls %v", d.callList())
+	}
+}
+
 func TestPortChangeWarnsAndCountsTheTabsASaveCloses(t *testing.T) {
 	a, tt, _ := edReady(t, []hubapi.Server{boxServer})
 	a.Update(func() { a.tabs.Open("box"); a.tabs.Open("box"); a.tabs.ShowHome() })
@@ -263,6 +278,7 @@ func TestSavedButArmingFailedAlertsAndCloses(t *testing.T) {
 	d.set(func() {
 		d.errs = map[string]error{"servers.save": errors.New("saved, but auto-allow was not turned on: auto-allow refused: root login")}
 	})
+	d.resetCalls()
 	clickT(t, tt, "Save")
 	tt.flush()
 	if a.editor != nil || !tt.HasText("Saved, but auto-allow was not turned on: auto-allow refused: root login") || !hasCall(d, "servers") {
@@ -312,6 +328,7 @@ func TestLateSaveReplyLeavesANewEditorAlone(t *testing.T) {
 	a, tt, d := editBox(t, boxServer)
 	gate := make(chan struct{})
 	d.set(func() { d.gates = map[string]chan struct{}{"servers.save": gate} })
+	d.resetCalls()
 	clickT(t, tt, "Save")
 	clickT(t, tt, "Save")
 	tt.Key(0, ui.KeyEscape)
@@ -341,6 +358,29 @@ func TestLateSaveReplyLeavesANewEditorAlone(t *testing.T) {
 	tt.flush()
 	if a.editor != nil || a.alert != "" {
 		t.Fatalf("a hub stop leaves the editor open, or the dead hub's reply showed: %q", a.alert)
+	}
+}
+
+// A save reply that lands behind the lock screen changes nothing and asks
+// the locked hub for nothing.
+func TestSaveReplyAfterALockChangesNothing(t *testing.T) {
+	a, tt, d := editBox(t, boxServer)
+	gate := make(chan struct{})
+	d.set(func() {
+		d.gates = map[string]chan struct{}{"servers.save": gate}
+		d.errs = map[string]error{"servers.save": errors.New("saved, but auto-allow was not turned on: server changed; try again")}
+	})
+	clickT(t, tt, "Save")
+	d.set(func() { d.status.Locked = true })
+	note(t, a, tt, "locked", map[string]string{"reason": "manual"})
+	if a.Screen() != model.ScreenLocked {
+		t.Fatal(a.Screen())
+	}
+	d.resetCalls()
+	close(gate)
+	tt.flush()
+	if a.alert != "" || hasCall(d, "servers") {
+		t.Fatalf("alert %q, calls %v after a reply behind the lock", a.alert, d.callList())
 	}
 }
 
