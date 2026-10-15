@@ -35,11 +35,12 @@ func (f *flowT) createVault() {
 	f.until(func() bool { return f.a.Screen() == model.ScreenReady && f.tt.HasText("Vault file:") }, "the ready screen")
 }
 
-// trust answers the unknown-key prompt of box once Trust is enabled.
-func (f *flowT) trust() {
+// trust answers the unknown-key prompt for user on sshtestd once Trust is
+// enabled.
+func (f *flowT) trust(user string) {
 	f.t.Helper()
 	f.until(func() bool { return f.tt.HasText("Trust this host key?") }, "the host-key prompt")
-	for _, s := range []string{"SHA256:", fmt.Sprintf("test@127.0.0.1:%d", f.port)} {
+	for _, s := range []string{"SHA256:", fmt.Sprintf("%s@127.0.0.1:%d", user, f.port)} {
 		if !f.tt.HasText(s) {
 			f.t.Fatalf("missing %q in %q", s, f.tt.Texts())
 		}
@@ -83,7 +84,7 @@ func TestFlowHostsCreateTrustEditForgetDelete(t *testing.T) {
 
 	// 3. Connect: the prompt shows the fingerprint; Trust gives a shell.
 	f.click("Open box")
-	f.trust()
+	f.trust("test")
 	first := f.a.tabs.Active
 	f.until(func() bool { return tabState(f.a, first) == "open" && f.tt.Focused("Terminal box") }, "the box tab")
 	f.tt.Type("echo hosts-ok")
@@ -106,7 +107,7 @@ func TestFlowHostsCreateTrustEditForgetDelete(t *testing.T) {
 	f.until(func() bool { s := f.a.Servers(); return len(s) == 1 && s[0].Port == f.port && s[0].HostKey == "" }, "box back on its port, unpinned")
 	f.click("Hosts")
 	f.click("Open box")
-	f.trust()
+	f.trust("test")
 	f.configRecords("box", "save", 3)
 	f.configRecords("box", "trust", 2)
 
