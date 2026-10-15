@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -52,6 +53,9 @@ func TestLiveFiles(t *testing.T) {
 		home, _ := os.UserHomeDir()
 		src = filepath.Join(home, ".config", "sshgate", "servers.json")
 	}
+	if _, err := os.Stat(src); err != nil {
+		t.Fatal(err)
+	}
 	pw := ttyPassword(t, "Master password for "+src+": ")
 	scratch := fmt.Sprintf("sshgate-e2e-%d", time.Now().UnixMilli())
 	f, sh := liveFlow(t, src, pw)
@@ -87,11 +91,11 @@ func TestLiveFiles(t *testing.T) {
 		g.untilFor(time.Minute, func() bool {
 			return !slices.ContainsFunc(w.jobs, func(j *fileJob) bool { return j.state == "planning" || j.state == "running" })
 		}, "the transfers to end")
-		g.goTo(w, home)
+		g.goTo(w, home, false)
 		g.deleteByName(w, scratch)
 		t.Logf("removed %s", remote)
 	})
-	f.goTo(v, remote)
+	f.goTo(v, remote, false)
 	big := filepath.Join(t.TempDir(), "big")
 	if fh, err := os.Create(big); err != nil {
 		t.Fatal(err)
@@ -101,8 +105,8 @@ func TestLiveFiles(t *testing.T) {
 		fh.Close()
 	}
 	sh.pick(big)
-	f.click("Upload files")
-	if got := f.finish(v, 20*time.Minute); got != "Uploaded 1" {
+	j := f.start(v, "Upload files")
+	if got := f.finish(j, 20*time.Minute); got != "Uploaded 1" {
 		t.Fatal(got)
 	}
 
@@ -118,17 +122,17 @@ func TestLiveFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	sh.pick(local)
-	f.click("Upload folder")
-	if got := f.finish(v, 5*time.Minute); got != "Uploaded 2" {
+	j = f.start(v, "Upload folder")
+	if got := f.finish(j, 5*time.Minute); got != "Uploaded 2" {
 		t.Fatal(got)
 	}
 	f.untilFor(time.Minute, func() bool { return hasRow(v, "proj") }, "row proj")
 	sh.pick(local)
-	f.click("Upload folder")
+	j = f.start(v, "Upload folder")
 	f.untilFor(time.Minute, func() bool { return f.tt.HasText("2 files already exist") }, "the conflict dialog")
 	f.pass()
 	f.click("Skip existing")
-	if got := f.finish(v, 5*time.Minute); got != "Uploaded 0 · skipped 2" {
+	if got := f.finish(j, 5*time.Minute); got != "Uploaded 0 · skipped 2" {
 		t.Fatal(got)
 	}
 	dl := filepath.Join(t.TempDir(), "dl")
@@ -137,8 +141,8 @@ func TestLiveFiles(t *testing.T) {
 	}
 	f.choose(v, "proj")
 	sh.pick(dl)
-	f.click("Download")
-	if got := f.finish(v, 5*time.Minute); got != "Downloaded 2" {
+	j = f.start(v, "Download")
+	if got := f.finish(j, 5*time.Minute); got != "Downloaded 2" {
 		t.Fatal(got)
 	}
 	if f.read(filepath.Join(dl, "proj", "a.txt")) != "alpha" || f.read(filepath.Join(dl, "proj", "sub", "b.txt")) != "beta" {
@@ -167,14 +171,14 @@ func TestLiveFiles(t *testing.T) {
 	case denied == "":
 		t.Log("skipped: set SSHGATE_LIVE_DENIED to a folder you cannot read on this Windows host")
 	default:
-		f.goTo(v, denied)
+		f.goTo(v, denied, true)
 		switch {
 		case v.err == "":
 			t.Logf("skipped: the remote user can read %s; set SSHGATE_LIVE_DENIED to a folder it cannot", denied)
 		case !strings.Contains(strings.ToLower(v.err), "permission denied"):
 			t.Fatalf("listing %s: %q", denied, v.err)
 		}
-		f.goTo(v, remote)
+		f.goTo(v, remote, false)
 	}
 
 	t.Log("lock during download")
@@ -200,8 +204,7 @@ func TestLiveFiles(t *testing.T) {
 		}
 		f.choose(v, "big")
 		sh.pick(dir)
-		f.click("Download")
-		j := v.jobs[len(v.jobs)-1]
+		j := f.start(v, "Download")
 		f.untilFor(time.Minute, func() bool { return j.state == "running" && partSize(dir) > 0 }, "the download to write")
 		return j, dir
 	}
@@ -209,7 +212,7 @@ func TestLiveFiles(t *testing.T) {
 	f.click("Lock")
 	f.until(func() bool { return f.tt.HasText("Master password") }, "the lock screen")
 	before := partSize(dir)
-	f.untilFor(15*time.Second, func() bool { return partSize(dir) > before }, fmt.Sprintf("the download to grow while locked; raise SSHGATE_LIVE_BIG_MB (%d)", bigMB))
+	f.untilFor(15*time.Second, func() bool { return partSize(dir) > before || j.state == "done" }, fmt.Sprintf("the download to grow while locked; raise SSHGATE_LIVE_BIG_MB (%d)", bigMB))
 	f.unlockWith(pw)
 	if j.state == "done" { // finished during the lock: cancel a fresh one instead
 		j, dir = download("big-dl2")
@@ -279,16 +282,27 @@ func ttyPassword(t *testing.T, prompt string) string {
 		t.Skip("no terminal to read the master password from")
 	}
 	defer tty.Close()
-	stty := func(arg string) {
+	stty := func(arg string) error {
 		c := exec.Command("stty", arg)
 		c.Stdin = tty
-		c.Run()
+		return c.Run()
 	}
 	fmt.Fprint(tty, prompt)
-	stty("-echo")
+	if err := stty("-echo"); err != nil {
+		t.Skip("cannot turn off the terminal echo: " + err.Error())
+	}
+	defer func() { stty("echo"); fmt.Fprintln(tty) }()
+	// Ctrl-C ends the test binary without running defers: restore echo first.
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt)
+	defer signal.Stop(sig)
+	go func() {
+		if _, ok := <-sig; ok {
+			stty("echo")
+			os.Exit(130)
+		}
+	}()
 	line, err := bufio.NewReader(tty).ReadString('\n')
-	stty("echo")
-	fmt.Fprintln(tty)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,21 +322,33 @@ func (f *flowT) choose(v *filesTab, name string) {
 	f.tt.flush()
 }
 
-// goTo lists dir through the Path box and waits for the answer.
-func (f *flowT) goTo(v *filesTab, dir string) {
+// goTo lists dir through the Path box and waits for the answer. A failed
+// listing fails the test unless mayFail.
+func (f *flowT) goTo(v *filesTab, dir string, mayFail bool) {
 	f.t.Helper()
 	f.click("Path")
 	f.tt.Key(ui.Cmd, ui.KeyA)
 	f.tt.Type(dir)
 	f.tt.Key(0, ui.KeyEnter)
 	f.untilFor(30*time.Second, func() bool { return v.pathIn == dir && !v.loading }, "the listing of "+dir)
+	if v.err != "" && !mayFail {
+		f.t.Fatalf("listing %s: %q", dir, v.err)
+	}
 }
 
-// finish waits for the newest job to end and returns its row's text.
-func (f *flowT) finish(v *filesTab, limit time.Duration) string {
+// start clicks label and returns the job it adds. The job lands in v.jobs
+// only on a flush, so a read right after the click would see the last one.
+func (f *flowT) start(v *filesTab, label string) *fileJob {
 	f.t.Helper()
-	f.untilFor(time.Minute, func() bool { return len(v.jobs) > 0 }, "a job")
-	j := v.jobs[len(v.jobs)-1]
+	n := len(v.jobs)
+	f.click(label)
+	f.untilFor(time.Minute, func() bool { return len(v.jobs) > n }, "the "+label+" job")
+	return v.jobs[n]
+}
+
+// finish waits for j to end and returns its row's text.
+func (f *flowT) finish(j *fileJob, limit time.Duration) string {
+	f.t.Helper()
 	f.untilFor(limit, func() bool { return j.state == "done" }, j.title()+" to end")
 	return model.DoneSummary(j.done, j.err)
 }
