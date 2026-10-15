@@ -51,6 +51,19 @@ func TestCallShapes(t *testing.T) {
 		{"import apply", "import.apply", `{"aliases":["work","db"]}`, func(c *Client) error { _, err := c.ImportApply(ctx, []string{"work", "db"}); return err }},
 		{"auto check", "servers.autoAllowCheck", `{"server":"box"}`, func(c *Client) error { _, err := c.AutoAllowCheck(ctx, "box"); return err }},
 		{"soft-lock limit", "settings.setSoftLockLimit", `{"limit":"none"}`, func(c *Client) error { return c.SetSoftLockLimit(ctx, "none") }},
+		{"files list", "files.list", `{"server":"box","path":""}`, func(c *Client) error { _, err := c.FilesList(ctx, "box", "", nil); return err }},
+		{"files list trusting", "files.list", `{"server":"box","path":"/home","trustHostKey":{"fingerprint":"SHA256:x","keyType":"ssh-ed25519"}}`,
+			func(c *Client) error {
+				_, err := c.FilesList(ctx, "box", "/home", &Trust{Fingerprint: "SHA256:x", KeyType: "ssh-ed25519"})
+				return err
+			}},
+		{"mkdir", "files.mkdir", `{"path":"/home/a","server":"box"}`, func(c *Client) error { return c.FilesMkdir(ctx, "box", "/home/a") }},
+		{"rename", "files.rename", `{"from":"/home/a","server":"box","to":"/home/b"}`, func(c *Client) error { return c.FilesRename(ctx, "box", "/home/a", "/home/b") }},
+		{"plan upload", "files.plan", `{"id":"f1","server":"box","op":"upload","sources":["/l/a"],"dest":"/home"}`,
+			func(c *Client) error { return c.FilesPlan(ctx, "f1", "box", "upload", []string{"/l/a"}, "/home") }},
+		{"plan delete", "files.plan", `{"id":"f2","server":"box","op":"delete","sources":["/home/a"]}`,
+			func(c *Client) error { return c.FilesPlan(ctx, "f2", "box", "delete", []string{"/home/a"}, "") }},
+		{"run", "files.run", `{"conflict":"skip","id":"f1"}`, func(c *Client) error { return c.FilesRun(ctx, "f1", "skip") }},
 	} {
 		r := &rec{}
 		if err := tc.call(New(r)); err != nil {
@@ -115,5 +128,16 @@ func TestAutoCheckDecodes(t *testing.T) {
 	c, err := New(&rec{result: `{"uid":1000,"passwordlessSudo":true}`}).AutoAllowCheck(context.Background(), "box")
 	if err != nil || c != (AutoCheck{UID: 1000, PasswordlessSudo: true}) {
 		t.Fatalf("%+v %v", c, err)
+	}
+}
+
+func TestFilesListDecodes(t *testing.T) {
+	l, err := New(&rec{result: `{"status":"listed","path":"/home","entries":null,"truncated":true,"bad":2}`}).FilesList(context.Background(), "box", "", nil)
+	if err != nil || l.Status != "listed" || l.Path != "/home" || l.Entries == nil || !l.Truncated || l.Bad != 2 {
+		t.Fatalf("%+v %v", l, err)
+	}
+	l, err = New(&rec{result: `{"status":"hostKeyUnknown","server":"box","host":"h","port":22,"user":"u","fingerprint":"SHA256:x","keyType":"ssh-ed25519","knownHosts":"absent"}`}).FilesList(context.Background(), "box", "", nil)
+	if err != nil || l.Status != "hostKeyUnknown" || l.Fingerprint != "SHA256:x" || l.KeyType != "ssh-ed25519" || l.Port != 22 {
+		t.Fatalf("%+v %v", l, err)
 	}
 }

@@ -27,6 +27,13 @@ func TestStartWritesWhatItIsAskedTo(t *testing.T) {
 		t.Fatal("no port")
 	} else if _, err := os.Stat(v.Store); err != nil {
 		t.Fatal("no vault:", err)
+	} else if v.SFTP != "" {
+		t.Fatalf("SFTP root %q without Options.SFTP", v.SFTP)
+	}
+	if v := hubtest.Start(t, hubtest.Options{SFTP: true}); v.SFTP == "" {
+		t.Fatal("no SFTP root")
+	} else if fi, err := os.Stat(filepath.Join(v.SFTP, "home")); err != nil || !fi.IsDir() {
+		t.Fatalf("no home folder in the SFTP root: %v", err)
 	}
 }
 

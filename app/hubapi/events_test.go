@@ -39,3 +39,19 @@ func TestDecode(t *testing.T) {
 		t.Error("malformed params decoded")
 	}
 }
+
+func TestDecodeFiles(t *testing.T) {
+	ev, ok := Decode("files.planned", json.RawMessage(`{"id":"f1","files":2,"dirs":1,"links":0,"bytes":9,"conflicts":{"count":2,"sample":["proj/a.txt"]},"errorCount":1,"errors":["x: bad"]}`))
+	p, _ := ev.(FilesPlanned)
+	if !ok || p.ID != "f1" || p.Files != 2 || p.Dirs != 1 || p.Bytes != 9 || p.Conflicts.Count != 2 || p.Conflicts.Sample[0] != "proj/a.txt" || p.ErrorCount != 1 {
+		t.Fatalf("planned: %+v %v", ev, ok)
+	}
+	ev, ok = Decode("files.progress", json.RawMessage(`{"id":"f1","file":"proj/a.txt","done":5,"total":9}`))
+	if g, _ := ev.(FilesProgress); !ok || g.File != "proj/a.txt" || g.Done != 5 || g.Total != 9 {
+		t.Fatalf("progress: %+v", ev)
+	}
+	ev, ok = Decode("files.done", json.RawMessage(`{"id":"f1","op":"upload","copied":2,"skipped":1,"deleted":0,"bytes":9,"errorCount":0,"errors":[],"cancelled":true,"reason":"server changed"}`))
+	if d, _ := ev.(FilesDone); !ok || d.Op != "upload" || d.Copied != 2 || d.Skipped != 1 || !d.Cancelled || d.Reason != "server changed" {
+		t.Fatalf("done: %+v", ev)
+	}
+}

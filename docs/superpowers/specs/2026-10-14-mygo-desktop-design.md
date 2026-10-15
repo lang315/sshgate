@@ -90,14 +90,15 @@ Port of `desktop/src/main/hubProcess.ts`:
 
 ### Door client (`door`)
 
-- **Methods.** Requests and notifications use the method names and params of protocol 12 (`CLAUDE.md`, UI door list). `term.closeAll` and `files.cancelAll` are not called from views; quit and crash cleanup call them.
+- **Methods.** Requests and notifications use the method names and params of protocol 12 (`CLAUDE.md`, UI door list). `term.closeAll` and `files.cancelAll` are not called (see Crash → Quit). Amended 2026-10-15 (slice 4, plan Decision 2).
 - **Threading.** The client's read loop never blocks on the UI. It hands each notification to the UI thread with `Window.Update(fn)`. That queue is FIFO and never blocks (`mygo/loop.go:19-31`), so the order the hub sent is the order the UI sees.
 - **No unbounded queue on the hub side.** The hub already bounds `audit.appended` (256 slots, drop) and flow-controls `term.data` with `term.ack`.
 - **Activity rule.** Every request except `status` counts as UI activity for the idle lock (`internal/hub/uidoor.go:155-162`).
   - Views call the hub only from a real UI action.
   - The one exception is `status`, which does not count as activity. It may be called on `locked` and on `pending`, as `App.tsx` does today, since the soft-lock screen learns `autoHosts` only from it.
+  - Files follow-ups, the other exception: a file job the user started may be carried on from its own notifications, as `FilesView.tsx` does, only while the ready screen shows (unlocked, same hub) and at most once each per job id this app planned. On `files.planned`: `files.run` (an upload with no conflicts: `skip`; a download with no conflicts: `skip`; with conflicts, the user's choice in the app's dialog), or `files.cancel` again for a Cancel pressed while planning. On `files.done` of an upload or delete: one `files.list` of the folder shown (`relistAfterJob`). `files.run` and `files.list` count as activity, so a long job that ends restarts the idle timer once, as in Electron. A job planned while locked is cancelled with `files.cancel` (a notification, not activity). Amended 2026-10-15 (slice 4, plan Decision 1).
   - Nothing calls the hub from a timer.
-  - A test fails if any view code path calls a method other than `status` outside an input handler.
+  - A test fails if any view code path calls a method other than `status` outside an input handler, except the Files follow-ups above, which a test bounds to planned job ids.
 
 ### Terminal (`termconn`)
 
@@ -153,9 +154,9 @@ Paths are chosen with mygo's native dialogs (`mygo/dialog.go`) or dropped (`ui/d
 
 The single-use grant tokens of `desktop/src/main/files.ts:11-30` existed only to keep paths out of the renderer. No renderer exists now, so they are dropped. These rules of `files.ts` stay:
 
-- A download's `files.run` sends `ask` only when its plan found conflicts. Otherwise it sends `skip`. The UI cannot choose overwrite for a download without that dialog (`files.ts:140-141`).
+- A download whose plan found no conflicts runs with `skip`. With conflicts, the app shows its conflict dialog and sends the user's choice, `overwrite` or `skip` (the hub takes no other value; Electron's `ask` lived only between its renderer and main). The UI cannot choose overwrite for a download without that dialog (`files.ts:140-141`). Amended 2026-10-15 (slice 4, plan Decision 3).
 - The conflict dialog shows the destination folder and a sample of the conflicting names (`files.ts:143-147`).
-- After the dialog closes, the app checks that the job id still names the same planned job before sending `files.run` (`files.ts:148-151`).
+- The choice applies to the job the dialog shows, and only while that job still waits for it (`files.ts:148-151`); a job the hub ended meanwhile takes no `files.run`.
 - A plan whose id is still live is refused, and `files.run` is sent only for an id this app planned.
 - Cancel pressed while planning is sent again when `files.planned` arrives (`plannedAction`).
 
@@ -163,7 +164,7 @@ The single-use grant tokens of `desktop/src/main/files.ts:11-30` existed only to
 
 - **App panic.** Any panic in the app process ends it. The hub then exits on stdin EOF, and the key goes with it. There is no recover-then-lock: `recover` covers only its own goroutine, and a fault in native code cannot be caught. Running tunnels and terminals end with the hub, as when the Electron main process dies today.
 - **Hub crash.** The app restarts the hub with backoff (see Hub process). The UI shows the locked screen, and terminal tabs show that their session ended.
-- **Quit.** `term.closeAll`, then `files.cancelAll`, then close the hub's stdin.
+- **Quit.** Close the hub's stdin. The hub then ends its terminals and file jobs itself (it audits the jobs with the reason `app closed`) and exits. Neither `term.closeAll` nor `files.cancelAll` is sent: `files.cancelAll` audits the reason `renderer reloaded`, which would be untrue here. Amended 2026-10-15 (slice 4, plan Decision 2).
 
 ### macOS integration
 
