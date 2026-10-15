@@ -54,10 +54,11 @@ func (a *App) openEditor(name string, focusForget bool) {
 // stop): a typed secret must not outlive it, and an unlock opens none again.
 func (a *App) dropDialogs() { a.editor, a.imp, a.del = nil, nil, nil }
 
-// closeSheet drops the open sheet, and any typed secret with it. mygo
-// restores no focus: the active terminal gets it, else the host search.
+// closeSheet drops the open sheet, and any typed secret with it, but not a
+// delete confirm a late save reply finds open. mygo restores no focus: the
+// active terminal gets it, else the host search.
 func (a *App) closeSheet() {
-	a.dropDialogs()
+	a.editor, a.imp = nil, nil
 	if a.tabs.Active != "" {
 		a.focusActive()
 		return
@@ -141,10 +142,11 @@ func (a *App) buildEditor(c *ui.Context) {
 			if ed.err != "" {
 				ui.Text(c, model.DisplayText(ed.err)).TextColor(t.Danger).Grow(1)
 			}
-			if ui.Button(c, "Close").Clicked() {
+			// Keyed: the error above comes and goes, and would re-mount them.
+			if ui.Button(c.Key("close"), "Close").Clicked() {
 				closed = true
 			}
-			if ui.PrimaryButton(c, "Save").Disabled(ed.busy || portErr != "").Clicked() {
+			if ui.PrimaryButton(c.Key("save"), "Save").Disabled(ed.busy || portErr != "").Clicked() {
 				submit = true
 			}
 		})
@@ -213,19 +215,23 @@ func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (
 	if h := model.LabelHint(*d); h != "" {
 		label.Description(h)
 	}
-	ui.Row(c).Gap(8).Children(func() {
-		ui.Text(c, "SSH on")
-		if ui.TextInput(c.Key("port"), &d.Port).Label("Port").Font("monospace").Width(90).Submitted() {
-			submit = true
-		}
-		ui.Text(c, "port")
-		if s != nil && in.Port != s.Port {
-			ui.Text(c, "· changed").TextColor(t.Warning)
+	// One column for the port and its error, so the error coming and going
+	// does not shift (and re-mount) every unkeyed element below it.
+	ui.Column(c).Gap(14).Children(func() {
+		ui.Row(c).Gap(8).Children(func() {
+			ui.Text(c, "SSH on")
+			if ui.TextInput(c.Key("port"), &d.Port).Label("Port").Font("monospace").Width(90).Submitted() {
+				submit = true
+			}
+			ui.Text(c, "port")
+			if s != nil && in.Port != s.Port {
+				ui.Text(c, "· changed").TextColor(t.Warning)
+			}
+		})
+		if portErr != "" {
+			ui.Text(c, portErr).TextColor(t.Danger)
 		}
 	})
-	if portErr != "" {
-		ui.Text(c, portErr).TextColor(t.Danger)
-	}
 
 	ui.Text(c, "Credentials").Bold()
 	for f := model.SecretPassword; f <= model.SecretKeyPassphrase; f++ {
@@ -278,7 +284,8 @@ func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (
 		ui.Text(c, "Host key").Bold()
 		if s.HostKey != "" {
 			ui.Text(c, model.DisplayText(strings.TrimSpace(s.HostKeyAlgo+" "+s.HostKey))).Font("monospace").Selectable()
-			ui.Row(c).Gap(8).Children(func() {
+			// Keyed: a re-mount would AutoFocus it again, and Enter would forget.
+			ui.Row(c.Key("forget")).Gap(8).Children(func() {
 				forget := ui.Button(c, "Forget host key").Disabled(ed.busy)
 				if ed.focusForget {
 					forget.AutoFocus()
@@ -322,7 +329,8 @@ func (a *App) forgetKey() {
 	if ed == nil || ed.busy {
 		return
 	}
-	ed.busy, ed.err = true, ""
+	// The button comes back when the key is pinned again: never focus it then.
+	ed.busy, ed.err, ed.focusForget = true, "", false
 	gen := a.hubGen
 	go func() {
 		err := a.hub().ForgetHostKey(context.Background(), ed.name)

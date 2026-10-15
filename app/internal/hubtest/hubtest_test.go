@@ -29,3 +29,18 @@ func TestStartWritesWhatItIsAskedTo(t *testing.T) {
 		t.Fatal("no vault:", err)
 	}
 }
+
+// A test hub never gets the developer's ssh-agent: exec keeps the last
+// value of a duplicated variable, so SSH_AUTH_SOCK must end up empty.
+func TestEnvDropsTheAgent(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "/real/agent.sock")
+	sock := "unset"
+	for _, kv := range hubtest.Env(t) {
+		if v, ok := strings.CutPrefix(kv, "SSH_AUTH_SOCK="); ok {
+			sock = v
+		}
+	}
+	if sock != "" {
+		t.Fatalf("SSH_AUTH_SOCK=%q", sock)
+	}
+}

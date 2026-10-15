@@ -207,3 +207,20 @@ func TestRescanWithNothingCheckedChecksNothing(t *testing.T) {
 		t.Fatalf("checked %v after a rescan", a.imp.checked)
 	}
 }
+
+// An error coming or going must not re-mount the autofocused Close, which
+// would take the focus from the row the person is on.
+func TestImportErrorLeavesTheFocusAlone(t *testing.T) {
+	a, tt, _ := importApp(t, scanRows)
+	clickT(t, tt, "Import db")
+	if !tt.Focused("Import db") {
+		t.Fatal("the checkbox has no focus")
+	}
+	for _, msg := range []string{"Not imported: web (Already in vault)", ""} {
+		a.Update(func() { a.imp.err = msg })
+		tt.flush()
+		if !tt.Focused("Import db") || tt.Focused("Close") {
+			t.Fatalf("err %q moved the focus", msg)
+		}
+	}
+}

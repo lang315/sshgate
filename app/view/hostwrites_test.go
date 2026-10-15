@@ -229,3 +229,67 @@ func TestMismatchOpensTheEditorOnForget(t *testing.T) {
 		t.Fatal("Forget host key is not focused")
 	}
 }
+
+// The editor opened from a mismatch focuses Forget once: a bad port or an
+// Auth change above it must not re-mount it and hand it the focus, where
+// the next Enter would forget the key.
+func TestForgetTakesTheFocusOnlyWhenTheEditorOpens(t *testing.T) {
+	a, tt, _ := edReady(t, []hubapi.Server{boxServer})
+	a.Update(func() { a.openEditor("box", true) })
+	tt.flush()
+	if !tt.Focused("Forget host key") {
+		t.Fatal("Forget host key is not focused")
+	}
+	clickT(t, tt, "Port")
+	tt.Key(ui.Cmd, ui.KeyA)
+	tt.Type("x")
+	tt.Frame()
+	tt.Frame()
+	if !tt.HasText("Port must be 1-65535.") || !tt.Focused("Port") || tt.Focused("Forget host key") {
+		t.Fatalf("a bad port moved the focus to Forget: %q", tt.Texts())
+	}
+	clickT(t, tt, "+ Key or agent")
+	clickT(t, tt, "key")
+	tt.Frame()
+	if !tt.HasText("Key path") || !tt.Focused("key") || tt.Focused("Forget host key") {
+		t.Fatalf("an Auth change moved the focus to Forget: %q", tt.Texts())
+	}
+}
+
+// After a forget, the key pinned again (a trusted reconnect while the
+// editor stays open) brings the button back without the focus.
+func TestForgetComesBackUnfocusedWhenThePinDoes(t *testing.T) {
+	a, tt, d := edReady(t, []hubapi.Server{boxServer})
+	a.Update(func() { a.openEditor("box", true) })
+	tt.flush()
+	unpinned := boxServer
+	unpinned.HostKey, unpinned.HostKeyAlgo = "", ""
+	d.set(func() { d.servers = []hubapi.Server{unpinned} })
+	clickT(t, tt, "Forget host key")
+	tt.flush()
+	if tt.HasText("Forget host key") {
+		t.Fatal(tt.Texts())
+	}
+	clickT(t, tt, "Address")
+	d.set(func() { d.servers = []hubapi.Server{boxServer} })
+	a.Update(a.reloadServers)
+	tt.flush()
+	if !tt.HasText("Forget host key") || !tt.Focused("Address") || tt.Focused("Forget host key") {
+		t.Fatalf("the pin coming back moved the focus to Forget: %q", tt.Texts())
+	}
+}
+
+// A save reply closes the editor, not a delete confirm opened while the
+// save ran.
+func TestLateSaveReplyKeepsTheDeleteConfirm(t *testing.T) {
+	a, tt, d := editBox(t, boxServer)
+	gate := make(chan struct{})
+	d.set(func() { d.gates = map[string]chan struct{}{"servers.save": gate} })
+	clickT(t, tt, "Save")
+	clickT(t, tt, "Delete box")
+	close(gate)
+	tt.flush()
+	if a.editor != nil || a.del == nil || !tt.HasText("Delete box? Its saved passwords and host key are removed and its open tabs close.") {
+		t.Fatalf("editor open %v, confirm %v", a.editor != nil, a.del)
+	}
+}

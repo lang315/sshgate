@@ -146,14 +146,16 @@ func (a *App) buildImport(c *ui.Context) {
 			if imp.err != "" {
 				ui.Text(c, model.DisplayText(imp.err)).TextColor(t.Danger).Grow(1)
 			}
-			if ui.Button(c, "Close").AutoFocus().Clicked() {
+			// Keyed: the error above comes and goes, and would re-mount (and
+			// re-focus) them.
+			if ui.Button(c.Key("close"), "Close").AutoFocus().Clicked() {
 				closed = true
 			}
 			label := fmt.Sprintf("Import %d hosts", n)
 			if n == 1 {
 				label = "Import 1 host"
 			}
-			if ui.PrimaryButton(c, label).Disabled(imp.busy || n == 0).Clicked() {
+			if ui.PrimaryButton(c.Key("import"), label).Disabled(imp.busy || n == 0).Clicked() {
 				submit = true
 			}
 		})

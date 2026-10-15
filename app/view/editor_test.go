@@ -454,3 +454,15 @@ func TestEditorShowsNameAndHubErrorEscaped(t *testing.T) {
 		}
 	}
 }
+
+// A hub error appearing in the footer must not re-mount Save and drop the
+// focus of a keyboard user who pressed it.
+func TestSaveErrorKeepsTheFocusOnSave(t *testing.T) {
+	_, tt, d := editBox(t, boxServer)
+	d.set(func() { d.errs = map[string]error{"servers.save": errors.New("boom")} })
+	clickT(t, tt, "Save")
+	tt.flush()
+	if !tt.HasText("boom") || !tt.Focused("Save") {
+		t.Fatalf("Save lost the focus: %q", tt.Texts())
+	}
+}
