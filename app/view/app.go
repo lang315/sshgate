@@ -68,6 +68,7 @@ type App struct {
 	sends                  []pendingSend
 	sendSeq                int // numbers Send to tab attempts
 	editor                 *editorState
+	imp                    *importState
 	del                    *deleteState
 	sheetSeq               int       // numbers the sheets opened
 	searchH                ui.Handle // the host search: the focus after a sheet closes on Hosts

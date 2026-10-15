@@ -79,8 +79,11 @@ func (a *App) buildReady(c *ui.Context) {
 				}
 				a.buildHosts(c)
 			})
-			if a.editor != nil {
+			switch {
+			case a.editor != nil:
 				a.buildEditor(c)
+			case a.imp != nil:
+				a.buildImport(c)
 			}
 			if a.aiOpen {
 				ui.Column(c).Fill().Width(380).Children(func() { a.buildColumn(c) })
@@ -99,6 +102,9 @@ func (a *App) buildHosts(c *ui.Context) {
 			ui.TextInput(c.Key("search"), &a.query).Placeholder("Search hosts").Label("Search hosts").Grow(1).Bind(&a.searchH)
 			if ui.Button(c, "New host").Clicked() {
 				a.openEditor("", false)
+			}
+			if ui.Button(c, "Import from SSH config").Clicked() {
+				a.openImport()
 			}
 		})
 		ui.Text(c, fmt.Sprintf("Hosts · %d", len(shown))).Bold()

@@ -29,6 +29,8 @@ type fakeDoor struct {
 	errs     map[string]error
 	params   map[string]string
 	hang     map[string]bool // these methods never answer: they wait for ctx
+	scan     hubapi.ImportScan
+	imported hubapi.ImportResult
 }
 
 func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) error {
@@ -44,6 +46,7 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 	st, stFn := d.status, d.statusFn
 	gate := d.pendGate
 	srv, pend := d.servers, d.pending
+	scan, imported := d.scan, d.imported
 	d.mu.Unlock()
 	if wait != nil {
 		<-wait
@@ -79,6 +82,10 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 			<-gate
 		}
 		out = pend
+	case "import.scan":
+		out = scan
+	case "import.apply":
+		out = imported
 	default:
 		out = map[string]any{}
 	}

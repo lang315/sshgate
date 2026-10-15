@@ -46,12 +46,13 @@ func (a *App) server(name string) *hubapi.Server {
 func (a *App) openEditor(name string, focusForget bool) {
 	s := a.server(name)
 	a.sheetSeq++
+	a.imp = nil
 	a.editor = &editorState{seq: a.sheetSeq, name: name, draft: model.DraftFrom(s), showAuth: s != nil && s.Auth != "password", focusForget: focusForget}
 }
 
 // dropDialogs closes the host dialogs when the ready screen goes (lock, hub
 // stop): a typed secret must not outlive it, and an unlock opens none again.
-func (a *App) dropDialogs() { a.editor, a.del = nil, nil }
+func (a *App) dropDialogs() { a.editor, a.imp, a.del = nil, nil, nil }
 
 // closeSheet drops the open sheet, and any typed secret with it. mygo
 // restores no focus: the active terminal gets it, else the host search.
