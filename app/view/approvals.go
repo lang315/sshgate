@@ -223,6 +223,7 @@ func (a *App) buildFeed(c *ui.Context) {
 				a.stopAll()
 			}
 		})
+		a.buildPaused(c, &a.pausedCol)
 		if len(a.feed) == 0 {
 			ui.Text(c, "Nothing ran on auto-allow.").TextColor(t.TextMuted)
 			return

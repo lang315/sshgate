@@ -21,7 +21,7 @@ func capFirst(s string) string {
 
 func (a *App) buildReady(c *ui.Context) {
 	if !a.aiOpen {
-		a.col.mounted = false
+		a.col.mounted, a.pausedCol = false, nil
 	}
 	t := c.Theme()
 	now := a.Now()
@@ -75,6 +75,14 @@ func (a *App) buildReady(c *ui.Context) {
 						ui.Text(c, capFirst(model.DisplayText(a.status.StoreError)))
 					})
 				}
+				if text := model.RanLockedText(a.ranLocked); text != "" {
+					ui.Row(c).Gap(8).Padding(8, 12).Background(t.Warning.Alpha(0.15)).Role(ui.RoleStatus).Children(func() {
+						ui.Text(c, model.DisplayText(text)).Grow(1)
+						if ui.Button(c, "Dismiss").Clicked() {
+							a.ranLocked = nil
+						}
+					})
+				}
 				if a.alert != "" {
 					ui.Row(c).Gap(8).Padding(8, 12).Background(t.Warning.Alpha(0.15)).Children(func() {
 						ui.Text(c, model.DisplayText(a.alert)).Grow(1)
@@ -84,6 +92,7 @@ func (a *App) buildReady(c *ui.Context) {
 					})
 				}
 				if t, ok := a.tabs.Get(a.tabs.Active); ok {
+					a.pausedHome = nil
 					a.buildTab(c, t)
 					return
 				}
@@ -119,6 +128,7 @@ func (a *App) buildHosts(c *ui.Context) {
 			}
 		})
 		ui.Text(c, fmt.Sprintf("Hosts · %d", len(shown))).Bold()
+		a.buildPaused(c, &a.pausedHome)
 		switch {
 		case len(a.servers) == 0:
 			ui.Text(c, "No hosts yet. Add one with New host.").TextColor(t.TextMuted)

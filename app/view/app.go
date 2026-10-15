@@ -58,6 +58,10 @@ type App struct {
 	feed         []hubapi.AutoRan
 	counter      model.PendingCounter
 	col          colState
+	ranLocked    []hubapi.RanLocked // what auto-allow ran while locked, from the unlock reply
+	// The paused banner's Resume delay on the Hosts tab and in the AI
+	// column; nil while that banner is not drawn.
+	pausedHome, pausedCol *model.ListChanges
 
 	busy                   bool   // unlock, create vault or stop-and-lock in flight
 	password, newPw, again string // field values
@@ -192,7 +196,7 @@ func (a *App) setScreen() {
 	case model.ScreenCreateVault:
 		a.reloadServers()
 	default:
-		a.servers = nil
+		a.servers, a.ranLocked = nil, nil
 		a.dropDialogs()
 	}
 }
@@ -289,14 +293,18 @@ func (a *App) unlock(pw string) {
 		return
 	}
 	a.busy, a.password = true, ""
+	gen := a.hubGen
 	go func() {
-		_, err := a.hub().Unlock(context.Background(), pw)
+		r, err := a.hub().Unlock(context.Background(), pw)
 		a.Update(func() {
 			a.busy = false
 			if err != nil {
 				a.unlockErr = err.Error()
 			} else {
 				a.unlockErr, a.lockReason = "", ""
+			}
+			if err == nil && gen == a.hubGen {
+				a.ranLocked = model.KeepRan(a.ranLocked, r.RanWhileLocked)
 			}
 			a.refresh()
 		})
@@ -441,6 +449,7 @@ func (a *App) Build(c *ui.Context) {
 	if a.screen != model.ScreenReady {
 		a.col.mounted = false // re-entering ready is a fresh mount: the Allow delay restarts
 		a.hk.mounted = false  // and so does the Trust delay of a prompt the lock screen hid
+		a.pausedHome, a.pausedCol = nil, nil
 	}
 	switch a.screen {
 	case model.ScreenHub:

@@ -3,6 +3,7 @@ package view
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -147,4 +148,40 @@ func (a *App) buildConfirmBody(c *ui.Context, cf *confirmState, d model.HostDraf
 			*answer = 2 // Enter cancels, as everywhere in the dialog
 		}
 	}
+}
+
+// buildPaused is the paused banner (Electron's AutoAllowPaused), on the
+// Hosts tab and in the AI column: after an unlock, forever grants wait for
+// Resume. Resume is mouse-only and waits AllowDelay after this banner shows
+// or its hosts change; *lc is this placement's delay. Stop is a plain button.
+func (a *App) buildPaused(c *ui.Context, lc **model.ListChanges) {
+	hosts := model.PausedHosts(a.servers)
+	if len(hosts) == 0 {
+		*lc = nil
+		return
+	}
+	t := c.Theme()
+	now := a.Now()
+	key := strings.Join(hosts, "\n")
+	if *lc == nil {
+		*lc = model.NewListChanges(key, now)
+	}
+	(*lc).SetKey(key, now)
+	ok := model.TrustEnabled((*lc).At, now)
+	if !ok {
+		c.After((*lc).At.Add(model.AllowDelay).Sub(now))
+	}
+	names := make([]string, len(hosts))
+	for i, h := range hosts {
+		names[i] = model.DisplayText(h)
+	}
+	ui.Row(c).Gap(8).Padding(8, 12).Radius(8).Background(t.Warning.Alpha(0.15)).Role(ui.RoleStatus).Children(func() {
+		ui.Text(c, "Auto-allow is paused on "+strings.Join(names, ", ")+". Once resumed, the AI keeps running there while the app is locked.").Grow(1)
+		if MouseButton(c, "Resume", ok) && model.TrustEnabled((*lc).At, a.Now()) {
+			a.setAuto(hosts, "forever", "resume")
+		}
+		if ui.Button(c, "Stop").Clicked() {
+			a.setAuto(hosts, "off", "stop")
+		}
+	})
 }
