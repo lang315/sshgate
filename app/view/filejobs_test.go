@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -353,8 +352,10 @@ func TestDropChecksThePaths(t *testing.T) {
 	if v.err != "cannot upload rel/x: not an absolute path" || hasCall(d, "files.plan") {
 		t.Fatal(v.err)
 	}
-	drop(filepath.Join(real, "missing"))
-	if !strings.Contains(v.err, "no such file") || hasCall(d, "files.plan") {
+	missing := filepath.Join(real, "missing")
+	_, want := os.Lstat(missing)
+	drop(missing)
+	if want == nil || v.err != want.Error() || hasCall(d, "files.plan") {
 		t.Fatal(v.err)
 	}
 	drop(make([]string, 1001)...)

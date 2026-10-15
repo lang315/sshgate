@@ -46,7 +46,7 @@ func choose(t *testing.T, tt *tester, cur, option string) {
 func autoApp(t *testing.T, s hubapi.Server, limit string) (*App, *tester, *fakeDoor, *clock) {
 	d := &fakeDoor{status: hubapi.Status{HasVault: true, SoftLockLimit: limit}, servers: []hubapi.Server{s}}
 	a, tt, c, _ := newApp(t, d)
-	tt.SetSize(800, 900)
+	tt.SetSize(800, 1200)
 	tt.flush()
 	clickT(t, tt, "Edit "+model.DisplayText(s.Name))
 	openAI(t, tt)

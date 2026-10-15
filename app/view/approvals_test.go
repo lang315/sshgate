@@ -161,8 +161,9 @@ func TestScrollRestartsTheDelay(t *testing.T) {
 		t.Fatal("the request list does not scroll at 800x300")
 	}
 	r, _ := tt.Find("echo s1")
-	tt.Move(r.X, r.Y)
-	tt.Scroll(r.X, r.Y, 0, 120)
+	x, y := r.X+r.W/2, r.Y+r.H/2
+	tt.Move(x, y)
+	tt.Scroll(x, y, 0, 120)
 	tt.Frame()
 	if a.col.scroll.Y == 0 {
 		t.Fatal("the wheel did not scroll the list")
