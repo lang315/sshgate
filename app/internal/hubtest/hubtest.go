@@ -132,7 +132,15 @@ func SSHD(t *testing.T) string { return Start(t, Options{}).Store }
 // door socket (MCPSocket).
 func Runtime(t *testing.T) ([]string, string) {
 	dir := RuntimeDir(t)
-	return append(os.Environ(), "SSHGATE_RUNTIME_DIR="+dir), dir
+	// A temp home, so the hub never reads the real ~/.ssh/known_hosts.
+	// shortcut: ssh -G and the default ~/.ssh/config of import.scan find
+	// home from the account database, not HOME; tests pass --sshConfig.
+	home := t.TempDir()
+	env := append(os.Environ(), "SSHGATE_RUNTIME_DIR="+dir, "HOME="+home)
+	if runtime.GOOS == "windows" {
+		env = append(env, "USERPROFILE="+home)
+	}
+	return env, dir
 }
 
 // Env is the environment for a hub under test.
