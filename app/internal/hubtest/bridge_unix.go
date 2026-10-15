@@ -38,6 +38,9 @@ type bridgeReply struct {
 // SSH_AUTH_SOCK, so it never sees the real ones.
 func StartBridge(t *testing.T, env []string) *Bridge {
 	t.Helper()
+	if env == nil {
+		t.Fatal("StartBridge needs the hub's env from Runtime; nil would inherit the real one")
+	}
 	bin, _ := Binaries(t)
 	cmd := exec.Command(bin)
 	cmd.Env = env
