@@ -405,20 +405,29 @@ func (a *App) denyAll() {
 	}()
 }
 
-func (a *App) stopAll() {
-	names := model.AutoHostNames(a.servers, a.Now())
+func (a *App) stopAll() { a.setAuto(model.AutoHostNames(a.servers, a.Now()), "off", "stop") }
+
+// setAuto sets mode on each of names (Electron's setAllAuto): every host is
+// tried after a failure, the host list is read again either way, and a
+// failure shows in the alert row as "Could not <verb> auto-allow on …".
+// The reply is dropped if its hub stopped or the ready screen went.
+func (a *App) setAuto(names []string, mode, verb string) {
+	gen := a.hubGen
 	go func() {
 		var failed []string
 		var last string
 		for _, n := range names {
-			if err := a.hub().SetAutoAllow(context.Background(), n, "off"); err != nil {
+			if err := a.hub().SetAutoAllow(context.Background(), n, mode); err != nil {
 				failed, last = append(failed, n), err.Error()
 			}
 		}
 		a.Update(func() {
+			if !a.ready(gen) {
+				return
+			}
 			a.alert = ""
 			if len(failed) > 0 {
-				a.alert = fmt.Sprintf("Could not stop auto-allow on %s: %s", strings.Join(failed, ", "), last)
+				a.alert = fmt.Sprintf("Could not %s auto-allow on %s: %s", verb, strings.Join(failed, ", "), last)
 			}
 			a.reloadServers()
 			a.refresh()
