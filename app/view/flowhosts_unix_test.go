@@ -112,9 +112,7 @@ func TestFlowHostsCreateTrustEditForgetDelete(t *testing.T) {
 
 	// 5. Forget the key; reconnecting shows the prompt again.
 	f.editBox()
-	if !f.tt.HasText("SHA256:") {
-		t.Fatal(f.tt.Texts())
-	}
+	f.until(func() bool { return f.tt.HasText("SHA256:") }, "the pin in the editor")
 	f.click("Forget host key")
 	f.until(func() bool { return f.tt.HasText("Not pinned") }, "the editor to show the key forgotten")
 	f.configRecords("box", "forgetHostKey", 1)
