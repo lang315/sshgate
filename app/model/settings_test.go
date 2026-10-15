@@ -1,6 +1,7 @@
 package model
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -21,10 +22,8 @@ func TestLimitChange(t *testing.T) {
 
 func TestLimitCopy(t *testing.T) {
 	want := []Limit{{"24h", "24 hours (default)"}, {"3d", "3 days"}, {"7d", "7 days"}, {"none", "No limit"}}
-	for i, l := range Limits {
-		if l != want[i] {
-			t.Fatalf("Limits %v", Limits)
-		}
+	if !slices.Equal(Limits, want) {
+		t.Fatalf("Limits %v", Limits)
 	}
 	for _, l := range []string{"24h", "3d", "7d"} {
 		if got := LimitHelp(l); got != "Then the app locks fully and auto-allow stops. Forever grants wait for Resume." {

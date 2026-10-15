@@ -193,7 +193,7 @@ func TestFlowAutoAllowMCP(t *testing.T) {
 	f.pass()
 	f.click("Send to tab")
 	f.tt.flush()
-	if len(f.a.tabs.Tabs) != 0 {
+	if len(f.a.tabs.Tabs) != 0 || f.tt.HasText("Send to tab is not available for a command with stdin") {
 		t.Fatal("Send to tab worked for a request with stdin")
 	}
 	f.click("Allow")
@@ -324,7 +324,7 @@ func TestFlowAutoAllowRootHost(t *testing.T) {
 	f.pass()
 	f.click("Enable")
 	f.tt.flush()
-	if f.a.editor == nil || f.a.editor.confirm == nil {
+	if f.a.editor == nil || f.a.editor.confirm == nil || f.a.editor.busy {
 		t.Fatal("Enable worked on a refused host")
 	}
 	f.click("Cancel")

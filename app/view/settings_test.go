@@ -29,7 +29,11 @@ func TestSettingsGearNeedsTheLimit(t *testing.T) {
 		t.Fatal("Settings opened before the hub reported its limit")
 	}
 	d := &fakeDoor{status: hubapi.Status{HasVault: true, Locked: true}}
-	_, tt, _, _ = newApp(t, d)
+	b, tt, _, _ := newApp(t, d)
+	tt.flush()
+	if b.Screen() != model.ScreenLocked {
+		t.Fatalf("screen %v, want the lock screen", b.Screen())
+	}
 	if _, ok := tt.Find("Settings"); ok {
 		t.Fatal("Settings shows on the lock screen")
 	}

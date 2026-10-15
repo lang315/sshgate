@@ -188,23 +188,7 @@ func (f *flowT) stillPending(ch <-chan hubtest.ExecResult, d time.Duration, what
 // audited waits for the exec record of cmd in the hub's audit log.
 func (f *flowT) audited(cmd string) auditRec {
 	f.t.Helper()
-	var rec auditRec
-	f.until(func() bool {
-		file, err := os.Open(f.audit)
-		if err != nil {
-			return false
-		}
-		defer file.Close()
-		for sc := bufio.NewScanner(file); sc.Scan(); {
-			var r auditRec
-			if json.Unmarshal(sc.Bytes(), &r) == nil && r.Kind == "" && r.Command == cmd {
-				rec = r
-				return true
-			}
-		}
-		return false
-	}, "the audit record of "+cmd)
-	return rec
+	return f.lastExec(cmd)
 }
 
 // auditRec is the part of an audit record the tests check.

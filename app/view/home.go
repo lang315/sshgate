@@ -28,7 +28,7 @@ func (a *App) buildReady(c *ui.Context) {
 	autoN := len(model.AutoHostNames(a.servers, now))
 	liveAuto := autoN - len(model.PausedHosts(a.servers))
 	for _, s := range a.servers {
-		if s.AutoAllow != nil && s.AutoAllow.Until != "" {
+		if model.IsActive(s.AutoAllow, now) && s.AutoAllow.Until != "" {
 			// Timed chips, the AI button's count and the Stop buttons follow
 			// the app's clock: a redraw, never a hub call (Electron's 15 s).
 			c.After(15 * time.Second)

@@ -36,8 +36,9 @@ func (a *App) openConfirm(s *hubapi.Server) {
 		return
 	}
 	gen := a.hubGen
+	name := ed.name
 	go func() {
-		r, err := a.hub().AutoAllowCheck(context.Background(), ed.name)
+		r, err := a.hub().AutoAllowCheck(context.Background(), name)
 		a.Update(func() {
 			if !a.ready(gen) || ed.confirm != cf {
 				return

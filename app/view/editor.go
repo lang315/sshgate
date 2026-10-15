@@ -106,7 +106,7 @@ func (a *App) submitHost(s *hubapi.Server) {
 	if ed.busy || model.PortError(ed.draft.Port) != "" {
 		return
 	}
-	if s != nil && model.SaveConfirm(s, ed.draft).Needed {
+	if model.SaveConfirm(s, ed.draft).Needed {
 		a.openConfirm(s)
 		return
 	}
@@ -124,11 +124,11 @@ func (a *App) saveHost() {
 	if ed == nil || ed.busy || model.PortError(ed.draft.Port) != "" {
 		return
 	}
-	in, mode, cf := model.ToInput(ed.draft), ed.draft.AutoAllow, ed.confirm
+	in, mode, cf, name := model.ToInput(ed.draft), ed.draft.AutoAllow, ed.confirm, ed.name
 	ed.busy, ed.err = true, ""
 	gen := a.hubGen
 	go func() {
-		err := a.hub().SaveServer(context.Background(), ed.name, in, mode)
+		err := a.hub().SaveServer(context.Background(), name, in, mode)
 		a.Update(func() {
 			if !a.ready(gen) {
 				return

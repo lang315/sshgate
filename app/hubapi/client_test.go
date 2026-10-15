@@ -112,8 +112,8 @@ func TestImportRepliesDecode(t *testing.T) {
 }
 
 func TestAutoCheckDecodes(t *testing.T) {
-	c, err := New(&rec{result: `{"uid":0,"passwordlessSudo":true}`}).AutoAllowCheck(context.Background(), "box")
-	if err != nil || c != (AutoCheck{UID: 0, PasswordlessSudo: true}) {
+	c, err := New(&rec{result: `{"uid":1000,"passwordlessSudo":true}`}).AutoAllowCheck(context.Background(), "box")
+	if err != nil || c != (AutoCheck{UID: 1000, PasswordlessSudo: true}) {
 		t.Fatalf("%+v %v", c, err)
 	}
 }

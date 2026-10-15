@@ -151,7 +151,7 @@ func TestFlowSoftLock(t *testing.T) {
 	// Idle with a grant: the app locks and the AI keeps running on box only.
 	f.idleLocked("box")
 	f.ran(f.aiExec("box", "echo soft-1"), "echo soft-1")
-	f.softLockBefore("echo soft-1", "")
+	f.softLockBefore("echo soft-1", "idle")
 	f.denied(f.aiExec("other", "echo soft-other"), "Vault is locked")
 	if last(f.records(), func(r auditRec) bool { return r.Command == "echo soft-other" }) >= 0 {
 		t.Fatal("the refused run on other was audited")

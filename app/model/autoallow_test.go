@@ -230,6 +230,11 @@ func TestDialogChangeKey(t *testing.T) {
 	pending := DialogChangeKey("forever", false, false, false, nil, false, "")
 	root := DialogChangeKey("forever", false, false, false, &hubapi.AutoCheck{UID: 0}, false, "")
 	failed := DialogChangeKey("forever", false, false, false, nil, true, "")
+	user := DialogChangeKey("forever", false, false, false, &hubapi.AutoCheck{UID: 1000}, false, "")
+	nopasswd := DialogChangeKey("forever", false, false, false, &hubapi.AutoCheck{UID: 1000, PasswordlessSudo: true}, false, "")
+	if user == root || user == pending || nopasswd == user || nopasswd == root {
+		t.Fatal("the check's uid and sudo answer are not in the key")
+	}
 	if root == pending || failed == pending || root == failed {
 		t.Fatal("the check's state is not in the key")
 	}

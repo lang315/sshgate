@@ -413,3 +413,33 @@ func TestConfirmShowsTheNameEscaped(t *testing.T) {
 		}
 	}
 }
+
+// A servers reload that failed leaves no host to check against: Save opens
+// the dialog, which refuses, and nothing is sent.
+func TestSaveAsksWhenTheListLostTheHost(t *testing.T) {
+	a, tt, d, _ := autoApp(t, autoBox(), "24h")
+	choose(t, tt, "Off", "15 min")
+	d.set(func() { d.errs = map[string]error{"servers": errors.New("boom")} })
+	a.Update(a.reloadServers)
+	tt.flush()
+	d.resetCalls()
+	clickT(t, tt, "Save")
+	tt.flush()
+	if hasCall(d, "servers.save") {
+		t.Fatalf("armed without the Auto-allow dialog: calls %v", d.callList())
+	}
+}
+
+func TestDialogRefusesWhenTheListLostTheHost(t *testing.T) {
+	a, tt, d, _ := autoApp(t, autoBox(), "24h")
+	choose(t, tt, "Off", "15 min")
+	d.set(func() { d.errs = map[string]error{"servers": errors.New("boom")} })
+	a.Update(a.reloadServers)
+	tt.flush()
+	d.resetCalls()
+	clickT(t, tt, "Save")
+	tt.flush()
+	if !tt.HasText("Auto-allow is not available here: no pinned host key") || hasCall(d, "servers.autoAllowCheck") {
+		t.Fatalf("no refusal, or a root check for a host the app lost: calls %v", d.callList())
+	}
+}

@@ -55,7 +55,11 @@ func TestAgainstRealHub(t *testing.T) {
 	if err := h.Lock(ctx, false); err != nil {
 		t.Fatal(err)
 	}
-	if s, _ := h.Status(ctx); !s.Locked {
+	s, err = h.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.Locked {
 		t.Fatal("not locked after Lock")
 	}
 }
@@ -134,19 +138,31 @@ func TestAutoAllowSettingsAgainstRealHub(t *testing.T) {
 	defer p.Stop()
 	ctx := context.Background()
 	h := New(p.Client())
-	if s, _ := h.Status(ctx); s.SoftLockLimit != "" {
+	s, err := h.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.SoftLockLimit != "" {
 		t.Fatalf("a locked hub reports the limit %q", s.SoftLockLimit)
 	}
 	if _, err := h.Unlock(ctx, hubtest.Password); err != nil {
 		t.Fatal(err)
 	}
-	if s, _ := h.Status(ctx); s.SoftLockLimit != "24h" {
+	s, err = h.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.SoftLockLimit != "24h" {
 		t.Fatalf("default limit %q", s.SoftLockLimit)
 	}
 	if err := h.SetSoftLockLimit(ctx, "none"); err != nil {
 		t.Fatal(err)
 	}
-	if s, _ := h.Status(ctx); s.SoftLockLimit != "none" {
+	s, err = h.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.SoftLockLimit != "none" {
 		t.Fatalf("limit %q after setting none", s.SoftLockLimit)
 	}
 	if err := h.SetSoftLockLimit(ctx, "1d"); err == nil || err.Error() != "limit must be 24h, 3d, 7d, or none" {
