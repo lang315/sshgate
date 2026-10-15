@@ -4,7 +4,11 @@ package view
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -131,4 +135,87 @@ func TestFlowHostsCreateTrustEditForgetDelete(t *testing.T) {
 	f.click("Delete host")
 	f.until(func() bool { return len(f.a.Servers()) == 0 && f.tt.HasText("No hosts yet.") }, "box gone")
 	f.configRecords("box", "delete", 1)
+}
+
+// TestFlowImportPinsFromKnownHosts: import.spec.ts. The config's last
+// stanza points IdentityFile and UserKnownHostsFile into the test's own
+// folder, so ssh -G never reads the real ~/.ssh.
+func TestFlowImportPinsFromKnownHosts(t *testing.T) {
+	needLib(t)
+	for _, bin := range []string{"ssh", "ssh-keygen"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			t.Skip("import needs the OpenSSH client: ", err)
+		}
+	}
+	dir := t.TempDir()
+	key, kh, cfg := filepath.Join(dir, "id_ed25519"), filepath.Join(dir, "known_hosts"), filepath.Join(dir, "ssh_config")
+	if out, err := exec.Command("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", key).CombinedOutput(); err != nil {
+		t.Fatalf("ssh-keygen: %v %s", err, out)
+	}
+	f := flowWith(t, hubtest.Options{KnownHosts: kh}, "--sshConfig="+cfg)
+	conf := strings.Join([]string{
+		"Host work", "  HostName 127.0.0.1", fmt.Sprintf("  Port %d", f.port), "  User test", "  IdentityFile " + key,
+		"Host viaproxy", "  HostName 127.0.0.1", "  ProxyCommand nc %h %p",
+		"Host *", "  IdentityFile " + filepath.Join(dir, "missing"), "  UserKnownHostsFile " + kh, "",
+	}, "\n")
+	if err := os.WriteFile(cfg, []byte(conf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.unlock()
+	f.tt.SetSize(1000, 900)
+	f.click("Import from SSH config")
+	f.until(func() bool { return f.tt.HasText("Import work") }, "the scanned rows")
+	for _, s := range []string{"StrictHostKeyChecking accept-new", "SHA256:", "needs ProxyCommand"} {
+		if !f.tt.HasText(s) {
+			t.Fatalf("missing %q in %q", s, f.tt.Texts())
+		}
+	}
+	if !f.a.imp.checked["work"] || f.a.imp.checked["viaproxy"] {
+		t.Fatalf("checked %v", f.a.imp.checked)
+	}
+	f.click("Import 1 host")
+	f.until(func() bool { return f.a.imp == nil && len(f.a.Servers()) == 2 }, "the sheet to close with work imported")
+	f.configRecords("work", "import", 1)
+
+	// Pinned at import: no "New key" chip, and connecting asks nothing.
+	if f.tt.HasText("New key") || !f.tt.HasText("Open work") {
+		t.Fatal(f.tt.Texts())
+	}
+	f.click("Open work")
+	id := f.a.tabs.Active
+	f.until(func() bool { return tabState(f.a, id) == "open" && f.tt.Focused("Terminal work") }, "the work tab")
+	if f.tt.HasText("Trust this host key?") {
+		t.Fatal("an imported host asked to trust its key")
+	}
+	f.tt.Type("echo import-ok")
+	f.shows(id, "echo import-ok")
+}
+
+// TestFlowKeyboardMovesTheAuthChoice: keyboard.spec.ts's editor test. The
+// arrows move and choose among the Auth radios, wrapping; Esc closes.
+func TestFlowKeyboardMovesTheAuthChoice(t *testing.T) {
+	f := flow(t)
+	f.unlock()
+	f.tt.SetSize(1000, 900)
+	f.click("New host")
+	f.click("+ Key or agent")
+	f.tt.Frame() // the radios replace the button
+	f.click("password")
+	f.tt.Frame()
+	if !f.tt.Focused("password") {
+		t.Fatal("password is not focused")
+	}
+	f.tt.Key(0, ui.KeyRight)
+	f.tt.Frame()
+	if !f.tt.Focused("key") || f.a.editor.draft.Auth != "key" {
+		t.Fatal("ArrowRight: want key focused and chosen")
+	}
+	f.tt.Key(0, ui.KeyLeft)
+	f.tt.Key(0, ui.KeyLeft)
+	f.tt.Frame()
+	if !f.tt.Focused("agent") || f.a.editor.draft.Auth != "agent" {
+		t.Fatal("ArrowLeft twice: want agent focused and chosen")
+	}
+	f.tt.Key(0, ui.KeyEscape)
+	f.until(func() bool { return f.a.editor == nil && !f.tt.HasText("Host editor") }, "Esc to close the editor")
 }
