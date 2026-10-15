@@ -69,6 +69,21 @@ func (s *trayShell) Notify(id, title, body string) {
 	}()
 }
 
+// PickPaths and PickFolder are mygo's native pickers, as sheets on the
+// window. mygo has no files-and-folders picker, so Upload is two buttons
+// (plan Decision 4). Message shows on macOS only; Title carries the same text.
+func (s *trayShell) PickPaths(title string, dirs bool) ([]string, error) {
+	return mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: s.win, Title: title, Message: title, ButtonLabel: "Upload", Directory: dirs, Multiple: true})
+}
+
+func (s *trayShell) PickFolder(title string) (string, error) {
+	p, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: s.win, Title: title, Message: title, ButtonLabel: "Download here", Directory: true, CreateDirectories: true})
+	if err != nil || len(p) != 1 {
+		return "", err
+	}
+	return p[0], nil
+}
+
 // SetTheme applies the theme control's choice app-wide, native chrome
 // included; Auto follows the system.
 func (s *trayShell) SetTheme(pref string) { mygo.Theme.SetSource(themeSource(pref)) }

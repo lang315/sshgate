@@ -54,13 +54,7 @@ func main() {
 	mux := termconn.NewMux()
 	var client atomic.Pointer[door.Client]
 	a := &view.App{Now: time.Now, ThemeFile: themeFile}
-	a.Door = doorFunc(func(ctx context.Context, method string, params, result any) error {
-		c := client.Load()
-		if c == nil {
-			return errors.New("the hub is not running")
-		}
-		return c.Call(ctx, method, params, result)
-	})
+	a.Door = liveDoor{&client}
 	a.Dial = func(ctx context.Context, id, server string, trust *hubapi.Trust) (*termconn.Conn, error) {
 		c := client.Load()
 		if c == nil {
@@ -111,10 +105,23 @@ func main() {
 	}
 }
 
-type doorFunc func(ctx context.Context, method string, params, result any) error
+// liveDoor is the running hub's door client, whichever process that is.
+type liveDoor struct{ c *atomic.Pointer[door.Client] }
 
-func (f doorFunc) Call(ctx context.Context, method string, params, result any) error {
-	return f(ctx, method, params, result)
+func (d liveDoor) Call(ctx context.Context, method string, params, result any) error {
+	c := d.c.Load()
+	if c == nil {
+		return errors.New("the hub is not running")
+	}
+	return c.Call(ctx, method, params, result)
+}
+
+func (d liveDoor) Notify(method string, params any) error {
+	c := d.c.Load()
+	if c == nil {
+		return errors.New("the hub is not running")
+	}
+	return c.Notify(method, params)
 }
 
 // prepareLibrary makes sure the terminal loads the libghostty-vt built from

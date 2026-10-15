@@ -15,9 +15,11 @@ import (
 	"github.com/lang315/sshgate/app/termconn"
 )
 
-// Door is the part of the UI door client the views call.
+// Door is the part of the UI door client the views call. Notify sends
+// files.cancel, the one notification the views send.
 type Door interface {
 	Call(ctx context.Context, method string, params, result any) error
+	Notify(method string, params any) error
 }
 
 // App is the window's state and the port of the renderer's App.tsx. Build
@@ -67,7 +69,10 @@ type App struct {
 	password, newPw, again string // field values
 	query                  string // host search
 	tabs                   model.TabSet
-	terms                  map[string]*termTab // by tab id
+	terms                  map[string]*termTab  // by tab id
+	files                  map[string]*filesTab // by tab id
+	lastFolder             map[string]string    // by server: the folder a new Files tab lists, this run only
+	showHidden             bool                 // every Files tab's Show hidden files
 	prompts                model.HostKeyPrompts
 	mismatch               *hubapi.HostKey
 	hk                     hkState
@@ -126,6 +131,10 @@ type noShell struct{}
 func (noShell) SetPending(int)                {}
 func (noShell) Notify(string, string, string) {}
 func (noShell) SetTheme(string)               {}
+func (noShell) PickPaths(string, bool) ([]string, error) {
+	return nil, errors.New("no file picker")
+}
+func (noShell) PickFolder(string) (string, error) { return "", errors.New("no file picker") }
 
 func (a *App) init() {
 	if a.dropped == nil {
@@ -135,6 +144,7 @@ func (a *App) init() {
 		a.hubState = model.HubState{Kind: "starting"}
 		a.screen = model.ScreenHub
 		a.terms = map[string]*termTab{}
+		a.files, a.lastFolder = map[string]*filesTab{}, map[string]string{}
 		a.theme = LoadTheme(a.ThemeFile) // main applied it before the window opened
 	}
 }

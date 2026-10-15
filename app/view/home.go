@@ -173,6 +173,9 @@ func (a *App) buildHosts(c *ui.Context) {
 								a.setAuto([]string{name}, "off", "stop")
 							}
 						}
+						if ui.Button(c, "Files").Label("Files " + shownName).Tooltip("Files").Clicked() {
+							a.openFiles(name)
+						}
 						if ui.Button(c, "Edit").Label("Edit " + shownName).Tooltip("Edit").Clicked() {
 							a.openEditor(name, false)
 						}
