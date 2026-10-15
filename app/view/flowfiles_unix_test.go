@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/internal/hubtest"
+	"github.com/lang315/sshgate/app/model"
 )
 
 // filesFlow is a flow on an sshtestd serving SFTP, unlocked, with fake
@@ -27,13 +29,18 @@ func filesFlow(t *testing.T) (*flowT, *fakeShell) {
 // openFiles opens a Files tab on box from its card and waits for its listing.
 func (f *flowT) openFiles() (string, *filesTab) {
 	f.t.Helper()
+	return f.openFilesOn("box", 10*time.Second)
+}
+
+func (f *flowT) openFilesOn(server string, limit time.Duration) (string, *filesTab) {
+	f.t.Helper()
 	if f.a.tabs.Active != "" {
 		f.click("Hosts")
 	}
-	f.click("Files box")
+	f.click("Files " + model.DisplayText(server))
 	id := f.a.tabs.Active
 	v := f.a.files[id]
-	f.until(func() bool { return v.listing != nil && !v.loading }, "the box listing")
+	f.untilFor(limit, func() bool { return v.listing != nil && !v.loading }, "the "+server+" listing")
 	return id, v
 }
 
