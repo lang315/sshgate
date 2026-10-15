@@ -50,6 +50,7 @@ func (a *App) startJob(id, op string, sources []string, dest, folder, label stri
 		err := a.hub().FilesPlan(context.Background(), j.id, server, op, sources, remoteDest)
 		a.Update(func() {
 			if err != nil && gen == a.hubGen {
+				a.filesCancel(j.id) // the hub may have accepted a plan that timed out here
 				a.finishJob(j, nil, err.Error())
 			}
 		})
@@ -363,7 +364,7 @@ func (a *App) buildFileConfirm(c *ui.Context, v *filesTab) {
 		}
 	}
 	if j == nil || v.name != nil {
-		v.confirm = nil // shown again later: a fresh delay
+		v.confirm = nil // only the active tab builds, so a tab switch keeps the old delay; a dialog dropped here starts a fresh one
 		return
 	}
 	th := c.Theme()

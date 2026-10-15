@@ -246,6 +246,17 @@ func TestCancelWhilePlanning(t *testing.T) {
 	}
 }
 
+// A plan that fails here may still have been accepted by the hub (a timeout):
+// the job is cancelled there too, and never run.
+func TestFailedPlanCancelsTheJobOnTheHub(t *testing.T) {
+	_, tt, d, _, sh, _ := jobsApp(t)
+	d.set(func() { d.errs = map[string]error{"files.plan": errors.New("timed out")} })
+	upload(t, tt, sh, "/l/proj")
+	if !tt.HasText("timed out") || hasCall(d, "files.run") || !slices.Contains(d.sentList(), `files.cancel {"id":"f1"}`) {
+		t.Fatalf("%v %v %q", d.callList(), d.sentList(), tt.Texts())
+	}
+}
+
 func TestPlanAndRunErrorsShowInTheRow(t *testing.T) {
 	a, tt, d, _, sh, _ := jobsApp(t)
 	d.set(func() { d.errs = map[string]error{"files.plan": errors.New("sources: 1 to 1000 paths")} })
