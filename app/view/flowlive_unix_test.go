@@ -241,6 +241,9 @@ func TestLiveFiles(t *testing.T) {
 	f.tt.Key(ui.Cmd, ui.KeyA)
 	f.tt.Type(strconv.Itoa(port + 1))
 	f.until(func() bool { return f.tt.HasText("cancel 1 transfer") }, "the transfer warning")
+	if j.state == "done" {
+		t.Fatalf("the download ended before the save; raise SSHGATE_LIVE_BIG_MB (%d)", bigMB)
+	}
 	f.click("Save")
 	portChanged = true
 	f.click(model.DisplayText(host) + " · files")
@@ -338,8 +341,11 @@ func (f *flowT) goTo(v *filesTab, dir string, mayFail bool) {
 
 // start clicks label and returns the job it adds. The job lands in v.jobs
 // only on a flush, so a read right after the click would see the last one.
+// It first waits for the actions: the relist after an upload or delete
+// disables them while it loads, and a click then does nothing.
 func (f *flowT) start(v *filesTab, label string) *fileJob {
 	f.t.Helper()
+	f.untilFor(time.Minute, func() bool { return model.ActionsReady(v.listing, v.loading) }, "the file actions")
 	n := len(v.jobs)
 	f.click(label)
 	f.untilFor(time.Minute, func() bool { return len(v.jobs) > n }, "the "+label+" job")
