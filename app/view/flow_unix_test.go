@@ -3,7 +3,6 @@
 package view
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -123,7 +122,7 @@ func (f *flowT) click(label string) {
 }
 
 // pass moves the fake clock past the 500 ms Allow delay.
-func (f *flowT) pass() { f.c.add(600 * time.Millisecond); f.tt.Frame() }
+func (f *flowT) pass() { pass(f.c, f.tt) }
 
 func (f *flowT) unlock() {
 	f.t.Helper()
@@ -185,12 +184,6 @@ func (f *flowT) stillPending(ch <-chan hubtest.ExecResult, d time.Duration, what
 	}
 }
 
-// audited waits for the exec record of cmd in the hub's audit log.
-func (f *flowT) audited(cmd string) auditRec {
-	f.t.Helper()
-	return f.lastExec(cmd)
-}
-
 // auditRec is the part of an audit record the tests check.
 type auditRec struct {
 	Kind, Command, Outcome, Reason, Approval string
@@ -232,35 +225,33 @@ func last(recs []auditRec, match func(auditRec) bool) int {
 	return -1
 }
 
-// lastConfig waits for, and returns, server's newest config record with
-// this action.
-func (f *flowT) lastConfig(server, action string) auditRec {
+// lastRec waits for, and returns, the newest record that match accepts.
+func (f *flowT) lastRec(match func(auditRec) bool, what string) auditRec {
 	f.t.Helper()
 	var rec auditRec
 	f.until(func() bool {
 		recs := f.records()
-		i := last(recs, func(r auditRec) bool { return r.Kind == "config" && r.Action == action && r.Server == server })
+		i := last(recs, match)
 		if i >= 0 {
 			rec = recs[i]
 		}
 		return i >= 0
-	}, fmt.Sprintf("a %s config record of %s", action, server))
+	}, what)
 	return rec
+}
+
+// lastConfig waits for, and returns, server's newest config record with
+// this action.
+func (f *flowT) lastConfig(server, action string) auditRec {
+	f.t.Helper()
+	return f.lastRec(func(r auditRec) bool { return r.Kind == "config" && r.Action == action && r.Server == server },
+		fmt.Sprintf("a %s config record of %s", action, server))
 }
 
 // lastExec waits for, and returns, cmd's newest exec record.
 func (f *flowT) lastExec(cmd string) auditRec {
 	f.t.Helper()
-	var rec auditRec
-	f.until(func() bool {
-		recs := f.records()
-		i := last(recs, func(r auditRec) bool { return r.Kind == "" && r.Command == cmd })
-		if i >= 0 {
-			rec = recs[i]
-		}
-		return i >= 0
-	}, "the audit record of "+cmd)
-	return rec
+	return f.lastRec(func(r auditRec) bool { return r.Kind == "" && r.Command == cmd }, "the audit record of "+cmd)
 }
 
 // tool runs an MCP tool through the real bridge, as an AI client does.
@@ -289,15 +280,9 @@ func (f *flowT) auditedConfig(action string) {
 func (f *flowT) configRecords(server, action string, n int) {
 	f.t.Helper()
 	f.until(func() bool {
-		file, err := os.Open(f.audit)
-		if err != nil {
-			return false
-		}
-		defer file.Close()
 		got := 0
-		for sc := bufio.NewScanner(file); sc.Scan(); {
-			var r auditRec
-			if json.Unmarshal(sc.Bytes(), &r) == nil && r.Kind == "config" && r.Action == action && r.Server == server {
+		for _, r := range f.records() {
+			if r.Kind == "config" && r.Action == action && r.Server == server {
 				got++
 			}
 		}
@@ -307,7 +292,7 @@ func (f *flowT) configRecords(server, action string, n int) {
 
 func (f *flowT) wantAudit(cmd, outcome, reason string) {
 	f.t.Helper()
-	if r := f.audited(cmd); r.Outcome != outcome || r.Reason != reason || r.Approval != "" {
+	if r := f.lastExec(cmd); r.Outcome != outcome || r.Reason != reason || r.Approval != "" {
 		f.t.Fatalf("audit of %q: %+v, want outcome %q reason %q and no approval", cmd, r, outcome, reason)
 	}
 }
@@ -423,7 +408,7 @@ func TestFlowKeyboardOnlyDenies(t *testing.T) {
 	}
 	f.tt.Key(0, ui.KeySpace)
 	f.denied(k1, "Denied by user")
-	if r := f.audited("echo k1"); r.Outcome != "denied" {
+	if r := f.lastExec("echo k1"); r.Outcome != "denied" {
 		t.Fatalf("audit of k1: %+v", r)
 	}
 }
@@ -439,7 +424,7 @@ func (f *flowT) ran(ch <-chan hubtest.ExecResult, out string) {
 // auto fails unless cmd's audit record says it ran without approval.
 func (f *flowT) auto(cmd string) {
 	f.t.Helper()
-	if r := f.audited(cmd); r.Outcome != "allowed" || r.Approval != "auto" {
+	if r := f.lastExec(cmd); r.Outcome != "allowed" || r.Approval != "auto" {
 		f.t.Fatalf("audit of %q: %+v, want an auto-allowed run", cmd, r)
 	}
 }

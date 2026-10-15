@@ -144,10 +144,7 @@ func TestFlowAutoAllow(t *testing.T) {
 	f.denyWaiting(f.aiExec("box", "echo after-lock"), "echo after-lock")
 
 	// A forever grant pauses after Stop auto-allow and lock, until Resume.
-	f.editAuto("box", "Until turned off")
-	f.fill("Type box to confirm", "box")
-	f.enable()
-	f.chip("box", "Auto ∞")
+	f.armForever()
 	f.stopAndLock()
 	f.until(func() bool { return f.tt.HasText("Auto-allow is paused on box.") }, "the paused banner")
 	f.denyWaiting(f.aiExec("box", "echo paused-asks"), "echo paused-asks")
@@ -266,10 +263,7 @@ func TestFlowAutoAllowMCP(t *testing.T) {
 	}
 
 	// A forever grant is paused after Stop auto-allow and lock until Resume.
-	f.editAuto("box", "Until turned off")
-	f.fill("Type box to confirm", "box")
-	f.enable()
-	f.chip("box", "Auto ∞")
+	f.armForever()
 	if on := f.lastConfig("box", "autoAllowOn"); !on.Forever {
 		t.Fatalf("autoAllowOn: %+v", on)
 	}

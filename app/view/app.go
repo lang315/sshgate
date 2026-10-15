@@ -72,14 +72,19 @@ type App struct {
 	mismatch               *hubapi.HostKey
 	hk                     hkState
 	sends                  []pendingSend
-	sendSeq                int // numbers Send to tab attempts
-	editor                 *editorState
-	imp                    *importState
-	del                    *deleteState
-	settings               *settingsState
+	sendSeq                int       // numbers Send to tab attempts
+	dialogs                          // dropped together when the ready screen goes
 	sheetSeq               int       // numbers the sheets opened; keys the open one
 	searchH                ui.Handle // the host search: the focus after a sheet closes on Hosts
 	theme                  string    // "dark", "light" or "auto"
+}
+
+// dialogs are the ones a lock or hub stop closes, and any typed secret with them.
+type dialogs struct {
+	editor   *editorState
+	imp      *importState
+	del      *deleteState
+	settings *settingsState
 }
 
 // callTimeout matches Electron's hubProcess.ts: a hung but running hub

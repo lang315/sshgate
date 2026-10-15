@@ -55,10 +55,15 @@ func IsActive(a *hubapi.AutoAllow, now time.Time) bool {
 	return left(a, now) > 0
 }
 
+// OnOrPaused reports a grant that is live or paused: its host is on auto-allow.
+func OnOrPaused(a *hubapi.AutoAllow, now time.Time) bool {
+	return IsActive(a, now) || (a != nil && a.Paused)
+}
+
 func AutoHostNames(servers []hubapi.Server, now time.Time) []string {
 	var out []string
 	for _, s := range servers {
-		if IsActive(s.AutoAllow, now) || (s.AutoAllow != nil && s.AutoAllow.Paused) {
+		if OnOrPaused(s.AutoAllow, now) {
 			out = append(out, s.Name)
 		}
 	}

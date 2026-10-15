@@ -168,7 +168,7 @@ func (a *App) buildHosts(c *ui.Context) {
 							}
 						})
 						// Always shown while a grant is on or paused: it must be stoppable at a glance.
-						if model.IsActive(s.AutoAllow, now) || s.AutoAllow != nil && s.AutoAllow.Paused {
+						if model.OnOrPaused(s.AutoAllow, now) {
 							if ui.Button(c, "\u25a0").Label("Stop auto-allow " + shownName).Tooltip("Stop auto-allow").Clicked() {
 								a.setAuto([]string{name}, "off", "stop")
 							}

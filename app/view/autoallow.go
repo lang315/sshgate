@@ -60,15 +60,9 @@ func (a *App) buildConfirm(c *ui.Context) {
 	ed, now := a.editor, a.Now()
 	cf, d := ed.confirm, ed.draft
 	key := model.DialogChangeKey(d.AutoAllow, cf.ask.RootNew, cf.ask.SudoNew, d.AutoAllowSudo, cf.check, cf.checkFail, cf.err)
-	if cf.lc == nil {
-		cf.lc = model.NewListChanges(key, now)
-	}
-	cf.lc.SetKey(key, now)
+	guard(c, &cf.lc, key, now)
 	enabled := func(now time.Time) bool {
 		return !ed.busy && model.EnableAllowed(cf.ask.TypeName, cf.typed, ed.name, cf.refused, cf.lc.At, now)
-	}
-	if wait := model.DelayRemaining(cf.lc.At, cf.lc.At, now); wait > 0 {
-		c.After(wait)
 	}
 	name := model.DisplayText(ed.name)
 	title := "Auto-allow AI commands on " + name
@@ -164,14 +158,7 @@ func (a *App) buildPaused(c *ui.Context, lc **model.ListChanges) {
 	t := c.Theme()
 	now := a.Now()
 	key := strings.Join(hosts, "\n")
-	if *lc == nil {
-		*lc = model.NewListChanges(key, now)
-	}
-	(*lc).SetKey(key, now)
-	ok := model.TrustEnabled((*lc).At, now)
-	if !ok {
-		c.After((*lc).At.Add(model.AllowDelay).Sub(now))
-	}
+	ok := guard(c, lc, key, now)
 	names := make([]string, len(hosts))
 	for i, h := range hosts {
 		names[i] = model.DisplayText(h)

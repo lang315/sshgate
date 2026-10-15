@@ -34,13 +34,7 @@ func (a *App) buildSettings(c *ui.Context) {
 	slices.Sort(hosts)
 	change := model.LimitChange(st.limit, st.chosen)
 	key := model.SettingsChangeKey(st.chosen, hosts, st.err)
-	if st.lc == nil {
-		st.lc = model.NewListChanges(key, now)
-	}
-	st.lc.SetKey(key, now)
-	if wait := model.DelayRemaining(st.lc.At, st.lc.At, now); wait > 0 {
-		c.After(wait)
-	}
+	guard(c, &st.lc, key, now)
 	labels, cur := make([]string, len(model.Limits)), ""
 	for i, l := range model.Limits {
 		labels[i] = l.Label
