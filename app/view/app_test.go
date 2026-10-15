@@ -31,6 +31,7 @@ type fakeDoor struct {
 	hang     map[string]bool // these methods never answer: they wait for ctx
 	scan     hubapi.ImportScan
 	imported hubapi.ImportResult
+	check    *hubapi.AutoCheck // servers.autoAllowCheck; nil answers uid 1000, no passwordless sudo
 }
 
 func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) error {
@@ -46,7 +47,7 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 	st, stFn := d.status, d.statusFn
 	gate := d.pendGate
 	srv, pend := d.servers, d.pending
-	scan, imported := d.scan, d.imported
+	scan, imported, check := d.scan, d.imported, d.check
 	d.mu.Unlock()
 	if wait != nil {
 		<-wait
@@ -86,6 +87,11 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 		out = scan
 	case "import.apply":
 		out = imported
+	case "servers.autoAllowCheck":
+		out = hubapi.AutoCheck{UID: 1000}
+		if check != nil {
+			out = *check
+		}
 	default:
 		out = map[string]any{}
 	}

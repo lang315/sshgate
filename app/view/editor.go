@@ -27,6 +27,7 @@ type editorState struct {
 	focusForget     bool // opened from the mismatch dialog
 	busy            bool
 	err             string
+	confirm         *confirmState // the Auto-allow dialog over the editor
 }
 
 // server is a copy of the stored server called name, or nil.
@@ -98,27 +99,32 @@ func (a *App) buildSheet(c *ui.Context, key, title, label, closeLabel, errText s
 	return closed || esc && !busy
 }
 
-// keptMode is the autoAllow a save sends while the editor has no Auto-allow
-// select: a live forever grant is armed again in the same write (Electron
-// saves that without asking); a paused or timed one, or none, is off. 3b
-// replaces it with saveConfirm and the Auto-allow dialog.
-func keptMode(s *hubapi.Server, d model.HostDraft) string {
-	if d.AutoAllow == "forever" && s != nil && s.AutoAllow != nil && s.AutoAllow.Forever && !s.AutoAllow.Paused {
-		return "forever"
+// submitHost is Save and Enter: a draft that arms a grant asks first
+// (Electron's saveConfirm), anything else saves.
+func (a *App) submitHost(s *hubapi.Server) {
+	ed := a.editor
+	if ed.busy || model.PortError(ed.draft.Port) != "" {
+		return
 	}
-	return "off"
+	if s != nil && model.SaveConfirm(s, ed.draft).Needed {
+		a.openConfirm(s)
+		return
+	}
+	a.saveHost()
 }
 
-// saveHost sends servers.save. A bad port is never sent: typed text reaches
-// the draft only in the next build, after the check buildEditor drew. The
-// reply is dropped if its hub stopped or the ready screen went (a lock); it
-// touches this editor only, never one opened since.
+// saveHost sends servers.save with the draft's auto-allow, which the hub
+// arms in the same write. A bad port is never sent: typed text reaches the
+// draft only in the next build, after the check buildEditor drew. The reply
+// is dropped if its hub stopped or the ready screen went (a lock); it
+// touches this editor only, never one opened since, and its error goes to
+// the Auto-allow dialog that sent it while that is still open.
 func (a *App) saveHost() {
 	ed := a.editor
 	if ed == nil || ed.busy || model.PortError(ed.draft.Port) != "" {
 		return
 	}
-	in, mode := model.ToInput(ed.draft), keptMode(a.server(ed.name), ed.draft)
+	in, mode, cf := model.ToInput(ed.draft), ed.draft.AutoAllow, ed.confirm
 	ed.busy, ed.err = true, ""
 	gen := a.hubGen
 	go func() {
@@ -129,7 +135,11 @@ func (a *App) saveHost() {
 			}
 			ed.busy = false
 			if err != nil && !strings.HasPrefix(err.Error(), savedBut) {
-				ed.err = err.Error()
+				if cf != nil && ed.confirm == cf {
+					cf.err = err.Error()
+				} else {
+					ed.err = err.Error()
+				}
 				return
 			}
 			if err != nil {
@@ -172,7 +182,10 @@ func (a *App) buildEditor(c *ui.Context) {
 	case closed:
 		a.closeSheet()
 	case submit:
-		a.saveHost()
+		a.submitHost(s)
+	}
+	if ed.confirm != nil && a.editor == ed {
+		a.buildConfirm(c)
 	}
 }
 
@@ -323,14 +336,47 @@ func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (
 	return submit
 }
 
-// buildAIAccess is the AI access fold. 3b adds the Auto-allow select and the
-// two opt-in checkboxes here, below the switch.
+// buildAIAccess is the AI access fold: Visible to AI, the Auto-allow select
+// (labels on screen, the hub's values in the draft), and the two opt-ins,
+// which only count while a mode is chosen.
 func (a *App) buildAIAccess(c *ui.Context, s *hubapi.Server) {
 	t := c.Theme()
-	ui.Field(c, "Visible to AI", func() { ui.Switch(c, &a.editor.draft.AIVisible) })
+	d := &a.editor.draft
+	ui.Field(c, "Visible to AI", func() { ui.Switch(c, &d.AIVisible) })
 	ui.Text(c, "AI clients can see this server and ask to run commands. Commands wait for your approval unless auto-allow is on.").TextColor(t.TextMuted)
 	if s == nil || s.HostKey == "" {
 		ui.Text(c, "Needs a pinned host key.").TextColor(t.TextMuted)
+	}
+	labels, cur := []string{"Off"}, "Off"
+	for _, m := range model.AutoModes {
+		labels = append(labels, m.Label)
+		if m.Mode == d.AutoAllow {
+			cur = m.Label
+		}
+	}
+	var sel ui.Element
+	f := ui.Field(c, "Auto-allow", func() { sel = ui.Select(c.Key("auto-allow"), &cur, labels).Disabled(s == nil) })
+	if s == nil {
+		f.Description("Save the host and trust its key first")
+	}
+	if sel.Changed() {
+		d.AutoAllow = "off"
+		for _, m := range model.AutoModes {
+			if m.Label == cur {
+				d.AutoAllow = m.Mode
+			}
+		}
+	}
+	if n := model.TimedNote(s, a.Now()); n != "" {
+		ui.Text(c, n).TextColor(t.TextMuted)
+	}
+	off := d.AutoAllow == "off"
+	ui.Checkbox(c.Key("opt-root"), &d.AutoAllowRoot, "Allow on root hosts").Disabled(off)
+	ui.Text(c, "Lets a grant run on a root login, or a host with a stored su or sudo password.").TextColor(t.TextMuted)
+	ui.Checkbox(c.Key("opt-sudo"), &d.AutoAllowSudo, "Also auto-allow sudo-exec").Disabled(off)
+	ui.Text(c, "sudo-exec runs without asking on a granted host, the same as plain exec.").TextColor(t.TextMuted)
+	if r := model.DraftRefusal(s, *d); !off && r != "" {
+		ui.Text(c, model.DisplayText(r)).TextColor(t.Warning)
 	}
 }
 

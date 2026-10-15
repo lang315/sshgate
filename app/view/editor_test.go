@@ -280,26 +280,6 @@ func TestSavedButArmingFailedAlertsAndCloses(t *testing.T) {
 	}
 }
 
-func TestSaveKeepsOnlyALiveForeverGrant(t *testing.T) {
-	for _, tc := range []struct {
-		auto *hubapi.AutoAllow
-		want string
-	}{
-		{&hubapi.AutoAllow{Forever: true}, `"autoAllow":"forever"`},
-		{&hubapi.AutoAllow{Forever: true, Paused: true}, `"autoAllow":"off"`},
-		{&hubapi.AutoAllow{Until: "2026-10-15T13:00:00Z"}, `"autoAllow":"off"`},
-	} {
-		s := boxServer
-		s.AutoAllow = tc.auto
-		_, tt, d := editBox(t, s)
-		clickT(t, tt, "Save")
-		tt.flush()
-		if got := params(d, "servers.save"); !strings.HasSuffix(got, tc.want+"}") {
-			t.Errorf("%+v: sent %s", tc.auto, got)
-		}
-	}
-}
-
 func TestEscClosesOnlyFromInsideTheEditor(t *testing.T) {
 	a, tt, _ := editBox(t, boxServer)
 	clickT(t, tt, "Search hosts")
