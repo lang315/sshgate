@@ -45,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [windows-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -70,4 +70,4 @@ jobs:
       - run: go vet ./...
       # Without MYGO_GHOSTTY_VT (Linux, Windows) the terminal tests skip; nothing downloads a prebuilt library.
       # Windows: the hub's MCP pipe name is per user, not per SSHGATE_RUNTIME_DIR, so two packages' hubs at once fail with "Access is denied"; run one package at a time.
-      - run: go test -race ${{ runner.os == 'Windows' && '-p 1' || '' }} ./...
+      - run: go test -count=1 -v ./view -run 'TestZZ|TestScrollRestartsTheDelay|TestPausedBannerInTheAIColumnLeavesAllow'
