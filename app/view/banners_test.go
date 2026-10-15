@@ -59,6 +59,7 @@ func TestResumeWaitsThenResumesThePausedHosts(t *testing.T) {
 // Allow does not move when it appears.
 func TestPausedBannerInTheAIColumnLeavesAllow(t *testing.T) {
 	a, tt, d, c := pausedApp(t)
+	tt.SetSize(800, 700) // the list fits with the banner too, so no rect is clipped (Windows text is taller)
 	note(t, a, tt, "pending", map[string]any{"request": reqN("r1", "box", "ls")})
 	pass(c, tt)
 	if count(tt.Texts(), pausedBox) != 2 {

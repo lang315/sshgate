@@ -1,6 +1,7 @@
 package view
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -363,7 +364,8 @@ func TestDropChecksThePaths(t *testing.T) {
 		t.Fatal(v.err)
 	}
 	drop(real)
-	if want := `{"id":"f1","server":"box","op":"upload","sources":["` + real + `"],"dest":"/home"}`; params(d, "files.plan") != want {
+	src, _ := json.Marshal(real) // a Windows path's backslashes are escaped
+	if want := `{"id":"f1","server":"box","op":"upload","sources":[` + string(src) + `],"dest":"/home"}`; params(d, "files.plan") != want {
 		t.Fatalf("plan %s", params(d, "files.plan"))
 	}
 	if !tt.HasText("Upload drop-me") {

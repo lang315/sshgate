@@ -151,7 +151,7 @@ func TestReopeningRestartsTheDelay(t *testing.T) {
 
 func TestScrollRestartsTheDelay(t *testing.T) {
 	a, tt, c, d := colApp(t)
-	tt.SetSize(800, 300)
+	tt.SetSize(800, 400) // the list overflows, and its first request is still in view on every OS
 	for _, id := range []string{"s1", "s2", "s3", "s4", "s5"} {
 		note(t, a, tt, "pending", map[string]any{"request": reqN(id, "box", "echo "+id)})
 	}
