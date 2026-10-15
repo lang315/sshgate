@@ -35,6 +35,7 @@ type flowT struct {
 	port   int             // sshtestd's
 	env    []string        // the hub's environment: the bridge runs in it
 	ai     *hubtest.Bridge // started by the first tool call
+	sftp   string          // sshtestd's SFTP root, with hubtest.Options.SFTP
 }
 
 // countDoor is the door terminals use, counting the bytes of term.write
@@ -93,7 +94,7 @@ func flowWith(t *testing.T, o hubtest.Options, extraArgs ...string) *flowT {
 		return termconn.Open(ctx, writes, mux, id, server, 24, 80, trust)
 	}
 	running(a, tt)
-	return &flowT{t: t, a: a, tt: tt, c: c, sock: hubtest.MCPSocket(dir), h: hubapi.New(p.Client()), audit: filepath.Join(filepath.Dir(store), "audit.jsonl"), writes: writes, port: srv.Port, env: env}
+	return &flowT{t: t, a: a, tt: tt, c: c, sock: hubtest.MCPSocket(dir), h: hubapi.New(p.Client()), audit: filepath.Join(filepath.Dir(store), "audit.jsonl"), writes: writes, port: srv.Port, env: env, sftp: srv.SFTP}
 }
 
 // until flushes the UI until cond holds, failing after 10 s.
@@ -194,6 +195,10 @@ type auditRec struct {
 	Until, Limit                             string
 	Forever                                  bool
 	Changed, Servers                         []string
+	Phase, From, To, Conflict                string // file records
+	Remote, Local                            []string
+	Files, Skipped                           int
+	Cancelled                                bool
 }
 
 // records reads the hub's audit log, oldest first.
