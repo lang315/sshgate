@@ -153,9 +153,13 @@ func (a *App) endTabs() {
 // a close button. Clicks run after the loop: closing a tab while ranging
 // over the tabs would build one twice.
 func (a *App) buildTabStrip(c *ui.Context) {
-	addr := map[string]string{}
+	th := c.Theme()
+	addr, auto := map[string]string{}, map[string]bool{}
 	for _, s := range a.servers {
 		addr[s.Name] = model.Addr(s)
+	}
+	for _, n := range model.AutoHostNames(a.servers, a.Now()) {
+		auto[n] = true // on or paused: Electron's .autodot
 	}
 	var click func()
 	ui.ScrollHorizontal(c).Grow(1).Gap(6).Children(func() {
@@ -171,6 +175,9 @@ func (a *App) buildTabStrip(c *ui.Context) {
 				label += " · exited"
 			}
 			ui.Row(c.Key("tab-" + id)).Gap(2).Children(func() {
+				if auto[server] {
+					ui.Text(c, "\u25cf").Label("auto-allow on").TextColor(th.Warning)
+				}
 				if ui.Button(c, label).Selected(a.tabs.Active == id).Tooltip(tip).Clicked() {
 					click = func() { a.activate(id) }
 				}

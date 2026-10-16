@@ -55,7 +55,11 @@ func TestAgainstRealHub(t *testing.T) {
 	if err := h.Lock(ctx, false); err != nil {
 		t.Fatal(err)
 	}
-	if s, _ := h.Status(ctx); !s.Locked {
+	s, err = h.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.Locked {
 		t.Fatal("not locked after Lock")
 	}
 }
@@ -115,5 +119,65 @@ func TestHostWritesAgainstRealHub(t *testing.T) {
 	if err != nil || len(res.Imported) != 0 || len(res.Skipped) != 2 ||
 		res.Skipped[0] != (ImportSkip{"nope", "not in the SSH config"}) || res.Skipped[1] != (ImportSkip{"jump", "needs ProxyJump"}) {
 		t.Fatalf("apply %+v %v", res, err)
+	}
+}
+
+// TestAutoAllowSettingsAgainstRealHub: the soft-lock limit round-trips
+// through status, and the root check answers with the hub's texts (sshtestd
+// echoes the probe instead of running it, so it cannot be checked).
+func TestAutoAllowSettingsAgainstRealHub(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	store := hubtest.SSHD(t)
+	bin, _ := hubtest.Binaries(t)
+	p, err := hubproc.Start(context.Background(), hubproc.Launch{Command: bin, Args: []string{"hub", "--store=" + store}, Env: hubtest.Env(t)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Stop()
+	ctx := context.Background()
+	h := New(p.Client())
+	s, err := h.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.SoftLockLimit != "" {
+		t.Fatalf("a locked hub reports the limit %q", s.SoftLockLimit)
+	}
+	if _, err := h.Unlock(ctx, hubtest.Password); err != nil {
+		t.Fatal(err)
+	}
+	s, err = h.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.SoftLockLimit != "24h" {
+		t.Fatalf("default limit %q", s.SoftLockLimit)
+	}
+	if err := h.SetSoftLockLimit(ctx, "none"); err != nil {
+		t.Fatal(err)
+	}
+	s, err = h.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.SoftLockLimit != "none" {
+		t.Fatalf("limit %q after setting none", s.SoftLockLimit)
+	}
+	if err := h.SetSoftLockLimit(ctx, "1d"); err == nil || err.Error() != "limit must be 24h, 3d, 7d, or none" {
+		t.Fatalf("1d: %v", err)
+	}
+	if _, err := h.AutoAllowCheck(ctx, "box"); err == nil || err.Error() != "could not check this host" {
+		t.Fatalf("check box: %v", err)
+	}
+	if _, err := h.AutoAllowCheck(ctx, "nope"); err == nil || err.Error() != `server "nope" not found` {
+		t.Fatalf("check nope: %v", err)
+	}
+	if err := h.Lock(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetSoftLockLimit(ctx, "7d"); err == nil || err.Error() != "Vault is locked; unlock it in the app" {
+		t.Fatalf("locked: %v", err)
 	}
 }

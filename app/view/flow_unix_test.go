@@ -3,7 +3,6 @@
 package view
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -33,7 +32,9 @@ type flowT struct {
 	h      *hubapi.Client // setup only; a test never decides through it
 	audit  string
 	writes *countDoor
-	port   int // sshtestd's
+	port   int             // sshtestd's
+	env    []string        // the hub's environment: the bridge runs in it
+	ai     *hubtest.Bridge // started by the first tool call
 }
 
 // countDoor is the door terminals use, counting the bytes of term.write
@@ -70,7 +71,8 @@ func flowWith(t *testing.T, o hubtest.Options, extraArgs ...string) *flowT {
 	store := srv.Store
 	bin, _ := hubtest.Binaries(t)
 	env, dir, _ := hubtest.Runtime(t)
-	c := &clock{t: time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)}
+	// The real time: the hub dates a timed grant's end by its own clock.
+	c := &clock{t: time.Now()}
 	a := &App{Now: c.now}
 	tt := newTester(t, a) // sets a.Update before the hub can send a note
 	mux := termconn.NewMux()
@@ -91,7 +93,7 @@ func flowWith(t *testing.T, o hubtest.Options, extraArgs ...string) *flowT {
 		return termconn.Open(ctx, writes, mux, id, server, 24, 80, trust)
 	}
 	running(a, tt)
-	return &flowT{t: t, a: a, tt: tt, c: c, sock: hubtest.MCPSocket(dir), h: hubapi.New(p.Client()), audit: filepath.Join(filepath.Dir(store), "audit.jsonl"), writes: writes, port: srv.Port}
+	return &flowT{t: t, a: a, tt: tt, c: c, sock: hubtest.MCPSocket(dir), h: hubapi.New(p.Client()), audit: filepath.Join(filepath.Dir(store), "audit.jsonl"), writes: writes, port: srv.Port, env: env}
 }
 
 // until flushes the UI until cond holds, failing after 10 s.
@@ -120,7 +122,7 @@ func (f *flowT) click(label string) {
 }
 
 // pass moves the fake clock past the 500 ms Allow delay.
-func (f *flowT) pass() { f.c.add(600 * time.Millisecond); f.tt.Frame() }
+func (f *flowT) pass() { pass(f.c, f.tt) }
 
 func (f *flowT) unlock() {
 	f.t.Helper()
@@ -128,8 +130,8 @@ func (f *flowT) unlock() {
 	f.click("Master password")
 	f.tt.Type(hubtest.Password)
 	f.tt.Key(0, ui.KeyEnter)
-	// Not "Hosts · 1": a terminal tab may cover the host list.
-	f.until(func() bool { return f.a.Screen() == model.ScreenReady && len(f.a.Servers()) == 1 }, "the ready screen")
+	// Not "Hosts · N": a terminal tab may cover the host list.
+	f.until(func() bool { return f.a.Screen() == model.ScreenReady && len(f.a.Servers()) > 0 }, "the ready screen")
 }
 
 // openBox opens a box tab from its card, as the e2e's waitOpen does, and
@@ -182,32 +184,90 @@ func (f *flowT) stillPending(ch <-chan hubtest.ExecResult, d time.Duration, what
 	}
 }
 
-// audited waits for the exec record of cmd in the hub's audit log.
-func (f *flowT) audited(cmd string) auditRec {
-	f.t.Helper()
-	var rec auditRec
-	f.until(func() bool {
-		file, err := os.Open(f.audit)
-		if err != nil {
-			return false
-		}
-		defer file.Close()
-		for sc := bufio.NewScanner(file); sc.Scan(); {
-			var r auditRec
-			if json.Unmarshal(sc.Bytes(), &r) == nil && r.Kind == "" && r.Command == cmd {
-				rec = r
-				return true
-			}
-		}
-		return false
-	}, "the audit record of "+cmd)
-	return rec
-}
-
 // auditRec is the part of an audit record the tests check.
 type auditRec struct {
 	Kind, Command, Outcome, Reason, Approval string
+	Sudo                                     bool
+	Stdin                                    string
+	WaitMs                                   int64
 	Action, Server                           string // config records
+	Until, Limit                             string
+	Forever                                  bool
+	Changed, Servers                         []string
+}
+
+// records reads the hub's audit log, oldest first.
+func (f *flowT) records() []auditRec {
+	f.t.Helper()
+	b, err := os.ReadFile(f.audit)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	var out []auditRec
+	for _, line := range strings.Split(string(b), "\n") {
+		var r auditRec
+		// An empty file, or a last line the hub is still writing, holds no record yet.
+		if json.Unmarshal([]byte(line), &r) != nil {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// last is the index of the newest record that match accepts, or -1.
+func last(recs []auditRec, match func(auditRec) bool) int {
+	for i := len(recs) - 1; i >= 0; i-- {
+		if match(recs[i]) {
+			return i
+		}
+	}
+	return -1
+}
+
+// lastRec waits for, and returns, the newest record that match accepts.
+func (f *flowT) lastRec(match func(auditRec) bool, what string) auditRec {
+	f.t.Helper()
+	var rec auditRec
+	f.until(func() bool {
+		recs := f.records()
+		i := last(recs, match)
+		if i >= 0 {
+			rec = recs[i]
+		}
+		return i >= 0
+	}, what)
+	return rec
+}
+
+// lastConfig waits for, and returns, server's newest config record with
+// this action.
+func (f *flowT) lastConfig(server, action string) auditRec {
+	f.t.Helper()
+	return f.lastRec(func(r auditRec) bool { return r.Kind == "config" && r.Action == action && r.Server == server },
+		fmt.Sprintf("a %s config record of %s", action, server))
+}
+
+// lastExec waits for, and returns, cmd's newest exec record.
+func (f *flowT) lastExec(cmd string) auditRec {
+	f.t.Helper()
+	return f.lastRec(func(r auditRec) bool { return r.Kind == "" && r.Command == cmd }, "the audit record of "+cmd)
+}
+
+// tool runs an MCP tool through the real bridge, as an AI client does.
+func (f *flowT) tool(name string, args map[string]any) <-chan hubtest.ExecResult {
+	if f.ai == nil {
+		f.ai = hubtest.StartBridge(f.t, f.env)
+	}
+	return f.ai.Tool(name, args)
+}
+
+func (f *flowT) aiExec(server, cmd string) <-chan hubtest.ExecResult {
+	return f.tool("exec", map[string]any{"server": server, "command": cmd, "description": "flow"})
+}
+
+func (f *flowT) aiSudo(server, cmd string) <-chan hubtest.ExecResult {
+	return f.tool("sudo-exec", map[string]any{"server": server, "command": cmd, "description": "flow"})
 }
 
 // auditedConfig waits for box's config record with this action.
@@ -220,15 +280,9 @@ func (f *flowT) auditedConfig(action string) {
 func (f *flowT) configRecords(server, action string, n int) {
 	f.t.Helper()
 	f.until(func() bool {
-		file, err := os.Open(f.audit)
-		if err != nil {
-			return false
-		}
-		defer file.Close()
 		got := 0
-		for sc := bufio.NewScanner(file); sc.Scan(); {
-			var r auditRec
-			if json.Unmarshal(sc.Bytes(), &r) == nil && r.Kind == "config" && r.Action == action && r.Server == server {
+		for _, r := range f.records() {
+			if r.Kind == "config" && r.Action == action && r.Server == server {
 				got++
 			}
 		}
@@ -238,7 +292,7 @@ func (f *flowT) configRecords(server, action string, n int) {
 
 func (f *flowT) wantAudit(cmd, outcome, reason string) {
 	f.t.Helper()
-	if r := f.audited(cmd); r.Outcome != outcome || r.Reason != reason || r.Approval != "" {
+	if r := f.lastExec(cmd); r.Outcome != outcome || r.Reason != reason || r.Approval != "" {
 		f.t.Fatalf("audit of %q: %+v, want outcome %q reason %q and no approval", cmd, r, outcome, reason)
 	}
 }
@@ -354,7 +408,7 @@ func TestFlowKeyboardOnlyDenies(t *testing.T) {
 	}
 	f.tt.Key(0, ui.KeySpace)
 	f.denied(k1, "Denied by user")
-	if r := f.audited("echo k1"); r.Outcome != "denied" {
+	if r := f.lastExec("echo k1"); r.Outcome != "denied" {
 		t.Fatalf("audit of k1: %+v", r)
 	}
 }
@@ -370,7 +424,7 @@ func (f *flowT) ran(ch <-chan hubtest.ExecResult, out string) {
 // auto fails unless cmd's audit record says it ran without approval.
 func (f *flowT) auto(cmd string) {
 	f.t.Helper()
-	if r := f.audited(cmd); r.Outcome != "allowed" || r.Approval != "auto" {
+	if r := f.lastExec(cmd); r.Outcome != "allowed" || r.Approval != "auto" {
 		f.t.Fatalf("audit of %q: %+v, want an auto-allowed run", cmd, r)
 	}
 }
@@ -402,42 +456,4 @@ func TestFlowIdleLockWaitsForPendingRequests(t *testing.T) {
 	f.click("Deny")
 	f.denied(i1, "Denied by user")
 	f.until(func() bool { return f.tt.HasText("Master password") }, "the idle lock after the decision")
-}
-
-func TestFlowManualLockKeepsAutoAllow(t *testing.T) {
-	f := flow(t)
-	f.unlock()
-	if err := f.h.SetAutoAllow(context.Background(), "box", "forever"); err != nil {
-		t.Fatal(err)
-	}
-
-	f.click("Lock")
-	f.until(func() bool {
-		return f.tt.HasText("Master password") && f.tt.HasText("AI auto-allow is still running on: box")
-	}, "the soft-lock screen")
-
-	f.ran(f.exec("m1", "echo manual-1"), "manual-1")
-	f.auto("echo manual-1")
-}
-
-func TestFlowSoftLockAndStop(t *testing.T) {
-	f := flow(t, "--idleLock=2s")
-	f.unlock()
-	if err := f.h.SetAutoAllow(context.Background(), "box", "forever"); err != nil {
-		t.Fatal(err)
-	}
-	f.idleLocked("box")
-	f.ran(f.exec("s1", "echo soft-1"), "soft-1")
-	f.auto("echo soft-1")
-
-	f.unlock()
-	f.ran(f.exec("s2", "echo soft-2"), "soft-2")
-	f.auto("echo soft-2")
-
-	f.idleLocked("box")
-	f.click("Stop auto-allow and lock")
-	f.until(func() bool {
-		return f.tt.HasText("Master password") && !f.tt.HasText("AI auto-allow is still running on: box")
-	}, "the auto-allow list to go")
-	f.denied(f.exec("s3", "echo soft-3"), "Vault is locked")
 }

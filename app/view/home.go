@@ -3,6 +3,7 @@ package view
 import (
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -20,12 +21,20 @@ func capFirst(s string) string {
 
 func (a *App) buildReady(c *ui.Context) {
 	if !a.aiOpen {
-		a.col.mounted = false
+		a.col.mounted, a.pausedCol = false, nil
 	}
 	t := c.Theme()
 	now := a.Now()
 	autoN := len(model.AutoHostNames(a.servers, now))
 	liveAuto := autoN - len(model.PausedHosts(a.servers))
+	for _, s := range a.servers {
+		if model.IsActive(s.AutoAllow, now) && s.AutoAllow.Until != "" {
+			// Timed chips, the AI button's count and the Stop buttons follow
+			// the app's clock: a redraw, never a hub call (Electron's 15 s).
+			c.After(15 * time.Second)
+			break
+		}
+	}
 	ui.Column(c).Fill().Children(func() {
 		ui.Row(c).Gap(8).Padding(8).Children(func() {
 			if ui.Button(c, "Hosts").Selected(a.tabs.Active == "").Clicked() {
@@ -48,6 +57,9 @@ func (a *App) buildReady(c *ui.Context) {
 				}
 			}
 			a.buildThemeControl(c)
+			if ui.Button(c, "\u2699").Label("Settings").Tooltip("Settings").Disabled(a.status == nil || a.status.SoftLockLimit == "").Clicked() {
+				a.settings = &settingsState{limit: a.status.SoftLockLimit, chosen: a.status.SoftLockLimit}
+			}
 			lock := ui.Button(c, "Lock")
 			if tip := model.LockTitle(liveAuto); tip != "" {
 				lock.Tooltip(tip)
@@ -66,6 +78,14 @@ func (a *App) buildReady(c *ui.Context) {
 						ui.Text(c, capFirst(model.DisplayText(a.status.StoreError)))
 					})
 				}
+				if text := model.RanLockedText(a.ranLocked); text != "" {
+					ui.Row(c).Gap(8).Padding(8, 12).Background(t.Warning.Alpha(0.15)).Role(ui.RoleStatus).Children(func() {
+						ui.Text(c, model.DisplayText(text)).Grow(1)
+						if ui.Button(c, "Dismiss").Clicked() {
+							a.ranLocked = nil
+						}
+					})
+				}
 				if a.alert != "" {
 					ui.Row(c).Gap(8).Padding(8, 12).Background(t.Warning.Alpha(0.15)).Children(func() {
 						ui.Text(c, model.DisplayText(a.alert)).Grow(1)
@@ -75,6 +95,7 @@ func (a *App) buildReady(c *ui.Context) {
 					})
 				}
 				if t, ok := a.tabs.Get(a.tabs.Active); ok {
+					a.pausedHome = nil
 					a.buildTab(c, t)
 					return
 				}
@@ -93,10 +114,12 @@ func (a *App) buildReady(c *ui.Context) {
 	})
 	a.buildHostKeyDialogs(c)
 	a.buildDeleteConfirm(c)
+	a.buildSettings(c)
 }
 
 func (a *App) buildHosts(c *ui.Context) {
 	t := c.Theme()
+	now := a.Now()
 	shown := model.FilterHosts(a.servers, a.query)
 	ui.Scroll(c).Grow(1).Padding(16).Gap(12).Children(func() {
 		ui.Row(c).Gap(8).Children(func() {
@@ -109,6 +132,7 @@ func (a *App) buildHosts(c *ui.Context) {
 			}
 		})
 		ui.Text(c, fmt.Sprintf("Hosts · %d", len(shown))).Bold()
+		a.buildPaused(c, &a.pausedHome)
 		switch {
 		case len(a.servers) == 0:
 			ui.Text(c, "No hosts yet. Add one with New host.").TextColor(t.TextMuted)
@@ -139,10 +163,16 @@ func (a *App) buildHosts(c *ui.Context) {
 							if s.HostKey == "" {
 								ui.Text(c, "New key").TextColor(t.Warning)
 							}
-							if chip := model.ChipLabel(s.AutoAllow, a.Now()); chip != "" {
+							if chip := model.ChipLabel(s.AutoAllow, now); chip != "" {
 								ui.Text(c, chip).TextColor(t.Warning)
 							}
 						})
+						// Always shown while a grant is on or paused: it must be stoppable at a glance.
+						if model.OnOrPaused(s.AutoAllow, now) {
+							if ui.Button(c, "\u25a0").Label("Stop auto-allow " + shownName).Tooltip("Stop auto-allow").Clicked() {
+								a.setAuto([]string{name}, "off", "stop")
+							}
+						}
 						if ui.Button(c, "Edit").Label("Edit " + shownName).Tooltip("Edit").Clicked() {
 							a.openEditor(name, false)
 						}

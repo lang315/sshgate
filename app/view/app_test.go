@@ -31,6 +31,8 @@ type fakeDoor struct {
 	hang     map[string]bool // these methods never answer: they wait for ctx
 	scan     hubapi.ImportScan
 	imported hubapi.ImportResult
+	check    *hubapi.AutoCheck  // servers.autoAllowCheck; nil answers uid 1000, no passwordless sudo
+	ran      []hubapi.RanLocked // the next unlock reply's ranWhileLocked
 }
 
 func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) error {
@@ -46,7 +48,7 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 	st, stFn := d.status, d.statusFn
 	gate := d.pendGate
 	srv, pend := d.servers, d.pending
-	scan, imported := d.scan, d.imported
+	scan, imported, check := d.scan, d.imported, d.check
 	d.mu.Unlock()
 	if wait != nil {
 		<-wait
@@ -73,8 +75,8 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 		}
 		d.mu.Lock()
 		d.status.Locked = false
+		out = hubapi.UnlockReply{RanWhileLocked: d.ran}
 		d.mu.Unlock()
-		out = map[string]any{}
 	case "servers":
 		out = srv
 	case "pending":
@@ -86,6 +88,11 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 		out = scan
 	case "import.apply":
 		out = imported
+	case "servers.autoAllowCheck":
+		out = hubapi.AutoCheck{UID: 1000}
+		if check != nil {
+			out = *check
+		}
 	default:
 		out = map[string]any{}
 	}

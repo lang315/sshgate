@@ -49,6 +49,8 @@ func TestCallShapes(t *testing.T) {
 		{"delete", "servers.delete", `{"name":"box"}`, func(c *Client) error { return c.DeleteServer(ctx, "box") }},
 		{"import scan", "import.scan", `null`, func(c *Client) error { _, err := c.ImportScan(ctx); return err }},
 		{"import apply", "import.apply", `{"aliases":["work","db"]}`, func(c *Client) error { _, err := c.ImportApply(ctx, []string{"work", "db"}); return err }},
+		{"auto check", "servers.autoAllowCheck", `{"server":"box"}`, func(c *Client) error { _, err := c.AutoAllowCheck(ctx, "box"); return err }},
+		{"soft-lock limit", "settings.setSoftLockLimit", `{"limit":"none"}`, func(c *Client) error { return c.SetSoftLockLimit(ctx, "none") }},
 	} {
 		r := &rec{}
 		if err := tc.call(New(r)); err != nil {
@@ -106,5 +108,12 @@ func TestImportRepliesDecode(t *testing.T) {
 	res, err := New(&rec{result: `{"imported":["web"],"skipped":[{"alias":"jump","reason":"needs ProxyJump"}]}`}).ImportApply(context.Background(), []string{"web", "jump"})
 	if err != nil || len(res.Imported) != 1 || res.Skipped[0] != (ImportSkip{"jump", "needs ProxyJump"}) {
 		t.Fatalf("%+v %v", res, err)
+	}
+}
+
+func TestAutoCheckDecodes(t *testing.T) {
+	c, err := New(&rec{result: `{"uid":1000,"passwordlessSudo":true}`}).AutoAllowCheck(context.Background(), "box")
+	if err != nil || c != (AutoCheck{UID: 1000, PasswordlessSudo: true}) {
+		t.Fatalf("%+v %v", c, err)
 	}
 }
