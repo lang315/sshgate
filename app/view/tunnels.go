@@ -219,7 +219,7 @@ func (a *App) buildTunnelRow(c *ui.Context, tab string, v *tunnelsTab, x hubapi.
 		name = summary
 	}
 	live := model.TunnelLive(x.Status)
-	status := x.Status
+	status := model.DisplayText(x.Status)
 	if status == "error" && x.Error != "" {
 		status = model.DisplayText(x.Error)
 	}

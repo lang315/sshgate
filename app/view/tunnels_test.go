@@ -307,3 +307,13 @@ func TestAutoAllowListsRemoteTunnels(t *testing.T) {
 		t.Fatal("Enable did not work once the delay passed")
 	}
 }
+
+// A status is the hub's text: an invisible rune in it shows as an escape.
+func TestTunnelStatusIsSanitized(t *testing.T) {
+	a, tt, _, _ := tunnelsApp(t, pgTunnel("stopped", 0))
+	openTunnelsTab(t, a, tt)
+	tunnelState(t, a, tt, "a1", "running\u200b", 0)
+	if !tt.HasText(`running\u200b`) || tt.HasText("running\u200b") {
+		t.Fatalf("status shown raw: %q", tt.Texts())
+	}
+}
