@@ -166,6 +166,9 @@ func (a *App) buildHosts(c *ui.Context) {
 							if chip := model.ChipLabel(s.AutoAllow, now); chip != "" {
 								ui.Text(c, chip).TextColor(t.Warning)
 							}
+							if n := model.RunningTunnels(a.tunnels, name); n > 0 {
+								ui.Text(c, fmt.Sprintf("%d ⇄", n)).TextColor(t.Accent).Tooltip("Running tunnels")
+							}
 						})
 						// Always shown while a grant is on or paused: it must be stoppable at a glance.
 						if model.OnOrPaused(s.AutoAllow, now) {
@@ -175,6 +178,9 @@ func (a *App) buildHosts(c *ui.Context) {
 						}
 						if ui.Button(c, "Files").Label("Files " + shownName).Tooltip("Files").Clicked() {
 							a.openFiles(name)
+						}
+						if ui.Button(c, "").Label("Tunnels " + shownName).Tooltip("Tunnels").Children(func() { ui.Icon(c, tunnelIcon) }).Clicked() {
+							a.openTunnels(name)
 						}
 						if ui.Button(c, "Edit").Label("Edit " + shownName).Tooltip("Edit").Clicked() {
 							a.openEditor(name, false)

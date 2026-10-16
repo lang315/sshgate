@@ -59,7 +59,8 @@ func (a *App) buildConfirm(c *ui.Context) {
 	t := c.Theme()
 	ed, now := a.editor, a.Now()
 	cf, d := ed.confirm, ed.draft
-	key := model.DialogChangeKey(d.AutoAllow, cf.ask.RootNew, cf.ask.SudoNew, d.AutoAllowSudo, cf.check, cf.checkFail, cf.err, nil)
+	remote := model.RemoteTunnels(a.tunnels, ed.name)
+	key := model.DialogChangeKey(d.AutoAllow, cf.ask.RootNew, cf.ask.SudoNew, d.AutoAllowSudo, cf.check, cf.checkFail, cf.err, remote)
 	guard(c, &cf.lc, key, now)
 	enabled := func(now time.Time) bool {
 		return !ed.busy && model.EnableAllowed(cf.ask.TypeName, cf.typed, ed.name, cf.refused, cf.lc.At, now)
@@ -74,7 +75,7 @@ func (a *App) buildConfirm(c *ui.Context) {
 			if cf.refused != "" {
 				ui.Text(c, "Auto-allow is not available here: "+model.DisplayText(cf.refused)).TextColor(t.Danger)
 			} else {
-				a.buildConfirmBody(c, cf, d, name, now, &answer)
+				a.buildConfirmBody(c, cf, d, name, remote, now, &answer)
 			}
 			if cf.err != "" {
 				ui.Text(c, model.DisplayText(cf.err)).TextColor(t.Danger)
@@ -101,7 +102,7 @@ func (a *App) buildConfirm(c *ui.Context) {
 }
 
 // buildConfirmBody is the dialog's consent text, top to bottom as Electron's.
-func (a *App) buildConfirmBody(c *ui.Context, cf *confirmState, d model.HostDraft, name string, now time.Time, answer *int) {
+func (a *App) buildConfirmBody(c *ui.Context, cf *confirmState, d model.HostDraft, name string, remote []string, now time.Time, answer *int) {
 	t := c.Theme()
 	ui.Text(c, "The AI runs any command this account can run on "+name+" without asking, including commands planted by what it reads (prompt injection), and can leave things that run later (cron jobs, SSH keys, shell startup files).")
 	if !d.AutoAllowSudo {
@@ -121,6 +122,14 @@ func (a *App) buildConfirmBody(c *ui.Context, cf *confirmState, d model.HostDraf
 	}
 	if cf.checkFail {
 		ui.Text(c, "Could not check this host's sudo access.").TextColor(t.TextMuted)
+	}
+	if len(remote) > 0 {
+		ui.Column(c).Gap(4).Padding(8, 12).Radius(8).Background(t.Danger.Alpha(0.15)).Children(func() {
+			ui.Text(c, "Remote tunnels running on this host reach your machine:")
+			for _, r := range remote {
+				ui.Text(c, model.DisplayText(r)).Font("monospace")
+			}
+		})
 	}
 	m, _ := model.AutoModeOf(d.AutoAllow)
 	if m.Mode == "forever" {

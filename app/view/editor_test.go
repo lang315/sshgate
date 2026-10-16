@@ -177,8 +177,8 @@ func TestSaveSendsUntouchedClearedAndTypedSecrets(t *testing.T) {
 	if a.editor != nil || !tt.Focused("Search hosts") {
 		t.Fatal("a saved editor stays open, or the focus went nowhere")
 	}
-	if got := d.callList(); len(got) != 2 || got[0] != "servers.save" || got[1] != "servers" {
-		t.Fatalf("calls %v: want the save, then the host list", got)
+	if got := d.callList(); len(got) != 3 || got[0] != "servers.save" || !slices.Contains(got, "servers") || !slices.Contains(got, "tunnels.list") {
+		t.Fatalf("calls %v: want the save, then the host and tunnel lists", got)
 	}
 }
 
