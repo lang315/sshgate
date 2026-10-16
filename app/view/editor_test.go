@@ -306,7 +306,7 @@ func TestLateSaveReplyLeavesANewEditorAlone(t *testing.T) {
 	clickT(t, tt, "Save")
 	clickT(t, tt, "Save")
 	tt.Key(0, ui.KeyEscape)
-	tt.Frame()
+	tt.flush() // the save call is made on a goroutine; give it time to reach the door
 	if a.editor == nil || count(d.callList(), "servers.save") != 1 {
 		t.Fatalf("busy editor: open %v, calls %v", a.editor != nil, d.callList())
 	}
