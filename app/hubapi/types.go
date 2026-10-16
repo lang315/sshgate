@@ -2,7 +2,10 @@
 // that the desktop app's screens use.
 package hubapi
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 const (
 	Allowed   = "allowed"
@@ -264,4 +267,37 @@ type TunnelView struct {
 	Status string `json:"status"`
 	Error  string `json:"error,omitempty"`
 	Conns  int    `json:"conns"`
+}
+
+// AuditQuery is audit.read's params: records older than Before (0 is from
+// the newest), at most Limit (0 is the hub's 200), narrowed by Server, and
+// a union of Kinds ("exec", "config", "file", "tunnel") and exec Outcomes
+// ("allowed", "auto", "denied", "expired", "cancelled", "error"), then by
+// Text. The hub decodes its params strictly: only these keys, each left
+// out when empty.
+type AuditQuery struct {
+	Before   int      `json:"before,omitempty"`
+	Limit    int      `json:"limit,omitempty"`
+	Server   string   `json:"server,omitempty"`
+	Kinds    []string `json:"kinds,omitempty"`
+	Outcomes []string `json:"outcomes,omitempty"`
+	Text     string   `json:"text,omitempty"`
+}
+
+// AuditEntry is one audit.jsonl record and its 1-based line number; it is
+// also audit.appended's params. Record is the line as stored: the file can
+// be edited by hand, so model reads it without trusting a field's type.
+type AuditEntry struct {
+	Seq    int             `json:"seq"`
+	Record json.RawMessage `json:"record"`
+}
+
+// AuditPage is audit.read's reply: Records newest first; Next, when not 0,
+// is the Before that reads the older ones; Skipped counts the lines this
+// read scanned that did not parse; Path is the audit file's.
+type AuditPage struct {
+	Records []AuditEntry `json:"records"`
+	Next    int          `json:"next,omitempty"`
+	Skipped int          `json:"skipped"`
+	Path    string       `json:"path"`
 }

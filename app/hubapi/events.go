@@ -23,9 +23,9 @@ type AutoOffEvent struct {
 type AutoRanEvent struct{ AutoRan }
 
 // Decode turns a hub notification the app uses into its typed event:
-// the approval core's, files.planned, files.progress, files.done and
-// tunnels.state. Anything else (term.*, audit.appended) and malformed
-// params report false.
+// the approval core's, files.planned, files.progress, files.done,
+// tunnels.state and audit.appended (an AuditEntry). Anything else (term.*)
+// and malformed params report false.
 func Decode(method string, params json.RawMessage) (any, bool) {
 	var ev any
 	switch method {
@@ -47,6 +47,8 @@ func Decode(method string, params json.RawMessage) (any, bool) {
 		ev = &FilesDone{}
 	case "tunnels.state":
 		ev = &TunnelState{}
+	case "audit.appended":
+		ev = &AuditEntry{}
 	default:
 		return nil, false
 	}
@@ -69,6 +71,8 @@ func Decode(method string, params json.RawMessage) (any, bool) {
 	case *FilesDone:
 		return *e, true
 	case *TunnelState:
+		return *e, true
+	case *AuditEntry:
 		return *e, true
 	default:
 		return *ev.(*AutoRanEvent), true

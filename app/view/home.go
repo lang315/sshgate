@@ -40,6 +40,9 @@ func (a *App) buildReady(c *ui.Context) {
 			if ui.Button(c, "Hosts").Selected(a.tabs.Active == "").Clicked() {
 				a.tabs.ShowHome()
 			}
+			if ui.Button(c, "Audit").Selected(a.tabs.Active == model.AuditTab).Clicked() {
+				a.tabs.ShowAudit()
+			}
 			a.buildTabStrip(c) // grows, so AI and Lock stay at the right
 			if a.aiOpen || len(a.items) > 0 || autoN > 0 {
 				label := fmt.Sprintf("AI %d", len(a.items))
@@ -97,6 +100,11 @@ func (a *App) buildReady(c *ui.Context) {
 				if t, ok := a.tabs.Get(a.tabs.Active); ok {
 					a.pausedHome = nil
 					a.buildTab(c, t)
+					return
+				}
+				if a.tabs.Active == model.AuditTab {
+					a.pausedHome = nil
+					a.buildAudit(c)
 					return
 				}
 				a.buildHosts(c)

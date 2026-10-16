@@ -89,6 +89,7 @@ type App struct {
 	sheetSeq               int       // numbers the sheets opened; keys the open one
 	searchH                ui.Handle // the host search: the focus after a sheet closes on Hosts
 	theme                  string    // "dark", "light" or "auto"
+	audit                  auditState
 }
 
 // dialogs are the ones a lock or hub stop closes, and any typed secret with them.
@@ -213,6 +214,9 @@ func (a *App) setScreen() {
 	if next == prev {
 		return
 	}
+	if prev == model.ScreenReady || next == model.ScreenReady {
+		a.auditReset()
+	}
 	switch next {
 	case model.ScreenReady:
 		a.reloadServers()
@@ -274,7 +278,7 @@ func (a *App) seed() {
 
 // Note handles a hub notification; nothing here calls the hub but status,
 // and fileNote's bounded follow-ups of a job the person started.
-// tunnels.state only updates the list.
+// tunnels.state and audit.appended only update their lists.
 func (a *App) Note(method string, params json.RawMessage) {
 	a.init()
 	ev, ok := hubapi.Decode(method, params)
@@ -284,6 +288,7 @@ func (a *App) Note(method string, params json.RawMessage) {
 	switch e := ev.(type) {
 	case hubapi.LockedEvent:
 		a.lockReason = model.LockKind(e.Reason, a.lockReason)
+		a.auditLocked()
 		a.failSends("vault locked") // nothing is pasted behind the lock screen
 		a.servers = model.DropOnLock(a.servers)
 		a.refresh()
@@ -312,6 +317,8 @@ func (a *App) Note(method string, params json.RawMessage) {
 		a.fileNote(e)
 	case hubapi.TunnelState:
 		a.tunnelState(e)
+	case hubapi.AuditEntry:
+		a.auditAppended(e)
 	case hubapi.DecidedEvent:
 		id := e.Request.ID
 		a.decidedSince[id] = true
