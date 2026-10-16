@@ -165,6 +165,7 @@ func (a *App) buildAudit(c *ui.Context) {
 			s := ui.SearchField(c.Key("audit-search"), &v.filters.Text).Label("Search audit").Grow(1).Basis(160)
 			if s.Changed() {
 				v.typedAt = now
+				c.After(typingDelay) // the frame that reads it; no key, no timer
 			}
 			if s.Submitted() {
 				change = func() { a.auditLoad() }
@@ -206,6 +207,7 @@ func (a *App) buildAudit(c *ui.Context) {
 		v.atTop = first <= 0
 		if v.atTop && len(v.list.Held) > 0 {
 			v.list = model.ReleaseHeld(v.list) // scrolled back to the top
+			c.Invalidate()                     // draw the released rows and drop the pill
 		}
 		ui.Row(c).Gap(8).Padding(6, 12).Children(func() {
 			foot := ""

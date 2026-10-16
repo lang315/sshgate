@@ -254,6 +254,9 @@ func TestAuditLockClearsAndUnlockReadsAgain(t *testing.T) {
 	tt.flush()
 	clickT(t, tt, "echo one")
 	tt.flush()
+	if o := a.audit.open[1]; o == nil || !*o || !tt.HasText("AI's description · unverified") {
+		t.Fatal("the row did not expand before the lock")
+	}
 
 	// The locked note lands before the status reply: nothing shows, nothing reads.
 	gate := make(chan struct{})
