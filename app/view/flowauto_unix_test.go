@@ -31,6 +31,7 @@ func autoLabel(mode string) string {
 // the e2e's editAuto. Opt-ins not named stay as they are.
 func (f *flowT) editAuto(server, mode string, on ...string) {
 	f.t.Helper()
+	f.tt.SetSize(1000, 1200) // the whole editor in view: the Tester clicks where an element is
 	f.click("Hosts")
 	f.click("Edit " + server)
 	f.until(func() bool { return f.a.editor != nil }, "the host editor")

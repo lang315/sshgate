@@ -31,8 +31,24 @@ type fakeDoor struct {
 	hang     map[string]bool // these methods never answer: they wait for ctx
 	scan     hubapi.ImportScan
 	imported hubapi.ImportResult
-	check    *hubapi.AutoCheck  // servers.autoAllowCheck; nil answers uid 1000, no passwordless sudo
-	ran      []hubapi.RanLocked // the next unlock reply's ranWhileLocked
+	check    *hubapi.AutoCheck                                                  // servers.autoAllowCheck; nil answers uid 1000, no passwordless sudo
+	ran      []hubapi.RanLocked                                                 // the next unlock reply's ranWhileLocked
+	list     func(path string, trust *hubapi.Trust) (hubapi.FileListing, error) // files.list; nil answers an empty /home
+	sent     []string                                                           // notifications, as "method params"
+}
+
+func (d *fakeDoor) Notify(method string, params any) error {
+	b, _ := json.Marshal(params)
+	d.mu.Lock()
+	d.sent = append(d.sent, method+" "+string(b))
+	d.mu.Unlock()
+	return nil
+}
+
+func (d *fakeDoor) sentList() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]string(nil), d.sent...)
 }
 
 func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) error {
@@ -48,7 +64,7 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 	st, stFn := d.status, d.statusFn
 	gate := d.pendGate
 	srv, pend := d.servers, d.pending
-	scan, imported, check := d.scan, d.imported, d.check
+	scan, imported, check, list := d.scan, d.imported, d.check, d.list
 	d.mu.Unlock()
 	if wait != nil {
 		<-wait
@@ -93,6 +109,20 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 		if check != nil {
 			out = *check
 		}
+	case "files.list":
+		var p struct {
+			Path         string
+			TrustHostKey *hubapi.Trust
+		}
+		json.Unmarshal(b, &p)
+		l := hubapi.FileListing{HostKey: hubapi.HostKey{Status: "listed"}, Path: "/home", Entries: []hubapi.FileEntry{}}
+		if list != nil {
+			var err error
+			if l, err = list(p.Path, p.TrustHostKey); err != nil {
+				return err
+			}
+		}
+		out = l
 	default:
 		out = map[string]any{}
 	}
@@ -119,6 +149,29 @@ type fakeShell struct {
 	pending []int
 	notes   []string
 	themes  []string
+	picks   []string // what PickPaths and PickFolder answer (PickFolder: the first)
+	pickErr error
+	asked   []string // each picker's title, with " (folders)" when dirs
+}
+
+func (s *fakeShell) PickPaths(title string, dirs bool) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if dirs {
+		title += " (folders)"
+	}
+	s.asked = append(s.asked, title)
+	return s.picks, s.pickErr
+}
+
+func (s *fakeShell) PickFolder(title string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.asked = append(s.asked, title)
+	if len(s.picks) == 0 {
+		return "", s.pickErr
+	}
+	return s.picks[0], s.pickErr
 }
 
 func (s *fakeShell) SetTheme(pref string) {
@@ -253,10 +306,18 @@ func TestNotificationsCallOnlyStatus(t *testing.T) {
 	note(t, a, tt, "autoAllow.ran", map[string]any{"server": "box", "command": "ls", "description": "", "exitCode": 0, "time": "2026-10-15T12:00:00Z"})
 	note(t, a, tt, "autoAllow.off", map[string]string{"server": "box", "reason": "expired"})
 	note(t, a, tt, "audit.appended", map[string]any{"seq": 1, "record": map[string]any{}})
+	// File jobs this app never planned: nothing follows (TestUploadRunsThenRelistsOnce
+	// and TestLockCancelsWhatWaitsForTheDialog bound the follow-ups of planned ones).
+	note(t, a, tt, "files.planned", map[string]any{"id": "f1", "conflicts": map[string]any{"count": 0, "sample": []string{}}, "errors": []string{}})
+	note(t, a, tt, "files.progress", map[string]any{"id": "f1", "file": "a", "done": 1, "total": 2})
+	note(t, a, tt, "files.done", map[string]any{"id": "f1", "op": "upload", "errors": []string{}})
 	for _, m := range d.callList() {
 		if m != "status" {
 			t.Fatalf("a notification called %q; only status is free (calls: %v)", m, d.callList())
 		}
+	}
+	if len(d.sentList()) != 0 {
+		t.Fatalf("a notification sent %v", d.sentList())
 	}
 	if len(a.Feed()) != 1 {
 		t.Fatal("autoAllow.ran not in the feed")

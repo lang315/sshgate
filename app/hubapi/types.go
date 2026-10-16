@@ -168,3 +168,68 @@ type AutoCheck struct {
 	UID              int  `json:"uid"`
 	PasswordlessSudo bool `json:"passwordlessSudo"`
 }
+
+// FileEntry is one name of a files.list answer. Mode holds the permission
+// bits only; Mtime is in Unix seconds; Kind is "dir", "file", "link" or
+// "other"; Target is a link's target, else "".
+type FileEntry struct {
+	Name   string `json:"name"`
+	Size   int64  `json:"size"`
+	Mode   uint32 `json:"mode"`
+	Mtime  int64  `json:"mtime"`
+	Kind   string `json:"kind"`
+	Target string `json:"target,omitempty"`
+}
+
+// FileListing is files.list's answer. Status is "listed", or a host-key
+// result as term.open's ("hostKeyUnknown", "hostKeyMismatch"), whose
+// details fill the embedded HostKey. Path is the folder actually listed;
+// Bad counts the names left out as unsafe to show or copy.
+type FileListing struct {
+	HostKey
+	Path      string      `json:"path"`
+	Entries   []FileEntry `json:"entries"`
+	Truncated bool        `json:"truncated"`
+	Bad       int         `json:"bad"`
+}
+
+// FilesPlanned is files.planned: what a job's walk found. Conflicts are
+// existing files at the destination; Sample holds up to 5, relative to it.
+type FilesPlanned struct {
+	ID        string `json:"id"`
+	Files     int    `json:"files"`
+	Dirs      int    `json:"dirs"`
+	Links     int    `json:"links"`
+	Bytes     int64  `json:"bytes"`
+	Conflicts struct {
+		Count  int      `json:"count"`
+		Sample []string `json:"sample"`
+	} `json:"conflicts"`
+	ErrorCount int      `json:"errorCount"`
+	Errors     []string `json:"errors"`
+}
+
+// FilesProgress is files.progress: Done bytes of the job's Total, and the
+// file being copied, relative to the destination. Never sent for a delete.
+type FilesProgress struct {
+	ID    string `json:"id"`
+	File  string `json:"file"`
+	Done  int64  `json:"done"`
+	Total int64  `json:"total"`
+}
+
+// FilesDone is files.done, sent once per job the hub took. Reason is ""
+// for a job that ran to its end; "cancelled", "server changed", "plan
+// expired", "app closed", or the error that ended it otherwise.
+type FilesDone struct {
+	ID         string   `json:"id"`
+	Op         string   `json:"op"`
+	Copied     int      `json:"copied"`
+	Skipped    int      `json:"skipped"`
+	Deleted    int      `json:"deleted"`
+	Bytes      int64    `json:"bytes"`
+	ErrorCount int      `json:"errorCount"`
+	Errors     []string `json:"errors"`
+	Cancelled  bool     `json:"cancelled"`
+	Reason     string   `json:"reason"`
+}

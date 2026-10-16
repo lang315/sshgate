@@ -35,6 +35,7 @@ type flowT struct {
 	port   int             // sshtestd's
 	env    []string        // the hub's environment: the bridge runs in it
 	ai     *hubtest.Bridge // started by the first tool call
+	sftp   string          // sshtestd's SFTP root, with hubtest.Options.SFTP
 }
 
 // countDoor is the door terminals use, counting the bytes of term.write
@@ -68,9 +69,17 @@ func flowWith(t *testing.T, o hubtest.Options, extraArgs ...string) *flowT {
 		t.Skip("integration")
 	}
 	srv := hubtest.Start(t, o)
-	store := srv.Store
-	bin, _ := hubtest.Binaries(t)
 	env, dir, _ := hubtest.Runtime(t)
+	f := flowOn(t, srv.Store, env, dir, extraArgs...)
+	f.port, f.sftp = srv.Port, srv.SFTP
+	return f
+}
+
+// flowOn runs a hub on store, with env and its runtime directory dir, and
+// an App on it.
+func flowOn(t *testing.T, store string, env []string, dir string, extraArgs ...string) *flowT {
+	t.Helper()
+	bin, _ := hubtest.Binaries(t)
 	// The real time: the hub dates a timed grant's end by its own clock.
 	c := &clock{t: time.Now()}
 	a := &App{Now: c.now}
@@ -93,13 +102,19 @@ func flowWith(t *testing.T, o hubtest.Options, extraArgs ...string) *flowT {
 		return termconn.Open(ctx, writes, mux, id, server, 24, 80, trust)
 	}
 	running(a, tt)
-	return &flowT{t: t, a: a, tt: tt, c: c, sock: hubtest.MCPSocket(dir), h: hubapi.New(p.Client()), audit: filepath.Join(filepath.Dir(store), "audit.jsonl"), writes: writes, port: srv.Port, env: env}
+	return &flowT{t: t, a: a, tt: tt, c: c, sock: hubtest.MCPSocket(dir), h: hubapi.New(p.Client()), audit: filepath.Join(filepath.Dir(store), "audit.jsonl"), writes: writes, env: env}
 }
 
 // until flushes the UI until cond holds, failing after 10 s.
 func (f *flowT) until(cond func() bool, what string) {
 	f.t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); ; {
+	f.untilFor(10*time.Second, cond, what)
+}
+
+// untilFor is until with its own limit, for real hosts.
+func (f *flowT) untilFor(limit time.Duration, cond func() bool, what string) {
+	f.t.Helper()
+	for deadline := time.Now().Add(limit); ; {
 		f.tt.flush()
 		if cond() {
 			return
@@ -126,9 +141,14 @@ func (f *flowT) pass() { pass(f.c, f.tt) }
 
 func (f *flowT) unlock() {
 	f.t.Helper()
+	f.unlockWith(hubtest.Password)
+}
+
+func (f *flowT) unlockWith(pw string) {
+	f.t.Helper()
 	f.until(func() bool { return f.tt.HasText("Master password") }, "the unlock screen")
 	f.click("Master password")
-	f.tt.Type(hubtest.Password)
+	f.tt.Type(pw)
 	f.tt.Key(0, ui.KeyEnter)
 	// Not "Hosts · N": a terminal tab may cover the host list.
 	f.until(func() bool { return f.a.Screen() == model.ScreenReady && len(f.a.Servers()) > 0 }, "the ready screen")
@@ -194,6 +214,10 @@ type auditRec struct {
 	Until, Limit                             string
 	Forever                                  bool
 	Changed, Servers                         []string
+	Phase, From, To, Conflict                string // file records
+	Remote, Local                            []string
+	Files, Skipped                           int
+	Cancelled                                bool
 }
 
 // records reads the hub's audit log, oldest first.

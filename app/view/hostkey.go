@@ -82,14 +82,21 @@ func (a *App) buildHostKeyDialogs(c *ui.Context) {
 	}
 }
 
-// answerHostKey takes the shown prompt: Trust retries its tab's open with
-// the same id, pinned to exactly that key; Cancel ends the tab.
+// answerHostKey takes the shown prompt: Trust retries its tab's open (or
+// its Files tab's listing) with the same id, pinned to exactly that key;
+// Cancel ends the tab (or fails the listing).
 func (a *App) answerHostKey(trust bool) {
 	p, ok := a.prompts.Answer()
 	if !ok {
 		return
 	}
-	if t, ok := a.tabs.Get(p.ID); ok && t.State == "opening" {
+	if v := a.files[p.ID]; v != nil {
+		if trust {
+			a.loadFiles(p.ID, v.requested, &hubapi.Trust{Fingerprint: p.Key.Fingerprint, KeyType: p.Key.KeyType}, false)
+		} else {
+			v.loading, v.listing, v.err = false, nil, "host key not trusted"
+		}
+	} else if t, ok := a.tabs.Get(p.ID); ok && t.State == "opening" {
 		if trust {
 			a.dial(p.ID, t.Server, &hubapi.Trust{Fingerprint: p.Key.Fingerprint, KeyType: p.Key.KeyType})
 		} else {

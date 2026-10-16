@@ -326,7 +326,7 @@ func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (
 			ui.Text(c, "Not pinned. You will be asked to confirm it on the next connect.").TextColor(t.TextMuted)
 		}
 	}
-	if w := model.EditorWarnings(s, *d, a.tabs.OpenCount(ed.name), 0); len(w) > 0 {
+	if w := model.EditorWarnings(s, *d, a.tabs.OpenCount(ed.name), a.transfers(ed.name)); len(w) > 0 {
 		ui.Column(c).Gap(4).Padding(8, 12).Radius(6).Background(t.Warning.Alpha(0.15)).Role(ui.RoleStatus).Children(func() {
 			for _, line := range w {
 				ui.Text(c, line)

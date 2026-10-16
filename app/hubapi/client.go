@@ -127,3 +127,52 @@ func (h *Client) AutoAllowCheck(ctx context.Context, server string) (AutoCheck, 
 func (h *Client) SetSoftLockLimit(ctx context.Context, limit string) error {
 	return h.c.Call(ctx, "settings.setSoftLockLimit", map[string]string{"limit": limit}, nil)
 }
+
+// FilesList lists path on server ("" is the login's home). trust is nil
+// except on the retry after a host-key prompt; the hub pins that key only
+// while the server has none. Entries is never nil.
+func (h *Client) FilesList(ctx context.Context, server, path string, trust *Trust) (FileListing, error) {
+	p := struct {
+		Server       string `json:"server"`
+		Path         string `json:"path"`
+		TrustHostKey *Trust `json:"trustHostKey,omitempty"`
+	}{server, path, trust}
+	var l FileListing
+	if err := h.c.Call(ctx, "files.list", p, &l); err != nil {
+		return FileListing{}, err
+	}
+	if l.Entries == nil {
+		l.Entries = []FileEntry{}
+	}
+	return l, nil
+}
+
+func (h *Client) FilesMkdir(ctx context.Context, server, path string) error {
+	return h.c.Call(ctx, "files.mkdir", map[string]string{"server": server, "path": path}, nil)
+}
+
+// FilesRename never replaces: an existing to is refused.
+func (h *Client) FilesRename(ctx context.Context, server, from, to string) error {
+	return h.c.Call(ctx, "files.rename", map[string]string{"server": server, "from": from, "to": to}, nil)
+}
+
+// FilesPlan starts job id: op "upload" (local sources into the remote
+// folder dest), "download" (remote sources into the local folder dest) or
+// "delete" (remote sources, dest ""). The hub answers at once and walks in
+// the background; files.planned, then files.done, follow.
+func (h *Client) FilesPlan(ctx context.Context, id, server, op string, sources []string, dest string) error {
+	p := struct {
+		ID      string   `json:"id"`
+		Server  string   `json:"server"`
+		Op      string   `json:"op"`
+		Sources []string `json:"sources"`
+		Dest    string   `json:"dest,omitempty"`
+	}{id, server, op, sources, dest}
+	return h.c.Call(ctx, "files.plan", p, nil)
+}
+
+// FilesRun runs a planned job; conflict is "overwrite" or "skip" (the hub
+// takes nothing else, and a delete needs one too).
+func (h *Client) FilesRun(ctx context.Context, id, conflict string) error {
+	return h.c.Call(ctx, "files.run", map[string]string{"id": id, "conflict": conflict}, nil)
+}

@@ -151,7 +151,7 @@ func TestReopeningRestartsTheDelay(t *testing.T) {
 
 func TestScrollRestartsTheDelay(t *testing.T) {
 	a, tt, c, d := colApp(t)
-	tt.SetSize(800, 300)
+	tt.SetSize(800, 400) // the list overflows, and its first request is still in view on every OS
 	for _, id := range []string{"s1", "s2", "s3", "s4", "s5"} {
 		note(t, a, tt, "pending", map[string]any{"request": reqN(id, "box", "echo "+id)})
 	}
@@ -161,8 +161,9 @@ func TestScrollRestartsTheDelay(t *testing.T) {
 		t.Fatal("the request list does not scroll at 800x300")
 	}
 	r, _ := tt.Find("echo s1")
-	tt.Move(r.X, r.Y)
-	tt.Scroll(r.X, r.Y, 0, 120)
+	x, y := r.X+r.W/2, r.Y+r.H/2
+	tt.Move(x, y)
+	tt.Scroll(x, y, 0, 120)
 	tt.Frame()
 	if a.col.scroll.Y == 0 {
 		t.Fatal("the wheel did not scroll the list")

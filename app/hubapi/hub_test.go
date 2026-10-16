@@ -2,9 +2,13 @@ package hubapi
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/lang315/sshgate/app/hubproc"
 	"github.com/lang315/sshgate/app/internal/hubtest"
@@ -178,6 +182,99 @@ func TestAutoAllowSettingsAgainstRealHub(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := h.SetSoftLockLimit(ctx, "7d"); err == nil || err.Error() != "Vault is locked; unlock it in the app" {
+		t.Fatalf("locked: %v", err)
+	}
+}
+
+// TestFilesAgainstRealHub: list, mkdir, rename, and an upload job through
+// sshtestd's SFTP; files.run takes only overwrite or skip (never Electron's
+// "ask"), and a locked hub refuses files.list.
+func TestFilesAgainstRealHub(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	srv := hubtest.Start(t, hubtest.Options{SFTP: true})
+	bin, _ := hubtest.Binaries(t)
+	notes := make(chan string, 64)
+	p, err := hubproc.Start(context.Background(), hubproc.Launch{Command: bin, Args: []string{"hub", "--store=" + srv.Store}, Env: hubtest.Env(t)},
+		func(m string, params json.RawMessage) {
+			if strings.HasPrefix(m, "files.") {
+				notes <- m + " " + string(params)
+			}
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Stop()
+	next := func(method string) string {
+		t.Helper()
+		for {
+			select {
+			case n := <-notes:
+				if strings.HasPrefix(n, method+" ") {
+					return n
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatalf("no %s", method)
+			}
+		}
+	}
+	ctx := context.Background()
+	h := New(p.Client())
+	if _, err := h.Unlock(ctx, hubtest.Password); err != nil {
+		t.Fatal(err)
+	}
+	l, err := h.FilesList(ctx, "box", "", nil)
+	if err != nil || l.Status != "listed" || l.Path != "/home" || len(l.Entries) != 0 {
+		t.Fatalf("home: %+v %v", l, err)
+	}
+	if err := h.FilesMkdir(ctx, "box", "/home/made"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.FilesRename(ctx, "box", "/home/made", "/home/made2"); err != nil {
+		t.Fatal(err)
+	}
+	if l, _ := h.FilesList(ctx, "box", "/home", nil); len(l.Entries) != 1 || l.Entries[0].Name != "made2" || l.Entries[0].Kind != "dir" {
+		t.Fatalf("after rename: %+v", l.Entries)
+	}
+	local := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(local, []byte("alpha"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.FilesPlan(ctx, "f1", "box", "upload", []string{local}, "/home"); err != nil {
+		t.Fatal(err)
+	}
+	if n := next("files.planned"); !strings.Contains(n, `"files":1`) || !strings.Contains(n, `"count":0`) {
+		t.Fatal(n)
+	}
+	if err := h.FilesRun(ctx, "f1", "skip"); err != nil {
+		t.Fatal(err)
+	}
+	if n := next("files.done"); !strings.Contains(n, `"copied":1`) || !strings.Contains(n, `"cancelled":false`) {
+		t.Fatal(n)
+	}
+	if b, err := os.ReadFile(filepath.Join(srv.SFTP, "home", "a.txt")); err != nil || string(b) != "alpha" {
+		t.Fatalf("uploaded %q %v", b, err)
+	}
+	if err := h.FilesPlan(ctx, "f2", "box", "upload", []string{local}, "/home"); err != nil {
+		t.Fatal(err)
+	}
+	if n := next("files.planned"); !strings.Contains(n, `"count":1`) || !strings.Contains(n, `"sample":["a.txt"]`) {
+		t.Fatal(n)
+	}
+	if err := h.FilesRun(ctx, "f2", "ask"); err == nil || err.Error() != "conflict must be overwrite or skip" {
+		t.Fatalf("ask: %v", err)
+	}
+	if err := p.Client().Notify("files.cancel", map[string]string{"id": "f2"}); err != nil {
+		t.Fatal(err)
+	}
+	if n := next("files.done"); !strings.Contains(n, `"cancelled":true`) || !strings.Contains(n, `"reason":"cancelled"`) {
+		t.Fatal(n)
+	}
+	if err := h.Lock(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.FilesList(ctx, "box", "", nil); err == nil || err.Error() != "Vault is locked; unlock it in the app" {
 		t.Fatalf("locked: %v", err)
 	}
 }

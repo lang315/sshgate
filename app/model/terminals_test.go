@@ -108,3 +108,25 @@ func TestTabSetClosingAnotherTabKeepsActive(t *testing.T) {
 		t.Fatal("closed tab still there")
 	}
 }
+
+// A Files tab is open at once, never a Send to tab target, and not in the
+// editor's open-tabs count (Electron filters kind === 'term').
+func TestFilesTabsAreNotTerminals(t *testing.T) {
+	var s TabSet
+	term := s.Open("box")
+	f := s.OpenFiles("box")
+	g := s.OpenFiles("box")
+	if f == g || s.Active != g {
+		t.Fatalf("ids %q %q, active %q", f, g, s.Active)
+	}
+	if tab, _ := s.Get(f); tab.Kind != FilesKind || tab.State != "open" {
+		t.Fatalf("%+v", tab)
+	}
+	if s.MostRecentFor("box") != term || s.OpenCount("box") != 1 {
+		t.Fatal(s.MostRecentFor("box"), s.OpenCount("box"))
+	}
+	s.Close(term)
+	if s.MostRecentFor("box") != "" || s.OpenCount("box") != 0 {
+		t.Fatal(s.MostRecentFor("box"), s.OpenCount("box"))
+	}
+}

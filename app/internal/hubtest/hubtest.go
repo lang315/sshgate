@@ -83,12 +83,14 @@ func RuntimeDir(t *testing.T) string {
 type Options struct {
 	EmptyStore bool   // no vault: a hub on Server.Store starts on Create vault
 	KnownHosts string // when set, sshtestd writes its host key there as a known_hosts line
+	SFTP       bool   // serve SFTP rooted in Server.SFTP
 }
 
 // Server is a running sshtestd: it accepts any password and any key.
 type Server struct {
 	Store string // the hub's --store; a ready vault (password Password, server "box", pinned) unless EmptyStore
 	Port  int
+	SFTP  string // with Options.SFTP: the folder served as /, the login's home being <SFTP>/home
 }
 
 // Start runs sshtestd until the test ends.
@@ -102,6 +104,11 @@ func Start(t *testing.T, o Options) Server {
 	}
 	if o.KnownHosts != "" {
 		args = append(args, "-write-known-hosts="+o.KnownHosts)
+	}
+	sftp := ""
+	if o.SFTP {
+		sftp = filepath.Join(t.TempDir(), "sftp")
+		args = append(args, "-sftp-root="+sftp)
 	}
 	cmd := exec.Command(bin, args...)
 	stdin, err := cmd.StdinPipe() // sshtestd exits when its stdin closes
@@ -121,7 +128,7 @@ func Start(t *testing.T, o Options) Server {
 	if err != nil || !strings.HasPrefix(line, "PORT=") || perr != nil {
 		t.Fatalf("sshtestd: %q, %v, %v", line, err, perr)
 	}
-	return Server{Store: store, Port: port}
+	return Server{Store: store, Port: port, SFTP: sftp}
 }
 
 // SSHD starts sshtestd with a ready vault (Start with no options) and

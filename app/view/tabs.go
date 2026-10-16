@@ -114,10 +114,14 @@ func (a *App) activate(id string) {
 	a.focusActive()
 }
 
-// focusActive focuses the active tab's terminal, if it has one.
+// focusActive focuses the active tab's terminal, if it has one, or its
+// file table.
 func (a *App) focusActive() {
 	if t := a.terms[a.tabs.Active]; t != nil && t.term != nil {
 		t.h.Focus()
+	}
+	if v := a.files[a.tabs.Active]; v != nil {
+		v.ls.Handle.Focus()
 	}
 }
 
@@ -131,15 +135,26 @@ func (a *App) closeTab(id string) {
 		go t.term.Close()
 	}
 	delete(a.terms, id)
+	if v := a.files[id]; v != nil {
+		for _, j := range v.jobs { // closing the tab cancels its jobs
+			if j.state != "done" {
+				a.filesCancel(j.id)
+				delete(a.jobs, j.id)
+			}
+		}
+		delete(a.files, id)
+	}
 	a.flushSends(id)
 	a.focusActive()
 }
 
-// endTabs ends every live tab when the hub stops: its terminals died with
-// it. The tabs stay, showing why, with Reconnect.
+// endTabs ends every live terminal tab when the hub stops: its terminals
+// died with it. The tabs stay, showing why, with Reconnect. Files tabs stay
+// open (endFiles).
 func (a *App) endTabs() {
+	a.endFiles()
 	for _, t := range a.tabs.Tabs {
-		if t.State == "exited" {
+		if t.State == "exited" || t.Kind == model.FilesKind {
 			continue
 		}
 		a.tabs.Exited(t.ID, "hub restarted")
@@ -171,7 +186,10 @@ func (a *App) buildTabStrip(c *ui.Context) {
 				tip = model.DisplayText(s)
 			}
 			label := name
-			if t.State == "exited" {
+			switch {
+			case t.Kind == model.FilesKind:
+				label += " · files"
+			case t.State == "exited":
 				label += " · exited"
 			}
 			ui.Row(c.Key("tab-" + id)).Gap(2).Children(func() {
@@ -195,8 +213,13 @@ func (a *App) buildTabStrip(c *ui.Context) {
 	}
 }
 
-// buildTab shows the active tab: its terminal, or why it has none.
+// buildTab shows the active tab: its file browser, its terminal, or why it
+// has none.
 func (a *App) buildTab(c *ui.Context, t model.Tab) {
+	if t.Kind == model.FilesKind {
+		a.buildFiles(c, t)
+		return
+	}
 	tt := a.terms[t.ID]
 	if tt == nil || tt.term == nil {
 		if t.State == "exited" {
