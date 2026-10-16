@@ -93,22 +93,33 @@ type Manager struct {
 
 // run is one helper process. A helper that cannot start counts as 4 (not
 // available), one killed by a signal as 1; Cancel is told apart by gen, not
-// by the code. track makes Cancel able to kill it.
+// by the code. track makes Cancel able to kill it: the process is then only
+// started if no Cancel has landed since gen was read, and is registered under
+// the same lock, so a Cancel cannot fall between its start and its kill.
 type run struct {
 	code   int
 	stdout []byte
 	stderr string
 }
 
-func (m *Manager) run(args []string, input []byte, track bool) run {
+func (m *Manager) run(args []string, input []byte, track bool, gen int) run {
 	cmd := exec.Command(m.Helper, args...)
 	var out, errb bytes.Buffer
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = bytes.NewReader(input), &out, &errb
+	if track {
+		m.mu.Lock()
+		if m.gen != gen { // the caller's stopped(gen) reports it
+			m.mu.Unlock()
+			return run{code: 1}
+		}
+	}
 	if err := cmd.Start(); err != nil {
+		if track {
+			m.mu.Unlock()
+		}
 		return run{code: 4}
 	}
 	if track {
-		m.mu.Lock()
 		m.running = cmd
 		m.mu.Unlock()
 	}
@@ -168,7 +179,7 @@ func (m *Manager) Status(ctx context.Context) model.TouchStatus {
 	if m.Helper == "" {
 		return model.TouchStatus{}
 	}
-	st := model.TouchStatus{Supported: true, Available: m.run([]string{"available"}, nil, false).code == 0}
+	st := model.TouchStatus{Supported: true, Available: m.run([]string{"available"}, nil, false, 0).code == 0}
 	if s, err := m.Hub().Status(ctx); err == nil {
 		st.Enabled = m.read(s.StorePath) != nil
 	}
@@ -197,7 +208,7 @@ func (m *Manager) Enable(ctx context.Context, password string) error {
 		return err
 	}
 	input := []byte(password)
-	r := m.run([]string{"enroll"}, input, false)
+	r := m.run([]string{"enroll"}, input, false, 0)
 	wipe(input)
 	if r.code == 4 {
 		return ErrUnavailable
@@ -262,7 +273,7 @@ func (m *Manager) Unlock(ctx context.Context) (Result, error) {
 	if done, res, err := m.stopped(gen); done {
 		return res, err
 	}
-	r := m.run([]string{"unlock"}, sealed, true)
+	r := m.run([]string{"unlock"}, sealed, true, gen)
 	defer wipe(r.stdout)
 	if done, res, err := m.stopped(gen); done {
 		return res, err

@@ -368,3 +368,22 @@ func atoi(s string) int {
 	}
 	return n
 }
+
+// A Cancel that lands after the unlock's last stopped() check, just before the
+// helper starts, must keep the helper from starting at all: run is handed the
+// generation it began under.
+func TestRunDoesNotStartAHelperAfterACancel(t *testing.T) {
+	r := newRig(t)
+	r.setMode(t, "slow")
+	gen := r.m.gen
+	r.m.Cancel(nil)
+	if got := r.m.run([]string{"unlock"}, nil, true, gen); got.code == 0 {
+		t.Errorf("got %+v", got)
+	}
+	if _, err := os.Stat(r.mode + ".pid"); err == nil {
+		t.Error("the helper ran")
+	}
+	if r.m.running != nil {
+		t.Error("a helper is registered")
+	}
+}
