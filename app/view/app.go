@@ -13,6 +13,7 @@ import (
 	"github.com/lang315/sshgate/app/hubproc"
 	"github.com/lang315/sshgate/app/model"
 	"github.com/lang315/sshgate/app/termconn"
+	"github.com/lang315/sshgate/app/touchid"
 )
 
 // Door is the part of the UI door client the views call. Notify sends
@@ -33,6 +34,8 @@ type App struct {
 	// nil except on the retry after a host-key prompt.
 	Dial  func(ctx context.Context, id, server string, trust *hubapi.Trust) (*termconn.Conn, error)
 	Shell Shell
+	// Touch is Touch ID unlock; nil when the app has none.
+	Touch Toucher
 	// ThemeFile keeps the theme choice across launches; "" keeps it in memory.
 	ThemeFile string
 
@@ -90,6 +93,9 @@ type App struct {
 	searchH                ui.Handle // the host search: the focus after a sheet closes on Hosts
 	theme                  string    // "dark", "light" or "auto"
 	audit                  auditState
+	touch                  *model.TouchStatus // nil until read, when the unlock screen shows and before Settings opens
+	touchAsked, touchBusy  bool               // asked in this locked episode (a cancel counts); a helper is up
+	everReady, focused     bool               // the ready screen was shown once; the window has the focus
 }
 
 // dialogs are the ones a lock or hub stop closes, and any typed secret with them.
@@ -172,6 +178,10 @@ func (a *App) HubState(st hubproc.State) {
 		a.prompts, a.mismatch, a.sends = model.HostKeyPrompts{}, nil, nil // a dropped send's timer then finds nothing
 		a.itemBusy = map[string]bool{}
 		a.status, a.unlockErr, a.lockReason, a.seedErr = nil, "", "", ""
+		a.touchAsked = false // a hub restart starts a new locked episode
+		if a.Touch != nil {
+			a.Touch.Cancel(touchid.ErrInterrupted) // a Touch ID dialog still up belongs to the hub that stopped
+		}
 		a.lockHosts, a.items, a.feed = []string{}, nil, nil
 		a.tunnels = nil // they ended with the hub
 		a.decidedSince, a.pendingSince, a.seen = map[string]bool{}, map[string]bool{}, map[string]bool{}
@@ -217,8 +227,12 @@ func (a *App) setScreen() {
 	if prev == model.ScreenReady || next == model.ScreenReady {
 		a.auditReset()
 	}
+	if next == model.ScreenLocked {
+		a.loadTouch()
+	}
 	switch next {
 	case model.ScreenReady:
+		a.everReady, a.touchAsked = true, false // an unlock ends the episode
 		a.reloadServers()
 		a.reloadTunnels()
 		a.seed()
@@ -346,6 +360,9 @@ func (a *App) unlock(pw string) {
 			}
 			if err == nil && gen == a.hubGen {
 				a.ranLocked = model.KeepRan(a.ranLocked, r.RanWhileLocked)
+			}
+			if err == nil && a.Touch != nil {
+				a.Touch.Cancel(nil) // a typed password won: close a Touch ID dialog still up
 			}
 			a.refresh()
 		})
