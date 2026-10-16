@@ -4,6 +4,7 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/hubapi"
@@ -208,6 +209,91 @@ func TestTunnelStatesDuringAListAreReplayed(t *testing.T) {
 	tt.flush()
 	if len(a.tunnels) != 1 || a.tunnels[0].Status != "running" || a.tunnels[0].Conns != 3 || len(a.tunnelBufs) != 0 {
 		t.Fatalf("%+v, %d buffers left", a.tunnels, len(a.tunnelBufs))
+	}
+}
+
+// A tunnels.list reply that lands after a hub stop is dropped, its buffer
+// closed: the tunnels died with the hub.
+func TestTunnelsListReplyAfterAHubStopIsDropped(t *testing.T) {
+	gate := make(chan struct{})
+	d := &fakeDoor{status: hubapi.Status{HasVault: true}, servers: []hubapi.Server{boxServer}, tunnels: []hubapi.TunnelView{pgTunnel("running", 0)},
+		gates: map[string]chan struct{}{"tunnels.list": gate}}
+	a, tt, _, _ := newApp(t, d)
+	a.Update(func() { a.HubState(hubproc.State{Kind: "restarting", Attempt: 1}) })
+	tt.flush()
+	close(gate)
+	tt.flush()
+	if a.tunnels != nil || len(a.tunnelBufs) != 0 {
+		t.Fatalf("the dead hub's list landed: %+v, %d buffers", a.tunnels, len(a.tunnelBufs))
+	}
+}
+
+// A failed tunnels.list keeps the list shown (Electron's catch) and closes
+// its buffer.
+func TestFailedTunnelsListKeepsTheList(t *testing.T) {
+	a, tt, d, _ := tunnelsApp(t, pgTunnel("running", 0))
+	d.set(func() { d.errs = map[string]error{"tunnels.list": errors.New("boom")} })
+	d.resetCalls()
+	a.Update(a.reloadTunnels)
+	tt.flush()
+	if !hasCall(d, "tunnels.list") || len(a.tunnels) != 1 || len(a.tunnelBufs) != 0 {
+		t.Fatalf("calls %v, list %+v, %d buffers", d.callList(), a.tunnels, len(a.tunnelBufs))
+	}
+}
+
+// Two lists in flight can answer out of order (the hub answers each on its
+// own goroutine): the older one landing last must not replace the newer.
+func TestOlderTunnelsListNeverOverwritesANewerOne(t *testing.T) {
+	a, tt, d, _ := tunnelsApp(t, pgTunnel("stopped", 0))
+	older, newer := make(chan struct{}), make(chan struct{})
+	flight := func(gate chan struct{}, list []hubapi.TunnelView, calls int) {
+		t.Helper()
+		d.set(func() { d.tunnels, d.gates = list, map[string]chan struct{}{"tunnels.list": gate} })
+		a.Update(a.reloadTunnels)
+		tt.flush()
+		for i := 0; i < 500 && len(d.callList()) < calls; i++ { // the call reached the door
+			time.Sleep(10 * time.Millisecond)
+		}
+		if len(d.callList()) != calls {
+			t.Fatalf("calls %v", d.callList())
+		}
+	}
+	d.resetCalls()
+	flight(older, []hubapi.TunnelView{pgTunnel("stopped", 0)}, 1)
+	flight(newer, []hubapi.TunnelView{pgTunnel("stopped", 0), socksTunnel("stopped")}, 2)
+	close(newer)
+	tt.flush()
+	close(older)
+	tt.flush()
+	if len(a.tunnels) != 2 || len(a.tunnelBufs) != 0 {
+		t.Fatalf("the older list won: %+v, %d buffers", a.tunnels, len(a.tunnelBufs))
+	}
+}
+
+// A Start or Delete reply that lands after its tab was closed changes
+// nothing: no error on the dead tab, no list read.
+func TestTunnelActReplyAfterTheTabClosedChangesNothing(t *testing.T) {
+	for _, del := range []bool{false, true} {
+		a, tt, d, _ := tunnelsApp(t, pgTunnel("stopped", 0))
+		method, button := "tunnels.start", "Start pg"
+		if del {
+			method, button = "tunnels.delete", "Delete pg"
+		}
+		gate := make(chan struct{})
+		d.set(func() {
+			d.gates, d.errs = map[string]chan struct{}{method: gate}, map[string]error{method: errors.New("boom")}
+		})
+		id := openTunnelsTab(t, a, tt)
+		v := a.tunnelTabs[id]
+		clickT(t, tt, button)
+		clickT(t, tt, "Close tab")
+		tt.flush()
+		d.resetCalls()
+		close(gate)
+		tt.flush()
+		if v.err != "" || a.tunnelTabs[id] != nil || len(d.callList()) != 0 {
+			t.Errorf("%s: tab error %q, calls %v", method, v.err, d.callList())
+		}
 	}
 }
 

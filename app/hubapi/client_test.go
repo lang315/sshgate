@@ -161,7 +161,7 @@ func TestTunnelsDecode(t *testing.T) {
 		t.Fatalf("%#v %v", l, err)
 	}
 	l, err = New(&rec{result: `[{"server":"box","id":"a1","kind":"local","listenPort":5433,"targetHost":"db","targetPort":5432,"label":"pg","status":"error","error":"connection failed","conns":0},{"server":"box","id":"b2","kind":"dynamic","listenPort":1080,"status":"running","conns":3}]`}).TunnelsList(context.Background())
-	if err != nil || len(l) != 2 || l[0].ID != "a1" || l[0].TargetHost != "db" || l[0].Label != "pg" || l[0].Error != "connection failed" ||
+	if err != nil || len(l) != 2 || l[0].Server != "box" || l[0].ID != "a1" || l[0].TargetHost != "db" || l[0].Label != "pg" || l[0].Error != "connection failed" ||
 		l[1].Kind != "dynamic" || l[1].TargetHost != "" || l[1].Status != "running" || l[1].Conns != 3 {
 		t.Fatalf("%+v %v", l, err)
 	}

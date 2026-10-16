@@ -48,7 +48,8 @@ func (a *App) openTunnels(server string) string {
 // reloadTunnels reads tunnels.list. The tunnels.state notes that arrive
 // while it is in flight are kept and applied to its reply (Electron's
 // tunnelBuffers), so an older snapshot never hides a newer status. A
-// failed read keeps the list shown.
+// failed read keeps the list shown, and a reply older than one already
+// applied is dropped (the hub answers each request on its own goroutine).
 func (a *App) reloadTunnels() {
 	a.tunnelSeq++
 	n, gen := a.tunnelSeq, a.hubGen
@@ -58,9 +59,10 @@ func (a *App) reloadTunnels() {
 		a.Update(func() {
 			buf := a.tunnelBufs[n]
 			delete(a.tunnelBufs, n)
-			if gen != a.hubGen || err != nil {
+			if gen != a.hubGen || err != nil || n < a.tunnelApplied {
 				return
 			}
+			a.tunnelApplied = n
 			a.tunnels = model.ReplayTunnelStates(l, buf)
 		})
 	}()

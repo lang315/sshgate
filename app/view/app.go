@@ -79,6 +79,7 @@ type App struct {
 	tunnels                []hubapi.TunnelView          // every server's, from tunnels.list and tunnels.state
 	tunnelBufs             map[int][]hubapi.TunnelState // the notes since each tunnels.list in flight was sent
 	tunnelSeq              int                          // numbers the tunnels.list calls
+	tunnelApplied          int                          // the highest call number whose reply was applied
 	prompts                model.HostKeyPrompts
 	mismatch               *hubapi.HostKey
 	hk                     hkState

@@ -178,7 +178,7 @@ func (h *Client) FilesRun(ctx context.Context, id, conflict string) error {
 }
 
 // TunnelsList is every saved tunnel of every server, with its state; never
-// nil. It works while locked: tunnels are the hub's and keep running.
+// nil on success. It works while locked: tunnels are the hub's and keep running.
 func (h *Client) TunnelsList(ctx context.Context) ([]TunnelView, error) {
 	var l []TunnelView
 	if err := h.c.Call(ctx, "tunnels.list", struct{}{}, &l); err != nil {
