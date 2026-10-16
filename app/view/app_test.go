@@ -36,6 +36,7 @@ type fakeDoor struct {
 	list     func(path string, trust *hubapi.Trust) (hubapi.FileListing, error) // files.list; nil answers an empty /home
 	sent     []string                                                           // notifications, as "method params"
 	tunnels  []hubapi.TunnelView                                                // tunnels.list
+	audit    func(q hubapi.AuditQuery) hubapi.AuditPage                         // audit.read; nil answers an empty page
 }
 
 func (d *fakeDoor) Notify(method string, params any) error {
@@ -65,7 +66,7 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 	st, stFn := d.status, d.statusFn
 	gate := d.pendGate
 	srv, pend := d.servers, d.pending
-	scan, imported, check, list, tunnels := d.scan, d.imported, d.check, d.list, d.tunnels
+	scan, imported, check, list, tunnels, audit := d.scan, d.imported, d.check, d.list, d.tunnels, d.audit
 	d.mu.Unlock()
 	if wait != nil {
 		<-wait
@@ -126,6 +127,14 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 		out = l
 	case "tunnels.list":
 		out = tunnels
+	case "audit.read":
+		var q hubapi.AuditQuery
+		json.Unmarshal(b, &q)
+		page := hubapi.AuditPage{Records: []hubapi.AuditEntry{}, Path: "/a/audit.jsonl"}
+		if audit != nil {
+			page = audit(q)
+		}
+		out = page
 	default:
 		out = map[string]any{}
 	}
