@@ -112,6 +112,10 @@ var callTimeout = 60 * time.Second
 
 func (a *App) hub() *hubapi.Client { return hubapi.New(timeoutDoor{a.Door}) }
 
+// Hub is the hub's client for main, which hands it to Touch ID: the same
+// calls with the same timeout as the views make.
+func (a *App) Hub() *hubapi.Client { return a.hub() }
+
 type timeoutDoor struct{ Door }
 
 func (d timeoutDoor) Call(ctx context.Context, method string, params, result any) error {

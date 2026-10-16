@@ -39,7 +39,13 @@ func newTrayShell(win *mygo.Window) *trayShell {
 	return &trayShell{tray: tray, win: win}
 }
 
+// showWindow brings the window back from the menu bar: the Dock icon first
+// (a close hid it), then the window, in front and with the focus.
 func showWindow(w *mygo.Window) {
+	mygo.App.Dock.Show()
+	if w.IsMinimized() {
+		w.Restore()
+	}
 	w.Show()
 	w.Focus()
 	mygo.App.Focus()
