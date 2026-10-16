@@ -9,6 +9,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"runtime"
+	"runtime/debug"
+	"sync"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/hkdf"
@@ -38,7 +41,7 @@ func NewKDF(masterPw string) (KDF, []byte, error) {
 		Alg: "argon2id", V: 1, Salt: base64.StdEncoding.EncodeToString(salt),
 		Time: 3, MemoryKiB: 65536, Parallelism: 4, KeyLen: 32,
 	}
-	mk := argon2.IDKey([]byte(masterPw), salt, k.Time, k.MemoryKiB, uint8(k.Parallelism), k.KeyLen)
+	mk := argon2Key([]byte(masterPw), salt, k.Time, k.MemoryKiB, uint8(k.Parallelism), k.KeyLen)
 	blob, err := Encrypt(mk, "verifier", "verifier", verifierConst)
 	if err != nil {
 		return KDF{}, nil, err
@@ -58,7 +61,33 @@ func (k KDF) DeriveKey(masterPw string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return argon2.IDKey([]byte(masterPw), salt, k.Time, k.MemoryKiB, uint8(k.Parallelism), k.KeyLen), nil
+	return argon2Key([]byte(masterPw), salt, k.Time, k.MemoryKiB, uint8(k.Parallelism), k.KeyLen), nil
+}
+
+// argon2Mu serializes argon2Key: overlapping derives would otherwise restore
+// a stale GOMAXPROCS.
+var argon2Mu sync.Mutex
+
+// argon2Key is argon2.IDKey, then hands its work area (memKiB) back to the
+// OS; the long-running hub would otherwise keep it as idle heap after unlock.
+// The released memory is not zeroed, same as any freed heap.
+func argon2Key(pw, salt []byte, t, memKiB uint32, par uint8, keyLen uint32) []byte {
+	argon2Mu.Lock()
+	defer argon2Mu.Unlock()
+	// macOS, empirical, mechanism unknown: the OS often ignores the runtime's
+	// release of the work area unless GOMAXPROCS is at most par during the
+	// derive and the release (hub: 9 of 30 released without the cap, 38 of 40
+	// with it). Argon2 uses at most par Ps; the rest of the hub also gets
+	// only par Ps for the ~40 ms derive.
+	if prev := runtime.GOMAXPROCS(0); runtime.GOOS == "darwin" && prev > int(par) {
+		runtime.GOMAXPROCS(int(par))
+		// Setting GOMAXPROCS turns off Go's automatic updates of it (Go 1.25+);
+		// acceptable on macOS, which has a fixed CPU count and no cgroup limits.
+		defer runtime.GOMAXPROCS(prev)
+	}
+	key := argon2.IDKey(pw, salt, t, memKiB, par, keyLen)
+	debug.FreeOSMemory()
+	return key
 }
 
 func (k KDF) Verify(masterKey []byte) bool {

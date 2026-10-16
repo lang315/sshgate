@@ -40,3 +40,34 @@ jobs:
       - run: npm test
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: xvfb-run -a npm run e2e
+
+  app:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: app
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: app/go.mod
+          cache-dependency-path: app/go.sum
+      - name: Build libghostty-vt from source (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          start=$(date +%s)
+          ../scripts/build-ghostty-vt.sh build/natives | tee /tmp/ghostty.log
+          grep '^MYGO_GHOSTTY_VT=' /tmp/ghostty.log >> "$GITHUB_ENV"
+          echo "libghostty-vt built in $(( $(date +%s) - start )) s"
+      - name: mygo terminal plugin tests against that library (macOS)
+        if: runner.os == 'macOS'
+        run: go test -race github.com/egoist/mygo/plugins/terminal/...
+      - run: go vet ./...
+      # Without MYGO_GHOSTTY_VT (Linux, Windows) the terminal tests skip; nothing downloads a prebuilt library.
+      # Windows: the hub's MCP pipe name is per user, not per SSHGATE_RUNTIME_DIR, so two packages' hubs at once fail with "Access is denied"; run one package at a time.
+      - run: go test -race ${{ runner.os == 'Windows' && '-p 1' || '' }} ./...
