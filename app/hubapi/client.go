@@ -210,3 +210,17 @@ func (h *Client) TunnelsDelete(ctx context.Context, server, id string) error {
 func (h *Client) TunnelsStart(ctx context.Context, server, id string) error {
 	return h.c.Call(ctx, "tunnels.start", map[string]string{"server": server, "id": id}, nil)
 }
+
+// AuditRead reads one page of the audit log, newest first; Records is
+// never nil on success. The hub refuses it while locked, and counts it as
+// UI activity: the views call it only on the person's action.
+func (h *Client) AuditRead(ctx context.Context, q AuditQuery) (AuditPage, error) {
+	var p AuditPage
+	if err := h.c.Call(ctx, "audit.read", q, &p); err != nil {
+		return AuditPage{}, err
+	}
+	if p.Records == nil {
+		p.Records = []AuditEntry{}
+	}
+	return p, nil
+}

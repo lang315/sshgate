@@ -57,6 +57,12 @@ func TestCallShapes(t *testing.T) {
 				_, err := c.FilesList(ctx, "box", "/home", &Trust{Fingerprint: "SHA256:x", KeyType: "ssh-ed25519"})
 				return err
 			}},
+		{"audit read", "audit.read", `{}`, func(c *Client) error { _, err := c.AuditRead(ctx, AuditQuery{}); return err }},
+		{"audit read filtered", "audit.read", `{"before":40,"server":"box","kinds":["config","file"],"outcomes":["auto"],"text":"tail"}`,
+			func(c *Client) error {
+				_, err := c.AuditRead(ctx, AuditQuery{Before: 40, Server: "box", Kinds: []string{"config", "file"}, Outcomes: []string{"auto"}, Text: "tail"})
+				return err
+			}},
 		{"mkdir", "files.mkdir", `{"path":"/home/a","server":"box"}`, func(c *Client) error { return c.FilesMkdir(ctx, "box", "/home/a") }},
 		{"rename", "files.rename", `{"from":"/home/a","server":"box","to":"/home/b"}`, func(c *Client) error { return c.FilesRename(ctx, "box", "/home/a", "/home/b") }},
 		{"plan upload", "files.plan", `{"id":"f1","server":"box","op":"upload","sources":["/l/a"],"dest":"/home"}`,
@@ -168,5 +174,16 @@ func TestTunnelsDecode(t *testing.T) {
 	saved, err := New(&rec{result: `{"id":"c3","kind":"dynamic","listenPort":1080}`}).TunnelsSave(context.Background(), "box", Tunnel{Kind: "dynamic", ListenPort: 1080})
 	if err != nil || saved.ID != "c3" {
 		t.Fatalf("%+v %v", saved, err)
+	}
+}
+
+func TestAuditReadDecodes(t *testing.T) {
+	p, err := New(&rec{result: `{"records":null,"skipped":0,"path":"/a/audit.jsonl"}`}).AuditRead(context.Background(), AuditQuery{})
+	if err != nil || p.Records == nil || len(p.Records) != 0 || p.Path != "/a/audit.jsonl" {
+		t.Fatalf("%#v %v", p, err)
+	}
+	p, err = New(&rec{result: `{"records":[{"seq":9,"record":{"kind":"config","action":"save"}},{"seq":8,"record":{"command":"ls"}}],"next":8,"skipped":2,"path":"/p"}`}).AuditRead(context.Background(), AuditQuery{})
+	if err != nil || len(p.Records) != 2 || p.Records[0].Seq != 9 || string(p.Records[1].Record) != `{"command":"ls"}` || p.Next != 8 || p.Skipped != 2 {
+		t.Fatalf("%+v %v", p, err)
 	}
 }

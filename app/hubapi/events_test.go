@@ -30,7 +30,7 @@ func TestDecode(t *testing.T) {
 	if !ok || r.ExitCode == nil || *r.ExitCode != 0 || r.StdinBytes != 8 {
 		t.Fatalf("ran: %+v", ev)
 	}
-	for _, m := range []string{"audit.appended", "term.data", "tunnels.stop", "bogus"} {
+	for _, m := range []string{"term.data", "tunnels.stop", "bogus"} {
 		if _, ok := Decode(m, json.RawMessage(`{}`)); ok {
 			t.Errorf("%s decoded", m)
 		}
@@ -64,5 +64,16 @@ func TestDecodeTunnels(t *testing.T) {
 	ev, ok = Decode("tunnels.state", json.RawMessage(`{"server":"box","id":"a1","status":"running","conns":2}`))
 	if s, _ := ev.(TunnelState); !ok || s.Status != "running" || s.Conns != 2 || s.Error != "" {
 		t.Fatalf("running: %+v %v", ev, ok)
+	}
+}
+
+func TestDecodeAudit(t *testing.T) {
+	ev, ok := Decode("audit.appended", json.RawMessage(`{"seq":7,"record":{"time":"2026-10-16T01:02:03Z","server":"box","command":"ls","outcome":"denied"}}`))
+	e, _ := ev.(AuditEntry)
+	if !ok || e.Seq != 7 || string(e.Record) != `{"time":"2026-10-16T01:02:03Z","server":"box","command":"ls","outcome":"denied"}` {
+		t.Fatalf("appended: %+v %v", ev, ok)
+	}
+	if _, ok := Decode("audit.appended", json.RawMessage(`{"seq":"7"}`)); ok {
+		t.Error("a seq that is not a number decoded")
 	}
 }

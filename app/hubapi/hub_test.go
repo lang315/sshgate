@@ -436,3 +436,75 @@ func TestTunnelsAgainstRealHub(t *testing.T) {
 		t.Fatalf("after delete %+v %v", l, err)
 	}
 }
+
+// TestAuditAgainstRealHub: audit.read pages newest first and filters as
+// the hub does, audit.appended carries each new record, and the hub
+// refuses a read while locked and a limit over 500.
+func TestAuditAgainstRealHub(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	store := hubtest.SSHD(t)
+	bin, _ := hubtest.Binaries(t)
+	notes := make(chan AuditEntry, 64)
+	p, err := hubproc.Start(context.Background(), hubproc.Launch{Command: bin, Args: []string{"hub", "--store=" + store}, Env: hubtest.Env(t)},
+		func(m string, params json.RawMessage) {
+			if ev, ok := Decode(m, params); ok {
+				if e, ok := ev.(AuditEntry); ok {
+					notes <- e
+				}
+			}
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Stop()
+	ctx := context.Background()
+	h := New(p.Client())
+	if _, err := h.AuditRead(ctx, AuditQuery{}); err == nil || err.Error() != "Vault is locked; unlock it in the app" {
+		t.Fatalf("read while locked: %v", err)
+	}
+	if _, err := h.Unlock(ctx, hubtest.Password); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetAutoAllow(ctx, "box", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetAutoAllow(ctx, "box", "off"); err != nil {
+		t.Fatal(err)
+	}
+	var live []AuditEntry
+	for len(live) < 2 {
+		select {
+		case e := <-notes:
+			live = append(live, e)
+		case <-time.After(10 * time.Second):
+			t.Fatalf("audit.appended: got %d of 2", len(live))
+		}
+	}
+	if live[1].Seq != live[0].Seq+1 || !strings.Contains(string(live[0].Record), `"action":"autoAllowOn"`) {
+		t.Fatalf("appended %+v", live)
+	}
+
+	all, err := h.AuditRead(ctx, AuditQuery{})
+	if err != nil || len(all.Records) < 2 || all.Records[0].Seq != live[1].Seq || all.Next != 0 || filepath.Base(all.Path) != "audit.jsonl" {
+		t.Fatalf("read %+v %v", all, err)
+	}
+	page, err := h.AuditRead(ctx, AuditQuery{Limit: 1})
+	if err != nil || len(page.Records) != 1 || page.Next != page.Records[0].Seq {
+		t.Fatalf("one %+v %v", page, err)
+	}
+	older, err := h.AuditRead(ctx, AuditQuery{Limit: 1, Before: page.Next})
+	if err != nil || len(older.Records) != 1 || older.Records[0].Seq != live[0].Seq {
+		t.Fatalf("older %+v %v", older, err)
+	}
+	if ex, err := h.AuditRead(ctx, AuditQuery{Kinds: []string{"exec"}}); err != nil || len(ex.Records) != 0 {
+		t.Fatalf("exec only %+v %v", ex, err)
+	}
+	if found, err := h.AuditRead(ctx, AuditQuery{Server: "box", Text: "AUTOALLOWOFF"}); err != nil || len(found.Records) != 1 || found.Records[0].Seq != live[1].Seq {
+		t.Fatalf("text %+v %v", found, err)
+	}
+	if _, err := h.AuditRead(ctx, AuditQuery{Limit: 501}); err == nil || err.Error() != "limit must be 0-500" {
+		t.Fatalf("limit 501: %v", err)
+	}
+}
