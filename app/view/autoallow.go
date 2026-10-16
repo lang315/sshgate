@@ -59,7 +59,7 @@ func (a *App) buildConfirm(c *ui.Context) {
 	t := c.Theme()
 	ed, now := a.editor, a.Now()
 	cf, d := ed.confirm, ed.draft
-	key := model.DialogChangeKey(d.AutoAllow, cf.ask.RootNew, cf.ask.SudoNew, d.AutoAllowSudo, cf.check, cf.checkFail, cf.err)
+	key := model.DialogChangeKey(d.AutoAllow, cf.ask.RootNew, cf.ask.SudoNew, d.AutoAllowSudo, cf.check, cf.checkFail, cf.err, nil)
 	guard(c, &cf.lc, key, now)
 	enabled := func(now time.Time) bool {
 		return !ed.busy && model.EnableAllowed(cf.ask.TypeName, cf.typed, ed.name, cf.refused, cf.lc.At, now)

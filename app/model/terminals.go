@@ -8,12 +8,16 @@ import (
 // AuditTab is TabSet.Active while the fixed Audit tab shows (slice 6).
 const AuditTab = "audit"
 
-// FilesKind is Tab.Kind of a Files tab; a terminal tab's Kind is "".
-const FilesKind = "files"
+// FilesKind and TunnelsKind are Tab.Kind of a Files and a Tunnels tab; a
+// terminal tab's Kind is "".
+const (
+	FilesKind   = "files"
+	TunnelsKind = "tunnels"
+)
 
-// Tab is one tab (desktop/src/renderer/terminals.ts): a terminal, or a
-// Files tab (Kind FilesKind), which is open from the start and never
-// exits. Tunnels tabs come with slice 5.
+// Tab is one tab (desktop/src/renderer/terminals.ts): a terminal, a Files
+// tab (Kind FilesKind) or a Tunnels tab (Kind TunnelsKind); the last two
+// are open from the start and never exit.
 type Tab struct {
 	ID, Server string
 	Kind       string
@@ -47,6 +51,22 @@ func (s *TabSet) OpenFiles(server string) string {
 	s.next++
 	id := fmt.Sprintf("t%d", s.next)
 	s.Tabs = append(s.Tabs, Tab{ID: id, Server: server, Kind: FilesKind, State: "open"})
+	s.Activate(id)
+	return id
+}
+
+// OpenTunnels activates server's Tunnels tab, adding it the first time:
+// one per host, as Electron's findKind.
+func (s *TabSet) OpenTunnels(server string) string {
+	for _, t := range s.Tabs {
+		if t.Server == server && t.Kind == TunnelsKind {
+			s.Activate(t.ID)
+			return t.ID
+		}
+	}
+	s.next++
+	id := fmt.Sprintf("t%d", s.next)
+	s.Tabs = append(s.Tabs, Tab{ID: id, Server: server, Kind: TunnelsKind, State: "open"})
 	s.Activate(id)
 	return id
 }
