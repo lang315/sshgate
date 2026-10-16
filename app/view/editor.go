@@ -146,6 +146,7 @@ func (a *App) saveHost() {
 				a.alert = "Saved, but auto-allow was not turned on: " + strings.TrimPrefix(err.Error(), savedBut)
 			}
 			a.reloadServers()
+			a.reloadTunnels() // a renamed host's tunnels, or ended ones
 			if a.editor == ed {
 				a.closeSheet()
 			}
@@ -473,6 +474,7 @@ func (a *App) deleteHost(name string) {
 				a.alert = err.Error()
 			}
 			a.reloadServers()
+			a.reloadTunnels()
 		})
 	}()
 }

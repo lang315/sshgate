@@ -227,11 +227,11 @@ func TestRanLocked(t *testing.T) {
 
 // The Enable delay's key: what moves the buttons changes it, typing does not.
 func TestDialogChangeKey(t *testing.T) {
-	pending := DialogChangeKey("forever", false, false, false, nil, false, "")
-	root := DialogChangeKey("forever", false, false, false, &hubapi.AutoCheck{UID: 0}, false, "")
-	failed := DialogChangeKey("forever", false, false, false, nil, true, "")
-	user := DialogChangeKey("forever", false, false, false, &hubapi.AutoCheck{UID: 1000}, false, "")
-	nopasswd := DialogChangeKey("forever", false, false, false, &hubapi.AutoCheck{UID: 1000, PasswordlessSudo: true}, false, "")
+	pending := DialogChangeKey("forever", false, false, false, nil, false, "", nil)
+	root := DialogChangeKey("forever", false, false, false, &hubapi.AutoCheck{UID: 0}, false, "", nil)
+	failed := DialogChangeKey("forever", false, false, false, nil, true, "", nil)
+	user := DialogChangeKey("forever", false, false, false, &hubapi.AutoCheck{UID: 1000}, false, "", nil)
+	nopasswd := DialogChangeKey("forever", false, false, false, &hubapi.AutoCheck{UID: 1000, PasswordlessSudo: true}, false, "", nil)
 	if user == root || user == pending || nopasswd == user || nopasswd == root {
 		t.Fatal("the check's uid and sudo answer are not in the key")
 	}
@@ -239,18 +239,23 @@ func TestDialogChangeKey(t *testing.T) {
 		t.Fatal("the check's state is not in the key")
 	}
 	for i, k := range []string{
-		DialogChangeKey("forever", true, false, false, nil, false, ""),
-		DialogChangeKey("forever", false, true, false, nil, false, ""),
-		DialogChangeKey("forever", false, false, true, nil, false, ""),
-		DialogChangeKey("forever", false, false, false, nil, false, "boom"),
-		DialogChangeKey("15m", false, false, false, nil, false, ""),
+		DialogChangeKey("forever", true, false, false, nil, false, "", nil),
+		DialogChangeKey("forever", false, true, false, nil, false, "", nil),
+		DialogChangeKey("forever", false, false, true, nil, false, "", nil),
+		DialogChangeKey("forever", false, false, false, nil, false, "boom", nil),
+		DialogChangeKey("15m", false, false, false, nil, false, "", nil),
+		DialogChangeKey("forever", false, false, false, nil, false, "", []string{"t1"}), // AutoAllowDialog.test.ts:153-158
 	} {
 		if k == pending {
 			t.Errorf("change %d kept the key", i)
 		}
 	}
-	if DialogChangeKey("forever", false, false, false, nil, false, "") != pending {
+	if DialogChangeKey("forever", false, false, false, nil, false, "", nil) != pending || DialogChangeKey("forever", false, false, false, nil, false, "", []string{}) != pending {
 		t.Error("the same inputs changed the key")
+	}
+	one := DialogChangeKey("forever", false, false, false, nil, false, "", []string{"R server 127.0.0.1:2222 → localhost:22"})
+	if two := DialogChangeKey("forever", false, false, false, nil, false, "", []string{"R server 127.0.0.1:2222 → localhost:22", "R server 127.0.0.1:3333 → localhost:80"}); two == one {
+		t.Error("a second remote tunnel kept the key")
 	}
 	// The check resolving at T=1000 restarts the delay at once.
 	t0 := time.UnixMilli(0)

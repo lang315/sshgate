@@ -16,7 +16,7 @@ import (
 )
 
 // Door is the part of the UI door client the views call. Notify sends
-// files.cancel, the one notification the views send.
+// files.cancel and tunnels.stop, the notifications the views send.
 type Door interface {
 	Call(ctx context.Context, method string, params, result any) error
 	Notify(method string, params any) error
@@ -69,12 +69,17 @@ type App struct {
 	password, newPw, again string // field values
 	query                  string // host search
 	tabs                   model.TabSet
-	terms                  map[string]*termTab  // by tab id
-	files                  map[string]*filesTab // by tab id
-	jobs                   map[string]*fileJob  // the live file jobs, by job id
-	jobSeq                 int                  // numbers the jobs: f1, f2, …
-	lastFolder             map[string]string    // by server: the folder a new Files tab lists, this run only
-	showHidden             bool                 // every Files tab's Show hidden files
+	terms                  map[string]*termTab          // by tab id
+	files                  map[string]*filesTab         // by tab id
+	jobs                   map[string]*fileJob          // the live file jobs, by job id
+	jobSeq                 int                          // numbers the jobs: f1, f2, …
+	lastFolder             map[string]string            // by server: the folder a new Files tab lists, this run only
+	showHidden             bool                         // every Files tab's Show hidden files
+	tunnelTabs             map[string]*tunnelsTab       // by tab id
+	tunnels                []hubapi.TunnelView          // every server's, from tunnels.list and tunnels.state
+	tunnelBufs             map[int][]hubapi.TunnelState // the notes since each tunnels.list in flight was sent
+	tunnelSeq              int                          // numbers the tunnels.list calls
+	tunnelApplied          int                          // the highest call number whose reply was applied
 	prompts                model.HostKeyPrompts
 	mismatch               *hubapi.HostKey
 	hk                     hkState
@@ -147,6 +152,7 @@ func (a *App) init() {
 		a.screen = model.ScreenHub
 		a.terms = map[string]*termTab{}
 		a.files, a.lastFolder, a.jobs = map[string]*filesTab{}, map[string]string{}, map[string]*fileJob{}
+		a.tunnelTabs, a.tunnelBufs = map[string]*tunnelsTab{}, map[int][]hubapi.TunnelState{}
 		a.theme = LoadTheme(a.ThemeFile) // main applied it before the window opened
 	}
 }
@@ -166,6 +172,7 @@ func (a *App) HubState(st hubproc.State) {
 		a.itemBusy = map[string]bool{}
 		a.status, a.unlockErr, a.lockReason, a.seedErr = nil, "", "", ""
 		a.lockHosts, a.items, a.feed = []string{}, nil, nil
+		a.tunnels = nil // they ended with the hub
 		a.decidedSince, a.pendingSince, a.seen = map[string]bool{}, map[string]bool{}, map[string]bool{}
 		a.prune()
 		a.counter.Reset()
@@ -209,10 +216,12 @@ func (a *App) setScreen() {
 	switch next {
 	case model.ScreenReady:
 		a.reloadServers()
+		a.reloadTunnels()
 		a.seed()
 		a.focusActive() // after unlock: nothing restores focus by itself
 	case model.ScreenCreateVault:
 		a.reloadServers()
+		a.reloadTunnels()
 	default:
 		a.servers, a.ranLocked = nil, nil
 		a.dropDialogs()
@@ -265,6 +274,7 @@ func (a *App) seed() {
 
 // Note handles a hub notification; nothing here calls the hub but status,
 // and fileNote's bounded follow-ups of a job the person started.
+// tunnels.state only updates the list.
 func (a *App) Note(method string, params json.RawMessage) {
 	a.init()
 	ev, ok := hubapi.Decode(method, params)
@@ -300,6 +310,8 @@ func (a *App) Note(method string, params json.RawMessage) {
 		a.refresh() // a refused vault reload shows before the decision
 	case hubapi.FilesPlanned, hubapi.FilesProgress, hubapi.FilesDone:
 		a.fileNote(e)
+	case hubapi.TunnelState:
+		a.tunnelState(e)
 	case hubapi.DecidedEvent:
 		id := e.Request.ID
 		a.decidedSince[id] = true

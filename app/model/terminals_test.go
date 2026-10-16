@@ -130,3 +130,30 @@ func TestFilesTabsAreNotTerminals(t *testing.T) {
 		t.Fatal(s.MostRecentFor("box"), s.OpenCount("box"))
 	}
 }
+
+// terminals.test.ts "finds a tab by server and kind": one Tunnels tab per
+// host, open at once; like a Files tab, never a Send to tab target nor in
+// the editor's open-tabs count.
+func TestTunnelsTabOnePerHost(t *testing.T) {
+	var s TabSet
+	term := s.Open("x")
+	a := s.OpenTunnels("x")
+	s.Open("x")
+	if got := s.OpenTunnels("x"); got != a || s.Active != a || len(s.Tabs) != 3 {
+		t.Fatalf("again: %q active %q, %d tabs", got, s.Active, len(s.Tabs))
+	}
+	if b := s.OpenTunnels("y"); b == a || len(s.Tabs) != 4 {
+		t.Fatalf("another host shared %q", b)
+	}
+	if tab, _ := s.Get(a); tab.Kind != TunnelsKind || tab.State != "open" {
+		t.Fatalf("%+v", tab)
+	}
+	s.Exited(term, "bye")
+	if s.MostRecentFor("x") == a || s.OpenCount("x") != 1 {
+		t.Fatal(s.MostRecentFor("x"), s.OpenCount("x"))
+	}
+	s.Close(a)
+	if c := s.OpenTunnels("x"); c == a {
+		t.Fatal("a closed tab's id came back")
+	}
+}

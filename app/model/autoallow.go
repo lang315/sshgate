@@ -200,8 +200,9 @@ func EnableAllowed(typeName bool, typed, host, refused string, changedAt, now ti
 
 // DialogChangeKey is what restarts Enable's delay when it changes: the
 // mode, the warnings, the sudo sentence, the root check's state (pending,
-// failed or its answer) and an error line. The typed name is not in it.
-func DialogChangeKey(mode string, rootNew, sudoNew, sudo bool, check *hubapi.AutoCheck, checkFailed bool, err string) string {
+// failed or its answer), an error line and the running remote tunnels
+// listed. The typed name is not in it.
+func DialogChangeKey(mode string, rootNew, sudoNew, sudo bool, check *hubapi.AutoCheck, checkFailed bool, err string, remote []string) string {
 	state := "pending"
 	switch {
 	case checkFailed:
@@ -209,7 +210,7 @@ func DialogChangeKey(mode string, rootNew, sudoNew, sudo bool, check *hubapi.Aut
 	case check != nil:
 		state = fmt.Sprintf("uid %d sudo %t", check.UID, check.PasswordlessSudo)
 	}
-	return fmt.Sprintf("%s|%t|%t|%t|%s|%q", mode, rootNew, sudoNew, sudo, state, err)
+	return fmt.Sprintf("%s|%t|%t|%t|%s|%q|%q", mode, rootNew, sudoNew, sudo, state, err, remote)
 }
 
 // TimedNote warns, under the editor's select, that saving ends a running

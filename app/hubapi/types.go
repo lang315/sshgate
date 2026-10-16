@@ -233,3 +233,35 @@ type FilesDone struct {
 	Cancelled  bool     `json:"cancelled"`
 	Reason     string   `json:"reason"`
 }
+
+// Tunnel is one of a server's saved forwards (config.Tunnel). Kind is
+// "local", "remote" or "dynamic" (SOCKS5, no target); the listen side is
+// always 127.0.0.1. ID is "" for a new tunnel: the hub gives it one.
+type Tunnel struct {
+	ID         string `json:"id"`
+	Kind       string `json:"kind"`
+	ListenPort int    `json:"listenPort"`
+	TargetHost string `json:"targetHost"`
+	TargetPort int    `json:"targetPort"`
+	Label      string `json:"label"`
+}
+
+// TunnelState is tunnels.state: Status is "stopped", "starting",
+// "running" or "error" (Error says why); Conns counts the open connections
+// of a running tunnel.
+type TunnelState struct {
+	Server string `json:"server"`
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+	Conns  int    `json:"conns"`
+}
+
+// TunnelView is one row of tunnels.list: a saved tunnel and its state.
+type TunnelView struct {
+	Server string `json:"server"`
+	Tunnel
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+	Conns  int    `json:"conns"`
+}

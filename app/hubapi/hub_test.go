@@ -3,9 +3,12 @@ package hubapi
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -276,5 +279,160 @@ func TestFilesAgainstRealHub(t *testing.T) {
 	}
 	if _, err := h.FilesList(ctx, "box", "", nil); err == nil || err.Error() != "Vault is locked; unlock it in the app" {
 		t.Fatalf("locked: %v", err)
+	}
+}
+
+// echo serves 127.0.0.1:0, writing back what each connection sends, until
+// the test ends.
+func echo(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func() { io.Copy(c, c); c.Close() }()
+		}
+	}()
+	return l.Addr().(*net.TCPAddr).Port
+}
+
+// freePort is a loopback port nothing listens on right now.
+func freePort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port
+}
+
+// ping sends "ping" through 127.0.0.1:port and wants it back.
+func ping(t *testing.T, port int) {
+	t.Helper()
+	c, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := c.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	b := make([]byte, 4)
+	if _, err := io.ReadFull(c, b); err != nil || string(b) != "ping" {
+		t.Fatalf("got %q %v", b, err)
+	}
+}
+
+// TestTunnelsAgainstRealHub pins what the Tunnels tab relies on: a save
+// answers the new id; tunnels.state goes out for every change, also behind
+// the lock; a running tunnel keeps forwarding across a lock, tunnels.list
+// still answers then, and tunnels.stop (a notification) still stops it;
+// tunnels.start and tunnels.save need the vault unlocked; a running tunnel
+// cannot be edited.
+func TestTunnelsAgainstRealHub(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	srv := hubtest.Start(t, hubtest.Options{})
+	bin, _ := hubtest.Binaries(t)
+	notes := make(chan TunnelState, 64)
+	p, err := hubproc.Start(context.Background(), hubproc.Launch{Command: bin, Args: []string{"hub", "--store=" + srv.Store}, Env: hubtest.Env(t)},
+		func(m string, params json.RawMessage) {
+			if ev, ok := Decode(m, params); ok {
+				if s, ok := ev.(TunnelState); ok {
+					notes <- s
+				}
+			}
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Stop()
+	state := func(id, status string) {
+		t.Helper()
+		for {
+			select {
+			case s := <-notes:
+				if s.Server == "box" && s.ID == id && s.Status == status {
+					return
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatalf("no tunnels.state %s for %s", status, id)
+			}
+		}
+	}
+	ctx := context.Background()
+	h := New(p.Client())
+	if _, err := h.Unlock(ctx, hubtest.Password); err != nil {
+		t.Fatal(err)
+	}
+	if l, err := h.TunnelsList(ctx); err != nil || len(l) != 0 {
+		t.Fatalf("list %+v %v", l, err)
+	}
+	target, listen := echo(t), freePort(t)
+	local, err := h.TunnelsSave(ctx, "box", Tunnel{Kind: "local", ListenPort: listen, TargetHost: "127.0.0.1", TargetPort: target, Label: "echo"})
+	if err != nil || local.ID == "" || local.Label != "echo" {
+		t.Fatalf("save %+v %v", local, err)
+	}
+	if _, err := h.TunnelsSave(ctx, "box", Tunnel{Kind: "dynamic", ListenPort: freePort(t), TargetHost: "x", TargetPort: 1}); err == nil || err.Error() != "dynamic: takes no target" {
+		t.Fatalf("dynamic with a target: %v", err)
+	}
+	dyn, err := h.TunnelsSave(ctx, "box", Tunnel{Kind: "dynamic", ListenPort: freePort(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.TunnelsStart(ctx, "box", local.ID); err != nil {
+		t.Fatal(err)
+	}
+	state(local.ID, "starting")
+	state(local.ID, "running")
+	ping(t, listen)
+	if l, err := h.TunnelsList(ctx); err != nil || len(l) != 2 || l[0].ID != local.ID || l[0].Status != "running" || l[1].Status != "stopped" {
+		t.Fatalf("list %+v %v", l, err)
+	}
+	local.Label = "edited"
+	if _, err := h.TunnelsSave(ctx, "box", local); err == nil || err.Error() != "stop the tunnel first" {
+		t.Fatalf("edit while running: %v", err)
+	}
+
+	if err := h.Lock(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	ping(t, listen) // the hub's, not the vault's: it keeps running
+	if l, err := h.TunnelsList(ctx); err != nil || len(l) != 2 || l[0].Status != "running" {
+		t.Fatalf("list while locked %+v %v", l, err)
+	}
+	if err := h.TunnelsStart(ctx, "box", dyn.ID); err == nil || err.Error() != "Vault is locked; unlock it in the app" {
+		t.Fatalf("start while locked: %v", err)
+	}
+	if _, err := h.TunnelsSave(ctx, "box", Tunnel{Kind: "dynamic", ListenPort: freePort(t)}); err == nil || err.Error() != "Vault is locked; unlock it in the app" {
+		t.Fatalf("save while locked: %v", err)
+	}
+	if err := p.Client().Notify("tunnels.stop", map[string]string{"server": "box", "id": local.ID}); err != nil {
+		t.Fatal(err)
+	}
+	state(local.ID, "stopped")
+	if c, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(listen)), time.Second); err == nil {
+		c.Close()
+		t.Fatal("the stopped tunnel still listens")
+	}
+
+	if _, err := h.Unlock(ctx, hubtest.Password); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.TunnelsDelete(ctx, "box", local.ID); err != nil {
+		t.Fatal(err)
+	}
+	if l, err := h.TunnelsList(ctx); err != nil || len(l) != 1 || l[0].ID != dyn.ID {
+		t.Fatalf("after delete %+v %v", l, err)
 	}
 }

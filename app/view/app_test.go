@@ -35,6 +35,7 @@ type fakeDoor struct {
 	ran      []hubapi.RanLocked                                                 // the next unlock reply's ranWhileLocked
 	list     func(path string, trust *hubapi.Trust) (hubapi.FileListing, error) // files.list; nil answers an empty /home
 	sent     []string                                                           // notifications, as "method params"
+	tunnels  []hubapi.TunnelView                                                // tunnels.list
 }
 
 func (d *fakeDoor) Notify(method string, params any) error {
@@ -64,7 +65,7 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 	st, stFn := d.status, d.statusFn
 	gate := d.pendGate
 	srv, pend := d.servers, d.pending
-	scan, imported, check, list := d.scan, d.imported, d.check, d.list
+	scan, imported, check, list, tunnels := d.scan, d.imported, d.check, d.list, d.tunnels
 	d.mu.Unlock()
 	if wait != nil {
 		<-wait
@@ -123,6 +124,8 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 			}
 		}
 		out = l
+	case "tunnels.list":
+		out = tunnels
 	default:
 		out = map[string]any{}
 	}
@@ -311,6 +314,7 @@ func TestNotificationsCallOnlyStatus(t *testing.T) {
 	note(t, a, tt, "files.planned", map[string]any{"id": "f1", "conflicts": map[string]any{"count": 0, "sample": []string{}}, "errors": []string{}})
 	note(t, a, tt, "files.progress", map[string]any{"id": "f1", "file": "a", "done": 1, "total": 2})
 	note(t, a, tt, "files.done", map[string]any{"id": "f1", "op": "upload", "errors": []string{}})
+	note(t, a, tt, "tunnels.state", map[string]any{"server": "box", "id": "a1", "status": "running", "conns": 1})
 	for _, m := range d.callList() {
 		if m != "status" {
 			t.Fatalf("a notification called %q; only status is free (calls: %v)", m, d.callList())

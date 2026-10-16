@@ -218,6 +218,8 @@ type auditRec struct {
 	Remote, Local                            []string
 	Files, Skipped                           int
 	Cancelled                                bool
+	ID, TunnelKind, Listen                   string // tunnel records (and Phase, To, Reason)
+	Conns                                    int
 }
 
 // records reads the hub's audit log, oldest first.

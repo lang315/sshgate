@@ -2,6 +2,7 @@ package view
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -117,7 +118,7 @@ func TestDeleteWaitsHalfASecondThenDeletes(t *testing.T) {
 	d.resetCalls()
 	clickT(t, tt, "Delete host")
 	tt.flush()
-	if got := d.callList(); len(got) != 2 || got[0] != "servers.delete" || got[1] != "servers" || params(d, "servers.delete") != `{"name":"box"}` {
+	if got := d.callList(); len(got) != 3 || got[0] != "servers.delete" || !slices.Contains(got, "servers") || !slices.Contains(got, "tunnels.list") || params(d, "servers.delete") != `{"name":"box"}` {
 		t.Fatalf("calls %v", got)
 	}
 	if a.del != nil || !tt.Focused("Search hosts") {
