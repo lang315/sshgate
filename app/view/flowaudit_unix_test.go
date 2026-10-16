@@ -106,7 +106,12 @@ func TestFlowAudit(t *testing.T) {
 
 	// Expanding a row shows the full command and the AI's description.
 	f.click("echo audit-denied")
-	f.until(func() bool { return f.tt.HasText("AI's description · unverified") && f.tt.HasText("audit e2e") }, "the denied row's detail")
+	// The detail draws the command, the label, then the description; the AI column's own copy of the description does not count.
+	f.until(func() bool {
+		x := f.tt.Texts()
+		i := slices.Index(x, "AI's description · unverified")
+		return i > 0 && i+1 < len(x) && x[i-1] == "echo audit-denied" && x[i+1] == "audit e2e"
+	}, "the denied row's detail")
 
 	// With the tab open, a new record appears without Refresh.
 	gen := f.a.audit.gen // every read bumps it
