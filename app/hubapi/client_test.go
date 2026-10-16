@@ -64,6 +64,19 @@ func TestCallShapes(t *testing.T) {
 		{"plan delete", "files.plan", `{"id":"f2","server":"box","op":"delete","sources":["/home/a"]}`,
 			func(c *Client) error { return c.FilesPlan(ctx, "f2", "box", "delete", []string{"/home/a"}, "") }},
 		{"run", "files.run", `{"conflict":"skip","id":"f1"}`, func(c *Client) error { return c.FilesRun(ctx, "f1", "skip") }},
+		{"tunnels list", "tunnels.list", `{}`, func(c *Client) error { _, err := c.TunnelsList(ctx); return err }},
+		{"tunnel save dynamic", "tunnels.save", `{"server":"box","tunnel":{"id":"","kind":"dynamic","listenPort":1080,"targetHost":"","targetPort":0,"label":""}}`,
+			func(c *Client) error {
+				_, err := c.TunnelsSave(ctx, "box", Tunnel{Kind: "dynamic", ListenPort: 1080})
+				return err
+			}},
+		{"tunnel save local", "tunnels.save", `{"server":"box","tunnel":{"id":"a1","kind":"local","listenPort":5433,"targetHost":"db","targetPort":5432,"label":"pg"}}`,
+			func(c *Client) error {
+				_, err := c.TunnelsSave(ctx, "box", Tunnel{ID: "a1", Kind: "local", ListenPort: 5433, TargetHost: "db", TargetPort: 5432, Label: "pg"})
+				return err
+			}},
+		{"tunnel delete", "tunnels.delete", `{"id":"a1","server":"box"}`, func(c *Client) error { return c.TunnelsDelete(ctx, "box", "a1") }},
+		{"tunnel start", "tunnels.start", `{"id":"a1","server":"box"}`, func(c *Client) error { return c.TunnelsStart(ctx, "box", "a1") }},
 	} {
 		r := &rec{}
 		if err := tc.call(New(r)); err != nil {
@@ -139,5 +152,21 @@ func TestFilesListDecodes(t *testing.T) {
 	l, err = New(&rec{result: `{"status":"hostKeyUnknown","server":"box","host":"h","port":22,"user":"u","fingerprint":"SHA256:x","keyType":"ssh-ed25519","knownHosts":"absent"}`}).FilesList(context.Background(), "box", "", nil)
 	if err != nil || l.Status != "hostKeyUnknown" || l.Fingerprint != "SHA256:x" || l.KeyType != "ssh-ed25519" || l.Port != 22 {
 		t.Fatalf("%+v %v", l, err)
+	}
+}
+
+func TestTunnelsDecode(t *testing.T) {
+	l, err := New(&rec{result: `null`}).TunnelsList(context.Background())
+	if err != nil || l == nil || len(l) != 0 {
+		t.Fatalf("%#v %v", l, err)
+	}
+	l, err = New(&rec{result: `[{"server":"box","id":"a1","kind":"local","listenPort":5433,"targetHost":"db","targetPort":5432,"label":"pg","status":"error","error":"connection failed","conns":0},{"server":"box","id":"b2","kind":"dynamic","listenPort":1080,"status":"running","conns":3}]`}).TunnelsList(context.Background())
+	if err != nil || len(l) != 2 || l[0].ID != "a1" || l[0].TargetHost != "db" || l[0].Label != "pg" || l[0].Error != "connection failed" ||
+		l[1].Kind != "dynamic" || l[1].TargetHost != "" || l[1].Status != "running" || l[1].Conns != 3 {
+		t.Fatalf("%+v %v", l, err)
+	}
+	saved, err := New(&rec{result: `{"id":"c3","kind":"dynamic","listenPort":1080}`}).TunnelsSave(context.Background(), "box", Tunnel{Kind: "dynamic", ListenPort: 1080})
+	if err != nil || saved.ID != "c3" {
+		t.Fatalf("%+v %v", saved, err)
 	}
 }

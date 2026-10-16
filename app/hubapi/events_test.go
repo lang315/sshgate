@@ -30,7 +30,7 @@ func TestDecode(t *testing.T) {
 	if !ok || r.ExitCode == nil || *r.ExitCode != 0 || r.StdinBytes != 8 {
 		t.Fatalf("ran: %+v", ev)
 	}
-	for _, m := range []string{"audit.appended", "term.data", "tunnels.state", "bogus"} {
+	for _, m := range []string{"audit.appended", "term.data", "tunnels.stop", "bogus"} {
 		if _, ok := Decode(m, json.RawMessage(`{}`)); ok {
 			t.Errorf("%s decoded", m)
 		}
@@ -53,5 +53,16 @@ func TestDecodeFiles(t *testing.T) {
 	ev, ok = Decode("files.done", json.RawMessage(`{"id":"f1","op":"upload","copied":2,"skipped":1,"deleted":0,"bytes":9,"errorCount":0,"errors":[],"cancelled":true,"reason":"server changed"}`))
 	if d, _ := ev.(FilesDone); !ok || d.Op != "upload" || d.Copied != 2 || d.Skipped != 1 || !d.Cancelled || d.Reason != "server changed" {
 		t.Fatalf("done: %+v", ev)
+	}
+}
+
+func TestDecodeTunnels(t *testing.T) {
+	ev, ok := Decode("tunnels.state", json.RawMessage(`{"server":"box","id":"a1","status":"error","error":"port 1 is already in use","conns":0}`))
+	if s, _ := ev.(TunnelState); !ok || s.Server != "box" || s.ID != "a1" || s.Status != "error" || s.Error != "port 1 is already in use" {
+		t.Fatalf("state: %+v %v", ev, ok)
+	}
+	ev, ok = Decode("tunnels.state", json.RawMessage(`{"server":"box","id":"a1","status":"running","conns":2}`))
+	if s, _ := ev.(TunnelState); !ok || s.Status != "running" || s.Conns != 2 || s.Error != "" {
+		t.Fatalf("running: %+v %v", ev, ok)
 	}
 }

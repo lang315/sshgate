@@ -176,3 +176,37 @@ func (h *Client) FilesPlan(ctx context.Context, id, server, op string, sources [
 func (h *Client) FilesRun(ctx context.Context, id, conflict string) error {
 	return h.c.Call(ctx, "files.run", map[string]string{"id": id, "conflict": conflict}, nil)
 }
+
+// TunnelsList is every saved tunnel of every server, with its state; never
+// nil. It works while locked: tunnels are the hub's and keep running.
+func (h *Client) TunnelsList(ctx context.Context) ([]TunnelView, error) {
+	var l []TunnelView
+	if err := h.c.Call(ctx, "tunnels.list", struct{}{}, &l); err != nil {
+		return nil, err
+	}
+	if l == nil {
+		l = []TunnelView{}
+	}
+	return l, nil
+}
+
+// TunnelsSave adds t to server (t.ID "") or replaces the saved tunnel with
+// t's ID; the hub refuses one that is running. It answers the tunnel as
+// saved, with the ID the hub gave a new one. All six keys are sent, as
+// Electron's transport does.
+func (h *Client) TunnelsSave(ctx context.Context, server string, t Tunnel) (Tunnel, error) {
+	var out Tunnel
+	err := h.c.Call(ctx, "tunnels.save", map[string]any{"server": server, "tunnel": t}, &out)
+	return out, err
+}
+
+// TunnelsDelete stops the tunnel if it runs, then removes it.
+func (h *Client) TunnelsDelete(ctx context.Context, server, id string) error {
+	return h.c.Call(ctx, "tunnels.delete", map[string]string{"server": server, "id": id}, nil)
+}
+
+// TunnelsStart answers once the forward listens, or with why it did not.
+// tunnels.stop is a notification: the views send it with Door.Notify.
+func (h *Client) TunnelsStart(ctx context.Context, server, id string) error {
+	return h.c.Call(ctx, "tunnels.start", map[string]string{"server": server, "id": id}, nil)
+}
