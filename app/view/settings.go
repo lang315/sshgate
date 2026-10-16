@@ -33,7 +33,7 @@ func (a *App) buildSettings(c *ui.Context) {
 	hosts := model.AutoHostNames(a.servers, now)
 	slices.Sort(hosts)
 	change := model.LimitChange(st.limit, st.chosen)
-	key := model.SettingsChangeKey(st.chosen, hosts, st.err)
+	key := model.SettingsChangeKey(st.chosen, hosts, st.err, false)
 	guard(c, &st.lc, key, now)
 	labels, cur := make([]string, len(model.Limits)), ""
 	for i, l := range model.Limits {
@@ -78,7 +78,7 @@ func (a *App) buildSettings(c *ui.Context) {
 				ui.Text(c, model.DisplayText(st.err)).TextColor(t.Danger)
 			}
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if MouseButton(c, "Save", model.SaveAllowed(change, st.busy, st.lc.At, now)) && model.SaveAllowed(change, st.busy, st.lc.At, a.Now()) {
+				if MouseButton(c, "Save", model.SaveAllowed(change, "same", "", st.busy, st.lc.At, now)) && model.SaveAllowed(change, "same", "", st.busy, st.lc.At, a.Now()) {
 					answer = 1
 				}
 				if ui.PrimaryButton(c, "Cancel").AutoFocus().Disabled(st.busy).Clicked() {
