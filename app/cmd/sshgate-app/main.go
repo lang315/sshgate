@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -21,6 +20,7 @@ import (
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/door"
+	"github.com/lang315/sshgate/app/hubapi"
 	"github.com/lang315/sshgate/app/hubproc"
 	"github.com/lang315/sshgate/app/termconn"
 	"github.com/lang315/sshgate/app/view"
@@ -53,22 +53,13 @@ func main() {
 		}
 		return c.Call(ctx, method, params, result)
 	})
-	var tabs atomic.Int64 // OpenTab runs off the main thread
-	a.OpenTab = func(server string) (*terminal.Terminal, error) {
+	a.Dial = func(ctx context.Context, id, server string, trust *hubapi.Trust) (*termconn.Conn, error) {
 		c := client.Load()
 		if c == nil {
 			return nil, errors.New("the hub is not running")
 		}
-		conn, err := termconn.Open(context.Background(), c, mux, fmt.Sprintf("t%d", tabs.Add(1)), server, 24, 80)
-		if err != nil {
-			return nil, err
-		}
-		t, err := terminal.New(view.TerminalOptions(conn))
-		if err != nil {
-			conn.Close()
-			return nil, err
-		}
-		return t, nil
+		// 24×80 until the tab's view first lays out: mygo then resizes the Conn.
+		return termconn.Open(ctx, c, mux, id, server, 24, 80, trust)
 	}
 
 	// Only the Edit shortcuts: the default menu's View has Reload, which
@@ -81,9 +72,15 @@ func main() {
 	mygo.App.WhenReady(func() {
 		w := mygo.NewWindow(mygo.WindowOptions{Title: "sshgate", Width: 1000, Height: 640, Content: ui.View(a.Build)})
 		a.Update = w.Update
+		a.Shell = newTrayShell(w)
 		sup := &hubproc.Supervisor{
 			Launch: launch,
-			OnNote: func(method string, params json.RawMessage) { mux.Note(method, params) },
+			OnNote: func(method string, params json.RawMessage) {
+				if mux.Note(method, params) {
+					return
+				}
+				a.Update(func() { a.Note(method, params) })
+			},
 			OnProc: func(p *hubproc.Proc) { client.Store(p.Client()) },
 			OnState: func(st hubproc.State) {
 				if st.Kind == "failed" {

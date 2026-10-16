@@ -24,7 +24,7 @@ type State struct {
 type Supervisor struct {
 	Launch     Launch
 	OnNote     func(string, json.RawMessage)
-	OnProc     func(*Proc) // a new hub is running
+	OnProc     func(*Proc) // a new hub is running; called before OnState(running)
 	OnState    func(State)
 	Backoff    []time.Duration // default 1 s, 3 s, 10 s
 	Window     time.Duration   // default 60 s
@@ -54,10 +54,11 @@ func (s *Supervisor) Run(ctx context.Context) {
 	for {
 		p, err := Start(ctx, s.Launch, s.OnNote)
 		if err == nil {
-			s.state(State{Kind: "running"})
+			// OnProc first: a running state's handler calls the new hub.
 			if s.OnProc != nil {
 				s.OnProc(p)
 			}
+			s.state(State{Kind: "running"})
 			select {
 			case <-ctx.Done():
 				p.Stop()

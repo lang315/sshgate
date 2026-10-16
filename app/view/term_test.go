@@ -116,8 +116,8 @@ type hubDoor struct {
 }
 
 type hubWrite struct {
-	data string
-	user bool
+	id, data string
+	user     bool
 }
 
 func (d *hubDoor) Call(_ context.Context, method string, _, result any) error {
@@ -134,7 +134,7 @@ func (d *hubDoor) Notify(method string, params any) error {
 	if method == "term.write" {
 		p := params.(map[string]any)
 		d.mu.Lock()
-		d.writes = append(d.writes, hubWrite{string(p["data"].([]byte)), p["user"].(bool)})
+		d.writes = append(d.writes, hubWrite{p["id"].(string), string(p["data"].([]byte)), p["user"].(bool)})
 		d.mu.Unlock()
 	}
 	return nil
@@ -150,6 +150,19 @@ func (d *hubDoor) got() (data string, allUser, noneUser bool, n int) {
 		noneUser = noneUser && !w.user
 	}
 	return data, allUser, noneUser, len(d.writes)
+}
+
+// dataFor is what the hub got for terminal id.
+func (d *hubDoor) dataFor(id string) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	s := ""
+	for _, w := range d.writes {
+		if w.id == id {
+			s += w.data
+		}
+	}
+	return s
 }
 
 // waitData waits up to 2 s for ok(all data sent), then 100 ms more so a late
@@ -179,11 +192,11 @@ func (d *hubDoor) closed() bool {
 func hubTerm(t *testing.T) (*terminal.Terminal, *ui.Tester, *hubDoor) {
 	t.Helper()
 	d := &hubDoor{}
-	conn, err := termconn.Open(context.Background(), d, termconn.NewMux(), "t1", "box", 24, 80)
+	conn, err := termconn.Open(context.Background(), d, termconn.NewMux(), "t1", "box", 24, 80, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	term, err := terminal.New(TerminalOptions(conn))
+	term, err := terminal.New(TerminalOptions(conn, nil))
 	if err != nil {
 		conn.Close()
 		t.Fatal(err)

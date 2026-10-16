@@ -63,3 +63,34 @@ func TestSupervisorProtocolMismatchIsFatal(t *testing.T) {
 		t.Fatalf("states %+v", states)
 	}
 }
+
+// TestSupervisorProcBeforeRunning: OnProc stores the new hub's client before
+// the running state, whose handler calls that hub.
+func TestSupervisorProcBeforeRunning(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses /bin/sh")
+	}
+	script := `read line; id=$(printf '%s' "$line" | sed 's/.*"id":\([0-9]*\).*/\1/'); printf '{"jsonrpc":"2.0","id":%s,"result":{"protocol":12}}\n' "$id"; sleep 5`
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	var mu sync.Mutex
+	var order []string
+	s := &Supervisor{
+		Launch: Launch{Command: "/bin/sh", Args: []string{"-c", script}},
+		OnProc: func(*Proc) { mu.Lock(); order = append(order, "proc"); mu.Unlock() },
+		OnState: func(st State) {
+			mu.Lock()
+			order = append(order, st.Kind)
+			mu.Unlock()
+			if st.Kind == "running" {
+				cancel()
+			}
+		},
+	}
+	s.Run(ctx)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(order) < 2 || order[0] != "proc" || order[1] != "running" {
+		t.Fatalf("order %v, want proc then running", order)
+	}
+}

@@ -121,9 +121,9 @@ The Electron app loads only `addon-fit` (`desktop/src/renderer/TermView.tsx:3,32
 | Feature | Rule |
 |---|---|
 | OSC 52 clipboard write | off. There is no option today (`terminal.go:217-224`); the fork adds one, default off. |
-| Links (OSC 8 and matched text) | `OpenLink` takes every link. It opens only `http`/`https` after a confirm that shows the full URL. Everything else (`file:` included) is refused. |
+| Links (OSC 8 and matched text) | `OpenLink` takes every link and refuses it, as the Electron app opens none. Amended 2026-10-14 (slice 2, plan Decision 15): opening `http`/`https` after a confirm that shows the full URL is deferred to a later slice; everything else (`file:` included) stays refused. |
 | OSC 9/777 notifications | ignored |
-| Window/tab title from the remote | shown only inside the tab, prefixed with the host name, never as the window title or a notification |
+| Window/tab title from the remote | not shown: the tab label is the server name only, as in Electron, and a remote title never becomes the window title or a notification. Amended 2026-10-14 (slice 2, plan Decision 14). |
 | Query replies | sent without `user`, as above |
 | Library build | `zig build -Demit-lib-vt -Doptimize=ReleaseSafe` (bounds and overflow checks kept) at the Ghostty commit mygo binds (`befcdfd2c3a1`, `plugins/terminal/internal/libbuild/main.go`), with Zig 0.16.0 (Ghostty's `minimum_zig_version`) and Xcode's linker, on a macOS CI runner. The build is not bit-reproducible (absolute paths in the debug map; the linker version), so egoist's prebuilt library cannot be verified by rebuilding it and is never used. |
 | Library load | Loading a library is refused unless all of these hold: the packaging job builds the library, records its SHA-256 and embeds it into the app in the same job (a rebuild gives a different hash, so the hash binds the app to the exact library shipped beside it); a packaged app calls `os.Unsetenv("MYGO_GHOSTTY_VT")` before `terminal.Load`, checks that `terminal.LibraryPath()` is inside `Contents/Resources`, and compares the file's SHA-256 with the embedded one. Tests and CI set `MYGO_GHOSTTY_VT` to the source-built library, so nothing downloads egoist's prebuilt build (`plugins/terminal/internal/library/library.go:89-98`). |
@@ -143,7 +143,7 @@ The rules of `ApprovalPanel.tsx` and `approvals.ts` carry over, built on mygo pr
 
   `Disabled` is computed from these before `Clicked()` is read in the same frame, and `c.After(remaining)` redraws when the delay ends.
 - **Deny default.** Enter in the reason field submits Deny (`OnSubmit`).
-- **Focus.** An arriving request never takes focus. Cmd+Shift+A in a terminal is caught with the terminal's `OnKey` (the terminal consumes keys before root shortcuts) and focuses the oldest reason field. Esc there returns focus to the tab.
+- **Focus.** An arriving request never takes focus. Cmd+Shift+A in a terminal is caught by a `Shortcut` on a container around the terminal view (never window-level, so no other key is taken from the remote; a container shortcut claims the key before the terminal sees it) and focuses the oldest reason field. Amended 2026-10-14 (slice 2, plan Decision 5): this replaces "caught with the terminal's `OnKey`". Esc there returns focus to the tab.
 - **Clock.** The app owns its clock (`now func() time.Time`), because `ui.Tester` has no public fake clock.
 - **Same rules elsewhere.** The other guarded dialogs (host key trust, file conflict and delete, auto-allow Enable, Settings Save) use the same mouse-only element and guard.
 
