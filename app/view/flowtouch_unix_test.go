@@ -110,7 +110,7 @@ func TestFlowTouchID(t *testing.T) {
 	tf.click("Lock")
 	tf.until(func() bool { return tf.tt.HasText("Unlock with Touch ID") && tf.tt.HasText("Master password") }, "the lock screen with the Touch ID button")
 	tf.tt.flush()
-	if tf.a.Screen() != model.ScreenLocked {
+	if tf.a.touchAsked { // set synchronously by touchUnlock, so no timing to wait out
 		t.Fatal("locking asked Touch ID by itself")
 	}
 	tf.focus()

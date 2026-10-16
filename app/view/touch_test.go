@@ -174,12 +174,26 @@ func TestTouchCancelShowsNothing(t *testing.T) {
 // because a reset deleted the file: the button goes.
 func TestTouchErrorShowsAndStatusIsReadAgain(t *testing.T) {
 	ft := &fakeToucher{status: touchOn, unlockErr: touchid.ErrReset}
-	a, tt, _ := touchApp(t, ft, lockedDoor(ft), false)
+	d := lockedDoor(ft)
+	a, tt, _ := touchApp(t, ft, d, false)
 	_, before := ft.count()
+	statuses := func() int {
+		n := 0
+		for _, m := range d.callList() {
+			if m == "status" {
+				n++
+			}
+		}
+		return n
+	}
+	statusBefore := statuses()
 	clickT(t, tt, "Unlock with Touch ID")
 	tt.flush()
 	if !tt.HasText(touchid.ErrReset.Error()) || a.Screen() != model.ScreenLocked {
 		t.Fatalf("texts %q", tt.Texts())
+	}
+	if n := statuses(); n <= statusBefore {
+		t.Errorf("the hub's status was not read again after the error (%d calls, %d before)", n, statusBefore)
 	}
 	if _, after := ft.count(); after != before+1 {
 		t.Errorf("status read %d times, want %d", after, before+1)

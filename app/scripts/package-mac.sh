@@ -16,6 +16,7 @@ cd "$(dirname "$0")/.."
 app=$(pwd)
 repo=$(cd .. && pwd)
 out=$app/out/sshgate.app
+trap 'status=$?; [ "$status" -eq 0 ] || rm -rf "$out"' EXIT # a failed build or check leaves no bundle
 
 version=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' mygo.json | head -1)
 identifier=$(sed -n 's/.*"identifier": *"\([^"]*\)".*/\1/p' mygo.json | head -1)

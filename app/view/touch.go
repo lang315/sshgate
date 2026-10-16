@@ -69,6 +69,7 @@ func (a *App) touchUnlock() {
 			if err != nil {
 				a.unlockErr = err.Error() // also after a hub restart: Interrupted says why
 				a.loadTouch()
+				a.refresh() // a timed-out unlock may have unlocked the hub
 				return
 			}
 			if res.Cancelled {
