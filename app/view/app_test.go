@@ -24,10 +24,13 @@ type fakeDoor struct {
 	pw       string
 	servers  []hubapi.Server
 	pending  []hubapi.Request
-	pendGate chan struct{} // when set, pending waits on it
+	pendGate chan struct{}            // when set, pending waits on it
+	gates    map[string]chan struct{} // these methods answer once their channel closes
 	errs     map[string]error
 	params   map[string]string
 	hang     map[string]bool // these methods never answer: they wait for ctx
+	scan     hubapi.ImportScan
+	imported hubapi.ImportResult
 }
 
 func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) error {
@@ -38,11 +41,16 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 	}
 	b, _ := json.Marshal(params)
 	d.params[method] = string(b)
+	wait := d.gates[method]
 	err, hang := d.errs[method], d.hang[method]
 	st, stFn := d.status, d.statusFn
 	gate := d.pendGate
 	srv, pend := d.servers, d.pending
+	scan, imported := d.scan, d.imported
 	d.mu.Unlock()
+	if wait != nil {
+		<-wait
+	}
 	if err != nil {
 		return err
 	}
@@ -74,6 +82,10 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 			<-gate
 		}
 		out = pend
+	case "import.scan":
+		out = scan
+	case "import.apply":
+		out = imported
 	default:
 		out = map[string]any{}
 	}
@@ -99,6 +111,13 @@ type fakeShell struct {
 	mu      sync.Mutex
 	pending []int
 	notes   []string
+	themes  []string
+}
+
+func (s *fakeShell) SetTheme(pref string) {
+	s.mu.Lock()
+	s.themes = append(s.themes, pref)
+	s.mu.Unlock()
 }
 
 func (s *fakeShell) SetPending(n int) { s.mu.Lock(); s.pending = append(s.pending, n); s.mu.Unlock() }
@@ -396,7 +415,7 @@ func TestRepliesFromStoppedHubDropped(t *testing.T) {
 func TestStaleStatusReplyIgnored(t *testing.T) {
 	d := &fakeDoor{status: hubapi.Status{HasVault: true, Locked: true, AutoHosts: []string{"box", "db"}}}
 	a, tt, _, _ := newApp(t, d)
-	gate := make(chan struct{})
+	gate, arrived := make(chan struct{}), make(chan struct{})
 	var mu sync.Mutex
 	calls := 0
 	d.set(func() {
@@ -406,6 +425,7 @@ func TestStaleStatusReplyIgnored(t *testing.T) {
 			n := calls
 			mu.Unlock()
 			if n == 1 { // the older call: answered last, from before box's grant ended and the unlock
+				close(arrived)
 				<-gate
 				return hubapi.Status{HasVault: true, Locked: true, AutoHosts: []string{"box", "db"}}
 			}
@@ -414,6 +434,7 @@ func TestStaleStatusReplyIgnored(t *testing.T) {
 	})
 	a.Update(func() { a.refresh() })
 	tt.flushOnce()
+	<-arrived // calls are numbered on arrival: the newer refresh must not reach the door first
 	a.Update(func() { a.Note("autoAllow.off", json.RawMessage(`{"server":"box","reason":"expired"}`)) })
 	a.Update(func() { a.refresh() })
 	tt.flush()

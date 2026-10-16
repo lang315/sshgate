@@ -33,6 +33,7 @@ type flowT struct {
 	h      *hubapi.Client // setup only; a test never decides through it
 	audit  string
 	writes *countDoor
+	port   int // sshtestd's
 }
 
 // countDoor is the door terminals use, counting the bytes of term.write
@@ -56,12 +57,19 @@ func (d *countDoor) userBytes() int { d.mu.Lock(); defer d.mu.Unlock(); return d
 
 func flow(t *testing.T, extraArgs ...string) *flowT {
 	t.Helper()
+	return flowWith(t, hubtest.Options{}, extraArgs...)
+}
+
+// flowWith is flow on an sshtestd started with o.
+func flowWith(t *testing.T, o hubtest.Options, extraArgs ...string) *flowT {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("integration")
 	}
-	store := hubtest.SSHD(t)
+	srv := hubtest.Start(t, o)
+	store := srv.Store
 	bin, _ := hubtest.Binaries(t)
-	env, dir := hubtest.Runtime(t)
+	env, dir, _ := hubtest.Runtime(t)
 	c := &clock{t: time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)}
 	a := &App{Now: c.now}
 	tt := newTester(t, a) // sets a.Update before the hub can send a note
@@ -83,7 +91,7 @@ func flow(t *testing.T, extraArgs ...string) *flowT {
 		return termconn.Open(ctx, writes, mux, id, server, 24, 80, trust)
 	}
 	running(a, tt)
-	return &flowT{t: t, a: a, tt: tt, c: c, sock: hubtest.MCPSocket(dir), h: hubapi.New(p.Client()), audit: filepath.Join(filepath.Dir(store), "audit.jsonl"), writes: writes}
+	return &flowT{t: t, a: a, tt: tt, c: c, sock: hubtest.MCPSocket(dir), h: hubapi.New(p.Client()), audit: filepath.Join(filepath.Dir(store), "audit.jsonl"), writes: writes, port: srv.Port}
 }
 
 // until flushes the UI until cond holds, failing after 10 s.
@@ -205,20 +213,27 @@ type auditRec struct {
 // auditedConfig waits for box's config record with this action.
 func (f *flowT) auditedConfig(action string) {
 	f.t.Helper()
+	f.configRecords("box", action, 1)
+}
+
+// configRecords waits until server has n config records with this action.
+func (f *flowT) configRecords(server, action string, n int) {
+	f.t.Helper()
 	f.until(func() bool {
 		file, err := os.Open(f.audit)
 		if err != nil {
 			return false
 		}
 		defer file.Close()
+		got := 0
 		for sc := bufio.NewScanner(file); sc.Scan(); {
 			var r auditRec
-			if json.Unmarshal(sc.Bytes(), &r) == nil && r.Kind == "config" && r.Action == action && r.Server == "box" {
-				return true
+			if json.Unmarshal(sc.Bytes(), &r) == nil && r.Kind == "config" && r.Action == action && r.Server == server {
+				got++
 			}
 		}
-		return false
-	}, "box's "+action+" config record")
+		return got == n
+	}, fmt.Sprintf("%d %s config records of %s", n, action, server))
 }
 
 func (f *flowT) wantAudit(cmd, outcome, reason string) {

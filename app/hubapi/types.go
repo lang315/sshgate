@@ -40,6 +40,12 @@ type Server struct {
 	Locked           bool       `json:"locked"`
 	AutoAllow        *AutoAllow `json:"autoAllow,omitempty"`
 	AutoAllowRefused string     `json:"autoAllowRefused,omitempty"`
+	HasPassword      bool       `json:"hasPassword"`
+	HasSuPassword    bool       `json:"hasSuPassword"`
+	HasSudoPassword  bool       `json:"hasSudoPassword"`
+	HasKeyPassphrase bool       `json:"hasKeyPassphrase"`
+	AutoAllowRoot    bool       `json:"autoAllowRoot"`
+	AutoAllowSudo    bool       `json:"autoAllowSudo"`
 }
 
 type Request struct {
@@ -103,4 +109,54 @@ type HostKey struct {
 type Trust struct {
 	Fingerprint string `json:"fingerprint"`
 	KeyType     string `json:"keyType"`
+}
+
+// ServerInput is servers.save's server. The four secrets are write-only:
+// nil is omitted and keeps the stored value, "" clears it, anything else
+// replaces it. The hub never sends one back.
+type ServerInput struct {
+	Name          string  `json:"name"`
+	Host          string  `json:"host"`
+	Port          int     `json:"port"`
+	User          string  `json:"user"`
+	Auth          string  `json:"auth"`
+	KeyPath       string  `json:"keyPath"`
+	AIVisible     bool    `json:"aiVisible"`
+	AutoAllowRoot bool    `json:"autoAllowRoot"`
+	AutoAllowSudo bool    `json:"autoAllowSudo"`
+	Password      *string `json:"password,omitempty"`
+	SuPassword    *string `json:"suPassword,omitempty"`
+	SudoPassword  *string `json:"sudoPassword,omitempty"`
+	KeyPassphrase *string `json:"keyPassphrase,omitempty"`
+}
+
+// Candidate is one alias of import.scan. Status is "ready", "exists" (a
+// server has this name) or "skipped" (Reason says why).
+type Candidate struct {
+	Alias           string `json:"alias"`
+	Host            string `json:"host"`
+	Port            int    `json:"port"`
+	User            string `json:"user"`
+	Auth            string `json:"auth"`
+	KeyPath         string `json:"keyPath,omitempty"`
+	NeedsPassphrase bool   `json:"needsPassphrase,omitempty"`
+	HostKey         string `json:"hostKey,omitempty"`
+	HostKeyAlgo     string `json:"hostKeyAlgo,omitempty"`
+	Status          string `json:"status"`
+	Reason          string `json:"reason,omitempty"`
+}
+
+type ImportScan struct {
+	Candidates []Candidate `json:"candidates"`
+	Note       string      `json:"note,omitempty"` // "No ~/.ssh/config"
+}
+
+type ImportSkip struct {
+	Alias  string `json:"alias"`
+	Reason string `json:"reason"`
+}
+
+type ImportResult struct {
+	Imported []string     `json:"imported"`
+	Skipped  []ImportSkip `json:"skipped"`
 }

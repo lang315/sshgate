@@ -43,9 +43,17 @@ func main() {
 		return err == nil
 	})
 
+	// The theme choice lives beside mygo's own window-state.json; no
+	// SSHGATE_* knob moves it. It applies before the window opens.
+	themeFile := ""
+	if dir, err := mygo.App.Path(mygo.PathUserData); err == nil {
+		themeFile = filepath.Join(dir, "theme.json")
+	}
+	mygo.Theme.SetSource(themeSource(view.LoadTheme(themeFile)))
+
 	mux := termconn.NewMux()
 	var client atomic.Pointer[door.Client]
-	a := &view.App{Now: time.Now}
+	a := &view.App{Now: time.Now, ThemeFile: themeFile}
 	a.Door = doorFunc(func(ctx context.Context, method string, params, result any) error {
 		c := client.Load()
 		if c == nil {

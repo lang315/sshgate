@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -78,13 +79,31 @@ func RuntimeDir(t *testing.T) string {
 	return dir
 }
 
-// SSHD starts sshtestd, which writes a ready vault (password Password,
-// server "box", host key pinned), and returns the vault's path.
-func SSHD(t *testing.T) string {
+// Options picks what Start has sshtestd write besides serving.
+type Options struct {
+	EmptyStore bool   // no vault: a hub on Server.Store starts on Create vault
+	KnownHosts string // when set, sshtestd writes its host key there as a known_hosts line
+}
+
+// Server is a running sshtestd: it accepts any password and any key.
+type Server struct {
+	Store string // the hub's --store; a ready vault (password Password, server "box", pinned) unless EmptyStore
+	Port  int
+}
+
+// Start runs sshtestd until the test ends.
+func Start(t *testing.T, o Options) Server {
 	t.Helper()
 	_, bin := Binaries(t)
 	store := filepath.Join(t.TempDir(), "servers.json")
-	cmd := exec.Command(bin, "-write-store="+store, "-password="+Password)
+	args := []string{"-password=" + Password}
+	if !o.EmptyStore {
+		args = append(args, "-write-store="+store)
+	}
+	if o.KnownHosts != "" {
+		args = append(args, "-write-known-hosts="+o.KnownHosts)
+	}
+	cmd := exec.Command(bin, args...)
 	stdin, err := cmd.StdinPipe() // sshtestd exits when its stdin closes
 	if err != nil {
 		t.Fatal(err)
@@ -98,21 +117,47 @@ func SSHD(t *testing.T) string {
 	}
 	t.Cleanup(func() { stdin.Close(); cmd.Process.Kill(); cmd.Wait() })
 	line, err := bufio.NewReader(out).ReadString('\n')
-	if err != nil || !strings.HasPrefix(line, "PORT=") {
-		t.Fatalf("sshtestd: %q, %v", line, err)
+	port, perr := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "PORT=")))
+	if err != nil || !strings.HasPrefix(line, "PORT=") || perr != nil {
+		t.Fatalf("sshtestd: %q, %v, %v", line, err, perr)
 	}
-	return store
+	return Server{Store: store, Port: port}
 }
 
+// SSHD starts sshtestd with a ready vault (Start with no options) and
+// returns the vault's path.
+func SSHD(t *testing.T) string { return Start(t, Options{}).Store }
+
 // Runtime is Env plus the runtime directory, where the hub puts its MCP
-// door socket (MCPSocket).
-func Runtime(t *testing.T) ([]string, string) {
-	dir := RuntimeDir(t)
-	return append(os.Environ(), "SSHGATE_RUNTIME_DIR="+dir), dir
+// door socket (MCPSocket), and the hub's temp home.
+func Runtime(t *testing.T) (env []string, dir, home string) {
+	// A temp home, so the hub never reads the real ~/.ssh/known_hosts for
+	// the trust hint. No SSH_AUTH_SOCK: no test hub may use the real agent.
+	// shortcut: ssh -G and the default ~/.ssh/config of import.scan find
+	// home from the account database, not HOME; tests pass --sshConfig
+	// written by SSHConfig, or ssh -G reads the real ~/.ssh.
+	dir = RuntimeDir(t)
+	home = t.TempDir()
+	env = append(os.Environ(), "SSHGATE_RUNTIME_DIR="+dir, "HOME="+home, "SSH_AUTH_SOCK=")
+	if runtime.GOOS == "windows" {
+		env = append(env, "USERPROFILE="+home)
+	}
+	return env, dir, home
 }
 
 // Env is the environment for a hub under test.
 func Env(t *testing.T) []string {
-	env, _ := Runtime(t)
+	env, _, _ := Runtime(t)
 	return env
+}
+
+// SSHConfig writes body to path as an ssh config for import.scan, ending
+// with a Host * stanza that keeps ssh -G away from the real ~/.ssh: no
+// default identity, and knownHosts as the user known_hosts file.
+func SSHConfig(t *testing.T, path, body, knownHosts string) {
+	t.Helper()
+	body += "Host *\n  IdentityFile " + filepath.Join(filepath.Dir(path), "missing") + "\n  UserKnownHostsFile " + knownHosts + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }

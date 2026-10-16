@@ -100,10 +100,11 @@ func (a *App) answerHostKey(trust bool) {
 }
 
 // buildMismatch shows a pinned key the server no longer presents. There is
-// no way to pin the new key here: the host editor's Forget (slice 3) is.
+// no way to pin the new key here: the host editor's Forget is, which Open
+// host editor opens with the focus on it.
 func (a *App) buildMismatch(c *ui.Context, k hubapi.HostKey) {
 	t := c.Theme()
-	closed := false
+	closed, edit := false, false
 	open := true
 	m := ui.Modal(c, &open, func() {
 		ui.Column(c).Width(460).Gap(10).Padding(20).Children(func() {
@@ -122,13 +123,24 @@ func (a *App) buildMismatch(c *ui.Context, k hubapi.HostKey) {
 			ui.RichText(c,
 				ui.Span{Text: "Did the key change on purpose?", Weight: 700},
 				ui.Span{Text: " If the server was rebuilt or its keys rotated, confirm the new fingerprint with its admin, then forget the old key in the host editor and connect again."})
-			ui.Row(c).Justify(ui.End).Children(func() {
+			// Close first: when a focus request from outside lands in the
+			// modal (a tab activated behind it), mygo gives the focus to the
+			// first button, and that must be the safe one.
+			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				if ui.Button(c, "Close").AutoFocus().Clicked() {
 					closed = true
+				}
+				if ui.Button(c, "Open host editor").Clicked() {
+					edit = true
 				}
 			})
 		})
 	}).Label("Host key mismatch")
+	if edit {
+		a.mismatch = nil
+		a.openEditor(k.Server, true)
+		return
+	}
 	if closed || m.Dismissed() {
 		a.mismatch = nil
 		a.focusActive()

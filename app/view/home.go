@@ -47,6 +47,7 @@ func (a *App) buildReady(c *ui.Context) {
 					a.aiOpen = !a.aiOpen
 				}
 			}
+			a.buildThemeControl(c)
 			lock := ui.Button(c, "Lock")
 			if tip := model.LockTitle(liveAuto); tip != "" {
 				lock.Tooltip(tip)
@@ -79,19 +80,34 @@ func (a *App) buildReady(c *ui.Context) {
 				}
 				a.buildHosts(c)
 			})
+			switch {
+			case a.editor != nil:
+				a.buildEditor(c)
+			case a.imp != nil:
+				a.buildImport(c)
+			}
 			if a.aiOpen {
 				ui.Column(c).Fill().Width(380).Children(func() { a.buildColumn(c) })
 			}
 		})
 	})
 	a.buildHostKeyDialogs(c)
+	a.buildDeleteConfirm(c)
 }
 
 func (a *App) buildHosts(c *ui.Context) {
 	t := c.Theme()
 	shown := model.FilterHosts(a.servers, a.query)
 	ui.Scroll(c).Grow(1).Padding(16).Gap(12).Children(func() {
-		ui.TextInput(c.Key("search"), &a.query).Placeholder("Search hosts").Label("Search hosts")
+		ui.Row(c).Gap(8).Children(func() {
+			ui.TextInput(c.Key("search"), &a.query).Placeholder("Search hosts").Label("Search hosts").Grow(1).Bind(&a.searchH)
+			if ui.Button(c, "New host").Clicked() {
+				a.openEditor("", false)
+			}
+			if ui.Button(c, "Import from SSH config").Clicked() {
+				a.openImport()
+			}
+		})
 		ui.Text(c, fmt.Sprintf("Hosts · %d", len(shown))).Bold()
 		switch {
 		case len(a.servers) == 0:
@@ -115,15 +131,23 @@ func (a *App) buildHosts(c *ui.Context) {
 					}).Clicked() {
 						a.openTab(name)
 					}
-					ui.Row(c).Gap(6).Wrap().Children(func() {
-						if s.AIVisible {
-							ui.Text(c, "AI").TextColor(t.Accent)
+					ui.Row(c).Gap(6).Children(func() {
+						ui.Row(c).Gap(6).Wrap().Grow(1).Children(func() {
+							if s.AIVisible {
+								ui.Text(c, "AI").TextColor(t.Accent)
+							}
+							if s.HostKey == "" {
+								ui.Text(c, "New key").TextColor(t.Warning)
+							}
+							if chip := model.ChipLabel(s.AutoAllow, a.Now()); chip != "" {
+								ui.Text(c, chip).TextColor(t.Warning)
+							}
+						})
+						if ui.Button(c, "Edit").Label("Edit " + shownName).Tooltip("Edit").Clicked() {
+							a.openEditor(name, false)
 						}
-						if s.HostKey == "" {
-							ui.Text(c, "New key").TextColor(t.Warning)
-						}
-						if chip := model.ChipLabel(s.AutoAllow, a.Now()); chip != "" {
-							ui.Text(c, chip).TextColor(t.Warning)
+						if ui.Button(c, "Delete").Label("Delete " + shownName).Tooltip("Delete").Clicked() {
+							a.askDelete(name)
 						}
 					})
 				})
