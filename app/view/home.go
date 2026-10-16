@@ -179,16 +179,16 @@ func (a *App) buildHosts(c *ui.Context) {
 									a.setAuto([]string{name}, "off", "stop")
 								}
 							}
-							if ui.Button(c, "").Label("Files " + shownName).Tooltip("Files").Children(func() { ui.Icon(c, cardFolderIcon) }).Clicked() {
+							if iconButton(c, "Files", shownName, cardFolderIcon) {
 								a.openFiles(name)
 							}
-							if ui.Button(c, "").Label("Tunnels " + shownName).Tooltip("Tunnels").Children(func() { ui.Icon(c, tunnelIcon) }).Clicked() {
+							if iconButton(c, "Tunnels", shownName, tunnelIcon) {
 								a.openTunnels(name)
 							}
-							if ui.Button(c, "").Label("Edit " + shownName).Tooltip("Edit").Children(func() { ui.Icon(c, editIcon) }).Clicked() {
+							if iconButton(c, "Edit", shownName, editIcon) {
 								a.openEditor(name, false)
 							}
-							if ui.Button(c, "").Label("Delete " + shownName).Tooltip("Delete").Children(func() { ui.Icon(c, trashIcon) }).Clicked() {
+							if iconButton(c, "Delete", shownName, trashIcon) {
 								a.askDelete(name)
 							}
 						})

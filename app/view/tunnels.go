@@ -29,9 +29,6 @@ type tunnelDialog struct {
 // tunnelActionsW holds Start/Stop, Edit and Delete (about 193 pt) with room for wider fonts.
 const tunnelActionsW = 230
 
-// tunnelIcon is Electron's TunnelIcon: two arrows, one each way.
-var tunnelIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 8h13l-3-3M20 16H7l3 3"/></svg>`))
-
 // tunnelKinds are the dialog's radio buttons, with Electron's hints.
 var tunnelKinds = []struct{ kind, label, hint string }{
 	{"local", "Local", "A port here reaches a host:port as seen from the server"},
@@ -56,7 +53,7 @@ func (a *App) openTunnels(server string) string {
 func (a *App) reloadTunnels() {
 	a.tunnelSeq++
 	n, gen := a.tunnelSeq, a.hubGen
-	a.tunnelBufs[n] = []hubapi.TunnelState{}
+	a.tunnelBufs[n] = nil // only the key matters: tunnelState appends to every open buffer
 	go func() {
 		l, err := a.hub().TunnelsList(context.Background())
 		a.Update(func() {
@@ -219,7 +216,8 @@ func (a *App) buildTunnelRow(c *ui.Context, tab string, v *tunnelsTab, x hubapi.
 	th := c.Theme()
 	id, tunnel, server := x.ID, x.Tunnel, v.server
 	summary := model.DisplayText(model.TunnelSummary(x.Tunnel))
-	name := model.DisplayText(x.Label)
+	label := model.DisplayText(x.Label)
+	name := label
 	if name == "" {
 		name = summary
 	}
@@ -237,7 +235,7 @@ func (a *App) buildTunnelRow(c *ui.Context, tab string, v *tunnelsTab, x hubapi.
 		tip = "Stop it first"
 	}
 	ui.Row(c.Key("tunnel-" + id)).Gap(8).Children(func() {
-		ui.Text(c, model.DisplayText(x.Label)).Width(120)
+		ui.Text(c, label).Width(120)
 		ui.Text(c, summary).Font("monospace").Grow(1)
 		st := ui.Text(c, status).Width(160)
 		if x.Status == "error" {
