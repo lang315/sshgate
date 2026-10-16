@@ -56,18 +56,14 @@ func auditParams(d *fakeDoor) string {
 	return d.params["audit.read"]
 }
 
-func countCalls(d *fakeDoor, method string) int {
-	return strings.Count(strings.Join(d.callList(), " ")+" ", method+" ")
-}
-
 func TestAuditTabReadsWhenShownOnly(t *testing.T) {
 	a, tt, d, _ := auditApp(t, execEntry(1, "echo one", "denied"), execEntry(2, "echo two", "allowed"))
-	if n := countCalls(d, "audit.read"); n != 0 {
+	if n := calls(d, "audit.read"); n != 0 {
 		t.Fatalf("audit.read before the tab showed: %d", n)
 	}
 	clickT(t, tt, "Audit")
 	tt.flush()
-	if n := countCalls(d, "audit.read"); n != 1 || auditParams(d) != `{}` {
+	if n := calls(d, "audit.read"); n != 1 || auditParams(d) != `{}` {
 		t.Fatalf("reads %d, params %s", n, auditParams(d))
 	}
 	if a.audit.list.Status != "loaded" || !tt.HasText("echo one") || !tt.HasText("echo two") || !tt.HasText("Today") ||
@@ -80,7 +76,7 @@ func TestAuditTabReadsWhenShownOnly(t *testing.T) {
 	clickT(t, tt, "Hosts")
 	clickT(t, tt, "Audit")
 	tt.flush()
-	if n := countCalls(d, "audit.read"); n != 1 {
+	if n := calls(d, "audit.read"); n != 1 {
 		t.Fatalf("showing the tab again read again: %d", n)
 	}
 }
@@ -107,7 +103,7 @@ func TestAuditFiltersRead(t *testing.T) {
 	}
 
 	// Typing reads 300 ms after the last key; Enter reads at once.
-	n := countCalls(d, "audit.read")
+	n := calls(d, "audit.read")
 	clickT(t, tt, "Search audit")
 	tt.Type("tai")
 	tt.flush()
@@ -116,28 +112,28 @@ func TestAuditFiltersRead(t *testing.T) {
 	tt.flush()
 	c.add(200 * time.Millisecond)
 	tt.flush()
-	if got := countCalls(d, "audit.read"); got != n {
+	if got := calls(d, "audit.read"); got != n {
 		t.Fatalf("read while still typing: %d, was %d", got, n)
 	}
 	c.add(150 * time.Millisecond)
 	tt.flush()
-	if got := countCalls(d, "audit.read"); got != n+1 || !strings.Contains(auditParams(d), `"text":"tail"`) {
+	if got := calls(d, "audit.read"); got != n+1 || !strings.Contains(auditParams(d), `"text":"tail"`) {
 		t.Fatalf("after the pause: %d reads, %s", got, auditParams(d))
 	}
 	tt.Type(" ")
 	tt.Key(0, ui.KeyEnter)
 	tt.flush()
-	if got := countCalls(d, "audit.read"); got != n+2 {
+	if got := calls(d, "audit.read"); got != n+2 {
 		t.Fatalf("Enter: %d reads", got)
 	}
 	c.add(time.Second)
 	tt.flush()
-	if got := countCalls(d, "audit.read"); got != n+2 {
+	if got := calls(d, "audit.read"); got != n+2 {
 		t.Fatalf("the pause after Enter read again: %d", got)
 	}
 	clickT(t, tt, "Refresh")
 	tt.flush()
-	if got := countCalls(d, "audit.read"); got != n+3 {
+	if got := calls(d, "audit.read"); got != n+3 {
 		t.Fatalf("Refresh: %d reads", got)
 	}
 }
@@ -267,8 +263,8 @@ func TestAuditLockClearsAndUnlockReadsAgain(t *testing.T) {
 	d.resetCalls()
 	note(t, a, tt, "locked", map[string]string{"reason": "manual"})
 	note(t, a, tt, "audit.appended", execEntry(2, "echo behind the lock", "denied"))
-	if a.Screen() != model.ScreenReady || tt.HasText("echo one") || a.audit.list.Status != "cleared" || countCalls(d, "audit.read") != 0 {
-		t.Fatalf("screen %s list %+v reads %d", a.Screen(), a.audit.list, countCalls(d, "audit.read"))
+	if a.Screen() != model.ScreenReady || tt.HasText("echo one") || a.audit.list.Status != "cleared" || calls(d, "audit.read") != 0 {
+		t.Fatalf("screen %s list %+v reads %d", a.Screen(), a.audit.list, calls(d, "audit.read"))
 	}
 	close(gate)
 	tt.flush()
@@ -281,8 +277,8 @@ func TestAuditLockClearsAndUnlockReadsAgain(t *testing.T) {
 	tt.Type("pw")
 	tt.Key(0, ui.KeyEnter)
 	tt.flush()
-	if a.Screen() != model.ScreenReady || countCalls(d, "audit.read") != 1 || !tt.HasText("echo one") {
-		t.Fatalf("after unlock: screen %s reads %d texts %q", a.Screen(), countCalls(d, "audit.read"), tt.Texts())
+	if a.Screen() != model.ScreenReady || calls(d, "audit.read") != 1 || !tt.HasText("echo one") {
+		t.Fatalf("after unlock: screen %s reads %d texts %q", a.Screen(), calls(d, "audit.read"), tt.Texts())
 	}
 	if tt.HasText("AI's description · unverified") {
 		t.Fatal("a row stayed expanded across the lock")

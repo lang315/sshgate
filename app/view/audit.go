@@ -41,18 +41,22 @@ const allHosts = "All hosts"
 // auditReset drops the list and every read in flight: the ready screen was
 // entered or left. The tab reads again once it shows.
 func (a *App) auditReset() {
+	a.auditDrop()
+	a.audit.list = model.AuditList{Status: "idle"}
+}
+
+// auditDrop drops every read in flight and a search not read yet.
+func (a *App) auditDrop() {
 	v := &a.audit
 	v.gen++
 	v.older, v.typedAt = false, time.Time{}
-	v.list = model.AuditList{Status: "idle"}
 }
 
 // auditLocked follows the locked notification: nothing shown, and nothing
 // read until the ready screen is entered again (auditReset).
 func (a *App) auditLocked() {
 	v := &a.audit
-	v.gen++
-	v.older, v.typedAt = false, time.Time{}
+	a.auditDrop()
 	v.open, v.raw = nil, nil
 	v.list = model.ClearOnLock()
 }
@@ -66,8 +70,7 @@ func (a *App) auditAppended(e hubapi.AuditEntry) {
 // auditLoad reads the newest page with the filters shown, from the top.
 func (a *App) auditLoad() {
 	v := &a.audit
-	v.gen++
-	v.older, v.typedAt = false, time.Time{}
+	a.auditDrop()
 	v.query = model.AuditQueryFor(v.filters)
 	v.list = model.StartLoad(v.list)
 	v.ls.ScrollTo(0, ui.Start)
@@ -168,10 +171,10 @@ func (a *App) buildAudit(c *ui.Context) {
 				c.After(typingDelay) // the frame that reads it; no key, no timer
 			}
 			if s.Submitted() {
-				change = func() { a.auditLoad() }
+				change = a.auditLoad
 			}
 			if ui.Button(c, "Refresh").Clicked() {
-				change = func() { a.auditLoad() }
+				change = a.auditLoad
 			}
 			// In the toolbar, not above the list: its showing must not move a row.
 			if n := len(v.list.Held); n > 0 {
@@ -212,14 +215,17 @@ func (a *App) buildAudit(c *ui.Context) {
 		ui.Row(c).Gap(8).Padding(6, 12).Children(func() {
 			foot := ""
 			if n := v.list.Skipped; n > 0 {
-				foot = fmt.Sprintf("%d malformed line%s skipped · ", n, map[bool]string{true: "", false: "s"}[n == 1])
+				foot = fmt.Sprintf("%d malformed lines skipped · ", n)
+				if n == 1 {
+					foot = "1 malformed line skipped · "
+				}
 			}
 			if v.list.Path != "" {
 				foot += "Audit file: " + model.DisplayText(v.list.Path)
 			}
 			ui.Text(c, foot).TextColor(t.TextMuted).Grow(1)
 			if v.list.Next != 0 && ui.Button(c, "Load older").Disabled(v.older || v.list.Status != "loaded").Clicked() {
-				change = func() { a.auditLoadOlder() }
+				change = a.auditLoadOlder
 			}
 		})
 	})
@@ -265,10 +271,10 @@ func (a *App) buildAuditRow(c *ui.Context, l model.AuditLine, i int) {
 	if v.open[seq] == nil {
 		v.open[seq], v.raw[seq] = new(bool), new(bool)
 	}
-	tones := map[string]ui.Color{"ai": t.Accent, "auto": t.Warning, "danger": t.Danger, "wait": t.Warning, "plain": t.TextMuted}
+	host, mainText := model.DisplayText(rv.Host), model.DisplayText(rv.Main)
 	ui.Column(c.Key(fmt.Sprint("rec-", seq))).Children(func() {
 		p := ui.CollapsibleBase(c, v.open[seq])
-		row := p.Trigger.Gap(8).Padding(6, 12).Label(strings.Join([]string{rv.Time, auditKind[rv.Kind], model.DisplayText(rv.Host), model.DisplayText(rv.Main)}, " "))
+		row := p.Trigger.Gap(8).Padding(6, 12).Label(strings.Join([]string{rv.Time, auditKind[rv.Kind], host, mainText}, " "))
 		switch {
 		case rv.Alert:
 			row.Background(t.Danger.Alpha(0.1))
@@ -276,16 +282,20 @@ func (a *App) buildAuditRow(c *ui.Context, l model.AuditLine, i int) {
 			row.Background(t.Surface)
 		}
 		row.Children(func() {
-			ui.Text(c, map[bool]string{true: "▾", false: "▸"}[*v.open[seq]]).TextColor(t.TextMuted).Width(14)
+			arrow := "▸"
+			if *v.open[seq] {
+				arrow = "▾"
+			}
+			ui.Text(c, arrow).TextColor(t.TextMuted).Width(14)
 			ui.Text(c, rv.Time).Font("monospace").Width(auditTimeW)
 			ui.Text(c, auditKind[rv.Kind]).Width(auditKindW)
-			ui.Text(c, model.DisplayText(rv.Host)).Width(auditHostW).SingleLine()
+			ui.Text(c, host).Width(auditHostW).SingleLine()
 			ui.Row(c).Gap(4).Width(auditBadgeW).Children(func() {
 				for _, b := range rv.Badges {
-					ui.Text(c, model.DisplayText(b.Text)).TextColor(tones[b.Tone]).SingleLine()
+					ui.Text(c, model.DisplayText(b.Text)).TextColor(auditTone(t, b.Tone)).SingleLine()
 				}
 			})
-			main := ui.Text(c, model.DisplayText(rv.Main)).Grow(1).Basis(0).SingleLine().Tooltip(model.DisplayText(rv.Main))
+			main := ui.Text(c, mainText).Grow(1).Basis(0).SingleLine().Tooltip(mainText)
 			if rv.Kind == "exec" {
 				main.Font("monospace")
 			}
@@ -307,6 +317,19 @@ func (a *App) buildAuditRow(c *ui.Context, l model.AuditLine, i int) {
 		})
 		p.Panel(func() { a.buildAuditDetail(c, l.Row) })
 	})
+}
+
+// auditTone is a badge tone's colour.
+func auditTone(t *ui.Theme, tone string) ui.Color {
+	switch tone {
+	case "ai":
+		return t.Accent
+	case "auto", "wait":
+		return t.Warning
+	case "danger":
+		return t.Danger
+	}
+	return t.TextMuted
 }
 
 // buildAuditDetail is an expanded row: the full command, its stdin, the

@@ -2,6 +2,7 @@ package model
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -337,7 +338,7 @@ func AuditRowView(r AuditRecord, now time.Time) RowView {
 		case len(changed) > 0:
 			v.Main = strings.Join(changed, ", ")
 		default:
-			v.Main = cmpOr(r.str("reason"), r.str("fingerprint"), r.str("oldFingerprint"))
+			v.Main = cmp.Or(r.str("reason"), r.str("fingerprint"), r.str("oldFingerprint"))
 		}
 		// The badge spaces the camelCase action (autoAllowOn reads "auto allow
 		// on"); Raw JSON keeps the stored name, which is what a search matches.
@@ -393,15 +394,6 @@ func AuditRowView(r AuditRecord, now time.Time) RowView {
 	return v
 }
 
-func cmpOr(s ...string) string {
-	for _, x := range s {
-		if x != "" {
-			return x
-		}
-	}
-	return ""
-}
-
 // AuditFact is one label and value of an expanded row's facts.
 type AuditFact struct{ Label, Value string }
 
@@ -436,13 +428,15 @@ func AuditFacts(r AuditRecord) []AuditFact {
 // AuditMasked is the expanded row's "Masked: password ×2, token ×1", or ""
 // when nothing was masked.
 func AuditMasked(r AuditRecord) string {
-	if MaskedCount(r) <= 0 {
-		return ""
-	}
 	kinds, counts := maskedKinds(r)
 	parts := make([]string, len(kinds))
+	n := 0.0
 	for i, k := range kinds {
 		parts[i] = fmt.Sprintf("%s ×%v", DisplayText(k), counts[i])
+		n += counts[i]
+	}
+	if int(n) <= 0 { // as MaskedCount
+		return ""
 	}
 	return "Masked: " + strings.Join(parts, ", ")
 }
@@ -569,10 +563,12 @@ type AuditLine struct {
 // AuditLines is entries under one heading per day, newest first.
 func AuditLines(entries []AuditRow, now time.Time) []AuditLine {
 	var out []AuditLine
+	day := ""
 	for i, e := range entries {
 		v := AuditRowView(e.Rec, now)
-		if i == 0 || v.Day != out[len(out)-1].View.Day {
-			out = append(out, AuditLine{Heading: v.Day, View: RowView{Day: v.Day}})
+		if i == 0 || v.Day != day {
+			day = v.Day
+			out = append(out, AuditLine{Heading: day})
 		}
 		out = append(out, AuditLine{Row: e, View: v})
 	}
