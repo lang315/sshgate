@@ -107,3 +107,19 @@ func TestHostNameIsDisplayText(t *testing.T) {
 		}
 	}
 }
+
+// The card's Files, Tunnels, Edit and Delete are icon buttons: a word would
+// push the row past the 240 px card on wider fonts. Only their names remain.
+func TestCardActionsAreIcons(t *testing.T) {
+	d := &fakeDoor{status: hubapi.Status{HasVault: true}, servers: []hubapi.Server{boxServer}}
+	_, tt, _, _ := newApp(t, d)
+	tt.flush()
+	for _, w := range []string{"Files", "Tunnels", "Edit", "Delete"} {
+		if _, ok := tt.Find(w + " box"); !ok {
+			t.Errorf("no button named %q in %q", w+" box", tt.Texts())
+		}
+		if count(tt.Texts(), w) != 0 {
+			t.Errorf("the card shows the word %q: %q", w, tt.Texts())
+		}
+	}
+}

@@ -155,39 +155,43 @@ func (a *App) buildHosts(c *ui.Context) {
 					}).Clicked() {
 						a.openTab(name)
 					}
-					ui.Row(c).Gap(6).Children(func() {
-						ui.Row(c).Gap(6).Wrap().Grow(1).Children(func() {
+					// Wraps rather than overflows the card: the chips (left) take what the
+					// actions leave, the actions (right) drop to a line of their own when short.
+					ui.Row(c).Gap(6).Wrap().Justify(ui.End).Children(func() {
+						ui.Row(c).Gap(6).Wrap().Grow(1).Basis(60).Children(func() {
 							if s.AIVisible {
-								ui.Text(c, "AI").TextColor(t.Accent)
+								ui.Text(c, "AI").TextColor(t.Accent).SingleLine()
 							}
 							if s.HostKey == "" {
-								ui.Text(c, "New key").TextColor(t.Warning)
+								ui.Text(c, "New key").TextColor(t.Warning).SingleLine()
 							}
 							if chip := model.ChipLabel(s.AutoAllow, now); chip != "" {
-								ui.Text(c, chip).TextColor(t.Warning)
+								ui.Text(c, chip).TextColor(t.Warning).SingleLine()
 							}
 							if n := model.RunningTunnels(a.tunnels, name); n > 0 {
-								ui.Text(c, fmt.Sprintf("%d ⇄", n)).TextColor(t.Accent).Tooltip("Running tunnels")
+								ui.Text(c, fmt.Sprintf("%d ⇄", n)).TextColor(t.Accent).Tooltip("Running tunnels").SingleLine()
 							}
 						})
-						// Always shown while a grant is on or paused: it must be stoppable at a glance.
-						if model.OnOrPaused(s.AutoAllow, now) {
-							if ui.Button(c, "\u25a0").Label("Stop auto-allow " + shownName).Tooltip("Stop auto-allow").Clicked() {
-								a.setAuto([]string{name}, "off", "stop")
+						ui.Row(c).Gap(6).Children(func() {
+							// Always shown while a grant is on or paused: it must be stoppable at a glance.
+							if model.OnOrPaused(s.AutoAllow, now) {
+								if ui.Button(c, "\u25a0").Label("Stop auto-allow " + shownName).Tooltip("Stop auto-allow").Clicked() {
+									a.setAuto([]string{name}, "off", "stop")
+								}
 							}
-						}
-						if ui.Button(c, "Files").Label("Files " + shownName).Tooltip("Files").Clicked() {
-							a.openFiles(name)
-						}
-						if ui.Button(c, "").Label("Tunnels " + shownName).Tooltip("Tunnels").Children(func() { ui.Icon(c, tunnelIcon) }).Clicked() {
-							a.openTunnels(name)
-						}
-						if ui.Button(c, "Edit").Label("Edit " + shownName).Tooltip("Edit").Clicked() {
-							a.openEditor(name, false)
-						}
-						if ui.Button(c, "Delete").Label("Delete " + shownName).Tooltip("Delete").Clicked() {
-							a.askDelete(name)
-						}
+							if ui.Button(c, "").Label("Files " + shownName).Tooltip("Files").Children(func() { ui.Icon(c, cardFolderIcon) }).Clicked() {
+								a.openFiles(name)
+							}
+							if ui.Button(c, "").Label("Tunnels " + shownName).Tooltip("Tunnels").Children(func() { ui.Icon(c, tunnelIcon) }).Clicked() {
+								a.openTunnels(name)
+							}
+							if ui.Button(c, "").Label("Edit " + shownName).Tooltip("Edit").Children(func() { ui.Icon(c, editIcon) }).Clicked() {
+								a.openEditor(name, false)
+							}
+							if ui.Button(c, "").Label("Delete " + shownName).Tooltip("Delete").Children(func() { ui.Icon(c, trashIcon) }).Clicked() {
+								a.askDelete(name)
+							}
+						})
 					})
 				})
 			}

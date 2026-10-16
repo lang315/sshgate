@@ -26,6 +26,9 @@ type tunnelDialog struct {
 	busy bool
 }
 
+// tunnelActionsW holds Start/Stop, Edit and Delete (about 193 pt) with room for wider fonts.
+const tunnelActionsW = 230
+
 // tunnelIcon is Electron's TunnelIcon: two arrows, one each way.
 var tunnelIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 8h13l-3-3M20 16H7l3 3"/></svg>`))
 
@@ -191,7 +194,7 @@ func (a *App) buildTunnels(c *ui.Context, t model.Tab) {
 					ui.Text(c, "Forward").Bold().Grow(1)
 					ui.Text(c, "Status").Bold().Width(160)
 					ui.Text(c, "Connections").Bold().Width(90)
-					ui.Box(c).Width(170)
+					ui.Box(c).Width(tunnelActionsW)
 				})
 				for _, x := range mine {
 					if f := a.buildTunnelRow(c, id, v, x); f != nil {
@@ -241,7 +244,7 @@ func (a *App) buildTunnelRow(c *ui.Context, tab string, v *tunnelsTab, x hubapi.
 			st.TextColor(th.Danger)
 		}
 		ui.Text(c, conns).Width(90)
-		ui.Row(c).Gap(6).Width(170).Children(func() {
+		ui.Row(c).Gap(6).Width(tunnelActionsW).Children(func() {
 			if live {
 				if ui.Button(c, "Stop").Label("Stop " + name).Clicked() {
 					act = func() { a.tunnelsStop(server, id) }
