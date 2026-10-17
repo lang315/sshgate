@@ -23,6 +23,7 @@ import (
 	"github.com/lang315/sshgate/app/hubapi"
 	"github.com/lang315/sshgate/app/hubproc"
 	"github.com/lang315/sshgate/app/termconn"
+	"github.com/lang315/sshgate/app/touchid"
 	"github.com/lang315/sshgate/app/view"
 )
 
@@ -38,10 +39,11 @@ func main() {
 	}
 	exe, _ := os.Executable()
 	repoRoot := filepath.Join(filepath.Dir(exe), "..", "..") // built to app/build/: the repo root, where `go build ./cmd/sshgate` puts sshgate
-	launch := hubproc.LaunchFor(os.Environ(), packaged, resources, repoRoot, runtime.GOOS, func(p string) bool {
+	exists := func(p string) bool {
 		_, err := os.Stat(p)
 		return err == nil
-	})
+	}
+	launch := hubproc.LaunchFor(os.Environ(), packaged, resources, repoRoot, runtime.GOOS, exists)
 
 	// The theme choice lives beside mygo's own window-state.json; no
 	// SSHGATE_* knob moves it. It applies before the window opens.
@@ -54,6 +56,15 @@ func main() {
 	mux := termconn.NewMux()
 	var client atomic.Pointer[door.Client]
 	a := &view.App{Now: time.Now, ThemeFile: themeFile}
+	// Touch ID: the helper sits in Resources (packaged) or beside the module
+	// root; with none, or with no user data directory to keep touchid.json in,
+	// Settings and the unlock screen show nothing of it.
+	touch := &touchid.Manager{Hub: func() touchid.Hub { return a.Hub() }}
+	if dir, err := mygo.App.Path(mygo.PathUserData); err == nil && dir != "" {
+		touch.File = filepath.Join(dir, "touchid.json")
+		touch.Helper = touchid.HelperPath(os.Environ(), packaged, resources, repoRoot, runtime.GOOS, exists)
+	}
+	a.Touch = touch
 	a.Door = liveDoor{&client}
 	a.Dial = func(ctx context.Context, id, server string, trust *hubapi.Trust) (*termconn.Conn, error) {
 		c := client.Load()
@@ -71,10 +82,22 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	supDone := make(chan struct{})
+	var quitting atomic.Bool
+	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { quitting.Store(true) })
 	mygo.App.WhenReady(func() {
 		w := mygo.NewWindow(mygo.WindowOptions{Title: "sshgate", Width: 1000, Height: 640, Content: ui.View(a.Build)})
 		a.Update = w.Update
 		a.Shell = newTrayShell(w)
+		// macOS background mode: a close hides the window and the Dock icon;
+		// the tray's Show, a notification click and a re-launch bring it back.
+		w.OnClose(closeHook(runtime.GOOS, &quitting, func() { w.Hide(); mygo.App.Dock.Hide() }))
+		mygo.App.OnActivate(func(bool) { showWindow(w) })
+		focus := func(f bool) { a.Update(func() { a.WindowFocus(f) }) }
+		w.OnFocus(func() { focus(true) })
+		w.OnBlur(func() { focus(false) })
+		if w.IsFocused() {
+			focus(true)
+		}
 		sup := &hubproc.Supervisor{
 			Launch: launch,
 			OnNote: func(method string, params json.RawMessage) {
@@ -95,7 +118,8 @@ func main() {
 	})
 	go func() { <-ctx.Done(); mygo.App.Quit() }() // SIGTERM quits like Cmd+Q
 	err = mygo.App.Run()
-	stop() // ends the supervisor, which stops the hub
+	touch.Cancel(nil) // a Touch ID dialog still up dies with the app
+	stop()            // ends the supervisor, which stops the hub
 	select {
 	case <-supDone:
 	case <-time.After(5 * time.Second):

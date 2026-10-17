@@ -50,15 +50,21 @@ func LimitNotice(l string) string {
 }
 
 // SettingsChangeKey is what restarts Save's delay: the choice (it swaps the
-// notice), the hosts the notice lists, and an error line.
-func SettingsChangeKey(chosen string, hosts []string, err string) string {
-	return fmt.Sprintf("%s|%s|%q", chosen, strings.Join(hosts, "\n"), err)
+// notice), the hosts the notice lists, an error line, and whether the master
+// password field is showing (Touch ID being turned on).
+func SettingsChangeKey(chosen string, hosts []string, err string, touchOn bool) string {
+	return fmt.Sprintf("%s|%s|%q|%t", chosen, strings.Join(hosts, "\n"), err, touchOn)
 }
 
-// SaveAllowed is Settings' Save: something changed, nothing in flight, and
-// AllowDelay since the dialog opened or its content last changed.
-func SaveAllowed(change string, busy bool, changedAt, now time.Time) bool {
-	return !busy && change != "same" && TrustEnabled(changedAt, now)
+// SaveAllowed is Settings' Save: something changed (the limit, per change,
+// or Touch ID, per touch: "same", "on" or "off"), Touch ID being turned on
+// has a master password, nothing is in flight, and AllowDelay has passed
+// since the dialog opened or its content last changed.
+func SaveAllowed(change, touch, password string, busy bool, changedAt, now time.Time) bool {
+	if busy || (change == "same" && touch == "same") || (touch == "on" && password == "") {
+		return false
+	}
+	return TrustEnabled(changedAt, now)
 }
 
 // LimitText is the Auto-allow dialog's paragraph for a forever grant, from

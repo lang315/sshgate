@@ -98,6 +98,11 @@ func (a *App) buildUnlock(c *ui.Context) {
 				}
 			})
 		}
+		if ts := a.touch; ts != nil && ts.Enabled && ts.Available {
+			if ui.Button(c, "Unlock with Touch ID").Disabled(a.busy || a.touchBusy).Clicked() {
+				a.touchUnlock()
+			}
+		}
 		in := ui.TextInput(c.Key("unlock-pw"), &a.password).Password().Label("Master password").Placeholder("Master password").AutoFocus()
 		if a.unlockErr != "" {
 			ui.Text(c, model.DisplayText(a.unlockErr)).TextColor(t.Danger)

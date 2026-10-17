@@ -45,33 +45,38 @@ func TestLimitCopy(t *testing.T) {
 func TestSaveAllowed(t *testing.T) {
 	at := func(ms int) time.Time { return time.UnixMilli(int64(ms)) }
 	for _, tc := range []struct {
-		change       string
-		busy         bool
-		changed, now int
-		want         bool
+		change, touch, password string
+		busy                    bool
+		changed, now            int
+		want                    bool
 	}{
-		{"higher", false, 1000, 1499, false}, {"higher", false, 1000, 1500, true},
-		{"higher", false, 2000, 2499, false}, {"higher", false, 2000, 2500, true},
-		{"same", false, 1000, 9999, false}, {"higher", true, 1000, 9999, false}, {"lower", false, 1000, 9999, true},
+		{"higher", "same", "", false, 1000, 1499, false}, {"higher", "same", "", false, 1000, 1500, true},
+		{"higher", "same", "", false, 2000, 2499, false}, {"higher", "same", "", false, 2000, 2500, true},
+		{"same", "same", "", false, 1000, 9999, false}, {"higher", "same", "", true, 1000, 9999, false}, {"lower", "same", "", false, 1000, 9999, true},
+		// Touch ID alone enables Save; turning it on also needs the master password.
+		{"same", "on", "", false, 1000, 9999, false}, {"same", "on", "pw", false, 1000, 1499, false},
+		{"same", "on", "pw", false, 1000, 1500, true}, {"same", "off", "", false, 1000, 1500, true},
+		{"higher", "on", "", false, 1000, 9999, false}, {"higher", "off", "", true, 1000, 9999, false},
 	} {
-		if got := SaveAllowed(tc.change, tc.busy, at(tc.changed), at(tc.now)); got != tc.want {
+		if got := SaveAllowed(tc.change, tc.touch, tc.password, tc.busy, at(tc.changed), at(tc.now)); got != tc.want {
 			t.Errorf("%+v: got %v", tc, got)
 		}
 	}
 }
 
 func TestSettingsChangeKey(t *testing.T) {
-	k := SettingsChangeKey("none", []string{"box"}, "")
+	k := SettingsChangeKey("none", []string{"box"}, "", false)
 	for _, other := range []string{
-		SettingsChangeKey("7d", []string{"box"}, ""),
-		SettingsChangeKey("none", []string{"box", "web"}, ""),
-		SettingsChangeKey("none", []string{"box"}, "Vault is locked"),
+		SettingsChangeKey("7d", []string{"box"}, "", false),
+		SettingsChangeKey("none", []string{"box", "web"}, "", false),
+		SettingsChangeKey("none", []string{"box"}, "Vault is locked", false),
+		SettingsChangeKey("none", []string{"box"}, "", true),
 	} {
 		if other == k {
 			t.Errorf("%q did not change the key", other)
 		}
 	}
-	if SettingsChangeKey("none", []string{"box"}, "") != k {
+	if SettingsChangeKey("none", []string{"box"}, "", false) != k {
 		t.Error("the same inputs changed the key")
 	}
 }

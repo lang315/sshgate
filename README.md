@@ -52,6 +52,8 @@ Claude Code ──stdio──▶ sshgate (bridge) ──per-user socket──▶
 
    On macOS you can instead build an app bundle with `cd desktop && npm ci && ./scripts/package-mac.sh` and copy `desktop/out/sshgate.app` to `/Applications` (quit sshgate first when replacing an installed copy). `sshgate --version` prints the version it was built with. It carries its own `sshgate` binary (`sshgate.app/Contents/Resources/sshgate`), which the bridge can use too. The bundle's icon is `desktop/build/icon.icns`; `desktop/scripts/make-icon.sh` rebuilds it from `desktop/build/icon-source.png` (needs python3 with Pillow; only after changing the image). The bundle is ad-hoc signed for your own machine only; it is not notarized.
 
+   The native app (Go, no Electron; about 25 MB) is built on macOS with `cd app && ../scripts/build-ghostty-vt.sh build/natives && ./scripts/package-mac.sh`, which writes `app/out/sshgate.app` (needs Go, Xcode's `swiftc`, and the Zig toolchain the first script downloads). It does the same as the Electron app, and uses the same data folder, so only one of them can run at a time: quit the other first. It uses the same icon, `desktop/build/icon.icns`, and its bundle is also ad-hoc signed for your own machine only; it is not notarized.
+
 2. **Create your vault.** The first launch asks for a master password (at least 8 characters). It cannot be recovered; lose it and the vault cannot be opened.
 
 3. **Add a host.** On the **Hosts** tab click **New host**: Address, optional Label (defaults to the address), port, User, and Password. `+ Key or agent` switches to key or agent authentication.

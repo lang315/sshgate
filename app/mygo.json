@@ -1,0 +1,6 @@
+{
+  "name": "sshgate",
+  "identifier": "io.github.lang315.sshgate",
+  "version": "0.1.0",
+  "main": "./cmd/sshgate-app"
+}

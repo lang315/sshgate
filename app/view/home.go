@@ -61,7 +61,7 @@ func (a *App) buildReady(c *ui.Context) {
 			}
 			a.buildThemeControl(c)
 			if ui.Button(c, "\u2699").Label("Settings").Tooltip("Settings").Disabled(a.status == nil || a.status.SoftLockLimit == "").Clicked() {
-				a.settings = &settingsState{limit: a.status.SoftLockLimit, chosen: a.status.SoftLockLimit}
+				a.openSettings()
 			}
 			lock := ui.Button(c, "Lock")
 			if tip := model.LockTitle(liveAuto); tip != "" {
