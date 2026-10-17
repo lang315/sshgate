@@ -160,8 +160,7 @@ func (a *App) saveSettings(st *settingsState) {
 			st.busy = false
 			if touched { // stands even if the limit failed: a retry then changes only the limit
 				st.touch.Enabled, st.password = touch == "on", ""
-				ts := st.touch
-				a.touch = &ts
+				a.touch.Enabled = st.touch.Enabled
 			}
 			if err != nil {
 				st.err = err.Error()

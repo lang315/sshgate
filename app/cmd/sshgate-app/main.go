@@ -39,10 +39,11 @@ func main() {
 	}
 	exe, _ := os.Executable()
 	repoRoot := filepath.Join(filepath.Dir(exe), "..", "..") // built to app/build/: the repo root, where `go build ./cmd/sshgate` puts sshgate
-	launch := hubproc.LaunchFor(os.Environ(), packaged, resources, repoRoot, runtime.GOOS, func(p string) bool {
+	exists := func(p string) bool {
 		_, err := os.Stat(p)
 		return err == nil
-	})
+	}
+	launch := hubproc.LaunchFor(os.Environ(), packaged, resources, repoRoot, runtime.GOOS, exists)
 
 	// The theme choice lives beside mygo's own window-state.json; no
 	// SSHGATE_* knob moves it. It applies before the window opens.
@@ -61,10 +62,7 @@ func main() {
 	touch := &touchid.Manager{Hub: func() touchid.Hub { return a.Hub() }}
 	if dir, err := mygo.App.Path(mygo.PathUserData); err == nil && dir != "" {
 		touch.File = filepath.Join(dir, "touchid.json")
-		touch.Helper = touchid.HelperPath(os.Environ(), packaged, resources, repoRoot, runtime.GOOS, func(p string) bool {
-			_, err := os.Stat(p)
-			return err == nil
-		})
+		touch.Helper = touchid.HelperPath(os.Environ(), packaged, resources, repoRoot, runtime.GOOS, exists)
 	}
 	a.Touch = touch
 	a.Door = liveDoor{&client}
@@ -94,10 +92,11 @@ func main() {
 		// the tray's Show, a notification click and a re-launch bring it back.
 		w.OnClose(closeHook(runtime.GOOS, &quitting, func() { w.Hide(); mygo.App.Dock.Hide() }))
 		mygo.App.OnActivate(func(bool) { showWindow(w) })
-		w.OnFocus(func() { a.Update(func() { a.WindowFocus(true) }) })
-		w.OnBlur(func() { a.Update(func() { a.WindowFocus(false) }) })
+		focus := func(f bool) { a.Update(func() { a.WindowFocus(f) }) }
+		w.OnFocus(func() { focus(true) })
+		w.OnBlur(func() { focus(false) })
 		if w.IsFocused() {
-			a.Update(func() { a.WindowFocus(true) })
+			focus(true)
 		}
 		sup := &hubproc.Supervisor{
 			Launch: launch,
