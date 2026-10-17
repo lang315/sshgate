@@ -110,7 +110,7 @@ func (a *App) buildSettings(c *ui.Context) {
 			if st.err != "" {
 				ui.Text(c, model.DisplayText(st.err)).TextColor(t.Danger)
 			}
-			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+			ui.Row(c.Key("settings-actions")).Gap(8).Justify(ui.End).Children(func() { // keyed: a row that shifts is a new Cancel, and its AutoFocus would take the focus from the password field
 				if MouseButton(c, "Save", model.SaveAllowed(change, touch, st.password, st.busy, st.lc.At, now)) && model.SaveAllowed(change, touch, st.password, st.busy, st.lc.At, a.Now()) {
 					answer = 1
 				}
