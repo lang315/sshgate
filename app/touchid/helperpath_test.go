@@ -1,6 +1,9 @@
 package touchid
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 // The helper is the knob when unpackaged, else sshgate-touchid in Resources
 // (packaged) or beside the module root, on macOS only; a packaged app ignores
@@ -16,6 +19,7 @@ func TestHelperPath(t *testing.T) {
 			return false
 		}
 	}
+	res, repo := filepath.Join("/res", "sshgate-touchid"), filepath.Join("/repo", "sshgate-touchid")
 	knob := []string{"A=b", "SSHGATE_TOUCHID_HELPER=/tmp/fake"}
 	for _, tc := range []struct {
 		name     string
@@ -26,14 +30,14 @@ func TestHelperPath(t *testing.T) {
 		want     string
 	}{
 		{"the knob, unpackaged", knob, false, "linux", has(), "/tmp/fake"},
-		{"the knob, unpackaged, on macOS", knob, false, "darwin", has("/repo/sshgate-touchid"), "/tmp/fake"},
-		{"the knob is ignored when packaged", knob, true, "darwin", has("/res/sshgate-touchid"), "/res/sshgate-touchid"},
-		{"an empty knob is none", []string{"SSHGATE_TOUCHID_HELPER="}, false, "darwin", has("/repo/sshgate-touchid"), "/repo/sshgate-touchid"},
-		{"beside the module root, unpackaged", nil, false, "darwin", has("/repo/sshgate-touchid"), "/repo/sshgate-touchid"},
-		{"in Resources, packaged", nil, true, "darwin", has("/res/sshgate-touchid"), "/res/sshgate-touchid"},
+		{"the knob, unpackaged, on macOS", knob, false, "darwin", has(repo), "/tmp/fake"},
+		{"the knob is ignored when packaged", knob, true, "darwin", has(res), res},
+		{"an empty knob is none", []string{"SSHGATE_TOUCHID_HELPER="}, false, "darwin", has(repo), repo},
+		{"beside the module root, unpackaged", nil, false, "darwin", has(repo), repo},
+		{"in Resources, packaged", nil, true, "darwin", has(res), res},
 		{"a missing helper", nil, true, "darwin", has(), ""},
-		{"not macOS", nil, true, "linux", has("/res/sshgate-touchid"), ""},
-		{"not macOS, unpackaged", nil, false, "windows", has("/repo/sshgate-touchid"), ""},
+		{"not macOS", nil, true, "linux", has(res), ""},
+		{"not macOS, unpackaged", nil, false, "windows", has(repo), ""},
 	} {
 		if got := HelperPath(tc.env, tc.packaged, "/res", "/repo", tc.goos, tc.exists); got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
