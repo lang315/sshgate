@@ -1,7 +1,7 @@
 # sshgate: Output Redaction — Design (Slice 4, part a)
 
 Date: 2026-09-30
-Status: Approved in chat 2026-09-30; implemented (plan `plans/2026-09-30-slice4a-output-redaction.md`, PR #11, merged 2026-10-01). The exit gate's live check (`TestLiveRedact`) is not yet recorded as run.
+Status: Approved in chat 2026-09-30; implemented (plan `plans/2026-09-30-slice4a-output-redaction.md`, PR #11, merged 2026-10-01). Done 2026-10-17: the exit gate's live check (`TestLiveRedact`) passed on the real vault with no tripwire hit.
 Depends on: `2026-09-24-desktop-app-design.md` (slice 1), `2026-09-28-auto-allow-design.md` (auto-allow and its 2026-09-29 amendment). Everything there still holds unless this document says otherwise.
 
 ## Goal
