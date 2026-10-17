@@ -1,7 +1,7 @@
 # sshgate: Desktop app on mygo (native Go UI) — Design
 
 Date: 2026-10-14
-Status: Approved in chat 2026-10-14 (motivation, terminal library, platform scope, migration, sections 1–2). Revised the same day after three reviews (spec vs code, red team, native architecture): the hub moved from in-process to a subprocess, and the terminal security, stop gate, slice and files sections were added or fixed. This document awaits review.
+Status: Approved in chat 2026-10-14 (motivation, terminal library, platform scope, migration, sections 1–2). Revised the same day after three reviews (spec vs code, red team, native architecture): the hub moved from in-process to a subprocess, and the terminal security, stop gate, slice and files sections were added or fixed. Implemented in slices 0–7 (PRs #23–#27, #30, #32, #33, merged 2026-10-16 to 2026-10-17); slice 7's hand checks are not all done (see `ROADMAP.md`).
 
 ## Goal
 

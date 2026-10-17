@@ -4,7 +4,7 @@ Long-lived plan across every slice. Each slice gets its own spec in
 `specs/` and its own implementation plan in `plans/`, written when that
 slice starts. This file only fixes order, gates, and cross-slice decisions.
 
-Updated: 2026-10-02 (soft lock; renamed ssh-mcp → sshgate, own public repo lang315/sshgate; slice 2a closed, `sshgate web` removed; 2b split, 2b-1 import done; 3a done, exit gate met on buildpc; 3b done, exit gate met on buildpc; tunnel half-close fixed; per-host auto-allow; slice 4 split into 4a output redaction and 4b audit viewer, audit rotation deferred)
+Updated: 2026-10-17 (4a and 4b merged in PR #11, exit gates still open; desktop app rebuilt on mygo, slices 0–7 merged, slice 7 hand checks open; retiring the Electron app added as its own row; spec status lines brought up to date). Before that, 2026-10-02 (soft lock; renamed ssh-mcp → sshgate, own public repo lang315/sshgate; slice 2a closed, `sshgate web` removed; 2b split, 2b-1 import done; 3a done, exit gate met on buildpc; 3b done, exit gate met on buildpc; tunnel half-close fixed; per-host auto-allow; slice 4 split into 4a output redaction and 4b audit viewer, audit rotation deferred)
 
 ## Standing decisions
 
@@ -13,8 +13,10 @@ plan note.
 
 - One Go binary (`sshgate`) is the core: standalone `--host` mode, MCP
   bridge, and `hub`. The UI is a client of the hub, never the other way.
-- Desktop UI is Electron + React + xterm.js. The renderer talks to Go only
-  through one transport module.
+- Desktop UI is the native Go app in `app/` on mygo, with libghostty-vt for
+  terminals (`specs/2026-10-14-mygo-desktop-design.md`). It talks to the hub
+  only through the UI door, as the Electron app in `desktop/` (React +
+  xterm.js) still does until that app is retired (row 7).
 - The MCP door is a Unix socket or named pipe with a same-user check. Never
   HTTP or SSE on localhost.
 - Every AI command is approved by a human by default. The human may put one
@@ -22,7 +24,10 @@ plan note.
   when the human opts in per host) for a set time, or until turned off; it is
   visible while on, audited, and stoppable at any time
   (`specs/2026-09-28-auto-allow-design.md`). The idle lock soft-locks while a
-  grant is live, for at most 24 hours (`specs/2026-10-02-soft-lock-design.md`).
+  grant is live, for at most 24 hours by default
+  (`specs/2026-10-02-soft-lock-design.md`); the Lock button soft-locks too
+  (`specs/2026-10-03-manual-soft-lock-design.md`), and Settings can raise the
+  limit to 3 days, 7 days or none (`specs/2026-10-12-soft-lock-limit-design.md`).
 - The AI never sees a host the user did not mark `AIVisible`, and never
   connects first to a host whose key is not pinned.
 - Vault format: argon2id, AES-GCM per field with AAD, whole-file MAC. Any
@@ -43,9 +48,11 @@ plan note.
 | 2c | Split panes, local shell, Windows agent (OpenSSH pipe, Pageant) | Not needed now (2026-09-26) | — | 2a | Daily use shows the need (panes, local shell); a Windows machine to test on (agent) | Author does not open another terminal for SSH work |
 | 3a | SFTP file browser (list, upload/download incl. folders, mkdir, rename, recursive delete, Finder drop) | Done 2026-09-27 (PR #2); exit gate met on buildpc (Windows OpenSSH) by the opt-in live e2e `desktop/e2e/live-files.spec.ts` | `specs/2026-09-26-slice3a-sftp-design.md` | 2a | Slice 2a done | The author browses, uploads a folder, downloads it back, and deletes it on a real host |
 | 3b | Port forwarding (local, remote, dynamic) | Done 2026-09-28 (PR #3); exit gate met on buildpc (Windows OpenSSH) by the opt-in live e2e `desktop/e2e/live-tunnels.spec.ts`: a local and a SOCKS5 tunnel carried the host's sshd banner, kept working while locked, and stopped | `specs/2026-09-27-slice3b-port-forwarding-design.md` | 3a | Slice 3a done | Tunnels usable from a saved host |
-| 4a | Output redaction: a fixed pattern set masks private keys, passwords, secrets, credential headers, URL passwords and known tokens in AI exec output (approved and auto-allowed, and `--host` mode), with a note to the AI and per-kind counts in the audit record | In progress | `specs/2026-09-30-slice4a-output-redaction-design.md` | 1 | Met: the audit log shows the AI asked to `cat /etc/mwtn.env` (passwords) on `fviainboxes-db`, and auto-allow can send such output unreviewed | Corpus tests pass; the author runs `TestLiveRedact` on the real hosts with no tripwire hit and plausible counts (`/etc/mwtn.env` on `fviainboxes-db` yields at least 2 `password` masks) |
-| 4b | Audit viewer in the app | Built 2026-09-30: Audit tab, `audit.read`, `audit.appended` (UI-door protocol 8); exit gate pending: on the author's real vault the tab shows the day's AI requests with outcomes, Auto filters to auto-allowed runs only, and a new request appears while the tab is open | `specs/2026-09-30-slice4b-audit-viewer-design.md` | 4a | Slice 4a done | The Audit tab shows the day's AI requests with outcomes on the real vault; the Auto filter shows only auto-allowed runs; a new request appears without a refresh |
+| 4a | Output redaction: a fixed pattern set masks private keys, passwords, secrets, credential headers, URL passwords and known tokens in AI exec output (approved and auto-allowed, and `--host` mode), with a note to the AI and per-kind counts in the audit record | Built 2026-10-01 (PR #11); exit gate pending: `TestLiveRedact` on the real hosts not yet recorded | `specs/2026-09-30-slice4a-output-redaction-design.md` | 1 | Met: the audit log shows the AI asked to `cat /etc/mwtn.env` (passwords) on `fviainboxes-db`, and auto-allow can send such output unreviewed | Corpus tests pass; the author runs `TestLiveRedact` on the real hosts with no tripwire hit and plausible counts (`/etc/mwtn.env` on `fviainboxes-db` yields at least 2 `password` masks) |
+| 4b | Audit viewer in the app | Built 2026-09-30, merged 2026-10-01 (PR #11): Audit tab, `audit.read`, `audit.appended` (UI-door protocol 8); exit gate pending: on the author's real vault the tab shows the day's AI requests with outcomes, Auto filters to auto-allowed runs only, and a new request appears while the tab is open | `specs/2026-09-30-slice4b-audit-viewer-design.md` | 4a | Slice 4a done | The Audit tab shows the day's AI requests with outcomes on the real vault; the Auto filter shows only auto-allowed runs; a new request appears without a refresh |
 | 5 | Distribution: code signing, notarization, auto-update, installers, CI release builds | Not needed now (2026-09-26) | — | 2a | A second user asks for a build | Signed builds for all three OSes from CI |
+| 6 | Desktop app on mygo (native Go UI, libghostty-vt terminals), in its own slices 0–7: skeleton, approval core, terminals, host management, Files, Tunnels, Audit, macOS finish (Touch ID, background mode, `sshgate.app`) | Slices 0–7 merged 2026-10-16 to 2026-10-17 (PRs #23–#27, #30, #32, #33); slice 0's stop gate passed. Open: slice 7's hand checks on the packaged app (Dock reopen, notification click, real Touch ID, Touch ID across both apps) and the live checks `TestLiveFiles`/`TestLiveTunnels` against a real host | `specs/2026-10-14-mygo-desktop-design.md` | 1–4b | Spec approved | Every slice's three conditions in the spec, slice 7's hand checks included; the author uses the mygo app daily |
+| 7 | Retire the Electron app: move `desktop/scripts/build-touchid.sh` and `desktop/native/touchid/main.swift` into `app/`, delete `desktop/` and its CI job, update README and CLAUDE.md | Not started | — (needs a short spec or a plan only) | 6 | Row 6 exit gate met: the mygo app is installed in `/Applications` and is the author's daily app | `desktop/` is gone, CI is green, and `app/scripts/package-mac.sh` builds the bundle with no file from `desktop/` |
 | — | Sync between machines, mobile, plugin API, Tabby plugin | Unscheduled | — | — | Explicit decision | — |
 
 ## Rules for this file
@@ -110,3 +117,5 @@ plan note.
 - Soft lock (2026-10-02, decision): this changes the auto-allow rule. "The idle lock ends every grant" becomes "the idle lock soft-locks while a grant is live, for at most 24 hours": the UI door locks, the key stays, and auto runs on granted hosts continue (`specs/2026-10-02-soft-lock-design.md`). Manual Lock still ends every grant.
 - Soft lock → later (2026-10-02): grant deadlines and the idle clock use monotonic time, which stops while the machine sleeps (`autoallow.go` `until`, `idle.go` `lastActivity`); only the 24-hour ceiling uses wall-clock time. `Unlock` holds `h.mu` during Argon2, which stalls auto runs for each attempt.
 - Soft lock code review → later (2026-10-02): the MCP bridge prints `fatal: context canceled` when it is killed (`cmd/sshgate/main.go` has no clean-exit mapping for `context.Canceled` on the bridge path). A request that reaches the approval broker in the instant before a lock sends its `pending` notification, with the command text, to the locked UI; it cannot run, since `decide` refuses an allow while locked. `hub --cli`'s approver does not check the lock before allowing (the run still fails closed with `ErrLocked`), and its unlock never reports `ranWhileLocked`.
+- Desktop on mygo (2026-10-17): slice 7's hand checks found one bug the view tests could not reproduce (Settings: turning Touch ID on left the focus on Cancel; fixed in `5d9bb4a`). Hand checks on the unbundled dev build cannot reach `OnActivate` (a reopen Apple event needs a bundle), and the packaged app shares the hub socket with a running Electron app, so the packaged checks wait until the Electron app is quit.
+- Roadmap check (2026-10-17): no slice has its entry gate met. 2b-2 needs a host behind a bastion (`~/.ssh/config` has no `ProxyJump` or `ProxyCommand`); 2c and 5 are "not needed now"; row 7 waits on row 6's hand checks.

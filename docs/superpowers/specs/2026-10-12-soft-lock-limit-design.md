@@ -1,7 +1,7 @@
 # sshgate: A setting for the soft-lock limit, "No limit" included — Design
 
 Date: 2026-10-12
-Status: Approved 2026-10-12 (scope, UI/UX and this document approved in chat; remembering the master key is out).
+Status: Approved 2026-10-12 (scope, UI/UX and this document approved in chat; remembering the master key is out); implemented (plan `plans/2026-10-12-soft-lock-limit.md`, PR #20, merged 2026-10-12).
 Depends on: `2026-10-02-soft-lock-design.md` and `2026-10-03-manual-soft-lock-design.md`. Everything there still holds unless this document changes it by name; where they disagree, this document wins.
 
 This spec reverses these statements of the soft-lock spec:
