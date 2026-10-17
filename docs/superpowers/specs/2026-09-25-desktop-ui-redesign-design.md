@@ -1,6 +1,6 @@
 # Desktop UI redesign (Hosts home tab, docked AI column, dark/light/Auto)
 
-Date: 2026-09-25. Status: approved design (rev 2), not yet planned.
+Date: 2026-09-25. Status: approved design (rev 2); implemented (plan `plans/2026-09-25-desktop-ui-redesign.md`, before PRs were used).
 Product context: `PRODUCT.md`. Visual reference: the user's design `ssh-mcp Desktop UI.html` (7 boards: workspace, unlock, create vault, host editor, unknown host key, host key changed, hub states), reviewed by four agents against rev 1 of this spec; this revision merges the two.
 
 ## Goal

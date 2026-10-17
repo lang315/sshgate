@@ -1,7 +1,7 @@
 # sshgate: `exec` takes an optional stdin — Design
 
 Date: 2026-10-07
-Status: Approved in chat 2026-10-07 (sections 1–3), option 1 of three. Amended 2026-10-07 after code review (see Amendment).
+Status: Approved in chat 2026-10-07 (sections 1–3), option 1 of three. Amended 2026-10-07 after code review (see Amendment). Implemented (plan `plans/2026-10-07-exec-stdin.md`, PR #19, merged 2026-10-07).
 
 ## Goal
 

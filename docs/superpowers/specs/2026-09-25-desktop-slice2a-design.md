@@ -1,7 +1,7 @@
 # ssh-mcp Desktop: Host Management and Host-Key Prompt — Design (Slice 2a)
 
 Date: 2026-09-25
-Status: Draft, awaiting review. Rewritten the same day after a four-agent adversarial review of an earlier all-of-slice-2 draft (see §Why this is 2a only).
+Status: Approved and implemented (plan `plans/2026-09-25-desktop-slice2a.md`); done 2026-09-26, exit gate waived by the author (see `ROADMAP.md`). Rewritten the same day after a four-agent adversarial review of an earlier all-of-slice-2 draft (see §Why this is 2a only).
 Depends on: `2026-09-24-desktop-app-design.md` (slice 1). Everything there still holds unless this document changes it by name.
 
 ## Goal

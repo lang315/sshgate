@@ -1,7 +1,7 @@
 # sshgate: Unlock with Touch ID on macOS — Design
 
 Date: 2026-10-12
-Status: Approved in chat 2026-10-12 (approach, sections 1–3, and the exception to the secret-persistence rule); this document awaits review.
+Status: Approved in chat 2026-10-12 (approach, sections 1–3, and the exception to the secret-persistence rule); implemented (plan `plans/2026-10-12-touchid-unlock.md`, PR #21, merged 2026-10-13).
 Depends on: `2026-10-12-soft-lock-limit-design.md` (the Settings dialog). Everything there still holds unless this document changes it by name.
 
 This spec reverses two "Out" items of the soft-lock-limit spec:

@@ -1,7 +1,7 @@
 # sshgate: The Lock button keeps auto-allow running — Design
 
 Date: 2026-10-03
-Status: Approved in chat 2026-10-03 (option A of three).
+Status: Approved in chat 2026-10-03 (option A of three); implemented (plan `plans/2026-10-03-manual-soft-lock.md`, PR #17, merged 2026-10-03).
 Depends on: `2026-10-02-soft-lock-design.md`. Everything there still holds unless this document changes it by name; where they disagree, this document wins.
 
 This spec reverses these statements of the soft-lock spec:
