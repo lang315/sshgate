@@ -147,11 +147,11 @@ func (a *App) buildHosts(c *ui.Context) {
 		case len(shown) == 0:
 			ui.Text(c, fmt.Sprintf(`No hosts match "%s"`, model.DisplayText(strings.TrimSpace(a.query)))).TextColor(t.TextMuted)
 		}
-		ui.Row(c).Wrap().Gap(12).Children(func() {
+		ui.Row(c).Wrap().Gap(12).AlignItems(ui.Stretch).Children(func() {
 			for _, s := range shown {
 				name := s.Name
 				shownName := model.DisplayText(name)
-				ui.Column(c.Key("host-"+name)).Width(240).Gap(8).Padding(12).Radius(10).Border(1, t.Border).Background(t.Surface).Children(func() {
+				ui.Column(c.Key("host-"+name)).Width(240).Gap(8).Padding(12).Radius(10).Border(1, t.Border).Background(t.Surface).Justify(ui.SpaceBetween).Children(func() {
 					if ui.Button(c, "").Label("Open " + shownName).Children(func() {
 						ui.Row(c).Gap(8).Children(func() {
 							ui.Text(c, model.Tile(shownName)).Bold()
@@ -183,7 +183,7 @@ func (a *App) buildHosts(c *ui.Context) {
 						ui.Row(c).Gap(6).Children(func() {
 							// Always shown while a grant is on or paused: it must be stoppable at a glance.
 							if model.OnOrPaused(s.AutoAllow, now) {
-								if ui.Button(c, "\u25a0").Label("Stop auto-allow " + shownName).Tooltip("Stop auto-allow").Clicked() {
+								if ui.Button(c, "\u25a0").Label("Stop auto-allow "+shownName).Tooltip("Stop auto-allow").Padding(6, cardButtonPadX).Clicked() {
 									a.setAuto([]string{name}, "off", "stop")
 								}
 							}
