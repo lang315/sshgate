@@ -25,6 +25,14 @@ func clickT(t *testing.T, tt *tester, label string) {
 	tt.Frame()
 }
 
+// clickFold opens or closes a fold and runs its animation to the end: until
+// then what it shows has no size, and a click on it lands on nothing.
+func clickFold(t *testing.T, tt *tester, label string) {
+	t.Helper()
+	clickT(t, tt, label)
+	tt.Advance(time.Second)
+}
+
 // fill replaces a text field's value, as the e2e's fill does.
 func fill(t *testing.T, tt *tester, label, text string) {
 	t.Helper()
@@ -93,7 +101,7 @@ func TestNewHostOpensAtAddressWithExtrasFolded(t *testing.T) {
 	if a.editor.draft.AIVisible {
 		t.Fatal("Visible to AI is on for a new host")
 	}
-	clickT(t, tt, "AI access · Off")
+	clickFold(t, tt, "AI access · Off")
 	for _, s := range []string{"Visible to AI", "Needs a pinned host key."} {
 		if !tt.HasText(s) {
 			t.Fatalf("missing %q in %q", s, tt.Texts())
@@ -164,7 +172,7 @@ func TestSaveSendsUntouchedClearedAndTypedSecrets(t *testing.T) {
 	if !tt.HasText("will be cleared") {
 		t.Fatal(tt.Texts())
 	}
-	clickT(t, tt, "Privilege escalation (su / sudo)")
+	clickFold(t, tt, "Privilege escalation (su / sudo)")
 	clickT(t, tt, "su password")
 	tt.Type("su!")
 	d.resetCalls()
@@ -250,7 +258,7 @@ func TestPortChangeWarnsAndCountsTheTabsASaveCloses(t *testing.T) {
 		}
 	}
 	fill(t, tt, "Port", "22")
-	clickT(t, tt, "AI access · Off")
+	clickFold(t, tt, "AI access · Off")
 	clickT(t, tt, "Visible to AI")
 	if tt.HasText("Saving will close 2 open tabs.") || !tt.HasText("AI access · On") {
 		t.Fatalf("Visible to AI alone warns: %q", tt.Texts())
@@ -375,8 +383,8 @@ func TestSaveIsReachableWithEveryFoldOpen(t *testing.T) {
 	s := boxServer
 	s.Auth, s.HasSuPassword = "key", true
 	a, tt, _ := editBox(t, s)
-	clickT(t, tt, "AI access · Off") // the lower fold first: opening one moves what is below it
-	clickT(t, tt, "Privilege escalation (su / sudo) · saved")
+	clickFold(t, tt, "AI access · Off") // the lower fold first: opening one moves what is below it
+	clickFold(t, tt, "Privilege escalation (su / sudo) · saved")
 	if !a.editor.escOpen || !a.editor.aiOpen {
 		t.Fatal("a fold did not open")
 	}

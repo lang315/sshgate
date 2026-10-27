@@ -25,7 +25,7 @@ func openAI(t *testing.T, tt *tester) {
 	t.Helper()
 	for _, x := range tt.Texts() {
 		if strings.HasPrefix(x, "AI access · ") {
-			clickT(t, tt, x)
+			clickFold(t, tt, x)
 			tt.flush()
 			return
 		}
