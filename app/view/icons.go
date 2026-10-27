@@ -15,6 +15,9 @@ var (
 )
 
 // iconButton is a card action: an icon named "<verb> <name>", with the verb as its tooltip.
+// cardButtonPadX keeps a card's five actions (Stop included) inside its 240 DIP.
+const cardButtonPadX = 10
+
 func iconButton(c *ui.Context, verb, name string, icon *ui.SVG) bool {
-	return ui.Button(c, "").Label(verb + " " + name).Tooltip(verb).Children(func() { ui.Icon(c, icon) }).Clicked()
+	return ui.Button(c, "").Label(verb+" "+name).Tooltip(verb).Padding(6, cardButtonPadX).Children(func() { ui.Icon(c, icon) }).Clicked()
 }

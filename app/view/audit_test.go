@@ -194,14 +194,14 @@ func TestAuditRowExpands(t *testing.T) {
 	if tt.HasText("AI's description · unverified") {
 		t.Fatal("detail shown before a click")
 	}
-	clickT(t, tt, "echo audit-denied")
+	clickFold(t, tt, "echo audit-denied")
 	tt.flush()
 	for _, want := range []string{"AI's description · unverified", "audit e2e", "Client", "e2e"} {
 		if !tt.HasText(want) {
 			t.Fatalf("no %q in %q", want, tt.Texts())
 		}
 	}
-	clickT(t, tt, "Raw JSON")
+	clickFold(t, tt, "Raw JSON")
 	tt.flush()
 	if !tt.HasText(`  "command": "echo audit-denied",`) {
 		t.Fatalf("raw: %q", tt.Texts())
@@ -211,11 +211,10 @@ func TestAuditRowExpands(t *testing.T) {
 	if *a.audit.open[1] {
 		t.Fatal("a second click did not collapse the row")
 	}
-	// The panel shrinks out of view over a few frames.
-	for deadline := time.Now().Add(2 * time.Second); tt.HasText("AI's description · unverified"); tt.flush() {
-		if time.Now().After(deadline) {
-			t.Fatalf("the detail still shows: %q", tt.Texts())
-		}
+	// The panel shrinks out of view as its animation runs.
+	tt.Advance(time.Second)
+	if tt.HasText("AI's description · unverified") {
+		t.Fatalf("the detail still shows: %q", tt.Texts())
 	}
 }
 

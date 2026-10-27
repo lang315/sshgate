@@ -2,6 +2,7 @@ package view
 
 import (
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -88,5 +89,34 @@ func TestTabDotFollowsTheGrant(t *testing.T) {
 	note(t, a, tt, "autoAllow.off", map[string]string{"server": "box", "reason": "turned off"})
 	if _, ok := tt.Find("auto-allow on"); ok {
 		t.Fatal("the dot outlived the grant")
+	}
+}
+
+// TestCardActionsStayInTheCard: with Stop shown, the five actions still end
+// inside the card, not past its right edge; a card without chips keeps its
+// neighbour's top and bottom, its actions on the same line.
+func TestCardActionsStayInTheCard(t *testing.T) {
+	s := autoBox()
+	s.AutoAllow = &hubapi.AutoAllow{Forever: true}
+	plain := boxServer
+	plain.Name = "plain"
+	d := &fakeDoor{status: hubapi.Status{HasVault: true}, servers: []hubapi.Server{s, plain}}
+	_, tt, _, _ := newApp(t, d)
+	tt.flush()
+	open, ok1 := tt.Find("Open box")
+	del, ok2 := tt.Find("Delete box")
+	if !ok1 || !ok2 {
+		t.Fatalf("texts %q", tt.Texts())
+	}
+	if del.X+del.W > open.X+open.W+0.5 {
+		t.Fatalf("Delete ends at %v, past the card's content edge %v", del.X+del.W, open.X+open.W)
+	}
+	if other, ok := tt.Find("Open plain"); !ok || other.Y != open.Y {
+		t.Fatalf("the chipless card's top is at %v, its neighbour's at %v", other.Y, open.Y)
+	}
+	// Stop, the tallest action, sets the bottom of its card's actions.
+	stop, _ := tt.Find("Stop auto-allow box")
+	if other, ok := tt.Find("Delete plain"); !ok || math.Abs(float64(other.Y+other.H-stop.Y-stop.H)) > 0.5 {
+		t.Fatalf("the chipless card's actions end at %v, its neighbour's at %v", other.Y+other.H, stop.Y+stop.H)
 	}
 }

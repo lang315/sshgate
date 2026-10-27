@@ -2,6 +2,7 @@ package view
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/plugins/terminal"
+	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/termconn"
 )
@@ -83,7 +85,7 @@ func TestCopyAndPaste(t *testing.T) {
 	needLib(t)
 	r := &rec{block: make(chan struct{})}
 	pasted := 0
-	term, err := terminal.New(terminal.Options{Conn: r, OnPaste: func(string) bool { pasted++; return false }})
+	term, err := terminal.New(terminal.Options{Conn: r, OnPaste: func(transfer.Data) bool { pasted++; return false }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,6 +223,20 @@ func TestHubIMECommitIsOneUserWrite(t *testing.T) {
 	data, allUser, _, n := d.got()
 	if data != "tiếng" || n != 1 || !allUser {
 		t.Fatalf("hub got %q in %d writes (all user: %v), want %q once as user input", data, n, allUser, "tiếng")
+	}
+}
+
+// TestHubNoClipboardWrite: a remote program's OSC 52 write never reaches the
+// local clipboard.
+func TestHubNoClipboardWrite(t *testing.T) {
+	needLib(t)
+	term, tt, _ := hubTerm(t)
+	tt.SetClipboard("mine")
+	term.Feed([]byte("\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte("copied")) + "\x1b\\"))
+	tt.Frame()
+	tt.Frame()
+	if got := tt.Clipboard(); got != "mine" {
+		t.Fatalf("clipboard %q after a program's OSC 52 write, want it untouched", got)
 	}
 }
 
