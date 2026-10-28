@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lang315/sshgate/internal/broker"
 	"github.com/lang315/sshgate/internal/config"
@@ -162,6 +163,79 @@ func TestVaultCreateDerivesKeyOnce(t *testing.T) {
 	h.Lock()
 	if err := h.Unlock("longenough"); err != nil || derives != 1 {
 		t.Fatalf("unlock: %v, derivations = %d", err, derives)
+	}
+}
+
+// blockDerive makes Unlock's derivation wait for release, and closes started
+// when it begins.
+func blockDerive(t *testing.T) (started, release chan struct{}) {
+	started, release = make(chan struct{}), make(chan struct{})
+	deriveKey = func(k *config.KDF, pw string) ([]byte, error) {
+		close(started)
+		<-release
+		return k.DeriveKey(pw)
+	}
+	t.Cleanup(func() { deriveKey = (*config.KDF).DeriveKey })
+	return started, release
+}
+
+// Argon2 runs without h.mu: the hub answers while an unlock derives.
+func TestUnlockDerivesOutsideLock(t *testing.T) {
+	h, _ := newHubAt(t, nil, nil)
+	if err := h.CreateVault("longenough"); err != nil {
+		t.Fatal(err)
+	}
+	h.Lock()
+	started, release := blockDerive(t)
+	done := make(chan error, 1)
+	go func() { done <- h.Unlock("longenough") }()
+	<-started
+	answered := make(chan bool, 1)
+	go func() { answered <- h.Locked() }()
+	select {
+	case locked := <-answered:
+		if !locked {
+			t.Fatal("unlocked before the derivation ended")
+		}
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatal("Locked blocked while Unlock derived: h.mu held during Argon2")
+	}
+	close(release)
+	if err := <-done; err != nil || h.Locked() {
+		t.Fatalf("unlock: %v, locked = %v", err, h.Locked())
+	}
+}
+
+// A key derived for one vault is never installed for another: a vault whose
+// KDF changed during the derivation fails the unlock and stays locked.
+func TestUnlockRefusesKDFChangedDuringDerive(t *testing.T) {
+	h, _ := newHubAt(t, nil, nil)
+	if err := h.CreateVault("longenough"); err != nil {
+		t.Fatal(err)
+	}
+	h.Lock()
+	started, release := blockDerive(t)
+	done := make(chan error, 1)
+	go func() { done <- h.Unlock("longenough") }()
+	<-started
+	other, _, err := config.NewKDF("longenough")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(5 * time.Second); !h.mu.TryLock(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			close(release)
+			t.Fatal("h.mu held during Argon2")
+		}
+	}
+	nf := *h.deps.File
+	nf.KDF = &other
+	h.deps.File = &nf
+	h.mu.Unlock()
+	close(release)
+	if err := <-done; err == nil || !strings.Contains(err.Error(), "vault changed") || !h.Locked() {
+		t.Fatalf("unlock: %v, locked = %v", err, h.Locked())
 	}
 }
 
