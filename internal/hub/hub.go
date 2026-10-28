@@ -228,17 +228,29 @@ func (h *Hub) emit(e broker.Event) {
 var deriveKey = (*config.KDF).DeriveKey
 
 // Unlock derives the master key, checks it against the verifier, and checks
-// the file MAC.
+// the file MAC. The derivation (Argon2, about a second) runs without h.mu, so
+// it never stalls auto runs or the UI door; the checks run under it, against
+// the vault in use then, which must still have the KDF the key came from.
 func (h *Hub) Unlock(pw string) error {
+	h.mu.Lock()
+	var kdf config.KDF
+	if f := h.deps.File; f != nil && f.KDF != nil {
+		kdf = *f.KDF
+	}
+	h.mu.Unlock()
+	if kdf == (config.KDF{}) {
+		return nil // no vault; the AI and terminals get nothing until vault.create
+	}
+	mk, err := deriveKey(&kdf, pw)
+	if err != nil {
+		return err
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	f := h.deps.File
-	if f == nil || f.KDF == nil {
-		return nil // no vault; the AI and terminals get nothing until vault.create
-	}
-	mk, err := deriveKey(f.KDF, pw)
-	if err != nil {
-		return err
+	if f == nil || f.KDF == nil || *f.KDF != kdf {
+		clear(mk)
+		return errors.New("the vault changed during unlock; try again")
 	}
 	if !f.KDF.Verify(mk) {
 		clear(mk)
