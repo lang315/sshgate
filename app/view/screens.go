@@ -76,43 +76,74 @@ func (a *App) buildCreateVault(c *ui.Context) {
 	})
 }
 
+// rule is a hairline across its parent.
+func rule(c *ui.Context) ui.Element {
+	return ui.Column(c).Height(1).Background(c.Theme().Border)
+}
+
 func (a *App) buildUnlock(c *ui.Context) {
 	t := c.Theme()
+	touch := a.touch != nil && a.touch.Enabled && a.touch.Available
 	card(c, func() {
-		ui.Text(c, "Unlock vault").Bold().FontSize(18)
-		if a.lockReason == "idle" {
-			ui.Text(c, "Locked after inactivity.").TextColor(t.Warning)
-		}
-		if a.lockReason != "" && len(a.lockHosts) == 0 {
-			ui.Text(c, "Open terminals stay connected while locked. AI requests are refused until you unlock.").TextColor(t.TextMuted)
-		}
+		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, lockIcon).FontSize(28).TextColor(t.Accent)
+			ui.Column(c).Gap(2).Children(func() {
+				ui.Text(c, "Unlock vault").Bold().FontSize(18)
+				if a.lockReason == "idle" {
+					ui.Text(c, "Locked after inactivity.").TextColor(t.TextMuted)
+				}
+			})
+		})
 		if len(a.lockHosts) > 0 {
 			names := make([]string, len(a.lockHosts))
 			for i, h := range a.lockHosts {
 				names[i] = model.DisplayText(h)
 			}
-			ui.Row(c).Gap(8).Padding(8).Radius(8).Background(t.Warning.Alpha(0.15)).Role(ui.RoleStatus).Children(func() {
-				ui.Text(c, "AI auto-allow is still running on: "+strings.Join(names, ", ")).Grow(1)
-				if ui.Button(c, "Stop auto-allow and lock").Clicked() {
+			// The label is the whole sentence, for a screen reader; the chips keep each name on one line.
+			ui.Column(c).Gap(8).Padding(12).Radius(8).Background(t.Warning.Alpha(0.15)).Role(ui.RoleStatus).Label("AI auto-allow is still running on: " + strings.Join(names, ", ")).Children(func() {
+				ui.Text(c, "AI auto-allow is still running").Bold()
+				ui.Row(c).Wrap().Gap(6).Children(func() {
+					for _, n := range names {
+						ui.Text(c, n).Font("monospace").SingleLine().Padding(2, 8).Radius(6).Background(t.Surface)
+					}
+				})
+				ui.Text(c, "AI commands on these hosts run without asking while the vault is locked.").TextColor(t.TextMuted)
+				if ui.Button(c, "Stop auto-allow and lock").AlignSelf(ui.Start).Clicked() {
 					a.stopAndLock()
 				}
 			})
+		} else if a.lockReason != "" {
+			ui.Text(c, "Open terminals stay connected while locked. AI requests are refused until you unlock.").TextColor(t.TextMuted)
 		}
-		if ts := a.touch; ts != nil && ts.Enabled && ts.Available {
-			if ui.Button(c, "Unlock with Touch ID").Disabled(a.busy || a.touchBusy).Clicked() {
+		if touch {
+			label := "Unlock with Touch ID"
+			if a.touchBusy {
+				label = "Waiting for Touch ID…"
+			}
+			if ui.PrimaryButton(c, label).Label("Unlock with Touch ID").Disabled(a.busy || a.touchBusy).Clicked() {
 				a.touchUnlock()
 			}
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				rule(c).Grow(1)
+				ui.Text(c, "or use the master password").TextColor(t.TextMuted).FontSize(12)
+				rule(c).Grow(1)
+			})
 		}
 		in := ui.TextInput(c.Key("unlock-pw"), &a.password).Password().Label("Master password").Placeholder("Master password").AutoFocus()
 		if a.unlockErr != "" {
 			ui.Text(c, model.DisplayText(a.unlockErr)).TextColor(t.Danger)
 		}
-		if (ui.PrimaryButton(c, "Unlock").Disabled(a.busy || a.password == "").Clicked() || in.Submitted()) && a.password != "" {
+		unlock := ui.PrimaryButton
+		if touch {
+			unlock = ui.Button
+		}
+		if (unlock(c, "Unlock").Disabled(a.busy || a.password == "").Clicked() || in.Submitted()) && a.password != "" {
 			a.unlock(a.password)
 		}
 		// Inside the card: the filling, centred column leaves no room below it.
 		if a.status != nil && a.status.StorePath != "" {
-			ui.Text(c, "Vault file "+model.DisplayText(a.status.StorePath)).TextColor(t.TextMuted)
+			rule(c)
+			ui.Text(c, "Vault file "+model.DisplayText(a.status.StorePath)).TextColor(t.TextMuted).FontSize(12).Selectable()
 		}
 	})
 }
