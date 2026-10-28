@@ -2,11 +2,11 @@
 
 # sshgate
 
-**sshgate** lets an AI agent (Claude Code or any MCP client) run shell commands on your SSH servers, but only after you approve each command in a desktop app by default (see [Auto-allow](#auto-allow) for the one opt-in exception). It is one Go binary plus an Electron app:
+**sshgate** lets an AI agent (Claude Code or any MCP client) run shell commands on your SSH servers, but only after you approve each command in a desktop app by default (see [Auto-allow](#auto-allow) for the one opt-in exception). It is one Go binary plus a desktop app:
 
 - the **bridge** (`sshgate`), which your MCP client starts;
 - the **hub** (`sshgate hub`), which holds an encrypted vault of saved servers, the SSH connections, and the approval queue;
-- the **desktop app** (`desktop/`), which runs the hub and gives you SSH terminal tabs next to the AI's pending requests.
+- the **desktop app**, which runs the hub and gives you SSH terminal tabs next to the AI's pending requests: on macOS a native Go app (`app/`), elsewhere an Electron app (`desktop/`), which runs on macOS too.
 
 Every AI command is approved by a human by default. You may put one host on auto-allow (plain exec by default; root hosts and sudo-exec only when you opt in per host) for a set time, or until turned off; it is visible while on, audited, and stoppable at any time. The AI only sees servers you mark visible, and only connects to a server whose host key you have pinned.
 
@@ -41,18 +41,25 @@ Claude Code ──stdio──▶ sshgate (bridge) ──per-user socket──▶
 
 ## Quick start
 
-**Prerequisites:** Go (the version in `go.mod`), Node.js 22.12 or newer (Electron 44 requires it), and an MCP client such as Claude Code.
+**Prerequisites:** Go (the version in `go.mod`) and an MCP client such as Claude Code. The macOS app also needs Xcode's `swiftc`; the Electron app needs Node.js 22.12 or newer (Electron 44 requires it).
 
-1. Build the binary and start the app:
+1. Build and install the app.
+
+   **macOS**, the native app (Go, no Electron; about 25 MB):
+
+        cd app && ../scripts/build-ghostty-vt.sh build/natives && ./scripts/package-mac.sh
+        rm -rf /Applications/sshgate.app && ditto out/sshgate.app /Applications/sshgate.app
+
+   The first script builds the terminal library from Ghostty's sources with a Zig toolchain it downloads; the second writes `app/out/sshgate.app`. Quit sshgate before replacing an installed copy. The bundle carries its own `sshgate` binary (`sshgate.app/Contents/Resources/sshgate`), which your MCP client runs as the bridge (step 6); `sshgate --version` prints the version it was built with. The bundle is ad-hoc signed for your own machine only; it is not notarized.
+
+   **Windows and Linux**, the Electron app:
 
         go build -o sshgate ./cmd/sshgate
         cd desktop && npm ci && npm start
 
-   Put a copy of `sshgate` on your `PATH` too (for example `cp sshgate ~/go/bin/`), so your MCP client can start the bridge.
+   Put a copy of `sshgate` on your `PATH` too (for example `cp sshgate ~/go/bin/`), so your MCP client can start the bridge. The Electron app also runs on macOS, and `cd desktop && npm ci && ./scripts/package-mac.sh` bundles it as `desktop/out/sshgate.app`.
 
-   On macOS you can instead build an app bundle with `cd desktop && npm ci && ./scripts/package-mac.sh` and copy `desktop/out/sshgate.app` to `/Applications` (quit sshgate first when replacing an installed copy). `sshgate --version` prints the version it was built with. It carries its own `sshgate` binary (`sshgate.app/Contents/Resources/sshgate`), which the bridge can use too. The bundle's icon is `desktop/build/icon.icns`; `desktop/scripts/make-icon.sh` rebuilds it from `desktop/build/icon-source.png` (needs python3 with Pillow; only after changing the image). The bundle is ad-hoc signed for your own machine only; it is not notarized.
-
-   The native app (Go, no Electron; about 25 MB) is built on macOS with `cd app && ../scripts/build-ghostty-vt.sh build/natives && ./scripts/package-mac.sh`, which writes `app/out/sshgate.app` (needs Go, Xcode's `swiftc`, and the Zig toolchain the first script downloads). It does the same as the Electron app, and uses the same data folder, so only one of them can run at a time: quit the other first. It uses the same icon, `desktop/build/icon.icns`, and its bundle is also ad-hoc signed for your own machine only; it is not notarized.
+   Both apps use the same data folder, vault and socket, so only one of them can run at a time: quit the other first. Both use the icon `desktop/build/icon.icns`; `desktop/scripts/make-icon.sh` rebuilds it from `desktop/build/icon-source.png` (needs python3 with Pillow; only after changing the image).
 
 2. **Create your vault.** The first launch asks for a master password (at least 8 characters). It cannot be recovered; lose it and the vault cannot be opened.
 
@@ -68,13 +75,19 @@ Claude Code ──stdio──▶ sshgate (bridge) ──per-user socket──▶
 
         claude mcp add --transport stdio sshgate -- sshgate
 
+   With the macOS app, use the binary inside the bundle:
+
+        claude mcp add --transport stdio sshgate -- /Applications/sshgate.app/Contents/Resources/sshgate
+
 7. Ask Claude to run something on that host, then approve it in the app.
 
-Keep the app open while the AI works. When the app is closed, every tool call fails with "Open the app to approve commands".
+Keep the app running while the AI works (on macOS, closing the window leaves it running in the menu bar). When the app is not running, every tool call fails with "Open the app to approve commands".
 
 ## The desktop app
 
-- **Hosts** is the first tab: a searchable grid of host cards. Click a card to open a terminal. Chips along the bottom of a card mark servers visible to **AI**, servers with a **New key** (not pinned yet), running tunnels, and an auto-allow grant (**Auto 42m**, **Auto ∞**, **Auto paused**); the Files, Tunnels, Edit and Delete buttons appear beside them on hover, without moving anything. The footer shows the vault file's path; copying that file is your backup.
+The macOS app is a port of the Electron app and works the same way; where they differ, this section says so.
+
+- **Hosts** is the first tab: a searchable grid of host cards. Click a card to open a terminal. Chips along the bottom of a card mark servers visible to **AI**, servers with a **New key** (not pinned yet), running tunnels, and an auto-allow grant (**Auto 42m**, **Auto ∞**, **Auto paused**); the Files, Tunnels, Edit and Delete buttons sit beside them (in the Electron app they appear on hover, without moving anything). The footer shows the vault file's path; copying that file is your backup.
 - **Terminal tabs** open from a host card. They keep their SSH sessions when the vault locks, and offer **Reconnect** if the hub restarts.
 - **Files** opens an SFTP browser tab from a host card: list, upload and download files or whole folders (or drop them from Finder), make folders, rename, and recursive delete. Everything runs as the host's login user, and every change and transfer is audited.
 - **Tunnels** opens a tab per host for SSH port forwards, saved with the host in the vault: **Local** (a port on this machine reaches a host and port as seen from the server), **Remote** (a port on the server reaches one on this machine), and **Dynamic** (a SOCKS5 proxy here; connections leave from the server). Local listeners bind to loopback only. Tunnels keep running while the vault is locked, stop when the connection drops or the host is edited, and every start and stop is audited. Tunnels are yours alone: the AI cannot see or start them.
@@ -107,7 +120,7 @@ A grant "Until turned off" is paused after a restart, the soft-lock limit, or **
 
 What stops unattended work on an auto-allowed host:
 
-- A renderer crash: the app locks the vault and reloads, which ends every grant.
+- A renderer crash in the Electron app: it locks the vault and reloads, which ends every grant.
 - A restart of the hub: it starts locked, and a grant "Until turned off" is paused until Resume.
 - A timed grant reaching its deadline.
 - The app having been locked for the soft-lock limit set in **Settings** (24 hours by default). With **No limit**, only **Stop auto-allow and lock**, a restart or a crash ends it.
@@ -118,7 +131,7 @@ The soft-lock limit is stored in the vault, under its MAC, and only changes whil
 
 A dropped SSH connection does not stop it: the next run reconnects.
 
-Closing the window quits the app and stops the hub. There is no Reload; if the renderer crashes, the app locks the vault and reloads at the unlock screen.
+On Windows and Linux, closing the window quits the app and stops the hub; on macOS it keeps running in the menu bar (see **Running in the background** above). The Electron app has no Reload; if its renderer crashes, it locks the vault and reloads at the unlock screen.
 
 ### Unlock with Touch ID (macOS)
 
@@ -231,13 +244,13 @@ The same flags work in any MCP client's JSON config:
 | Variable | Read by | Effect |
 |---|---|---|
 | `SSHGATE_RUNTIME_DIR` | hub and bridge | Where the socket lives. Set the same value for both, including in the MCP client's environment. `TMPDIR` and `XDG_RUNTIME_DIR` are ignored on purpose. |
-| `SSHGATE_BIN` | desktop app | The `sshgate` binary to run as the hub. Default: `sshgate` one directory above `desktop/` (or inside the macOS bundle), then `PATH`. |
-| `SSHGATE_STORE` | desktop app | Passed to the hub as `--store=`. |
-| `SSHGATE_SSH_CONFIG` | desktop app | Passed to the hub as `--sshConfig=`: the SSH config **Import from SSH config** reads (default `~/.ssh/config`). |
-| `SSHGATE_IDLE_LOCK` | desktop app | Passed to the hub as `--idleLock=`, for testing. |
-| `SSHGATE_TOUCHID_HELPER` | desktop app | The Touch ID helper to run instead of `sshgate-touchid`, for testing. |
+| `SSHGATE_BIN` | both desktop apps | The `sshgate` binary to run as the hub. Default: `sshgate` at the repository root, one directory above `app/` or `desktop/` (or inside the macOS bundle), then `PATH`. |
+| `SSHGATE_STORE` | both desktop apps | Passed to the hub as `--store=`. |
+| `SSHGATE_SSH_CONFIG` | both desktop apps | Passed to the hub as `--sshConfig=`: the SSH config **Import from SSH config** reads (default `~/.ssh/config`). |
+| `SSHGATE_IDLE_LOCK` | both desktop apps | Passed to the hub as `--idleLock=`, for testing. |
+| `SSHGATE_TOUCHID_HELPER` | both desktop apps | The Touch ID helper to run instead of `sshgate-touchid`, for testing. |
 
-The installed macOS app ignores every `SSHGATE_*` variable above and removes them from the hub's environment, so whoever can set your environment cannot swap the hub that receives your master password.
+A packaged app (a macOS bundle) ignores every `SSHGATE_*` variable above and removes them from the hub's environment, so whoever can set your environment cannot swap the hub that receives your master password.
 
 ## Moving from the `ssh-mcp` name
 
@@ -255,6 +268,7 @@ The vault format is unchanged. Environment variables are now `SSHGATE_*` instead
     go test -race ./...           # plus SSH integration tests (Docker, via testcontainers); what CI runs
     cd desktop && npm run typecheck && npm test   # desktop unit tests
     cd desktop && npm run e2e                     # Playwright end-to-end tests (needs a display)
+    cd app && MYGO_GHOSTTY_VT=$PWD/build/natives/libghostty-vt.dylib go test -race ./...   # the native app's tests
 
 Without Docker, the integration tests skip themselves instead of failing. `go run ./internal/sshx/sshtest/sshtestd -write-store=<path> -password=<pw>` starts a fake SSH server with a ready vault for trying the app. Design specs, plans, and the roadmap are in `docs/superpowers/`; `CLAUDE.md` describes the architecture. See [CONTRIBUTING.md](./CONTRIBUTING.md) and the [Code of Conduct](./CODE_OF_CONDUCT.md).
 
