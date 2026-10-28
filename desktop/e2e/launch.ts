@@ -58,9 +58,12 @@ export async function launch(extraEnv: Record<string, string> = {},
   }
 }
 
+// Waits for the unlock to end: the hub derives the key without blocking other
+// calls, so an AI exec sent before then is refused as locked.
 export async function unlock(win: Page): Promise<void> {
   await win.getByLabel('Master password').fill('pw')
   await win.getByRole('button', { name: 'Unlock' }).click()
+  await expect(win.getByLabel('Master password')).toBeHidden()
 }
 
 export async function openBox(win: Page): Promise<void> {
