@@ -1,7 +1,7 @@
 # sshgate: Audit Viewer — Design (Slice 4, part b)
 
 Date: 2026-09-30
-Status: Approved in chat 2026-09-30; implemented (plan `plans/2026-09-30-slice4b-audit-viewer.md`, PR #11, merged 2026-10-01). The exit gate on the author's real vault is not yet recorded as met.
+Status: Approved in chat 2026-09-30; implemented (plan `plans/2026-09-30-slice4b-audit-viewer.md`, PR #11, merged 2026-10-01). The exit gate was met on the author's real vault on 2026-10-28, in the mygo app's Audit tab.
 Depends on: `2026-09-24-desktop-app-design.md` (slice 1), `2026-09-28-auto-allow-design.md`, and `2026-09-30-slice4a-output-redaction-design.md`, whose `redacted` counts this viewer shows. Everything there still holds unless this document says otherwise.
 
 ## Goal
