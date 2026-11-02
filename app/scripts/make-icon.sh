@@ -1,6 +1,6 @@
 #!/bin/sh
-# Rebuilds build/icon.png (1024) and build/icon.icns from
-# build/icon-source.png. The outputs are committed; run this only after
+# Rebuilds icon/icon.png (1024) and icon/icon.icns from
+# icon/icon-source.png. The outputs are committed; run this only after
 # changing the source image. Needs macOS (iconutil) and python3 with Pillow.
 # The source is a square image of a shield, centred, on a flat background
 # (the shield about 82% of the height). Everything outside the shield is
@@ -8,7 +8,7 @@
 # watermark in one corner), then the image is placed on the macOS icon grid:
 # an 824 px rounded square on a transparent 1024 px canvas.
 set -eu
-cd "$(dirname "$0")/../build"
+cd "$(dirname "$0")/../icon"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 mkdir "$tmp/icon.iconset"
@@ -57,4 +57,4 @@ PY
 
 iconutil -c icns "$tmp/icon.iconset" -o "$tmp/icon.icns"
 mv "$tmp/icon.png" "$tmp/icon.icns" .
-echo "built build/icon.png, build/icon.icns"
+echo "built icon/icon.png, icon/icon.icns"

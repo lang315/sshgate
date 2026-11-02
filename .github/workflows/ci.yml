@@ -23,27 +23,6 @@ jobs:
       # The redaction sweeps sample under -race (24x slower, nothing to find); run them in full here.
       - run: go test -count=1 ./internal/config
 
-  desktop:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: desktop
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: desktop/package-lock.json
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
-      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - run: xvfb-run -a npm run e2e
-
   app:
     strategy:
       fail-fast: false

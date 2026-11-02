@@ -25,10 +25,10 @@ lib=build/natives/libghostty-vt.dylib
 [ -f "$lib" ] && [ -f build/natives/libghostty-vt.sha256 ] || { echo "build $lib first: ../scripts/build-ghostty-vt.sh build/natives" >&2; exit 1; }
 sha=$(tr -d ' \n' < build/natives/libghostty-vt.sha256)
 [ "$(shasum -a 256 "$lib" | cut -d' ' -f1)" = "$sha" ] || { echo "$lib does not match build/natives/libghostty-vt.sha256" >&2; exit 1; }
-icon=$repo/desktop/build/icon.icns
+icon=$repo/app/icon/icon.icns
 [ -f "$icon" ] || { echo "no $icon" >&2; exit 1; }
 
-"$repo/desktop/scripts/build-touchid.sh"
+"$repo/app/scripts/build-touchid.sh"
 
 rm -rf "$out"
 mkdir -p "$out/Contents/MacOS" "$out/Contents/Resources"
