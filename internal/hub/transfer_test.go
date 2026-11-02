@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lang315/sshgate/internal/broker"
 	"github.com/lang315/sshgate/internal/config"
@@ -239,5 +240,93 @@ func TestTransferNoVaultAudited(t *testing.T) {
 	rec := fileRecords(t, store)
 	if len(rec) != 1 || rec[0]["outcome"] != "error" || rec[0]["reason"] != ErrNoVault.Error() || len(raw) > 32<<10 {
 		t.Fatalf("audit is %d bytes: %v", len(raw), len(rec))
+	}
+}
+
+func TestTransferUnderGrantRunsAuto(t *testing.T) {
+	fx, proj := aiFiles(t)
+	os.WriteFile(filepath.Join(proj, "f"), []byte("x"), 0o644)
+	if err := fx.h.SetAutoAllow("fs", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	ran := make(chan map[string]any, 1)
+	release := fx.h.setAutoSink(func(m string, p any) {
+		if m == "autoAllow.ran" {
+			ran <- p.(map[string]any)
+		}
+	})
+	defer release()
+	resp, err := fx.h.Transfer(context.Background(), TransferRequest{Client: "c", Server: "fs", Op: files.OpUpload, Root: proj, Local: []string{"f"}, Remote: []string{"/home"}})
+	if err != nil || resp.Files != 1 || len(fx.h.Broker().Pending()) != 0 {
+		t.Fatalf("resp %+v err %v", resp, err)
+	}
+	rec := fileRecords(t, fx.store)
+	if last := rec[len(rec)-1]; last["approval"] != "auto" || last["outcome"] != "allowed" {
+		t.Fatalf("audit %v", last)
+	}
+	select {
+	case p := <-ran:
+		if p["op"] != "upload" || p["command"] != "upload 1 path(s) to /home" {
+			t.Fatalf("ran %v", p)
+		}
+	case <-time.After(testWait):
+		t.Fatal("no autoAllow.ran")
+	}
+}
+
+func TestTransferUnderSoftLock(t *testing.T) {
+	fx, proj := aiFiles(t)
+	os.WriteFile(filepath.Join(proj, "f"), []byte("x"), 0o644)
+	if err := fx.h.SetAutoAllow("fs", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	fx.h.LockKeepAuto()
+	if _, err := fx.h.Transfer(context.Background(), TransferRequest{Server: "fs", Op: files.OpUpload, Root: proj, Local: []string{"f"}, Remote: []string{"/home"}}); err != nil {
+		t.Fatalf("soft lock: %v", err)
+	}
+	fx.h.Lock() // hard: no grant
+	if _, err := fx.h.Transfer(context.Background(), TransferRequest{Server: "fs", Op: files.OpUpload, Root: proj, Local: []string{"f"}, Remote: []string{"/home"}}); !errors.Is(err, ErrLocked) {
+		t.Fatalf("hard lock: %v", err)
+	}
+}
+
+func TestTransferEndedByServerSave(t *testing.T) {
+	fx, proj := aiFiles(t)
+	os.WriteFile(filepath.Join(proj, "big"), bytes.Repeat([]byte("x"), 1<<20), 0o644)
+	if err := fx.h.SetAutoAllow("fs", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	c := make(chan error, 1)
+	go func() {
+		_, err := fx.h.Transfer(context.Background(), TransferRequest{Server: "fs", Op: files.OpUpload, Root: proj, Local: []string{"big"}, Remote: []string{"/home"}})
+		c <- err
+	}()
+	waitInflight(t, fx.h, "fs", 1)
+	// Gate only once the transfer is in the job set: gated earlier, the stall
+	// would land in NewSFTP or the plan's Stat, before registration, and
+	// endServer would find nothing to end.
+	if !waitFor(t, "the transfer in the job set", func() bool {
+		fx.h.files.mu.Lock()
+		defer fx.h.files.mu.Unlock()
+		for j := range fx.h.files.all {
+			if _, ok := j.(*aiTransfer); ok {
+				return true
+			}
+		}
+		return false
+	}) {
+		return
+	}
+	gate := make(chan struct{})
+	fx.srv.GateSFTP(gate) // each SFTP request now waits for a gate send
+	t.Cleanup(func() { close(gate) })
+	fx.h.files.endServer("fs", "server changed") // what servers.save does
+	select {
+	case err := <-c:
+		if !errors.Is(err, ErrServerChanged) {
+			t.Fatalf("err = %v", err)
+		}
+	case <-time.After(cancelGrace + 5*time.Second):
+		t.Fatal("transfer not stopped")
 	}
 }
