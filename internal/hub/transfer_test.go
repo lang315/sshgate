@@ -281,8 +281,19 @@ func TestTransferUnderSoftLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	fx.h.LockKeepAuto()
-	if _, err := fx.h.Transfer(context.Background(), TransferRequest{Server: "fs", Op: files.OpUpload, Root: proj, Local: []string{"f"}, Remote: []string{"/home"}}); err != nil {
-		t.Fatalf("soft lock: %v", err)
+	if !fx.h.Locked() || grantOf(fx.h, "fs") == nil {
+		t.Fatalf("not soft-locked with a live grant: locked %v", fx.h.Locked())
+	}
+	resp, err := fx.h.Transfer(context.Background(), TransferRequest{Server: "fs", Op: files.OpUpload, Root: proj, Local: []string{"f"}, Remote: []string{"/home"}})
+	if err != nil || resp.Files != 1 {
+		t.Fatalf("soft lock: %+v %v", resp, err)
+	}
+	if _, err := os.Stat(filepath.Join(fx.root, "home", "f")); err != nil {
+		t.Fatalf("remote file: %v", err)
+	}
+	rec := fileRecords(t, fx.store)
+	if last := rec[len(rec)-1]; last["approval"] != "auto" || last["outcome"] != "allowed" {
+		t.Fatalf("audit %v", last)
 	}
 	fx.h.Lock() // hard: no grant
 	if _, err := fx.h.Transfer(context.Background(), TransferRequest{Server: "fs", Op: files.OpUpload, Root: proj, Local: []string{"f"}, Remote: []string{"/home"}}); !errors.Is(err, ErrLocked) {
@@ -292,7 +303,7 @@ func TestTransferUnderSoftLock(t *testing.T) {
 
 func TestTransferEndedByServerSave(t *testing.T) {
 	fx, proj := aiFiles(t)
-	os.WriteFile(filepath.Join(proj, "big"), bytes.Repeat([]byte("x"), 1<<20), 0o644)
+	os.WriteFile(filepath.Join(proj, "big"), bytes.Repeat([]byte("x"), 8<<20), 0o644)
 	if err := fx.h.SetAutoAllow("fs", "15m"); err != nil {
 		t.Fatal(err)
 	}
