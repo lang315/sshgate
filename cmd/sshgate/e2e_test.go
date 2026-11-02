@@ -228,6 +228,22 @@ func TestEndToEndApprovalFlow(t *testing.T) {
 func TestEndToEndAutoAllow(t *testing.T) {
 	srv := sshtest.Start(t)
 	close(srv.Release)
+	sftpRoot := t.TempDir()
+	srv.ServeSFTP(sftpRoot)
+	proj := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(proj, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(proj, "back"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bytes256 := make([]byte, 256)
+	for i := range bytes256 {
+		bytes256[i] = byte(i)
+	}
+	if err := os.WriteFile(filepath.Join(proj, "dist", "app.bin"), bytes256, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	bin := buildBinary(t)
 
 	dir := t.TempDir()
@@ -295,7 +311,9 @@ func TestEndToEndAutoAllow(t *testing.T) {
 	go hub.ServeMCPDoor(ctx, ln, h)
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "claude-code-test", Version: "0"}, nil)
-	cs, err := client.Connect(ctx, &mcp.CommandTransport{Command: exec.Command(bin)}, nil)
+	bridge := exec.Command(bin)
+	bridge.Dir = proj
+	cs, err := client.Connect(ctx, &mcp.CommandTransport{Command: bridge}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,5 +369,28 @@ func TestEndToEndAutoAllow(t *testing.T) {
 	}
 	if rec["command"] != "stdin-echo" || rec["stdin"] != "line1\nline2\n" || rec["approval"] != "auto" {
 		t.Fatalf("audit: %v", rec)
+	}
+
+	res, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "upload", Arguments: map[string]any{"server": "box", "local": []any{"dist"}, "remote": "/home"}})
+	if err != nil || res.IsError {
+		t.Fatalf("upload: %v %+v", err, res)
+	}
+	if txt := res.Content[0].(*mcp.TextContent).Text; !strings.HasPrefix(txt, "uploaded 1 file, 256 bytes\n") {
+		t.Fatalf("upload: %q", txt)
+	}
+	os.WriteFile(filepath.Join(sftpRoot, "home", "dist", ".env"), []byte("password=hunter2x\n"), 0o600)
+	res, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "download", Arguments: map[string]any{"server": "box", "remote": []any{"/home/dist"}, "local": "back"}})
+	if err != nil || res.IsError {
+		t.Fatalf("download: %v %+v", err, res)
+	}
+	txt = res.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(txt, "refused 1 file") || strings.Contains(txt, "hunter2x") {
+		t.Fatalf("download: %q", txt)
+	}
+	if b, _ := os.ReadFile(filepath.Join(proj, "back", "dist", "app.bin")); len(b) != 256 {
+		t.Fatalf("round trip: %d bytes", len(b))
+	}
+	if _, err := os.Stat(filepath.Join(proj, "back", "dist", ".env")); !os.IsNotExist(err) {
+		t.Fatal(".env downloaded")
 	}
 }
