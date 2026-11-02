@@ -274,8 +274,12 @@ func TestPlanUploadInStaysInRoot(t *testing.T) {
 	os.WriteFile(filepath.Join(proj, "dir", "a.txt"), []byte("a"), 0o644)
 	outside := t.TempDir()
 	os.WriteFile(filepath.Join(outside, "secret"), []byte("s"), 0o600)
-	os.Symlink(filepath.Join(outside, "secret"), filepath.Join(proj, "link"))
-	os.Symlink("dir/a.txt", filepath.Join(proj, "inlink"))
+	if err := os.Symlink(filepath.Join(outside, "secret"), filepath.Join(proj, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("dir/a.txt", filepath.Join(proj, "inlink")); err != nil {
+		t.Fatal(err)
+	}
 	root, err := os.OpenRoot(proj)
 	if err != nil {
 		t.Fatal(err)
@@ -290,11 +294,13 @@ func TestPlanUploadInStaysInRoot(t *testing.T) {
 	if _, err := PlanUploadIn(context.Background(), c, root, []string{"a/../../x"}, "/home"); !errors.Is(err, errNotLocal) {
 		t.Fatalf("a/../../x: %v", err)
 	}
-	os.Symlink(outside, filepath.Join(proj, "evil"))
+	if err := os.Symlink(outside, filepath.Join(proj, "evil")); err != nil {
+		t.Fatal(err)
+	}
 	ev, err := PlanUploadIn(context.Background(), c, root, []string{"evil/secret"}, "/home")
 	if err == nil {
 		defer ev.Close()
-		if ev.Files != 0 || ev.Errors.Count != 1 || len(ev.items) != 0 {
+		if ev.Files != 0 || ev.Errors.Count != 1 || len(ev.items) != 0 || !strings.Contains(ev.Errors.List[0], "evil/secret") {
 			t.Fatalf("escape planned: files %d errors %v", ev.Files, ev.Errors.List)
 		}
 	}
