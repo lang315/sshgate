@@ -3,6 +3,7 @@
 Date: 2026-11-02
 Status: Approved in chat 2026-11-02 (sections 1–2), option A of three.
 Amended 2026-11-02 while planning (selected symlinks refused, scan stops at the first hit, autoAllow.ran summary, view test).
+Implemented on branch feat/mcp-file-transfer (plan `plans/2026-11-02-mcp-file-transfer.md`).
 
 ## Goal
 
@@ -41,7 +42,7 @@ The MCP door decodes params strictly (`strictParams`), then `Hub.Transfer` follo
 1. `resolveForAuto`, as for exec (vault, visible, unlocked or a live grant under soft lock, pin).
 2. Validate: description (`config.ValidateDescription`); every local path relative, `filepath.IsLocal`; every remote path absolute; at least one source, at most 100; `root` absolute and not `/` and not the user's home folder (a session started in `~` would expose `~/.ssh` and the vault). Refuse a host with a su password (`ErrTransferSu`): the AI's `exec` runs as root there, SFTP as the login user. Unaudited, like the stdin refusals.
 3. `autoStart(ctx, server, false)`: a live grant runs the transfer with no approval, under the same 2-per-host in-flight cap, shared with exec. A root-login host has a grant only with `AutoAllowRoot`, as today. Under a lock with no run: `ErrAutoBusy` or `ErrLocked`, unaudited.
-4. Otherwise `broker.Submit` with `Request.Transfer` set (see Broker). Denied, expired and cancelled-while-pending are audited.
+4. Otherwise `broker.Submit` with `Request.Transfer` set (see Broker). Denied and expired are audited; a request the client withdraws while pending is not, as for exec.
 5. After approval: re-check ctx, `resolveForAI`, target and pin must match the approved ones (`ErrServerChanged`). Count in `h.running` like an approved exec; an auto transfer does not, as an auto exec does not.
 6. Open local paths only through `os.OpenRoot(root)`: each upload source and the download folder is reached with `Root.OpenRoot`/`Root.Lstat` from that root, so `..` and symlinks cannot leave the folder the bridge named (Go's `os.Root` refuses an escape at every step; see the boundary section for what that folder is worth). `internal/files` gains `PlanUploadIn(ctx, c, root *os.Root, sources []string, dest string)` and `PlanDownloadIn(ctx, c, sources []string, dest *os.Root)`; the existing `PlanUpload`/`PlanDownload` keep their absolute-path behaviour for the UI door. A selected local source that is a symlink is refused (`files.errSelectedLink`); symlinks inside a selected folder are skipped, as for the UI.
 7. Plan, then run on its own SFTP channel (`Manager.NewSFTP`), with the run bounded by `timeoutSec` (1–3600, default 600). An approved transfer counts in `h.running`, so the idle lock can wait up to that hour. An MCP `cancel` or a closed connection cancels the run; after `cancelGrace` the channel is closed, as for a UI job. `servers.save`/`delete`/`forgetHostKey` end it with "server changed", like UI jobs (the job joins the hub's job set).
@@ -67,7 +68,7 @@ The bridge lays out: `uploaded|downloaded N files, M folders, B bytes`; `skipped
 
 ### Audit
 
-Each AI transfer writes one `kind: "file"` record when it ends, as exec does: `FileRecord` gains `client`, `description`, `outcome` (`allowed`, `denied`, `expired`, `approved_but_cancelled`, `cancelled_running`, `error`), `approval` (`"auto"`), `waitMs`, `refused` (file count) and `redacted` (kind counts over refused files, never a value). A record with `client` set is an AI transfer; UI jobs keep their start and end records. `local` paths are stripped for the app as for every file record. `audit.read`'s `outcomes` filter matches file records that carry an `outcome`, with the same meaning as for exec (`auto` is `approval: "auto"`).
+Each AI transfer writes one `kind: "file"` record when it ends, as exec does: `FileRecord` gains `client`, `description`, `outcome` (`allowed`, `denied`, `expired`, `approved_but_cancelled`, `cancelled_running`, `error`), `approval` (`"auto"`), `waitMs`, `refused` (file count) and `redacted` (kind counts over refused files, never a value). A no-vault refusal writes one record with every AI field capped, as for exec. A record with `client` set is an AI transfer; UI jobs keep their start and end records. `local` paths are stripped for the app as for every file record. `audit.read`'s `outcomes` filter matches file records that carry an `outcome`, with the same meaning as for exec (`auto` is `approval: "auto"`).
 
 ### UI door, protocol 13
 
@@ -87,7 +88,7 @@ Prints `upload to <server> (<target>)`, the project folder, sources, destination
 
 ## Testing
 
-- `internal/files`: `PlanUploadIn`/`PlanDownloadIn` refuse `..`, an absolute path, and a symlink leaving the root, and follow one that stays inside; the download check removes a refused part file and commits the others unchanged.
+- `internal/files`: `PlanUploadIn`/`PlanDownloadIn` refuse `..`, an absolute path, and a symlink leaving the root, and refuse a selected symlink (`errSelectedLink`), including one that stays inside; the download check removes a refused part file and commits the others unchanged.
 - `internal/hub` against `sshtest` SFTP: approved upload and download; denied and expired audited; a grant runs both with `approval: "auto"`, also under soft lock; the shared in-flight cap; su host refused; root `/` and home refused; server changed during the wait; `overwrite` false skips; a download of a file holding a vault secret and of one holding a PEM key across a 1 MiB window edge refused with kinds; audit fields; CLI approver block and `s` refusal.
 - `internal/mcpserver`: both tools registered on the bridge, not in `--host` mode; `root` is the working directory; the answer layout.
 - `cmd/sshgate` e2e: bridge to hub to `sshtest`, an approved upload.
