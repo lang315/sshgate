@@ -1,5 +1,5 @@
 // Package door is a client for sshgate hub's UI door: newline-delimited
-// JSON-RPC 2.0 over the hub's stdio (protocol 12).
+// JSON-RPC 2.0 over the hub's stdio (protocol 13).
 package door
 
 import (
