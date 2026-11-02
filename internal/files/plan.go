@@ -282,11 +282,14 @@ func PlanUpload(ctx context.Context, c *sftp.Client, sources []string, dest stri
 // folder). Every local read goes through root, so ".." and symlinks cannot
 // leave it; a selected symlink is refused rather than followed.
 func PlanUploadIn(ctx context.Context, c *sftp.Client, root *os.Root, sources []string, dest string) (*Plan, error) {
-	for _, s := range sources {
+	cleaned := make([]string, len(sources))
+	for i, s := range sources {
 		if !filepath.IsLocal(s) || filepath.Clean(s) == "." {
 			return nil, errNotLocal
 		}
+		cleaned[i] = filepath.Clean(s) // "dir/" would otherwise give Dir == Base
 	}
+	sources = cleaned
 	if err := CheckAbs(dest); err != nil {
 		return nil, err
 	}

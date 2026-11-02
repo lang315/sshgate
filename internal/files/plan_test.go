@@ -287,6 +287,25 @@ func TestPlanUploadInStaysInRoot(t *testing.T) {
 	if _, err := PlanUploadIn(context.Background(), c, root, []string{"."}, "/home"); !errors.Is(err, errNotLocal) {
 		t.Fatalf(".: %v", err)
 	}
+	if _, err := PlanUploadIn(context.Background(), c, root, []string{"a/../../x"}, "/home"); !errors.Is(err, errNotLocal) {
+		t.Fatalf("a/../../x: %v", err)
+	}
+	os.Symlink(outside, filepath.Join(proj, "evil"))
+	ev, err := PlanUploadIn(context.Background(), c, root, []string{"evil/secret"}, "/home")
+	if err == nil {
+		defer ev.Close()
+		if ev.Files != 0 || ev.Errors.Count != 1 || len(ev.items) != 0 {
+			t.Fatalf("escape planned: files %d errors %v", ev.Files, ev.Errors.List)
+		}
+	}
+	sl, err := PlanUploadIn(context.Background(), c, root, []string{"dir/"}, "/home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sl.Files != 1 || sl.Dirs != 1 || sl.Errors.Count != 0 {
+		t.Fatalf("dir/: files %d dirs %d errors %v", sl.Files, sl.Dirs, sl.Errors.List)
+	}
+	sl.Close()
 	p, err := PlanUploadIn(context.Background(), c, root, []string{"dir", "link", "inlink"}, "/home")
 	if err != nil {
 		t.Fatal(err)
