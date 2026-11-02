@@ -504,22 +504,27 @@ func (h *Hub) autoExec(ar *autoRun, dc sshx.DialConfig, r ExecRequest, cmd strin
 	} else {
 		ran["exitCode"] = resp.ExitCode
 	}
-	// Nothing with content goes to a locked UI: a successful run under soft
-	// lock is counted instead, for the unlock reply. The state is read once,
-	// under h.mu, so a run cancelled by a stop (a hard lock), a failed run, or one
-	// that finishes with no soft lock is never counted as "ran while locked".
-	// The door's sink also drops autoAllow.ran while locked; the audit log has
-	// every run.
+	h.reportAuto(r.Server, ran, err)
+	return resp, err
+}
+
+// reportAuto counts a run that succeeded under soft lock, or sends ran to an
+// unlocked UI (see autoExec). Nothing with content goes to a locked UI: a successful run under soft
+// lock is counted instead, for the unlock reply. The state is read once,
+// under h.mu, so a run cancelled by a stop (a hard lock), a failed run, or one
+// that finishes with no soft lock is never counted as "ran while locked".
+// The door's sink also drops autoAllow.ran while locked; the audit log has
+// every run.
+func (h *Hub) reportAuto(server string, ran map[string]any, err error) {
 	h.mu.Lock()
 	soft, unlocked := h.autoKey != nil, h.deps.MasterKey != nil
 	if soft && err == nil {
-		h.ranLocked[r.Server]++
+		h.ranLocked[server]++
 	}
 	h.mu.Unlock()
 	if unlocked {
 		h.notifyAuto("autoAllow.ran", ran)
 	}
-	return resp, err
 }
 
 // cutBytes cuts s to at most n bytes on a rune boundary; cut is how many
