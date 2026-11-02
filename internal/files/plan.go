@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -46,6 +47,9 @@ type Plan struct {
 	Errors    Errors
 	Remote    []string // remote paths for the audit
 	Local     []string // local paths for the audit
+	// Check, when set on a download, sees each finished part file before it
+	// is committed; any count refuses the file (spec 2026-11-02, scan).
+	Check func(io.Reader) (map[string]int, error)
 
 	items []item
 	dest  string     // upload: the remote folder

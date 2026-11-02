@@ -2,6 +2,8 @@ package files
 
 import (
 	"context"
+	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -551,4 +553,57 @@ func TestUploadWithoutMkdirFallsBack(t *testing.T) {
 		t.Fatal("content")
 	}
 	noParts(t, filepath.Join(root, "home"))
+}
+
+func TestDownloadCheckRefusesAndKeepsOthers(t *testing.T) {
+	c, _, rroot := remote(t)
+	write(t, filepath.Join(rroot, "home", "bad"), "password=hunter2x\n", 0o644)
+	write(t, filepath.Join(rroot, "home", "good"), "fine\n", 0o644)
+	destDir := t.TempDir()
+	dest, _ := os.OpenRoot(destDir)
+	p, err := PlanDownloadIn(context.Background(), c, []string{"/home/bad", "/home/good"}, dest, destDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	p.Check = func(r io.Reader) (map[string]int, error) {
+		b, _ := io.ReadAll(r)
+		if strings.Contains(string(b), "password=") {
+			return map[string]int{"password": 1}, nil
+		}
+		return nil, nil
+	}
+	r := p.Run(context.Background(), c, false, nil)
+	if r.Copied != 1 || r.RefusedCount != 1 || r.Refused[0].Path != "bad" || r.Refused[0].Kinds["password"] != 1 {
+		t.Fatalf("result %+v", r)
+	}
+	if _, err := os.Stat(filepath.Join(destDir, "bad")); !os.IsNotExist(err) {
+		t.Fatal("refused file committed")
+	}
+	if got := read(t, filepath.Join(destDir, "good")); got != "fine\n" {
+		t.Fatalf("good = %q", got)
+	}
+	if des, _ := os.ReadDir(destDir); len(des) != 1 {
+		t.Fatalf("left behind: %v", des) // only "good": no part file
+	}
+}
+
+func TestDownloadCheckErrorIsPerFileError(t *testing.T) {
+	c, _, rroot := remote(t)
+	write(t, filepath.Join(rroot, "home", "f"), "x\n", 0o644)
+	destDir := t.TempDir()
+	dest, _ := os.OpenRoot(destDir)
+	p, err := PlanDownloadIn(context.Background(), c, []string{"/home/f"}, dest, destDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	p.Check = func(io.Reader) (map[string]int, error) { return nil, errors.New("scan failed") }
+	r := p.Run(context.Background(), c, false, nil)
+	if r.Copied != 0 || r.RefusedCount != 0 || r.Errors.Count == 0 {
+		t.Fatalf("result %+v", r)
+	}
+	if des, _ := os.ReadDir(destDir); len(des) != 0 {
+		t.Fatalf("left behind: %v", des)
+	}
 }
