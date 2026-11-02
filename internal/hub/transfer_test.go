@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lang315/sshgate/internal/broker"
@@ -146,6 +147,7 @@ func TestTransferRefusals(t *testing.T) {
 		"root /":        func(r *TransferRequest) { r.Root = "/" },
 		"root home":     func(r *TransferRequest) { r.Root = home },
 		"root relative": func(r *TransferRequest) { r.Root = "proj" },
+		"root control":  func(r *TransferRequest) { r.Root = proj + "\x1b[31m" },
 		"local ..":      func(r *TransferRequest) { r.Local = []string{"../x"} },
 		"local abs":     func(r *TransferRequest) { r.Local = []string{"/etc/passwd"} },
 		"remote rel":    func(r *TransferRequest) { r.Remote = []string{"home"} },
@@ -197,21 +199,45 @@ func TestTransferServerChangedDuringWait(t *testing.T) {
 	}()
 	waitPending(t, fx.h.Broker(), 1)
 	id := fx.h.Broker().Pending()[0].ID
-	// change the host behind the broker's back, as a hand edit would
+	// change the port behind the broker's back, as a hand edit would; the
+	// pin stays, so the target compare is what refuses it
 	if err := config.Update(fx.store, fx.h.deps.MasterKey, func(f *config.File) error {
 		f.Servers[0].Port++
-		f.Servers[0].HostKey = ""
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	fx.h.Reload()
+	if err := fx.h.Reload(); err != nil {
+		t.Fatal(err)
+	}
 	fx.h.Broker().Decide(id, broker.Decision{Outcome: broker.Allowed})
-	if err := <-c; err == nil {
-		t.Fatal("ran after the server changed")
+	if err := <-c; !errors.Is(err, ErrServerChanged) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(fx.root, "home", "f")); !os.IsNotExist(err) {
+		t.Fatal("upload ran")
 	}
 	rec := fileRecords(t, fx.store)
 	if last := rec[len(rec)-1]; last["outcome"] != "error" {
 		t.Fatalf("audit %v", last)
+	}
+}
+
+// No vault: refused like Exec, with one capped audit record.
+func TestTransferNoVaultAudited(t *testing.T) {
+	h, store := newHubAt(t, nil, nil)
+	huge := strings.Repeat("x", 1<<20)
+	_, err := h.Transfer(context.Background(), TransferRequest{Client: huge, Server: huge, Description: huge, Op: files.OpUpload,
+		Root: "/p", Local: []string{huge, huge}, Remote: []string{huge}})
+	if !errors.Is(err, ErrNoVault) {
+		t.Fatalf("err = %v", err)
+	}
+	if n := len(h.Broker().Pending()); n != 0 {
+		t.Fatalf("%d pending", n)
+	}
+	raw, _ := readAudit(t, store)
+	rec := fileRecords(t, store)
+	if len(rec) != 1 || rec[0]["outcome"] != "error" || rec[0]["reason"] != ErrNoVault.Error() || len(raw) > 32<<10 {
+		t.Fatalf("audit is %d bytes: %v", len(raw), len(rec))
 	}
 }

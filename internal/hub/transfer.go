@@ -80,7 +80,7 @@ func validateTransfer(r TransferRequest) error {
 	if len(srcs) == 0 || len(srcs) > maxTransferSources || len(dests) != 1 {
 		return fmt.Errorf("give 1 to %d sources and one destination folder", maxTransferSources)
 	}
-	for _, p := range append(append([]string{}, r.Local...), r.Remote...) {
+	for _, p := range append(append([]string{r.Root}, r.Local...), r.Remote...) {
 		if _, err := config.SanitizeCommand(p, -1); err != nil {
 			return errors.New("a path contains a forbidden character")
 		}
@@ -114,6 +114,19 @@ func (h *Hub) Transfer(ctx context.Context, r TransferRequest) (TransferResponse
 		if errors.As(err, &he) {
 			fmt.Fprintf(os.Stderr, "hub: resolve %q: %v\n", r.Server, he.detail)
 		}
+		if errors.Is(err, ErrNoVault) {
+			// As in Exec: audited before validation, so every AI field is capped.
+			c := config.CapOutput
+			capAll := func(ps []string) []string {
+				out := append([]string(nil), first20(ps)...)
+				for i := range out {
+					out[i] = c(out[i], 4096)
+				}
+				return out
+			}
+			h.auditFile(broker.FileRecord{Action: c(string(r.Op), 256), Client: c(r.Client, 256), Server: c(r.Server, 256),
+				Description: c(r.Description, 500), Local: capAll(r.Local), Remote: capAll(r.Remote), Outcome: "error", Reason: err.Error()})
+		}
 		return TransferResponse{}, err
 	}
 	if err := validateTransfer(r); err != nil {
@@ -140,7 +153,14 @@ func (h *Hub) Transfer(ctx context.Context, r TransferRequest) (TransferResponse
 		defer ar.done()
 		red := redactorFor(dc, ar.dc)
 		base.Approval, base.Description = "auto", red.Redact(r.Description)
-		resp, err := h.runTransfer(ar.ctx, r, ar.dc, timeout, base, red)
+		var resp TransferResponse
+		if ar.dc.SuPassword != "" { // saved since the first resolve; snapOf does not cover it
+			base.Outcome, base.Reason = "error", ErrTransferSu.Error()
+			h.auditFile(base)
+			err = ErrTransferSu
+		} else {
+			resp, err = h.runTransfer(ar.ctx, r, ar.dc, timeout, base, red)
+		}
 		ran := map[string]any{"server": r.Server, "op": string(r.Op), "command": transferSummary(r),
 			"description": base.Description, "time": time.Now().UTC().Format(time.RFC3339)}
 		if err != nil {
@@ -178,6 +198,11 @@ func (h *Hub) Transfer(ctx context.Context, r TransferRequest) (TransferResponse
 		base.Outcome, base.Reason = "error", broker.ErrSendToTabTransfer.Error()
 		h.auditFile(base)
 		return TransferResponse{}, broker.ErrSendToTabTransfer
+	case broker.Allowed: // the only outcome that runs
+	default:
+		base.Outcome, base.Reason = "error", "unexpected decision"
+		h.auditFile(base)
+		return TransferResponse{}, errors.New("unexpected decision")
 	}
 
 	h.mu.Lock()
