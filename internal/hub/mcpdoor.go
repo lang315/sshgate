@@ -8,6 +8,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/lang315/sshgate/internal/files"
 	"github.com/lang315/sshgate/internal/rpc"
 )
 
@@ -64,6 +65,32 @@ func serveMCPConn(ctx context.Context, conn net.Conn, h *Hub) {
 		}
 	}
 
+	// track registers a cancellable request under id (empty id: no
+	// bookkeeping). A duplicate id is refused; an id cancelled earlier yields
+	// context.Canceled. release must be deferred.
+	track := func(ctx context.Context, id string) (context.Context, func(), error) {
+		reqCtx, cancel := context.WithCancel(ctx)
+		if id == "" {
+			return reqCtx, cancel, nil
+		}
+		mu.Lock()
+		if _, dup := inflight[id]; dup {
+			mu.Unlock()
+			cancel()
+			return nil, nil, &rpc.Error{Code: -32602, Message: "duplicate requestId"}
+		}
+		early := cancelled[id]
+		delete(cancelled, id)
+		inflight[id] = cancel
+		mu.Unlock()
+		release := func() { cancel(); mu.Lock(); delete(inflight, id); mu.Unlock() }
+		if early {
+			release()
+			return nil, nil, context.Canceled
+		}
+		return reqCtx, release, nil
+	}
+
 	// listServers, exec and sudoExec are request-only: a notification-form
 	// exec would otherwise block the read loop for the whole approval wait.
 	s := rpc.NewServer()
@@ -88,23 +115,11 @@ func serveMCPConn(ctx context.Context, conn net.Conn, h *Hub) {
 			if p.Stdin != "" && !withStdin {
 				return nil, &rpc.Error{Code: -32602, Message: "stdin is sent with execStdin"}
 			}
-			reqCtx, cancel := context.WithCancel(ctx)
-			defer cancel()
-			if p.RequestID != "" {
-				mu.Lock()
-				if _, dup := inflight[p.RequestID]; dup {
-					mu.Unlock()
-					return nil, &rpc.Error{Code: -32602, Message: "duplicate requestId"}
-				}
-				early := cancelled[p.RequestID]
-				delete(cancelled, p.RequestID)
-				inflight[p.RequestID] = cancel
-				mu.Unlock()
-				defer func() { mu.Lock(); delete(inflight, p.RequestID); mu.Unlock() }()
-				if early {
-					return nil, context.Canceled
-				}
+			reqCtx, release, err := track(ctx, p.RequestID)
+			if err != nil {
+				return nil, err
 			}
+			defer release()
 			reload()
 			return h.Exec(reqCtx, ExecRequest{Client: p.Client, Server: p.Server, Command: p.Command, Description: p.Description, Stdin: p.Stdin, Sudo: sudo, TimeoutSec: p.TimeoutSec})
 		}
@@ -112,6 +127,34 @@ func serveMCPConn(ctx context.Context, conn net.Conn, h *Hub) {
 	s.HandleRequest("exec", exec(false, false))
 	s.HandleRequest("execStdin", exec(false, true))
 	s.HandleRequest("sudoExec", exec(true, false))
+	transfer := func(op files.Op) rpc.Handler {
+		return func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var p struct {
+				RequestID   string   `json:"requestId"`
+				Client      string   `json:"client"`
+				Server      string   `json:"server"`
+				Root        string   `json:"root"`
+				Local       []string `json:"local"`
+				Remote      []string `json:"remote"`
+				Overwrite   bool     `json:"overwrite"`
+				Description string   `json:"description"`
+				TimeoutSec  int      `json:"timeoutSec"`
+			}
+			if err := strictParams(raw, &p, "requestId", "client", "server", "root", "local", "remote", "overwrite", "description", "timeoutSec"); err != nil {
+				return nil, err
+			}
+			reqCtx, release, err := track(ctx, p.RequestID)
+			if err != nil {
+				return nil, err
+			}
+			defer release()
+			reload()
+			return h.Transfer(reqCtx, TransferRequest{Client: p.Client, Server: p.Server, Op: op, Root: p.Root, Local: p.Local, Remote: p.Remote,
+				Overwrite: p.Overwrite, Description: p.Description, TimeoutSec: p.TimeoutSec})
+		}
+	}
+	s.HandleRequest("upload", transfer(files.OpUpload))
+	s.HandleRequest("download", transfer(files.OpDownload))
 	// cancel may arrive as a notification, which runs on the read loop: it
 	// only takes a mutex and calls a CancelFunc, so it never blocks.
 	s.Handle("cancel", func(_ context.Context, raw json.RawMessage) (any, error) {

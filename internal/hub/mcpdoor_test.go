@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/lang315/sshgate/internal/broker"
 	"github.com/lang315/sshgate/internal/rpc"
 	"github.com/lang315/sshgate/internal/sshx"
 )
@@ -268,5 +270,31 @@ func TestMCPDoorExecStdin(t *testing.T) {
 	err := c.Call(context.Background(), "exec", map[string]any{"server": "vis", "command": "cat > f", "stdin": "a\n"}, nil)
 	if err == nil || !strings.Contains(err.Error(), "execStdin") || len(fe.calls) != 1 || len(h.Broker().Pending()) != 0 {
 		t.Fatalf("exec with stdin: err %v calls %v", err, fe.calls)
+	}
+}
+
+func TestMCPDoorTransferMethods(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	c := startDoor(t, h)
+	var re *rpc.Error
+	err := c.Call(context.Background(), "download", map[string]any{"server": "x", "bogus": 1}, nil)
+	if !errors.As(err, &re) || re.Code != -32602 {
+		t.Fatalf("unknown key: %v", err)
+	}
+
+	dir := t.TempDir()
+	audit, err := broker.OpenAudit(filepath.Join(dir, "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { audit.Close() })
+	nv, err := New(Options{StorePath: filepath.Join(dir, "servers.json"), Audit: audit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c = startDoor(t, nv)
+	err = c.Call(context.Background(), "upload", map[string]any{"client": "c", "server": "vis", "root": "/p", "local": []string{"a"}, "remote": []string{"/srv"}}, nil)
+	if err == nil || !strings.Contains(err.Error(), ErrNoVault.Error()) {
+		t.Fatalf("want ErrNoVault, got %v", err)
 	}
 }
