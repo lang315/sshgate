@@ -316,3 +316,18 @@ func TestSendToTabRefusedWithStdin(t *testing.T) {
 		t.Fatalf("empty stdin not omitted: %s", b2)
 	}
 }
+
+func TestDecideRefusesSendToTabForTransfer(t *testing.T) {
+	b, _, _ := newTestBroker(time.Minute)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		b.Submit(context.Background(), Request{Server: "s", Command: "upload 1 path to /srv", Transfer: &Transfer{Op: "upload", Root: "/p", Local: []string{"a"}, Remote: []string{"/srv"}}})
+	}()
+	r := waitForPending(t, b, 1)[0]
+	if err := b.Decide(r.ID, Decision{Outcome: SentToTab}); !errors.Is(err, ErrSendToTabTransfer) {
+		t.Fatalf("err = %v", err)
+	}
+	b.Decide(r.ID, Decision{Outcome: Denied})
+	<-done
+}

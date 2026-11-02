@@ -75,6 +75,14 @@ type FileRecord struct {
 	ErrorCount int       `json:"errorCount,omitempty"`
 	Cancelled  bool      `json:"cancelled,omitempty"`
 	Reason     string    `json:"reason,omitempty"`
+
+	Client      string         `json:"client,omitempty"` // set: an AI transfer (spec 2026-11-02)
+	Description string         `json:"description,omitempty"`
+	Outcome     string         `json:"outcome,omitempty"`  // AI transfers: exec's outcome values
+	Approval    string         `json:"approval,omitempty"` // "auto" under a grant
+	WaitMs      int64          `json:"waitMs,omitempty"`
+	Refused     int            `json:"refused,omitempty"`  // downloads refused by the secret scan
+	Redacted    map[string]int `json:"redacted,omitempty"` // their kinds, summed; never a value
 }
 
 // TunnelRecord is an audit line for a port forward: one at start, one at end.
@@ -338,7 +346,7 @@ func (q ReadQuery) match(f fields, line []byte, text string) bool {
 	if slices.Contains(q.Kinds, kind) {
 		return true
 	}
-	return kind == "exec" && slices.ContainsFunc(q.Outcomes, f.outcomeIs)
+	return (kind == "exec" || kind == "file" && f.Outcome != "") && slices.ContainsFunc(q.Outcomes, f.outcomeIs)
 }
 
 // linesBackward calls fn with each line in the first size bytes of r, last

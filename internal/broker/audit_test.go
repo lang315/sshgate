@@ -732,3 +732,19 @@ func TestAuditReadsRecordLongerThanAChunk(t *testing.T) {
 		t.Fatalf("long record: err %v, command %q, stdin %d bytes", err, got.Command, len(got.Stdin))
 	}
 }
+
+func TestReadOutcomesMatchAITransferRecords(t *testing.T) {
+	a, _ := openTestAudit(t)
+	a.WriteFile(FileRecord{Action: "upload", Server: "s", Client: "c", Outcome: "denied"})
+	a.WriteFile(FileRecord{Action: "upload", Server: "s", Client: "c", Outcome: "allowed", Approval: "auto"})
+	a.WriteFile(FileRecord{Phase: "end", Action: "upload", Server: "s"}) // a UI job: no outcome
+	for _, tc := range []struct {
+		o    string
+		want int
+	}{{"denied", 1}, {"auto", 1}, {"allowed", 0}} {
+		page, err := a.Read(ReadQuery{Outcomes: []string{tc.o}})
+		if err != nil || len(page.Records) != tc.want {
+			t.Fatalf("%s: %d records, %v", tc.o, len(page.Records), err)
+		}
+	}
+}

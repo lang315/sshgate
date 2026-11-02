@@ -20,6 +20,16 @@ const (
 	Withdrawn            Outcome = "withdrawn"
 )
 
+// Transfer is an AI upload or download awaiting approval. For an upload,
+// Remote is the one destination folder; for a download, Local is.
+type Transfer struct {
+	Op        string   `json:"op"` // "upload" or "download"
+	Root      string   `json:"root"`
+	Local     []string `json:"local"`
+	Remote    []string `json:"remote"`
+	Overwrite bool     `json:"overwrite,omitempty"`
+}
+
 type Request struct {
 	ID          string    `json:"id"`
 	Client      string    `json:"client"`
@@ -29,6 +39,7 @@ type Request struct {
 	Description string    `json:"description"`
 	Stdin       string    `json:"stdin,omitempty"`
 	Sudo        bool      `json:"sudo"`
+	Transfer    *Transfer `json:"transfer,omitempty"`
 	TimeoutSec  int       `json:"timeoutSec"`
 	ReceivedAt  time.Time `json:"receivedAt"`
 }
@@ -52,9 +63,10 @@ type Options struct {
 }
 
 var (
-	ErrTooManyPending = errors.New("too many pending requests, try again later")
-	ErrNotFound       = errors.New("no such pending request")
-	ErrSendToTabStdin = errors.New("send to tab is not available for a command with stdin")
+	ErrTooManyPending    = errors.New("too many pending requests, try again later")
+	ErrNotFound          = errors.New("no such pending request")
+	ErrSendToTabStdin    = errors.New("send to tab is not available for a command with stdin")
+	ErrSendToTabTransfer = errors.New("send to tab is not available for a file transfer")
 )
 
 type pending struct {
@@ -166,6 +178,10 @@ func (b *Broker) Decide(id string, d Decision) error {
 			if p.req.ID == id && p.req.Stdin != "" {
 				b.mu.Unlock()
 				return ErrSendToTabStdin
+			}
+			if p.req.ID == id && p.req.Transfer != nil {
+				b.mu.Unlock()
+				return ErrSendToTabTransfer
 			}
 		}
 		b.mu.Unlock()
