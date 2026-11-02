@@ -17,8 +17,8 @@ func TestPlanDownloadConflictsMergeAndErrors(t *testing.T) {
 	os.Symlink("a.txt", filepath.Join(root, "home", "src", "inner-link"))
 	dest := t.TempDir()
 	write(t, filepath.Join(dest, "src", "a.txt"), "old", 0o644) // conflict
-	os.MkdirAll(filepath.Join(dest, "src", "sub"), 0o755)      // merge
-	os.MkdirAll(filepath.Join(dest, "src", "clash"), 0o755)    // folder where a file goes
+	os.MkdirAll(filepath.Join(dest, "src", "sub"), 0o755)       // merge
+	os.MkdirAll(filepath.Join(dest, "src", "clash"), 0o755)     // folder where a file goes
 	p, err := PlanDownload(context.Background(), c, []string{"/home/src"}, dest)
 	if err != nil {
 		t.Fatal(err)
