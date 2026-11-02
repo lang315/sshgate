@@ -2,6 +2,7 @@
 
 Date: 2026-11-02
 Status: Approved in chat 2026-11-02 (sections 1–2), option A of three.
+Amended 2026-11-02 while planning (selected symlinks refused, scan stops at the first hit, autoAllow.ran summary, view test).
 
 ## Goal
 
@@ -42,13 +43,13 @@ The MCP door decodes params strictly (`strictParams`), then `Hub.Transfer` follo
 3. `autoStart(ctx, server, false)`: a live grant runs the transfer with no approval, under the same 2-per-host in-flight cap, shared with exec. A root-login host has a grant only with `AutoAllowRoot`, as today. Under a lock with no run: `ErrAutoBusy` or `ErrLocked`, unaudited.
 4. Otherwise `broker.Submit` with `Request.Transfer` set (see Broker). Denied, expired and cancelled-while-pending are audited.
 5. After approval: re-check ctx, `resolveForAI`, target and pin must match the approved ones (`ErrServerChanged`). Count in `h.running` like an approved exec; an auto transfer does not, as an auto exec does not.
-6. Open local paths only through `os.OpenRoot(root)`: each upload source and the download folder is reached with `Root.OpenRoot`/`Root.Lstat` from that root, so `..` and symlinks cannot leave the folder the bridge named (Go's `os.Root` refuses an escape at every step; see the boundary section for what that folder is worth). `internal/files` gains `PlanUploadIn(ctx, c, root *os.Root, sources []string, dest string)` and `PlanDownloadIn(ctx, c, sources []string, dest *os.Root)`; the existing `PlanUpload`/`PlanDownload` keep their absolute-path behaviour for the UI door. A selected symlink inside the project is followed only when its target stays inside it.
+6. Open local paths only through `os.OpenRoot(root)`: each upload source and the download folder is reached with `Root.OpenRoot`/`Root.Lstat` from that root, so `..` and symlinks cannot leave the folder the bridge named (Go's `os.Root` refuses an escape at every step; see the boundary section for what that folder is worth). `internal/files` gains `PlanUploadIn(ctx, c, root *os.Root, sources []string, dest string)` and `PlanDownloadIn(ctx, c, sources []string, dest *os.Root)`; the existing `PlanUpload`/`PlanDownload` keep their absolute-path behaviour for the UI door. A selected local source that is a symlink is refused (`files.errSelectedLink`); symlinks inside a selected folder are skipped, as for the UI.
 7. Plan, then run on its own SFTP channel (`Manager.NewSFTP`), with the run bounded by `timeoutSec` (1–3600, default 600). An approved transfer counts in `h.running`, so the idle lock can wait up to that hour. An MCP `cancel` or a closed connection cancels the run; after `cancelGrace` the channel is closed, as for a UI job. `servers.save`/`delete`/`forgetHostKey` end it with "server changed", like UI jobs (the job joins the hub's job set).
 8. Audit (see Audit) and answer the AI.
 
 ### Download secret scan
 
-`Plan.Run` takes an optional `Check func(r io.Reader) (map[string]int, error)` for downloads, called on the finished part file before `commitLocal`. The hub's check reads the whole file through the server's `config.Redactor` (vault secrets, counted as `secret`) and `config.RedactPatterns`, in windows of 1 MiB that overlap by 64 KiB so a PEM block across a window edge still matches. Any count above zero: the part file is removed, the file counts as refused with its kinds, and the run continues with the next file. A file that passes is committed unchanged; nothing is ever rewritten.
+`Plan.Run` takes an optional `Check func(r io.Reader) (map[string]int, error)` for downloads, called on the finished part file before `commitLocal`. The hub's check reads the whole file through the server's `config.Redactor` (vault secrets, counted as `secret`) and `config.RedactPatterns`, in windows of 1 MiB that overlap by 64 KiB so a PEM block across a window edge still matches. Any count above zero: the part file is removed, the file counts as refused with its kinds, and the run continues with the next file. The scan stops at the first window with a hit; the kinds reported are that window's, so a count is a lower bound, never double-counted across the overlap. A file that passes is committed unchanged; nothing is ever rewritten.
 
 This scan stops accidents, not a determined agent: a compressed or encoded secret passes, as `exec base64 .env` passes today. The tool description promises only that "files holding a recognised secret are refused".
 
@@ -71,7 +72,7 @@ Each AI transfer writes one `kind: "file"` record when it ends, as exec does: `F
 ### UI door, protocol 13
 
 - `pending` events carry `transfer`.
-- `autoAllow.ran` carries `op` (`upload`/`download`) and no `command` for a transfer.
+- `autoAllow.ran` carries `op` (`upload`/`download`) and, as `command`, the one-line summary.
 - `decide` `sent_to_tab` on a transfer: `ErrSendToTabTransfer`.
 
 ### App
@@ -90,4 +91,4 @@ Prints `upload to <server> (<target>)`, the project folder, sources, destination
 - `internal/hub` against `sshtest` SFTP: approved upload and download; denied and expired audited; a grant runs both with `approval: "auto"`, also under soft lock; the shared in-flight cap; su host refused; root `/` and home refused; server changed during the wait; `overwrite` false skips; a download of a file holding a vault secret and of one holding a PEM key across a 1 MiB window edge refused with kinds; audit fields; CLI approver block and `s` refusal.
 - `internal/mcpserver`: both tools registered on the bridge, not in `--host` mode; `root` is the working directory; the answer layout.
 - `cmd/sshgate` e2e: bridge to hub to `sshtest`, an approved upload.
-- `app/view`: a flow test for the transfer approval card (Send to tab disabled) and the audit row.
+- `app/view`: a view test (`approvals_test.go`, `colApp`) for the transfer approval card (Send to tab disabled) and the audit row.
