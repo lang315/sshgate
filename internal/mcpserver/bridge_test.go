@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/lang315/sshgate/internal/config"
 	"github.com/lang315/sshgate/internal/rpc"
+	"github.com/lang315/sshgate/internal/sshx"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -320,5 +322,68 @@ func TestBridgeStdinOnlyOnExec(t *testing.T) {
 	s := inputSchemas(t, BuildBridgeServer(fakeHub(t, nil, "")))
 	if !strings.Contains(s["exec"], `"stdin"`) || strings.Contains(s["sudo-exec"], `"stdin"`) {
 		t.Fatalf("exec: %s\nsudo-exec: %s", s["exec"], s["sudo-exec"])
+	}
+}
+
+func TestBridgeUploadSendsRootAndPaths(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	dial, got := doorRecorder("upload")
+	res := callTool(t, BuildBridgeServer(dial), "upload", map[string]any{"server": "vis", "local": []any{"dist"}, "remote": "/srv/app", "overwrite": true})
+	if res.IsError {
+		t.Fatal(text(res))
+	}
+	c := <-got
+	p := c[1].(map[string]any)
+	wd, _ := os.Getwd()
+	if c[0] != "upload" || p["root"] != wd || p["remote"].([]any)[0] != "/srv/app" || p["local"].([]any)[0] != "dist" || p["overwrite"] != true {
+		t.Fatalf("door call %v", c)
+	}
+}
+
+func TestBridgeDownloadSendsRootAndPaths(t *testing.T) {
+	t.Chdir(t.TempDir())
+	dial, got := doorRecorder("download")
+	res := callTool(t, BuildBridgeServer(dial), "download", map[string]any{"server": "vis", "remote": []any{"/etc/x"}, "local": "."})
+	if res.IsError {
+		t.Fatal(text(res))
+	}
+	p := (<-got)[1].(map[string]any)
+	if p["remote"].([]any)[0] != "/etc/x" || p["local"].([]any)[0] != "." {
+		t.Fatalf("params %v", p)
+	}
+}
+
+func TestBridgeTransferOnOlderHub(t *testing.T) {
+	dial, _ := doorRecorder("exec")
+	res := callTool(t, BuildBridgeServer(dial), "upload", map[string]any{"server": "vis", "local": []any{"a"}, "remote": "/r"})
+	if !res.IsError || !strings.Contains(text(res), "does not support file transfer") {
+		t.Fatalf("got %v %q", res.IsError, text(res))
+	}
+}
+
+func TestLayoutTransfer(t *testing.T) {
+	got := layoutTransfer("download", transferOut{Files: 2, Bytes: 10, Skipped: 1, SkippedNames: []string{"a"},
+		RefusedCount: 1, Refused: []transferRefusal{{Path: "app/.env", Kinds: map[string]int{"password": 1}}}, ErrorCount: 1, Errors: []string{"x: permission denied"}})
+	want := "downloaded 2 files, 10 bytes\n" +
+		"skipped 1 existing file (not overwritten): a\n" +
+		"refused 1 file holding a recognised secret (not saved):\n  app/.env (password ×1)\n" +
+		"1 error:\n  x: permission denied\n"
+	if got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+	if layoutTransfer("upload", transferOut{}) != "uploaded 0 files, 0 bytes\n" {
+		t.Fatal("zero value")
+	}
+}
+
+func TestTransferToolsOnlyOnBridge(t *testing.T) {
+	if s := inputSchemas(t, BuildBridgeServer(nil)); s["upload"] == "" || s["download"] == "" {
+		t.Fatal("bridge lacks transfer tools")
+	}
+	d := &Deps{CLI: &config.CLIConfig{Host: "h", User: "u", HasHost: true, TimeoutMs: 60000, MaxChars: 1000}}
+	s := inputSchemas(t, BuildServer(d, sshx.NewRegistry(), false, 1000))
+	if s["upload"] != "" || s["download"] != "" {
+		t.Fatal("--host mode has transfer tools")
 	}
 }
