@@ -9,7 +9,7 @@ const defaultIdleLock = 15 * time.Minute
 // touch records UI input; the idle auto-lock counts from the last one.
 func (h *Hub) touch() {
 	h.mu.Lock()
-	h.lastActivity = time.Now()
+	h.lastActivity = time.Now().Round(0)
 	h.mu.Unlock()
 }
 
