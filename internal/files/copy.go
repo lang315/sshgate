@@ -250,7 +250,11 @@ func (p *Plan) download(ctx context.Context, c *sftp.Client, it item, replace bo
 	w := &ctxWriter{ctx: ctx, w: dst, prog: prog}
 	_, err = src.WriteTo(w)
 	if err == nil {
-		err = dst.Chmod(downloadMode(it.mode))
+		mode := downloadMode(it.mode)
+		if p.NoExec {
+			mode = it.mode & 0o644
+		}
+		err = dst.Chmod(mode)
 	}
 	if cerr := dst.Close(); err == nil {
 		err = cerr

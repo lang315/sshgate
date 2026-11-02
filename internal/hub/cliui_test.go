@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -362,6 +363,18 @@ func TestCLIApproverShowsTransferAndRefusesSendToTab(t *testing.T) {
 	if len(h.Broker().Pending()) != 1 {
 		t.Fatal("s removed the request")
 	}
+	io.WriteString(pw, "d\n")
+	<-done
+
+	// A download shows the project folder joined to the destination.
+	done = make(chan struct{})
+	go func() {
+		defer close(done)
+		h.Broker().Submit(context.Background(), broker.Request{Server: "vis", Command: "download 1 path(s) to out",
+			Transfer: &broker.Transfer{Op: "download", Root: "/p", Local: []string{"out"}, Remote: []string{"/srv/f"}}})
+	}()
+	waitPending(t, h.Broker(), 1)
+	waitOut(t, out, "download from vis:\n  /srv/f\nto "+filepath.Join("/p", "out")+"\n")
 	io.WriteString(pw, "d\n")
 	<-done
 }

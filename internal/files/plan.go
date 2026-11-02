@@ -50,6 +50,9 @@ type Plan struct {
 	// Check, when set on a download, sees each finished part file before it
 	// is committed; any count refuses the file (spec 2026-11-02, scan).
 	Check func(io.Reader) (map[string]int, error)
+	// NoExec, when set on a download, writes files without execute bits
+	// (AI downloads, spec 2026-11-02); folders are unchanged.
+	NoExec bool
 
 	items []item
 	dest  string     // upload: the remote folder

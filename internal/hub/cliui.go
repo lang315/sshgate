@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -229,7 +230,13 @@ func printRequest(out io.Writer, r broker.Request) {
 		for _, s := range src {
 			fmt.Fprintf(out, "  %s\n", s)
 		}
-		fmt.Fprintf(out, "to %s\n", dst[0])
+		if len(dst) > 0 {
+			to := dst[0]
+			if tr.Op == "download" {
+				to = filepath.Join(tr.Root, to)
+			}
+			fmt.Fprintf(out, "to %s\n", to)
+		}
 		if tr.Overwrite {
 			fmt.Fprintln(out, "overwrite: yes")
 		}

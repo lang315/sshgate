@@ -141,24 +141,42 @@ func TestTransferRefusals(t *testing.T) {
 	up := func(mod func(*TransferRequest)) error {
 		r := TransferRequest{Client: "c", Server: "fs", Op: files.OpUpload, Root: proj, Local: []string{"f"}, Remote: []string{"/home"}}
 		mod(&r)
-		_, err := fx.h.Transfer(context.Background(), r)
+		// An accepted request would wait for a decision; the deadline turns
+		// that into a failure instead of a five-minute hang.
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_, err := fx.h.Transfer(ctx, r)
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil
+		}
 		return err
 	}
-	for name, mod := range map[string]func(*TransferRequest){
-		"root /":        func(r *TransferRequest) { r.Root = "/" },
-		"root home":     func(r *TransferRequest) { r.Root = home },
-		"root relative": func(r *TransferRequest) { r.Root = "proj" },
-		"root control":  func(r *TransferRequest) { r.Root = proj + "\x1b[31m" },
-		"local ..":      func(r *TransferRequest) { r.Local = []string{"../x"} },
-		"local abs":     func(r *TransferRequest) { r.Local = []string{"/etc/passwd"} },
-		"remote rel":    func(r *TransferRequest) { r.Remote = []string{"home"} },
-		"two dests":     func(r *TransferRequest) { r.Remote = []string{"/a", "/b"} },
-		"no sources":    func(r *TransferRequest) { r.Local = nil },
-		"control char":  func(r *TransferRequest) { r.Local = []string{"a\x1bb"} },
+	cases := map[string]func(*TransferRequest){
+		"root /":           func(r *TransferRequest) { r.Root = "/" },
+		"root home":        func(r *TransferRequest) { r.Root = home },
+		"root home/":       func(r *TransferRequest) { r.Root = home + string(filepath.Separator) },
+		"root home parent": func(r *TransferRequest) { r.Root = filepath.Dir(home) },
+		"upload .":         func(r *TransferRequest) { r.Local = []string{"."} },
+		"upload a/..":      func(r *TransferRequest) { r.Local = []string{"a/.."} },
+		"long local":       func(r *TransferRequest) { r.Local = []string{strings.Repeat("a", 4097)} },
+		"long remote":      func(r *TransferRequest) { r.Remote = []string{"/" + strings.Repeat("a", 4096)} },
+		"root relative":    func(r *TransferRequest) { r.Root = "proj" },
+		"root control":     func(r *TransferRequest) { r.Root = proj + "\x1b[31m" },
+		"local ..":         func(r *TransferRequest) { r.Local = []string{"../x"} },
+		"local abs":        func(r *TransferRequest) { r.Local = []string{"/etc/passwd"} },
+		"remote rel":       func(r *TransferRequest) { r.Remote = []string{"home"} },
+		"two dests":        func(r *TransferRequest) { r.Remote = []string{"/a", "/b"} },
+		"no sources":       func(r *TransferRequest) { r.Local = nil },
+		"control char":     func(r *TransferRequest) { r.Local = []string{"a\x1bb"} },
 		"download ..": func(r *TransferRequest) {
 			r.Op, r.Local, r.Remote = files.OpDownload, []string{".."}, []string{"/home/f"}
 		},
-	} {
+	}
+	// The home folder through a symlink is still the home folder.
+	if link := filepath.Join(t.TempDir(), "h"); os.Symlink(home, link) == nil {
+		cases["root home via link"] = func(r *TransferRequest) { r.Root = link }
+	}
+	for name, mod := range cases {
 		if err := up(mod); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
@@ -168,6 +186,15 @@ func TestTransferRefusals(t *testing.T) {
 	}
 	if n := len(fileRecords(t, fx.store)); n != 0 {
 		t.Fatalf("%d audit records", n)
+	}
+	// Still allowed: a project inside home, and a download into the project itself.
+	ok := TransferRequest{Op: files.OpUpload, Root: filepath.Join(home, "proj"), Local: []string{"f"}, Remote: []string{"/home"}}
+	if err := validateTransfer(ok); err != nil {
+		t.Errorf("project inside home: %v", err)
+	}
+	ok = TransferRequest{Op: files.OpDownload, Root: proj, Local: []string{"."}, Remote: []string{"/home/f"}}
+	if err := validateTransfer(ok); err != nil {
+		t.Errorf("download into .: %v", err)
 	}
 }
 
@@ -313,9 +340,8 @@ func TestTransferEndedByServerSave(t *testing.T) {
 		c <- err
 	}()
 	waitInflight(t, fx.h, "fs", 1)
-	// Gate only once the transfer is in the job set: gated earlier, the stall
-	// would land in NewSFTP or the plan's Stat, before registration, and
-	// endServer would find nothing to end.
+	// Gate only once the transfer is in the job set, so endServer finds it;
+	// TestTransferEndedDuringSFTPSetup covers an end before the run.
 	if !waitFor(t, "the transfer in the job set", func() bool {
 		fx.h.files.mu.Lock()
 		defer fx.h.files.mu.Unlock()
@@ -339,5 +365,80 @@ func TestTransferEndedByServerSave(t *testing.T) {
 		}
 	case <-time.After(cancelGrace + 5*time.Second):
 		t.Fatal("transfer not stopped")
+	}
+}
+
+func TestTransferDownloadIntoProjectRoot(t *testing.T) {
+	fx, proj := aiFiles(t)
+	os.WriteFile(filepath.Join(fx.root, "home", "notes.txt"), []byte("hi\n"), 0o644)
+	resp, err := decideTransfer(t, fx.h, TransferRequest{Client: "c", Server: "fs", Op: files.OpDownload, Root: proj, Local: []string{"."}, Remote: []string{"/home/notes.txt"}}, broker.Decision{Outcome: broker.Allowed})
+	if err != nil || resp.Files != 1 {
+		t.Fatalf("resp %+v err %v", resp, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(proj, "notes.txt")); err != nil || string(b) != "hi\n" {
+		t.Fatalf("local file %q %v", b, err)
+	}
+}
+
+// An AI download never creates an executable file (spec 2026-11-02, boundary).
+func TestTransferDownloadDropsExecBits(t *testing.T) {
+	fx, proj := aiFiles(t)
+	p := filepath.Join(fx.root, "home", "hook")
+	os.WriteFile(p, []byte("#!/bin/sh\n"), 0o755)
+	os.Chmod(p, 0o755)
+	if _, err := decideTransfer(t, fx.h, TransferRequest{Server: "fs", Op: files.OpDownload, Root: proj, Local: []string{"."}, Remote: []string{"/home/hook"}}, broker.Decision{Outcome: broker.Allowed}); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(filepath.Join(proj, "hook"))
+	if err != nil || fi.Mode().Perm() != 0o644 {
+		t.Fatalf("mode %v err %v", fi.Mode(), err)
+	}
+}
+
+// A server change while the SFTP channel is still being set up ends the
+// transfer with "server changed", as for a UI job (filejobs.go).
+func TestTransferEndedDuringSFTPSetup(t *testing.T) {
+	fx, proj := aiFiles(t)
+	os.WriteFile(filepath.Join(proj, "f"), []byte("x"), 0o644)
+	if err := fx.h.SetAutoAllow("fs", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	fx.srv.StallSFTP() // the subsystem handshake never answers
+	c := make(chan error, 1)
+	go func() {
+		_, err := fx.h.Transfer(context.Background(), TransferRequest{Server: "fs", Op: files.OpUpload, Root: proj, Local: []string{"f"}, Remote: []string{"/home"}})
+		c <- err
+	}()
+	if !waitFor(t, "the transfer in the job set", func() bool {
+		fx.h.files.mu.Lock()
+		defer fx.h.files.mu.Unlock()
+		for j := range fx.h.files.all {
+			if _, ok := j.(*aiTransfer); ok {
+				return true
+			}
+		}
+		return false
+	}) {
+		return
+	}
+	fx.h.files.endServer("fs", "server changed") // what servers.save does
+	fx.h.Registry().Close("fs")
+	select {
+	case err := <-c:
+		if !errors.Is(err, ErrServerChanged) {
+			t.Fatalf("err = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("transfer not stopped")
+	}
+	fx.h.files.mu.Lock()
+	n := len(fx.h.files.all)
+	fx.h.files.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("%d jobs left in the set", n)
+	}
+	rec := fileRecords(t, fx.store)
+	if last := rec[len(rec)-1]; last["outcome"] != "error" || last["reason"] != "server changed" {
+		t.Fatalf("audit %v", last)
 	}
 }

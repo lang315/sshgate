@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,10 +43,13 @@ type TransferResponse struct {
 
 var (
 	ErrTransferSu    = errors.New("file transfer is not supported on this server")
-	ErrProjectFolder = errors.New("the project folder must be an absolute path other than / and your home folder")
+	ErrProjectFolder = errors.New("the project folder must be an absolute path other than /, your home folder, and a folder containing it")
 )
 
-const maxTransferSources = 100
+const (
+	maxTransferSources = 100
+	maxTransferPath    = 4096 // bytes, PATH_MAX on Linux
+)
 
 func clampTransferTimeout(sec int) int {
 	switch {
@@ -68,9 +72,8 @@ func validateTransfer(r TransferRequest) error {
 	if err := config.ValidateDescription(r.Description); err != nil {
 		return err
 	}
-	home, _ := os.UserHomeDir()
 	clean := filepath.Clean(r.Root)
-	if !filepath.IsAbs(r.Root) || clean == filepath.VolumeName(clean)+string(filepath.Separator) || home != "" && clean == filepath.Clean(home) {
+	if !filepath.IsAbs(r.Root) || clean == filepath.VolumeName(clean)+string(filepath.Separator) || coversHome(clean) {
 		return ErrProjectFolder
 	}
 	srcs, dests := r.Local, r.Remote
@@ -81,6 +84,9 @@ func validateTransfer(r TransferRequest) error {
 		return fmt.Errorf("give 1 to %d sources and one destination folder", maxTransferSources)
 	}
 	for _, p := range append(append([]string{r.Root}, r.Local...), r.Remote...) {
+		if len(p) > maxTransferPath {
+			return errors.New("a path is too long")
+		}
 		if _, err := config.SanitizeCommand(p, -1); err != nil {
 			return errors.New("a path contains a forbidden character")
 		}
@@ -89,6 +95,9 @@ func validateTransfer(r TransferRequest) error {
 		if !filepath.IsLocal(p) {
 			return errors.New("local paths must be relative to the project folder and stay inside it")
 		}
+		if r.Op == files.OpUpload && filepath.Clean(p) == "." {
+			return errors.New("name the files or folders to upload, not the project folder itself")
+		}
 	}
 	for _, p := range r.Remote {
 		if err := files.CheckAbs(p); err != nil {
@@ -96,6 +105,40 @@ func validateTransfer(r TransferRequest) error {
 		}
 	}
 	return nil
+}
+
+// coversHome reports whether root is the home folder or one of its
+// ancestors: by name, and as files (os.SameFile), so a symlink or a
+// different letter case on a case-insensitive disk does not slip past.
+func coversHome(root string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return false
+	}
+	if rel, err := filepath.Rel(root, filepath.Clean(home)); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return true
+	}
+	ri, err := os.Stat(root)
+	if err != nil {
+		return false
+	}
+	homes := []string{home}
+	if real, err := filepath.EvalSymlinks(home); err == nil {
+		homes = append(homes, real)
+	}
+	for _, d := range homes {
+		for {
+			if di, err := os.Stat(d); err == nil && os.SameFile(ri, di) {
+				return true
+			}
+			up := filepath.Dir(d)
+			if up == d {
+				break
+			}
+			d = up
+		}
+	}
+	return false
 }
 
 // transferSummary is the one line that stands in for a command.
@@ -271,6 +314,12 @@ func (h *Hub) runTransfer(ctx context.Context, r TransferRequest, dc sshx.DialCo
 		h.auditFile(base)
 		return TransferResponse{}, aiErr
 	}
+	// In the job set before NewSFTP (which can block on a stalled server), as
+	// a UI job is: a server change during setup must end this transfer too.
+	// end only cancels ctx, so it is safe before the client exists.
+	t := &aiTransfer{server: r.Server, cancel: cancel}
+	h.files.add(t)
+	defer h.files.remove(t)
 	root, err := os.OpenRoot(r.Root)
 	if err != nil {
 		return fail("error", "project folder: "+err.Error(), ErrProjectFolder)
@@ -278,6 +327,12 @@ func (h *Hub) runTransfer(ctx context.Context, r TransferRequest, dc sshx.DialCo
 	defer root.Close()
 	c, err := h.Registry().Get(r.Server, dc).NewSFTP()
 	if err != nil {
+		t.mu.Lock()
+		reason := t.reason
+		t.mu.Unlock()
+		if reason != "" { // the server change closed the connection under setup
+			return fail("error", reason, ErrServerChanged)
+		}
 		fmt.Fprintf(os.Stderr, "hub: transfer on %q: %s\n", r.Server, red.Redact(err.Error()))
 		return fail("error", err.Error(), forAI(err))
 	}
@@ -296,9 +351,6 @@ func (h *Hub) runTransfer(ctx context.Context, r TransferRequest, dc sshx.DialCo
 		})
 	})
 	defer stop()
-	t := &aiTransfer{server: r.Server, cancel: cancel}
-	h.files.add(t)
-	defer h.files.remove(t)
 
 	var p *files.Plan
 	if r.Op == files.OpUpload {
@@ -311,6 +363,7 @@ func (h *Hub) runTransfer(ctx context.Context, r TransferRequest, dc sshx.DialCo
 		p, err = files.PlanDownloadIn(ctx, c, r.Remote, dest, filepath.Join(r.Root, r.Local[0]))
 		if err == nil {
 			p.Check = func(rd io.Reader) (map[string]int, error) { return config.ScanSecrets(red, rd) }
+			p.NoExec = true // a download cannot plant an executable (a git hook, say)
 		}
 	}
 	if err != nil {

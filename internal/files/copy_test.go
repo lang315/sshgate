@@ -607,3 +607,28 @@ func TestDownloadCheckErrorIsPerFileError(t *testing.T) {
 		t.Fatalf("left behind: %v", des)
 	}
 }
+
+func TestDownloadNoExecDropsExecBits(t *testing.T) {
+	for _, noExec := range []bool{false, true} {
+		c, _, rroot := remote(t)
+		write(t, filepath.Join(rroot, "home", "run.sh"), "#!/bin/sh\n", 0o755)
+		destDir := t.TempDir()
+		dest, _ := os.OpenRoot(destDir)
+		p, err := PlanDownloadIn(context.Background(), c, []string{"/home/run.sh"}, dest, destDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.NoExec = noExec
+		if r := p.Run(context.Background(), c, false, nil); r.Copied != 1 {
+			t.Fatalf("result %+v", r)
+		}
+		p.Close()
+		want := os.FileMode(0o755)
+		if noExec {
+			want = 0o644
+		}
+		if fi, err := os.Stat(filepath.Join(destDir, "run.sh")); err != nil || fi.Mode().Perm() != want {
+			t.Fatalf("NoExec %v: mode %v err %v, want %v", noExec, fi.Mode().Perm(), err, want)
+		}
+	}
+}
