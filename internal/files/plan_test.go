@@ -2,6 +2,7 @@ package files
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -263,5 +264,54 @@ func TestPlanDownloadOpenRootFailureIsGeneric(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), dest) {
 		t.Fatalf("error leaked the dest path: %v", err)
+	}
+}
+
+func TestPlanUploadInStaysInRoot(t *testing.T) {
+	c, _, _ := remote(t)
+	proj := t.TempDir()
+	os.MkdirAll(filepath.Join(proj, "dir"), 0o755)
+	os.WriteFile(filepath.Join(proj, "dir", "a.txt"), []byte("a"), 0o644)
+	outside := t.TempDir()
+	os.WriteFile(filepath.Join(outside, "secret"), []byte("s"), 0o600)
+	os.Symlink(filepath.Join(outside, "secret"), filepath.Join(proj, "link"))
+	os.Symlink("dir/a.txt", filepath.Join(proj, "inlink"))
+	root, err := os.OpenRoot(proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if _, err := PlanUploadIn(context.Background(), c, root, []string{"../x"}, "/home"); !errors.Is(err, errNotLocal) {
+		t.Fatalf("..: %v", err)
+	}
+	if _, err := PlanUploadIn(context.Background(), c, root, []string{"."}, "/home"); !errors.Is(err, errNotLocal) {
+		t.Fatalf(".: %v", err)
+	}
+	p, err := PlanUploadIn(context.Background(), c, root, []string{"dir", "link", "inlink"}, "/home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	if p.Files != 1 || p.Dirs != 1 || p.Errors.Count != 2 {
+		t.Fatalf("files %d dirs %d errors %v", p.Files, p.Dirs, p.Errors.List)
+	}
+	for _, e := range p.Errors.List {
+		if !strings.Contains(e, errSelectedLink.Error()) {
+			t.Fatalf("error %q", e)
+		}
+	}
+}
+
+func TestPlanDownloadInOwnsRoot(t *testing.T) {
+	c, _, _ := remote(t)
+	dest, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PlanDownloadIn(context.Background(), c, []string{"rel"}, dest, "label"); err == nil {
+		t.Fatal("relative remote source accepted")
+	}
+	if _, err := dest.Stat("."); err == nil {
+		t.Fatal("dest root not closed on error")
 	}
 }
