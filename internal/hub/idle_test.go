@@ -199,3 +199,40 @@ func TestIdleLockTermWriteNeedsUserFlag(t *testing.T) {
 		}
 	}
 }
+
+// The idle clock and grant deadlines are wall clock, like the soft-lock
+// limit: a monotonic reading stops while the machine sleeps, so time asleep
+// would not count toward the idle lock, and a timed grant would outlive the
+// deadline the UI shows (`until`, wall clock) by the time slept. Go cannot
+// build a Time whose wall and monotonic readings disagree, so this checks
+// what is stored: a value with no monotonic reading compares by wall clock.
+func TestDeadlinesUseWallClock(t *testing.T) {
+	wall := func(what string, h *Hub, get func() time.Time) {
+		t.Helper()
+		h.mu.Lock()
+		v := get()
+		h.mu.Unlock()
+		if v.IsZero() || v != v.Round(0) {
+			t.Fatalf("%s = %v: not a wall-clock time", what, v)
+		}
+	}
+	h, _ := newEncryptedHub(t, Options{})
+	last := func() time.Time { return h.lastActivity }
+	wall("lastActivity at start", h, last)
+	if err := h.Unlock("pw"); err != nil {
+		t.Fatal(err)
+	}
+	wall("lastActivity after unlock", h, last)
+	h.touch()
+	wall("lastActivity after UI input", h, last)
+	if err := h.SetAutoAllow("vis", "15m"); err != nil {
+		t.Fatal(err)
+	}
+	wall("grant deadline", h, func() time.Time { return h.grants["vis"].until })
+
+	c, _ := newHubAt(t, nil, nil)
+	if err := c.CreateVault("longenough"); err != nil {
+		t.Fatal(err)
+	}
+	wall("lastActivity after vault.create", c, func() time.Time { return c.lastActivity })
+}

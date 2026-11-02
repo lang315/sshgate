@@ -116,7 +116,7 @@ type Hub struct {
 	lockSink     func(reason string, gen uint64)
 	lockGen      atomic.Uint64 // bumped, under h.mu, at every lock-state change; a lock note for an older one is stale
 	lockSinkGen  uint64
-	lastActivity time.Time
+	lastActivity time.Time         // wall clock (Round(0)), so time asleep counts toward the idle lock
 	running      int               // approved AI commands currently executing
 	grants       map[string]*grant // auto-allow; see autoallow.go
 	grantSeq     uint64            // ids for grant.inflight
@@ -134,7 +134,7 @@ type Hub struct {
 
 // New loads the store if present; a missing store is not an error.
 func New(o Options) (*Hub, error) {
-	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit, files: newJobSet(), tunnels: newTunnelSet(), lastActivity: time.Now(), grants: map[string]*grant{}, ranLocked: map[string]int{}, done: make(chan struct{})}
+	h := &Hub{o: o, reg: sshx.NewRegistry(), audit: o.Audit, files: newJobSet(), tunnels: newTunnelSet(), lastActivity: time.Now().Round(0), grants: map[string]*grant{}, ranLocked: map[string]int{}, done: make(chan struct{})}
 	if o.Audit != nil {
 		o.Audit.OnAppend(h.auditAppended)
 	}
@@ -266,7 +266,7 @@ func (h *Hub) Unlock(pw string) error {
 	h.autoKey, h.sweptFile, h.softLockedAt = nil, nil, time.Time{}
 	h.lockGen.Add(1)
 	h.unlocked.Store(true)
-	h.lastActivity = time.Now()
+	h.lastActivity = time.Now().Round(0)
 	return nil
 }
 

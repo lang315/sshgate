@@ -32,7 +32,7 @@ var autoModes = map[string]time.Duration{
 }
 
 type grant struct {
-	until    time.Time // zero: forever
+	until    time.Time // zero: forever; wall clock (Round(0)), so time asleep counts, as the UI's countdown does
 	snap     grantSnap // the server as it was when the human enabled it
 	inflight map[uint64]context.CancelFunc
 }
@@ -205,7 +205,7 @@ func (h *Hub) armLocked(name, mode string) ([]endedNote, error) {
 
 	g := &grant{snap: snapOf(dc), inflight: map[uint64]context.CancelFunc{}}
 	if timed {
-		g.until = time.Now().Add(d)
+		g.until = time.Now().Round(0).Add(d)
 	}
 	if old := h.grants[name]; old != nil {
 		g.inflight = old.inflight // runs already going stay counted and cancellable
