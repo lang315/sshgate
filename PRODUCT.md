@@ -6,7 +6,7 @@
 
 web
 
-(Electron desktop app, `desktop/`: React + xterm.js in a Chromium renderer. Web design language, desktop window; no mobile target.)
+(Native macOS app, `app/`: Go on mygo's `ui`, libghostty-vt terminals; the Electron app in `desktop/` was removed in November 2026. Desktop window; no mobile target.)
 
 ## Users
 
@@ -39,7 +39,7 @@ Every AI-issued command blocks on an explicit human Allow by default. The one ex
 ## Brand Commitments
 
 - Name: sshgate (renamed from ssh-mcp on 2026-09-26, when the project left the tufantunc/ssh-mcp fork).
-- Logo: the app icon, a teal shield holding a `>_` prompt above a keyhole, on a warm near-black rounded square (`desktop/build/icon.png`; source `desktop/build/icon-source.png`, added 2026-10-01). It is used only as the macOS bundle icon so far. Colours are delegated to the design work; no separate brand palette exists.
+- Logo: the app icon, a teal shield holding a `>_` prompt above a keyhole, on a warm near-black rounded square (`app/icon/icon.png`; source `app/icon/icon-source.png`, added 2026-10-01). It is used only as the macOS bundle icon so far. Colours are delegated to the design work; no separate brand palette exists.
 - Standing visual preference (2026-09-25): the user's own design (`ssh-mcp Desktop UI.html`): warm-neutral dark, teal focus/link accent, Termius-like structure (host cards, top tabs) at Termius's craft level. System fonts. Not Termius's name, logo, or assets.
 
 ## Evidence on Hand

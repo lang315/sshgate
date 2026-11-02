@@ -1,5 +1,7 @@
 # Slice 1 manual checklist
 
+Retired 2026-11-02: the Electron app this checklist tests was removed (ROADMAP row 7). Its macOS checks were redone on the mygo app; item 4 (Windows pipe DACL) stays open in the ROADMAP findings. Kept as a record.
+
 These are the checks from `docs/superpowers/specs/2026-09-24-desktop-app-design.md`
 (§Testing, "Manual, per OS", and Success Criterion 6) that automated tests
 cannot cover: real IMEs, real OS notification/tray chrome, real throughput
