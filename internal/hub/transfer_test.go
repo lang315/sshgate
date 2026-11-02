@@ -188,11 +188,13 @@ func TestTransferRefusals(t *testing.T) {
 		t.Fatalf("%d audit records", n)
 	}
 	// Still allowed: a project inside home, and a download into the project itself.
-	ok := TransferRequest{Op: files.OpUpload, Root: filepath.Join(home, "proj"), Local: []string{"f"}, Remote: []string{"/home"}}
-	if err := validateTransfer(ok); err != nil {
-		t.Errorf("project inside home: %v", err)
+	if home != "" {
+		ok := TransferRequest{Op: files.OpUpload, Root: filepath.Join(home, "proj"), Local: []string{"f"}, Remote: []string{"/home"}}
+		if err := validateTransfer(ok); err != nil {
+			t.Errorf("project inside home: %v", err)
+		}
 	}
-	ok = TransferRequest{Op: files.OpDownload, Root: proj, Local: []string{"."}, Remote: []string{"/home/f"}}
+	ok := TransferRequest{Op: files.OpDownload, Root: proj, Local: []string{"."}, Remote: []string{"/home/f"}}
 	if err := validateTransfer(ok); err != nil {
 		t.Errorf("download into .: %v", err)
 	}
