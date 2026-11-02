@@ -158,7 +158,7 @@ func ScanSecrets(r *Redactor, rd io.Reader) (map[string]int, error) {
 	buf := make([]byte, scanOverlap+scanWindow)
 	carry := 0
 	for {
-		n, err := io.ReadFull(rd, buf[carry:])
+		n, err := io.ReadFull(rd, buf[carry:carry+scanWindow])
 		if n > 0 {
 			s, sec := r.RedactCount(string(buf[:carry+n]))
 			_, c := RedactPatterns(s)
@@ -728,15 +728,23 @@ func TestTransferUploadApproved(t *testing.T) {
 	fx, proj := aiFiles(t)
 	os.MkdirAll(filepath.Join(proj, "build"), 0o755)
 	os.WriteFile(filepath.Join(proj, "build", "app.bin"), []byte{0, 1, 2, 0xff}, 0o755)
+	type res struct {
+		r   TransferResponse
+		err error
+	}
+	c := make(chan res, 1)
 	go func() {
-		waitPending(t, fx.h.Broker(), 1)
-		p := fx.h.Broker().Pending()[0]
-		if p.Transfer == nil || p.Transfer.Op != "upload" || p.Transfer.Root != proj || p.Transfer.Remote[0] != "/home" {
-			t.Errorf("pending %+v", p)
-		}
-		fx.h.Broker().Decide(p.ID, broker.Decision{Outcome: broker.Allowed})
+		r, err := fx.h.Transfer(context.Background(), TransferRequest{Client: "c", Server: "fs", Op: files.OpUpload, Root: proj, Local: []string{"build"}, Remote: []string{"/home"}})
+		c <- res{r, err}
 	}()
-	resp, err := fx.h.Transfer(context.Background(), TransferRequest{Client: "c", Server: "fs", Op: files.OpUpload, Root: proj, Local: []string{"build"}, Remote: []string{"/home"}})
+	waitPending(t, fx.h.Broker(), 1)
+	p := fx.h.Broker().Pending()[0]
+	if p.Transfer == nil || p.Transfer.Op != "upload" || p.Transfer.Root != proj || p.Transfer.Remote[0] != "/home" {
+		t.Fatalf("pending %+v", p)
+	}
+	fx.h.Broker().Decide(p.ID, broker.Decision{Outcome: broker.Allowed})
+	got := <-c
+	resp, err := got.r, got.err
 	if err != nil || resp.Files != 1 || resp.Bytes != 4 {
 		t.Fatalf("resp %+v err %v", resp, err)
 	}
@@ -782,6 +790,23 @@ func TestTransferDeniedAndExpiredAudited(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(fx.root, "home", "f")); !os.IsNotExist(err) {
 		t.Fatal("denied upload ran")
+	}
+	// Send to tab is refused by the broker and the request stays pending.
+	// (The hub's own SentToTab branch is unreachable through the broker; it
+	// is there to fail closed if that refusal ever regresses.)
+	c := make(chan error, 1)
+	go func() { _, err := fx.h.Transfer(context.Background(), req); c <- err }()
+	waitPending(t, fx.h.Broker(), 1)
+	id := fx.h.Broker().Pending()[0].ID
+	if err := fx.h.Broker().Decide(id, broker.Decision{Outcome: broker.SentToTab}); !errors.Is(err, broker.ErrSendToTabTransfer) {
+		t.Fatalf("sent_to_tab: %v", err)
+	}
+	fx.h.Broker().Decide(id, broker.Decision{Outcome: broker.Denied})
+	if err := <-c; err == nil {
+		t.Fatal("transfer succeeded")
+	}
+	if _, err := os.Stat(filepath.Join(fx.root, "home", "f")); !os.IsNotExist(err) {
+		t.Fatal("upload ran")
 	}
 }
 
@@ -921,7 +946,8 @@ func validateTransfer(r TransferRequest) error {
 		return err
 	}
 	home, _ := os.UserHomeDir()
-	if !filepath.IsAbs(r.Root) || filepath.Clean(r.Root) == "/" || home != "" && filepath.Clean(r.Root) == filepath.Clean(home) {
+	clean := filepath.Clean(r.Root)
+	if !filepath.IsAbs(r.Root) || clean == filepath.VolumeName(clean)+string(filepath.Separator) || home != "" && clean == filepath.Clean(home) {
 		return ErrProjectFolder
 	}
 	srcs, dests := r.Local, r.Remote
@@ -1023,6 +1049,10 @@ func (h *Hub) Transfer(ctx context.Context, r TransferRequest) (TransferResponse
 		base.Outcome, base.Reason = string(broker.Denied), d.Reason
 		h.auditFile(base)
 		return TransferResponse{}, &DeniedError{Reason: d.Reason}
+	case broker.SentToTab: // Decide refuses it; the hub fails closed anyway
+		base.Outcome, base.Reason = "error", broker.ErrSendToTabTransfer.Error()
+		h.auditFile(base)
+		return TransferResponse{}, broker.ErrSendToTabTransfer
 	}
 
 	h.mu.Lock()
@@ -1098,8 +1128,8 @@ func (h *Hub) runTransfer(ctx context.Context, r TransferRequest, dc sshx.DialCo
 		return fail("error", err.Error(), forAI(err))
 	}
 	done := make(chan struct{})
-	defer close(done)
 	defer c.Close()
+	defer close(done) // runs first: the grace closer below must see done before c closes
 	// ctx alone does not stop pkg/sftp's calls: after cancelGrace the
 	// channel is closed, as for a UI job.
 	stop := context.AfterFunc(ctx, func() {
@@ -1161,7 +1191,7 @@ func (h *Hub) transferEnded(ctx context.Context, t *aiTransfer, base broker.File
 	var aiErr error
 	switch {
 	case reason != "":
-		base.Outcome, base.Reason, aiErr = "error", reason, errors.New(reason)
+		base.Outcome, base.Reason, aiErr = "error", reason, ErrServerChanged // the job set's only reason
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		base.Outcome, base.Reason, aiErr = "error", "timed out", sshx.ErrTimeout
 	case ctx.Err() != nil:
@@ -1245,9 +1275,6 @@ func TestTransferUnderSoftLock(t *testing.T) {
 func TestTransferEndedByServerSave(t *testing.T) {
 	fx, proj := aiFiles(t)
 	os.WriteFile(filepath.Join(proj, "big"), bytes.Repeat([]byte("x"), 1<<20), 0o644)
-	gate := make(chan struct{})
-	fx.srv.GateSFTP(gate) // each SFTP request waits for a gate send (TestJobCancelStopsAStalledServer)
-	t.Cleanup(func() { close(gate) })
 	if err := fx.h.SetAutoAllow("fs", "15m"); err != nil {
 		t.Fatal(err)
 	}
@@ -1257,11 +1284,26 @@ func TestTransferEndedByServerSave(t *testing.T) {
 		c <- err
 	}()
 	waitInflight(t, fx.h, "fs", 1)
-	gate <- struct{}{} // let one request through; the next stalls for good
+	// Gate only once the transfer is in the job set: gated earlier, the stall
+	// would land in NewSFTP or the plan's Stat, before registration, and
+	// endServer would find nothing to end.
+	waitFor(t, "the transfer in the job set", func() bool {
+		fx.h.files.mu.Lock()
+		defer fx.h.files.mu.Unlock()
+		for j := range fx.h.files.all {
+			if _, ok := j.(*aiTransfer); ok {
+				return true
+			}
+		}
+		return false
+	})
+	gate := make(chan struct{})
+	fx.srv.GateSFTP(gate) // each SFTP request now waits for a gate send (TestJobCancelStopsAStalledServer)
+	t.Cleanup(func() { close(gate) })
 	fx.h.files.endServer("fs", "server changed") // what servers.save does
 	select {
 	case err := <-c:
-		if err == nil || err.Error() != "server changed" {
+		if !errors.Is(err, ErrServerChanged) {
 			t.Fatalf("err = %v", err)
 		}
 	case <-time.After(cancelGrace + 5*time.Second):
@@ -1270,7 +1312,7 @@ func TestTransferEndedByServerSave(t *testing.T) {
 }
 ```
 
-If the first gated request is the Stat inside planning rather than a write, the test still holds: the stop must end a transfer stalled anywhere.
+The 1 MiB upload is enough 32 KiB write requests for the gate to catch one; if the run already finished before the gate, raise the size. `waitFor(t, what, cond) bool` is the hub tests' existing poll helper (see `stdin_test.go`).
 
 - [ ] **Step 2: Run** — `go test -race ./internal/hub -run 'TestTransfer' -v`. Expected PASS; on a failure, fix `transfer.go`, not the test's intent.
 - [ ] **Step 3: Commit** — `git commit -am "hub: transfer tests for grants, soft lock, server change" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"`
@@ -1305,7 +1347,7 @@ func TestCLIApproverShowsTransferAndRefusesSendToTab(t *testing.T) {
 
 - [ ] **Step 3: Implement**
   - `idle.go`: `const ProtocolVersion = 13`; grep `internal/hub` tests for a literal `12` tied to the protocol and update it.
-  - `mcpdoor.go`: move the requestId bookkeeping in `exec` into a helper on the connection, `track(id string) (ctx context.Context, release func(), err error)`, used by both exec and the new methods (same duplicate, early-cancel behaviour). Then:
+  - `mcpdoor.go`: move the requestId bookkeeping in `exec` into a closure in `serveMCPConn`, `track(ctx context.Context, id string) (reqCtx context.Context, release func(), err error)`, used by both exec and the new methods (same duplicate, early-cancel behaviour). Then:
 
 ```go
 	transfer := func(op files.Op) rpc.Handler {
