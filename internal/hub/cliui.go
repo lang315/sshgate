@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -65,6 +66,10 @@ func RunCLIApprover(ctx context.Context, h *Hub, in io.Reader, out io.Writer) er
 			if r, _, ok := resolveTarget(out, pend, rest, false); ok {
 				if r.Stdin != "" {
 					fmt.Fprintln(out, broker.ErrSendToTabStdin)
+					break
+				}
+				if r.Transfer != nil {
+					fmt.Fprintln(out, broker.ErrSendToTabTransfer)
 					break
 				}
 				fmt.Fprintf(out, "paste into your terminal (not run here):\n  %s\n", r.Command)
@@ -216,7 +221,28 @@ func printRequest(out io.Writer, r broker.Request) {
 	fmt.Fprintf(out, "\n=== pending id=%s from %q (unverified)%s\n", r.ID, r.Client, sudo)
 	fmt.Fprintf(out, "server : %s\n", r.Server)
 	fmt.Fprintf(out, "target : %s\n", r.Target)
-	fmt.Fprintf(out, "command: %s\n", r.Command)
+	if tr := r.Transfer; tr != nil {
+		src, dst, from := tr.Local, tr.Remote, tr.Root
+		if tr.Op == "download" {
+			src, dst, from = tr.Remote, tr.Local, r.Server
+		}
+		fmt.Fprintf(out, "%s from %s:\n", tr.Op, from)
+		for _, s := range src {
+			fmt.Fprintf(out, "  %s\n", s)
+		}
+		if len(dst) > 0 {
+			to := dst[0]
+			if tr.Op == "download" {
+				to = filepath.Join(tr.Root, to)
+			}
+			fmt.Fprintf(out, "to %s\n", to)
+		}
+		if tr.Overwrite {
+			fmt.Fprintln(out, "overwrite: yes")
+		}
+	} else {
+		fmt.Fprintf(out, "command: %s\n", r.Command)
+	}
 	if r.Stdin != "" {
 		fmt.Fprintf(out, "stdin (%d bytes):\n", len(r.Stdin))
 		for _, line := range strings.Split(strings.TrimSuffix(r.Stdin, "\n"), "\n") {

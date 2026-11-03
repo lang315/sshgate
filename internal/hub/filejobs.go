@@ -29,24 +29,30 @@ var (
 	afterExpiryDecided func()
 )
 
+// ender is a running transfer a server change must stop: a UI job or an AI transfer.
+type ender interface {
+	serverName() string
+	end(reason string)
+}
+
 // jobSet is every job in the hub, so a server change can end its jobs.
 type jobSet struct {
 	mu  sync.Mutex
-	all map[*fileJob]struct{}
+	all map[ender]struct{}
 }
 
-func newJobSet() *jobSet { return &jobSet{all: map[*fileJob]struct{}{}} }
+func newJobSet() *jobSet { return &jobSet{all: map[ender]struct{}{}} }
 
-func (s *jobSet) add(j *fileJob)    { s.mu.Lock(); s.all[j] = struct{}{}; s.mu.Unlock() }
-func (s *jobSet) remove(j *fileJob) { s.mu.Lock(); delete(s.all, j); s.mu.Unlock() }
+func (s *jobSet) add(j ender)    { s.mu.Lock(); s.all[j] = struct{}{}; s.mu.Unlock() }
+func (s *jobSet) remove(j ender) { s.mu.Lock(); delete(s.all, j); s.mu.Unlock() }
 
 // endServer ends name's jobs. Callers run it before closing the server's
 // connection, so "server changed" is the reason reported, not a lost connection.
 func (s *jobSet) endServer(name, reason string) {
 	s.mu.Lock()
-	var js []*fileJob
+	var js []ender
 	for j := range s.all {
-		if j.server == name {
+		if j.serverName() == name {
 			js = append(js, j)
 		}
 	}
@@ -55,6 +61,8 @@ func (s *jobSet) endServer(name, reason string) {
 		j.end(reason)
 	}
 }
+
+func (j *fileJob) serverName() string { return j.server }
 
 // fileJob is one plan → run → done. state moves planning → planned →
 // running → done under mu; reason, once set, is why it ended early.

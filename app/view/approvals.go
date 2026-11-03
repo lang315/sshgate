@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -161,9 +162,32 @@ func (a *App) buildItem(c *ui.Context, it model.PendingItem, now time.Time) {
 			}
 		})
 		ui.Text(c, model.DisplayText(r.Target)).Font("monospace").TextColor(t.TextMuted)
-		segments(c, model.HighlightNonASCII(r.Command, ""))
-		if s := model.NonASCIISummary(r.Command, ""); s != "" {
-			ui.Text(c, s).TextColor(t.Warning)
+		if tr := r.Transfer; tr != nil {
+			src, dst, from := tr.Local, tr.Remote, "from "+tr.Root
+			if tr.Op == "download" {
+				src, dst, from = tr.Remote, tr.Local, "from the server"
+			}
+			ui.Text(c, strings.ToUpper(model.DisplayText(tr.Op))).Bold()
+			ui.Text(c, model.DisplayText(from)).Font("monospace").TextColor(t.TextMuted)
+			for _, s := range src {
+				segments(c, model.HighlightNonASCII(s, ""))
+			}
+			to := "to "
+			if len(dst) > 0 {
+				to += dst[0]
+				if tr.Op == "download" {
+					to = "to " + filepath.Join(tr.Root, dst[0])
+				}
+			}
+			ui.Text(c, model.DisplayText(to)).Font("monospace")
+			if tr.Overwrite {
+				ui.Text(c, "overwrites existing files").TextColor(t.Warning)
+			}
+		} else {
+			segments(c, model.HighlightNonASCII(r.Command, ""))
+			if s := model.NonASCIISummary(r.Command, ""); s != "" {
+				ui.Text(c, s).TextColor(t.Warning)
+			}
 		}
 		if r.Stdin != "" {
 			ui.Text(c, "stdin · "+model.StdinMeta(r.Stdin)).TextColor(t.TextMuted)
@@ -188,14 +212,14 @@ func (a *App) buildItem(c *ui.Context, it model.PendingItem, now time.Time) {
 			if ui.Button(c, "Deny").Disabled(busy).Clicked() {
 				a.decide(id, hubapi.Denied, *reason)
 			}
-			sendOK := r.Stdin == "" && model.ClickAllowed(it, now, a.col.lc.At, busy)
+			sendOK := r.Stdin == "" && r.Transfer == nil && model.ClickAllowed(it, now, a.col.lc.At, busy)
 			send := func() {
 				if MouseButton(c, "Send to tab", sendOK) && model.ClickAllowed(it, a.Now(), a.col.lc.At, a.itemBusy[id]) {
 					a.sendToTab(r)
 				}
 			}
-			if r.Stdin != "" {
-				ui.Row(c).Tooltip("Not available: the command has stdin").Children(send)
+			if r.Stdin != "" || r.Transfer != nil {
+				ui.Row(c).Tooltip("Not available: the request has stdin or is a file transfer").Children(send)
 			} else {
 				send()
 			}
@@ -245,6 +269,9 @@ func (a *App) buildFeed(c *ui.Context) {
 							if *r.ExitCode != 0 {
 								col = t.Warning
 							}
+						}
+						if r.Op != "" && r.Error == "" {
+							status, col = "done", t.Success
 						}
 						ui.Text(c, status).TextColor(col)
 						ui.Spacer(c)

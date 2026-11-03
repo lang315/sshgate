@@ -16,7 +16,7 @@ import (
 )
 
 // Protocol is the UI door protocol this app speaks.
-const Protocol = 12
+const Protocol = 13
 
 const stderrTail = 50
 

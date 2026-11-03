@@ -19,8 +19,20 @@ type Result struct {
 	Bytes                    int64
 	Errors                   Errors
 	Cancelled                bool
-	Fatal                    error // ended the job early (connection lost, disk full)
+	Fatal                    error     // ended the job early (connection lost, disk full)
+	Refused                  []Refusal // first MaxErrors
+	RefusedCount             int
 }
+
+// Refusal is a downloaded file Check refused, with its hit kinds.
+type Refusal struct {
+	Path  string         `json:"path"`
+	Kinds map[string]int `json:"kinds"`
+}
+
+type refusedError struct{ kinds map[string]int }
+
+func (e *refusedError) Error() string { return "holds a secret; not saved" }
 
 // Progress reports bytes done of the plan's total, with the current file.
 // For an upload, pkg/sftp's concurrent writer calls it from a goroutine
@@ -133,6 +145,14 @@ func (p *Plan) runCopy(ctx context.Context, c *sftp.Client, overwrite bool, prog
 				r.Fatal = err
 				return
 			}
+			var re *refusedError
+			if errors.As(err, &re) {
+				r.RefusedCount++
+				if len(r.Refused) < MaxErrors {
+					r.Refused = append(r.Refused, Refusal{Path: it.rel, Kinds: re.kinds})
+				}
+				continue
+			}
 			r.Errors.Add(it.rel, err)
 			continue
 		}
@@ -230,7 +250,11 @@ func (p *Plan) download(ctx context.Context, c *sftp.Client, it item, replace bo
 	w := &ctxWriter{ctx: ctx, w: dst, prog: prog}
 	_, err = src.WriteTo(w)
 	if err == nil {
-		err = dst.Chmod(downloadMode(it.mode))
+		mode := downloadMode(it.mode)
+		if p.NoExec {
+			mode = it.mode & 0o644
+		}
+		err = dst.Chmod(mode)
 	}
 	if cerr := dst.Close(); err == nil {
 		err = cerr
@@ -238,14 +262,37 @@ func (p *Plan) download(ctx context.Context, c *sftp.Client, it item, replace bo
 	if err == nil {
 		err = p.local.Chtimes(part, it.mtime, it.mtime)
 	}
+	if err == nil && p.Check != nil {
+		err = p.check(part)
+	}
 	if err == nil {
 		err = commitLocal(p.local, part, final, replace)
 	}
 	if err != nil {
 		p.local.Remove(part)
+		var re *refusedError
+		if errors.As(err, &re) {
+			return w.n, re
+		}
 		return w.n, bare(err)
 	}
 	return w.n, nil
+}
+
+func (p *Plan) check(part string) error {
+	f, err := p.local.Open(part)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	kinds, err := p.Check(f)
+	if err != nil {
+		return err
+	}
+	if len(kinds) > 0 {
+		return &refusedError{kinds}
+	}
+	return nil
 }
 
 func commitLocal(root *os.Root, part, final string, replace bool) error {

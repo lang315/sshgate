@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -46,6 +47,12 @@ type Plan struct {
 	Errors    Errors
 	Remote    []string // remote paths for the audit
 	Local     []string // local paths for the audit
+	// Check, when set on a download, sees each finished part file before it
+	// is committed; any count refuses the file (spec 2026-11-02, scan).
+	Check func(io.Reader) (map[string]int, error)
+	// NoExec, when set on a download, writes files without execute bits
+	// (AI downloads, spec 2026-11-02); folders are unchanged.
+	NoExec bool
 
 	items []item
 	dest  string     // upload: the remote folder
@@ -123,7 +130,25 @@ func PlanDownload(ctx context.Context, c *sftp.Client, sources []string, dest st
 	if err != nil {
 		return nil, errors.New("the download folder is missing or not a folder")
 	}
-	p := &Plan{Op: OpDownload, local: root, Remote: sources, Local: []string{dest}}
+	return PlanDownloadIn(ctx, c, sources, root, dest)
+}
+
+var (
+	errSelectedLink = errors.New("a selected symlink is not followed")
+	errNotLocal     = errors.New("local paths must be inside the project folder")
+)
+
+// PlanDownloadIn is PlanDownload into an already open folder. The plan owns
+// dest: Close releases it, and it is closed here on error. label names dest
+// in the audit.
+func PlanDownloadIn(ctx context.Context, c *sftp.Client, sources []string, dest *os.Root, label string) (*Plan, error) {
+	for _, s := range sources {
+		if err := CheckAbs(s); err != nil {
+			dest.Close()
+			return nil, err
+		}
+	}
+	p := &Plan{Op: OpDownload, local: dest, Remote: sources, Local: []string{label}}
 	w := &walker{ctx: ctx, p: p, seen: map[string]map[string]bool{}}
 	for _, s := range sources {
 		fi, err := c.Stat(s) // a selected symlink is followed once
@@ -253,6 +278,57 @@ func PlanUpload(ctx context.Context, c *sftp.Client, sources []string, dest stri
 			continue
 		}
 		if err := w.up(c, root, inRoot, base, fi, 0); err != nil {
+			p.Close()
+			return nil, err
+		}
+	}
+	return p, nil
+}
+
+// PlanUploadIn is PlanUpload for sources relative to root (the AI's project
+// folder). Every local read goes through root, so ".." and symlinks cannot
+// leave it; a selected symlink is refused rather than followed.
+func PlanUploadIn(ctx context.Context, c *sftp.Client, root *os.Root, sources []string, dest string) (*Plan, error) {
+	cleaned := make([]string, len(sources))
+	for i, s := range sources {
+		if !filepath.IsLocal(s) || filepath.Clean(s) == "." {
+			return nil, errNotLocal
+		}
+		cleaned[i] = filepath.Clean(s) // "dir/" would otherwise give Dir == Base
+	}
+	sources = cleaned
+	if err := CheckAbs(dest); err != nil {
+		return nil, err
+	}
+	if fi, err := c.Stat(dest); err != nil || !fi.IsDir() {
+		return nil, errors.New("the upload folder is missing or not a folder")
+	}
+	p := &Plan{Op: OpUpload, dest: dest, Remote: []string{dest}, Local: sources}
+	w := &walker{ctx: ctx, p: p, seen: map[string]map[string]bool{"": {}}}
+	for _, s := range sources {
+		base := filepath.Base(s)
+		low := strings.ToLower(base)
+		if w.seen[""][low] { // two sources collapsing onto one remote name
+			p.Errors.Add(base, errDuplicateName)
+			continue
+		}
+		w.seen[""][low] = true
+		parent, err := root.OpenRoot(filepath.Dir(s))
+		if err != nil {
+			p.Errors.Add(s, bare(err))
+			continue
+		}
+		p.roots = append(p.roots, parent)
+		fi, err := parent.Lstat(base)
+		if err != nil {
+			p.Errors.Add(s, bare(err))
+			continue
+		}
+		if fi.Mode()&fs.ModeSymlink != 0 {
+			p.Errors.Add(s, errSelectedLink)
+			continue
+		}
+		if err := w.up(c, parent, base, base, fi, 0); err != nil {
 			p.Close()
 			return nil, err
 		}

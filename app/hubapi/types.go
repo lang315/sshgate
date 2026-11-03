@@ -1,4 +1,4 @@
-// Package hubapi is the typed side of sshgate hub's UI door (protocol 12)
+// Package hubapi is the typed side of sshgate hub's UI door (protocol 13)
 // that the desktop app's screens use.
 package hubapi
 
@@ -59,9 +59,19 @@ type Request struct {
 	Command     string    `json:"command"`
 	Description string    `json:"description"`
 	Stdin       string    `json:"stdin,omitempty"`
+	Transfer    *Transfer `json:"transfer,omitempty"`
 	Sudo        bool      `json:"sudo"`
 	TimeoutSec  int       `json:"timeoutSec"`
 	ReceivedAt  time.Time `json:"receivedAt"`
+}
+
+// Transfer is an AI file transfer; Local paths are relative to Root.
+type Transfer struct {
+	Op        string   `json:"op"`
+	Root      string   `json:"root"`
+	Local     []string `json:"local"`
+	Remote    []string `json:"remote"`
+	Overwrite bool     `json:"overwrite,omitempty"`
 }
 
 type Decision struct {
@@ -79,6 +89,7 @@ type AutoRan struct {
 	Time        string `json:"time"`
 	Sudo        bool   `json:"sudo,omitempty"`
 	StdinBytes  int    `json:"stdinBytes,omitempty"`
+	Op          string `json:"op,omitempty"` // "upload"/"download" for a file transfer
 }
 
 type RanLocked struct {

@@ -2,6 +2,7 @@ package files
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,8 +17,8 @@ func TestPlanDownloadConflictsMergeAndErrors(t *testing.T) {
 	os.Symlink("a.txt", filepath.Join(root, "home", "src", "inner-link"))
 	dest := t.TempDir()
 	write(t, filepath.Join(dest, "src", "a.txt"), "old", 0o644) // conflict
-	os.MkdirAll(filepath.Join(dest, "src", "sub"), 0o755)      // merge
-	os.MkdirAll(filepath.Join(dest, "src", "clash"), 0o755)    // folder where a file goes
+	os.MkdirAll(filepath.Join(dest, "src", "sub"), 0o755)       // merge
+	os.MkdirAll(filepath.Join(dest, "src", "clash"), 0o755)     // folder where a file goes
 	p, err := PlanDownload(context.Background(), c, []string{"/home/src"}, dest)
 	if err != nil {
 		t.Fatal(err)
@@ -263,5 +264,79 @@ func TestPlanDownloadOpenRootFailureIsGeneric(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), dest) {
 		t.Fatalf("error leaked the dest path: %v", err)
+	}
+}
+
+func TestPlanUploadInStaysInRoot(t *testing.T) {
+	c, _, _ := remote(t)
+	proj := t.TempDir()
+	os.MkdirAll(filepath.Join(proj, "dir"), 0o755)
+	os.WriteFile(filepath.Join(proj, "dir", "a.txt"), []byte("a"), 0o644)
+	outside := t.TempDir()
+	os.WriteFile(filepath.Join(outside, "secret"), []byte("s"), 0o600)
+	if err := os.Symlink(filepath.Join(outside, "secret"), filepath.Join(proj, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("dir/a.txt", filepath.Join(proj, "inlink")); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if _, err := PlanUploadIn(context.Background(), c, root, []string{"../x"}, "/home"); !errors.Is(err, errNotLocal) {
+		t.Fatalf("..: %v", err)
+	}
+	if _, err := PlanUploadIn(context.Background(), c, root, []string{"."}, "/home"); !errors.Is(err, errNotLocal) {
+		t.Fatalf(".: %v", err)
+	}
+	if _, err := PlanUploadIn(context.Background(), c, root, []string{"a/../../x"}, "/home"); !errors.Is(err, errNotLocal) {
+		t.Fatalf("a/../../x: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(proj, "evil")); err != nil {
+		t.Fatal(err)
+	}
+	ev, err := PlanUploadIn(context.Background(), c, root, []string{"evil/secret"}, "/home")
+	if err == nil {
+		defer ev.Close()
+		if ev.Files != 0 || ev.Errors.Count != 1 || len(ev.items) != 0 || !strings.Contains(ev.Errors.List[0], "evil/secret") {
+			t.Fatalf("escape planned: files %d errors %v", ev.Files, ev.Errors.List)
+		}
+	}
+	sl, err := PlanUploadIn(context.Background(), c, root, []string{"dir/"}, "/home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sl.Files != 1 || sl.Dirs != 1 || sl.Errors.Count != 0 {
+		t.Fatalf("dir/: files %d dirs %d errors %v", sl.Files, sl.Dirs, sl.Errors.List)
+	}
+	sl.Close()
+	p, err := PlanUploadIn(context.Background(), c, root, []string{"dir", "link", "inlink"}, "/home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	if p.Files != 1 || p.Dirs != 1 || p.Errors.Count != 2 {
+		t.Fatalf("files %d dirs %d errors %v", p.Files, p.Dirs, p.Errors.List)
+	}
+	for _, e := range p.Errors.List {
+		if !strings.Contains(e, errSelectedLink.Error()) {
+			t.Fatalf("error %q", e)
+		}
+	}
+}
+
+func TestPlanDownloadInOwnsRoot(t *testing.T) {
+	c, _, _ := remote(t)
+	dest, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PlanDownloadIn(context.Background(), c, []string{"rel"}, dest, "label"); err == nil {
+		t.Fatal("relative remote source accepted")
+	}
+	if _, err := dest.Stat("."); err == nil {
+		t.Fatal("dest root not closed on error")
 	}
 }

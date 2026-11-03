@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/lang315/sshgate/internal/broker"
 )
 
 // safeBuf is a bytes.Buffer a test can read from (String) while
@@ -336,4 +339,42 @@ func TestCLIApproverShowsStdinAndRefusesSendToTab(t *testing.T) {
 	if err := <-errc; err == nil {
 		t.Fatal("want denied")
 	}
+}
+
+func TestCLIApproverShowsTransferAndRefusesSendToTab(t *testing.T) {
+	h, _ := newHub(t, &fakeExec{})
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	out := &safeBuf{}
+	go RunCLIApprover(context.Background(), h, pr, out)
+	waitOut(t, out, "Commands:")
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.Broker().Submit(context.Background(), broker.Request{Server: "vis", Command: "upload 1 path(s) to /srv",
+			Transfer: &broker.Transfer{Op: "upload", Root: "/p", Local: []string{"a"}, Remote: []string{"/srv"}, Overwrite: true}})
+	}()
+	waitPending(t, h.Broker(), 1)
+	waitOut(t, out, "upload from /p:\n  a\nto /srv\noverwrite: yes\n")
+
+	io.WriteString(pw, "s\n")
+	waitOut(t, out, "send to tab is not available for a file transfer")
+	if len(h.Broker().Pending()) != 1 {
+		t.Fatal("s removed the request")
+	}
+	io.WriteString(pw, "d\n")
+	<-done
+
+	// A download shows the project folder joined to the destination.
+	done = make(chan struct{})
+	go func() {
+		defer close(done)
+		h.Broker().Submit(context.Background(), broker.Request{Server: "vis", Command: "download 1 path(s) to out",
+			Transfer: &broker.Transfer{Op: "download", Root: "/p", Local: []string{"out"}, Remote: []string{"/srv/f"}}})
+	}()
+	waitPending(t, h.Broker(), 1)
+	waitOut(t, out, "download from vis:\n  /srv/f\nto "+filepath.Join("/p", "out")+"\n")
+	io.WriteString(pw, "d\n")
+	<-done
 }

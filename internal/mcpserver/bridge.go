@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lang315/sshgate/internal/config"
 	"github.com/lang315/sshgate/internal/rpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -69,6 +70,131 @@ func hubCallErr(err error) *mcp.CallToolResult {
 	return textErr(hubCrashedMsg)
 }
 
+// callHub makes one door call with the progress ticker and cancel handling
+// shared by every approval-gated tool. It returns nil on success (out is
+// filled), else the result to hand the AI. noMethod, when set, is the text for
+// a hub that does not know the method (-32601).
+func callHub(ctx context.Context, req *mcp.CallToolRequest, c *rpc.Client, method string, params map[string]any, out any, noMethod string) *mcp.CallToolResult {
+	// Progress notifications keep MCP clients that reset their timeout on
+	// progress alive while the human decides. The ticker goroutine is joined
+	// (not just signalled) right after c.Call returns, so it never leaks and
+	// never fires once the call has finished.
+	var notifying atomic.Bool
+	notifying.Store(true)
+	stop, done := make(chan struct{}), make(chan struct{})
+	if tok := req.Params.GetProgressToken(); tok != nil && req.Session != nil {
+		go func() {
+			defer close(done)
+			t := time.NewTicker(5 * time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-t.C:
+					if notifying.Load() {
+						_ = req.Session.NotifyProgress(ctx, &mcp.ProgressNotificationParams{ProgressToken: tok, Message: "waiting for approval in the app"})
+					}
+				case <-stop:
+					return
+				}
+			}
+		}()
+	} else {
+		close(done)
+	}
+
+	callErr := c.Call(ctx, method, params, out)
+	notifying.Store(false)
+	close(stop)
+	<-done // ticker goroutine has fully exited before we proceed
+
+	if ctx.Err() != nil {
+		// Client cancelled while we were waiting: withdraw the pending
+		// request from the hub before returning.
+		cctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		id, _ := params["requestId"].(string)
+		_ = c.Call(cctx, "cancel", map[string]string{"requestId": id}, nil)
+		return textErr("cancelled by client")
+	}
+	var rpcErr *rpc.Error
+	if noMethod != "" && errors.As(callErr, &rpcErr) && rpcErr.Code == -32601 {
+		return textErr(noMethod)
+	}
+	if callErr != nil {
+		return hubCallErr(callErr)
+	}
+	return nil
+}
+
+type bridgeUploadInput struct {
+	Server      string   `json:"server" jsonschema:"connection name from list-servers"`
+	Local       []string `json:"local" jsonschema:"files or folders to send, relative to your project folder (the working directory this tool runs in); at most 100"`
+	Remote      string   `json:"remote" jsonschema:"existing remote folder to copy into, absolute path"`
+	Overwrite   bool     `json:"overwrite,omitempty" jsonschema:"replace remote files that already exist; default false skips them"`
+	Description string   `json:"description,omitempty" jsonschema:"one sentence on what the transfer is for; shown to the approver and recorded in the audit log; at most 500 bytes"`
+	TimeoutSec  int      `json:"timeoutSec,omitempty" jsonschema:"transfer timeout in seconds, 1-3600, default 600"`
+}
+
+type bridgeDownloadInput struct {
+	Server      string   `json:"server" jsonschema:"connection name from list-servers"`
+	Remote      []string `json:"remote" jsonschema:"remote files or folders to fetch, absolute paths; at most 100"`
+	Local       string   `json:"local" jsonschema:"existing folder to copy into, relative to your project folder; . is the project folder itself"`
+	Overwrite   bool     `json:"overwrite,omitempty" jsonschema:"replace local files that already exist; default false skips them"`
+	Description string   `json:"description,omitempty" jsonschema:"one sentence on what the transfer is for; shown to the approver and recorded in the audit log; at most 500 bytes"`
+	TimeoutSec  int      `json:"timeoutSec,omitempty" jsonschema:"transfer timeout in seconds, 1-3600, default 600"`
+}
+
+type transferRefusal struct {
+	Path  string         `json:"path"`
+	Kinds map[string]int `json:"kinds"`
+}
+
+type transferOut struct {
+	Files        int               `json:"files"`
+	Bytes        int64             `json:"bytes"`
+	Skipped      int               `json:"skipped"`
+	SkippedNames []string          `json:"skippedNames"`
+	Refused      []transferRefusal `json:"refused"`
+	RefusedCount int               `json:"refusedCount"`
+	Errors       []string          `json:"errors"`
+	ErrorCount   int               `json:"errorCount"`
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+// layoutTransfer is what the AI reads after a transfer ran.
+func layoutTransfer(op string, r transferOut) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%sed %d %s, %d bytes\n", op, r.Files, plural(r.Files, "file", "files"), r.Bytes)
+	if r.Skipped > 0 {
+		fmt.Fprintf(&b, "skipped %d existing %s (not overwritten): %s\n", r.Skipped, plural(r.Skipped, "file", "files"), strings.Join(r.SkippedNames, ", "))
+	}
+	if r.RefusedCount > 0 {
+		fmt.Fprintf(&b, "refused %d %s holding a recognised secret (not saved):\n", r.RefusedCount, plural(r.RefusedCount, "file", "files"))
+		for _, f := range r.Refused {
+			var kinds []string
+			for _, k := range config.RedactKinds {
+				if n := f.Kinds[k]; n > 0 {
+					kinds = append(kinds, fmt.Sprintf("%s ×%d", k, n))
+				}
+			}
+			fmt.Fprintf(&b, "  %s (%s)\n", f.Path, strings.Join(kinds, ", "))
+		}
+	}
+	if r.ErrorCount > 0 {
+		fmt.Fprintf(&b, "%d %s:\n", r.ErrorCount, plural(r.ErrorCount, "error", "errors"))
+		for _, e := range r.Errors {
+			fmt.Fprintf(&b, "  %s\n", e)
+		}
+	}
+	return b.String()
+}
+
 // BuildBridgeServer forwards the three AI tools to the hub's MCP door over a
 // connection dial supplies. The bridge validates nothing and holds no
 // secrets; the hub is the single policy point. Each tool call dials fresh,
@@ -102,59 +228,18 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 					method, params["stdin"] = "execStdin", in.Stdin
 				}
 
-				// Progress notifications keep MCP clients that reset their
-				// timeout on progress alive while the human decides. The
-				// ticker goroutine is joined (not just signalled) right
-				// after c.Call returns, so it never leaks and never fires
-				// once the call has finished.
-				var notifying atomic.Bool
-				notifying.Store(true)
-				stop, done := make(chan struct{}), make(chan struct{})
-				if tok := req.Params.GetProgressToken(); tok != nil && req.Session != nil {
-					go func() {
-						defer close(done)
-						t := time.NewTicker(5 * time.Second)
-						defer t.Stop()
-						for {
-							select {
-							case <-t.C:
-								if notifying.Load() {
-									_ = req.Session.NotifyProgress(ctx, &mcp.ProgressNotificationParams{ProgressToken: tok, Message: "waiting for approval in the app"})
-								}
-							case <-stop:
-								return
-							}
-						}
-					}()
-				} else {
-					close(done)
-				}
-
 				var out struct {
 					ExitCode int            `json:"exitCode"`
 					Stdout   string         `json:"stdout"`
 					Stderr   string         `json:"stderr"`
 					Redacted map[string]int `json:"redacted"`
 				}
-				callErr := c.Call(ctx, method, params, &out)
-				notifying.Store(false)
-				close(stop)
-				<-done // ticker goroutine has fully exited before we proceed
-
-				if ctx.Err() != nil {
-					// Client cancelled while we were waiting: withdraw the
-					// pending request from the hub before returning.
-					cctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-					defer cancel()
-					_ = c.Call(cctx, "cancel", map[string]string{"requestId": id}, nil)
-					return textErr("cancelled by client"), nil
+				noMethod := ""
+				if method == "execStdin" {
+					noMethod = hubNoStdinMsg
 				}
-				var rpcErr *rpc.Error
-				if method == "execStdin" && errors.As(callErr, &rpcErr) && rpcErr.Code == -32601 {
-					return textErr(hubNoStdinMsg), nil
-				}
-				if callErr != nil {
-					return hubCallErr(callErr), nil
+				if r := callHub(ctx, req, c, method, params, &out, noMethod); r != nil {
+					return r, nil
 				}
 				// The hub already redacted and capped each stream and
 				// counted what it masked; lay out the text as-is, no
@@ -179,6 +264,36 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 		"Approval, fresh-shell, output and failure rules are the same as exec."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in bridgeSudoInput) (*mcp.CallToolResult, any, error) {
 			return sudoExec(ctx, req, bridgeExecInput{Server: in.Server, Command: in.Command, Description: in.Description, TimeoutSec: in.TimeoutSec})
+		})
+	const transferOld = "The running sshgate app is older than this bridge and does not support file transfer; restart the app"
+	transfer := func(ctx context.Context, req *mcp.CallToolRequest, op, server, description string, overwrite bool, timeoutSec int, paths map[string]any) (*mcp.CallToolResult, any, error) {
+		wd, err := os.Getwd()
+		if err != nil {
+			return textErr("cannot read the project folder: " + err.Error()), nil, nil
+		}
+		res, err := withHub(ctx, func(c *rpc.Client) (*mcp.CallToolResult, error) {
+			params := map[string]any{"requestId": randID(), "client": clientName(req), "server": server, "root": wd,
+				"overwrite": overwrite, "description": description, "timeoutSec": timeoutSec}
+			for k, v := range paths {
+				params[k] = v
+			}
+			var out transferOut
+			if r := callHub(ctx, req, c, op, params, &out, transferOld); r != nil {
+				return r, nil
+			}
+			return textOK(layoutTransfer(op, out)), nil
+		})
+		return res, nil, err
+	}
+	mcp.AddTool(s, &mcp.Tool{Name: "upload", Description: "Copy files or folders from your project folder (this tool's working directory) into an existing folder on a saved SSH server, through the sshgate desktop app. Binary files and folders are fine. Each call waits for a human to approve it, unless the server has auto-allow on. Existing remote files are skipped unless overwrite is true. Symlinks you name are refused; symlinks inside folders are skipped. Not available on servers configured with a su password. For a small text file, exec with stdin (`cat > path`) also works."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in bridgeUploadInput) (*mcp.CallToolResult, any, error) {
+			return transfer(ctx, req, "upload", in.Server, in.Description, in.Overwrite, in.TimeoutSec,
+				map[string]any{"local": in.Local, "remote": []string{in.Remote}})
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "download", Description: "Copy files or folders from a saved SSH server into an existing folder inside your project folder, through the sshgate desktop app. Approval, auto-allow and overwrite rules are as for upload. Each downloaded file is checked for recognised secrets (private keys, passwords, tokens, the server's saved secrets); a file holding one is not saved and is listed as refused with its kinds. Not available on servers configured with a su password."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in bridgeDownloadInput) (*mcp.CallToolResult, any, error) {
+			return transfer(ctx, req, "download", in.Server, in.Description, in.Overwrite, in.TimeoutSec,
+				map[string]any{"remote": in.Remote, "local": []string{in.Local}})
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "list-servers", Description: "List the saved SSH servers the user has made visible to AI, one per line as `- name (host)`, where host is the server's IP address or hostname; to find a server by its IP, match the host and use its name. " +
 		"A server marked `[locked: unlock the app]` cannot run commands until the user unlocks the app. " +

@@ -379,3 +379,23 @@ func TestBannersNeverMoveAllow(t *testing.T) {
 		t.Fatal(decided(d))
 	}
 }
+
+func TestTransferRequestShowsPathsAndDisablesSendToTab(t *testing.T) {
+	a, tt, c, d := colApp(t)
+	r := reqN("tr", "box", "upload 2 path(s) to /srv/app")
+	r.Transfer = &hubapi.Transfer{Op: "upload", Root: "/Users/me/proj", Local: []string{"dist", "README.md"}, Remote: []string{"/srv/app"}, Overwrite: true}
+	note(t, a, tt, "pending", map[string]any{"request": r})
+	for _, s := range []string{"UPLOAD", "from /Users/me/proj", "dist", "README.md", "to /srv/app", "overwrites existing files"} {
+		if !tt.HasText(s) {
+			t.Fatalf("missing %q in %q", s, tt.Texts())
+		}
+	}
+	c.add(time.Second)
+	tt.Frame()
+	a.Dial = (&dialRec{}).dial
+	_ = tt.Click("Send to tab")
+	tt.flush()
+	if decided(d) != "" || len(a.tabs.Tabs) != 0 {
+		t.Fatal("Send to tab must stay disabled for a transfer")
+	}
+}

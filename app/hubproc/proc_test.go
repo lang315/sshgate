@@ -63,7 +63,7 @@ func TestStartKeepsLastNotification(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses /bin/sh")
 	}
-	script := `read line; id=$(printf '%s' "$line" | sed 's/.*"id":\([0-9]*\).*/\1/'); printf '{"jsonrpc":"2.0","id":%s,"result":{"protocol":12}}\n{"jsonrpc":"2.0","method":"bye","params":{}}\n' "$id"`
+	script := `read line; id=$(printf '%s' "$line" | sed 's/.*"id":\([0-9]*\).*/\1/'); printf '{"jsonrpc":"2.0","id":%s,"result":{"protocol":13}}\n{"jsonrpc":"2.0","method":"bye","params":{}}\n' "$id"`
 	got := make(chan string, 1)
 	p, err := Start(context.Background(), Launch{Command: "/bin/sh", Args: []string{"-c", script}}, func(m string, _ json.RawMessage) { got <- m })
 	if err != nil {

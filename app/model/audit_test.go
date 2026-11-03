@@ -375,3 +375,17 @@ func TestAuditLines(t *testing.T) {
 		t.Fatal("no entries, no lines")
 	}
 }
+
+func TestAuditRowAITransfer(t *testing.T) {
+	r := AuditRecord{"kind": "file", "action": "download", "server": "box", "remote": []any{"/srv/app"}, "client": "c",
+		"outcome": "allowed", "approval": "auto", "refused": json.Number("2")}
+	v := AuditRowView(r, time.Now())
+	want := []Badge{{"download", "plain"}, {"auto", "auto"}}
+	if !reflect.DeepEqual(v.Badges, want) || !slices.Contains(v.Side, "2 refused") {
+		t.Fatalf("view %+v", v)
+	}
+	r["outcome"], r["approval"] = "denied", nil
+	if v := AuditRowView(r, time.Now()); !v.Alert || v.Badges[1] != (Badge{"denied", "danger"}) {
+		t.Fatalf("view %+v", v)
+	}
+}

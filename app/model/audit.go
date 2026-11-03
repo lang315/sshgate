@@ -351,6 +351,26 @@ func AuditRowView(r AuditRecord, now time.Time) RowView {
 			v.Main = l[0]
 		}
 		v.Badges = []Badge{{r.str("action"), "plain"}}
+		if o := r.str("outcome"); o != "" { // an AI transfer (spec 2026-11-02)
+			auto := r["approval"] == "auto"
+			if auto {
+				v.Badges = append(v.Badges, Badge{"auto", "auto"})
+			}
+			if !auto || o != "allowed" {
+				b, ok := execBadge[o]
+				if !ok {
+					b = Badge{o, "plain"}
+				}
+				v.Badges = append(v.Badges, b)
+			}
+			if n, ok := r.num("refused"); ok && n > 0 {
+				v.Side = append(v.Side, fmt.Sprintf("%d refused", int(n)))
+			}
+			if w, ok := r.num("waitMs"); ok && w > 0 {
+				v.Side = append(v.Side, "wait "+formatWait(w))
+			}
+			v.Alert = o == "denied" || o == "error"
+		}
 		if truthy(r["phase"]) {
 			v.Side = []string{r.str("phase")}
 		}
