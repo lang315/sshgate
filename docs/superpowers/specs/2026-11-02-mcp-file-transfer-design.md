@@ -3,7 +3,7 @@
 Date: 2026-11-02
 Status: Approved in chat 2026-11-02 (sections 1–2), option A of three.
 Amended 2026-11-02 while planning (selected symlinks refused, scan stops at the first hit, autoAllow.ran summary, view test).
-Implemented in PR #44, merged 2026-11-03 (plan `plans/2026-11-02-mcp-file-transfer.md`); exit gate open.
+Implemented in PR #44, merged 2026-11-03 (plan `plans/2026-11-02-mcp-file-transfer.md`); exit gate met on buildpc 2026-11-03.
 
 ## Goal
 
