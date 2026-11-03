@@ -189,13 +189,9 @@ func RanLockedText(ran []hubapi.RanLocked) string {
 }
 
 // EnableAllowed is the Auto-allow dialog's Enable: never on a refused host,
-// and with typeName only once the host name is typed exactly; then
-// AllowDelay after the dialog opened or its content last changed.
-func EnableAllowed(typeName bool, typed, host, refused string, changedAt, now time.Time) bool {
-	if refused != "" || typeName && typed != host {
-		return false
-	}
-	return TrustEnabled(changedAt, now)
+// and only AllowDelay after the dialog opened or its content last changed.
+func EnableAllowed(refused string, changedAt, now time.Time) bool {
+	return refused == "" && TrustEnabled(changedAt, now)
 }
 
 // DialogChangeKey is what restarts Enable's delay when it changes: the
@@ -228,12 +224,12 @@ func TimedNote(s *hubapi.Server, now time.Time) string {
 
 // Confirm is what Save must ask before it sends the draft's auto-allow.
 type Confirm struct {
-	Needed, TypeName, RootNew, SudoNew bool
+	Needed, RootNew, SudoNew bool
 }
 
 // SaveConfirm: any mode but Off asks, unless the host already runs a live
-// forever grant with the same opt-ins; a newly chosen forever needs the
-// name typed; an opt-in newly ticked gets its warning.
+// forever grant with the same opt-ins; an opt-in newly ticked gets its
+// warning.
 func SaveConfirm(s *hubapi.Server, d HostDraft) Confirm {
 	var a hubapi.AutoAllow
 	var root, sudo bool
@@ -245,10 +241,9 @@ func SaveConfirm(s *hubapi.Server, d HostDraft) Confirm {
 	}
 	armed := d.AutoAllow == "forever" && a.Forever && !a.Paused && d.AutoAllowRoot == root && d.AutoAllowSudo == sudo
 	return Confirm{
-		Needed:   d.AutoAllow != "off" && !armed,
-		TypeName: d.AutoAllow == "forever" && !a.Forever,
-		RootNew:  d.AutoAllowRoot && !root,
-		SudoNew:  d.AutoAllowSudo && !sudo,
+		Needed:  d.AutoAllow != "off" && !armed,
+		RootNew: d.AutoAllowRoot && !root,
+		SudoNew: d.AutoAllowSudo && !sudo,
 	}
 }
 
