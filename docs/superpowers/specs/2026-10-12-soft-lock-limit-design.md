@@ -117,7 +117,7 @@ The mockups were reviewed in the brainstorming browser companion on 2026-10-12. 
 - The notice text: "While the app is locked, the AI keeps running on hosts with auto-allow for up to <3 days | 7 days>" (or "for as long as the app runs" for No limit) ". Any program running as your user can use that access too."
 - After that text comes "On auto-allow now:" and the hosts as a `ul.files-sample.mono`, the list style the consent dialog uses for tunnels. The hosts come from `autoHosts(servers, now)` in `autoallow.ts`. With none: "No host is on auto-allow now. The limit applies from the next grant."
 - The notice sits in an `aria-live="polite"` region, so a screen reader reads it when the select changes.
-- **No typed confirmation.** The author decided in chat on 2026-10-12 that this choice is theirs and should not cost a second step. The red notice, the red Save and the delay below are the only friction. (The forever grant's typed host name in `AutoAllowDialog` is a different decision and is unchanged.)
+- **No typed confirmation.** The author decided in chat on 2026-10-12 that this choice is theirs and should not cost a second step. The red notice, the red Save and the delay below are the only friction. (The forever grant's typed host name in `AutoAllowDialog` was a different decision; it was removed on 2026-11-03, see `2026-09-28-auto-allow-design.md`.)
 
 ### Keys, focus and timing
 

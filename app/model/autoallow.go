@@ -197,7 +197,7 @@ func EnableAllowed(refused string, changedAt, now time.Time) bool {
 // DialogChangeKey is what restarts Enable's delay when it changes: the
 // mode, the warnings, the sudo sentence, the root check's state (pending,
 // failed or its answer), an error line and the running remote tunnels
-// listed. The typed name is not in it.
+// listed.
 func DialogChangeKey(mode string, rootNew, sudoNew, sudo bool, check *hubapi.AutoCheck, checkFailed bool, err string, remote []string) string {
 	state := "pending"
 	switch {

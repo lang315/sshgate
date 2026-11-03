@@ -190,8 +190,8 @@ func TestEnableWaitsThenSavesTheMode(t *testing.T) {
 	}
 }
 
-// Forever asks for nothing typed (removed 2026-11-03 at the author's
-// request): the warnings, mouse-only Enable and its delay remain.
+// Forever shows its limit and saves on Enable with nothing typed; the delay
+// is TestEnableWaitsThenSavesTheMode's.
 func TestForeverNeedsNoTypedName(t *testing.T) {
 	_, tt, d, c := confirmApp(t, autoBox(), "Until turned off", "24h")
 	for _, s := range []string{"Until turned off", model.LimitText("24h")} {
@@ -201,11 +201,6 @@ func TestForeverNeedsNoTypedName(t *testing.T) {
 	}
 	if tt.HasText("Type box to confirm") {
 		t.Fatal("the dialog still asks for the name")
-	}
-	clickT(t, tt, "Enable") // before the delay
-	tt.flush()
-	if hasCall(d, "servers.save") {
-		t.Fatal("Enable worked before the delay")
 	}
 	pass(c, tt)
 	clickT(t, tt, "Enable")
@@ -327,8 +322,8 @@ func TestRefusedHostCannotEnable(t *testing.T) {
 	}
 }
 
-// Cancel, Enter (Cancel has the focus), Esc and Enter in the typed name
-// all go back to the editor with the draft kept, and save nothing.
+// Cancel, Enter (Cancel has the focus) and Esc all go back to the editor
+// with the draft kept, and save nothing.
 func TestCancelReturnsToTheEditor(t *testing.T) {
 	for _, how := range []string{"Cancel", "Enter", "Esc"} {
 		a, tt, d, _ := confirmApp(t, autoBox(), "Until turned off", "24h")
