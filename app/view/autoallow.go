@@ -13,14 +13,13 @@ import (
 
 // confirmState is the Auto-allow dialog over the editor (Electron's
 // AutoAllowDialog.tsx): what SaveConfirm asked, the refusal shown instead
-// of the warnings, the root check's answer, the typed name, and Enable's
-// last error. lc restarts Enable's delay when what it shows moves.
+// of the warnings, the root check's answer, and Enable's last error. lc
+// restarts Enable's delay when what it shows moves.
 type confirmState struct {
 	ask       model.Confirm
 	refused   string
 	check     *hubapi.AutoCheck
 	checkFail bool
-	typed     string
 	err       string
 	lc        *model.ListChanges
 }
@@ -53,8 +52,8 @@ func (a *App) openConfirm(s *hubapi.Server) {
 }
 
 // buildConfirm is the dialog: Cancel has the focus, so Enter and Esc
-// cancel (the typed-name field's Enter too); Enable is mouse-only and waits
-// AllowDelay after the dialog opens or anything it shows changes.
+// cancel; Enable is mouse-only and waits AllowDelay after the dialog opens
+// or anything it shows changes.
 func (a *App) buildConfirm(c *ui.Context) {
 	t := c.Theme()
 	ed, now := a.editor, a.Now()
@@ -63,7 +62,7 @@ func (a *App) buildConfirm(c *ui.Context) {
 	key := model.DialogChangeKey(d.AutoAllow, cf.ask.RootNew, cf.ask.SudoNew, d.AutoAllowSudo, cf.check, cf.checkFail, cf.err, remote)
 	guard(c, &cf.lc, key, now)
 	enabled := func(now time.Time) bool {
-		return !ed.busy && model.EnableAllowed(cf.ask.TypeName, cf.typed, ed.name, cf.refused, cf.lc.At, now)
+		return !ed.busy && model.EnableAllowed(cf.refused, cf.lc.At, now)
 	}
 	name := model.DisplayText(ed.name)
 	title := "Auto-allow AI commands on " + name
@@ -75,7 +74,7 @@ func (a *App) buildConfirm(c *ui.Context) {
 			if cf.refused != "" {
 				ui.Text(c, "Auto-allow is not available here: "+model.DisplayText(cf.refused)).TextColor(t.Danger)
 			} else {
-				a.buildConfirmBody(c, cf, d, name, remote, now, &answer)
+				a.buildConfirmBody(c, cf, d, name, remote, now)
 			}
 			if cf.err != "" {
 				ui.Text(c, model.DisplayText(cf.err)).TextColor(t.Danger)
@@ -102,7 +101,7 @@ func (a *App) buildConfirm(c *ui.Context) {
 }
 
 // buildConfirmBody is the dialog's consent text, top to bottom as Electron's.
-func (a *App) buildConfirmBody(c *ui.Context, cf *confirmState, d model.HostDraft, name string, remote []string, now time.Time, answer *int) {
+func (a *App) buildConfirmBody(c *ui.Context, cf *confirmState, d model.HostDraft, name string, remote []string, now time.Time) {
 	t := c.Theme()
 	ui.Text(c, "The AI runs any command this account can run on "+name+" without asking, including commands planted by what it reads (prompt injection), and can leave things that run later (cron jobs, SSH keys, shell startup files).")
 	if !d.AutoAllowSudo {
@@ -144,13 +143,6 @@ func (a *App) buildConfirmBody(c *ui.Context, cf *confirmState, d model.HostDraf
 		c.After(now.Truncate(time.Minute).Add(time.Minute).Sub(now)) // the end time moves with the clock
 		ui.Text(c, fmt.Sprintf("For %s (ends at %s)", m.Label, ends)).Bold()
 		ui.Text(c, "Ends at "+ends+" or when you stop it. Locking the app, by hand or from inactivity, does not stop it: the AI keeps running on this host until then. To stop it, use Stop auto-allow and lock on the unlock screen, Stop on the host card, or Stop all auto-allow.").TextColor(t.TextMuted)
-	}
-	if cf.ask.TypeName {
-		var in ui.Element
-		ui.Field(c, "Type "+name+" to confirm", func() { in = ui.TextInput(c.Key("typed"), &cf.typed) })
-		if in.Submitted() {
-			*answer = 2 // Enter cancels, as everywhere in the dialog
-		}
 	}
 }
 

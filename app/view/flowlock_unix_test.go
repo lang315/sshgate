@@ -29,7 +29,6 @@ func next(texts []string, s string) string {
 func (f *flowT) armForever() {
 	f.t.Helper()
 	f.editAuto("box", "Until turned off")
-	f.fill("Type box to confirm", "box")
 	f.enable()
 	f.chip("box", "Auto ∞")
 }

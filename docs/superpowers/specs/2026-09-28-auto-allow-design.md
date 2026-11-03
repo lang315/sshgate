@@ -1,7 +1,7 @@
 # sshgate: Per-host Auto-allow for AI exec — Design
 
 Date: 2026-09-28
-Status: Approved 2026-09-28; implemented (plan `plans/2026-09-28-auto-allow.md`). Amended 2026-09-29 (see "Amendment 2026-09-29" at the end): the control moves into the Host editor and root hosts and sudo-exec become per-host opt-ins; where the amendment and an earlier section disagree, the amendment wins. Amendment implemented (plan `plans/2026-09-29-auto-allow-editor.md`). Amended 2026-10-02 by `2026-10-02-soft-lock-design.md`: the idle lock no longer ends grants; where they disagree, that document wins.
+Status: Approved 2026-09-28; implemented (plan `plans/2026-09-28-auto-allow.md`). Amended 2026-09-29 (see "Amendment 2026-09-29" at the end): the control moves into the Host editor and root hosts and sudo-exec become per-host opt-ins; where the amendment and an earlier section disagree, the amendment wins. Amendment implemented (plan `plans/2026-09-29-auto-allow-editor.md`). Amended 2026-10-02 by `2026-10-02-soft-lock-design.md`: the idle lock no longer ends grants; where they disagree, that document wins. Amended 2026-11-03 at the author's request: the dialog no longer asks for the host name to be typed when forever is chosen; the warnings, the mouse-only Enable and its delay remain.
 Depends on: `2026-09-24-desktop-app-design.md` (slice 1), `2026-09-25-desktop-slice2a-design.md` (slice 2a), `2026-09-27-slice3b-port-forwarding-design.md` (slice 3b). Everything there still holds unless this document changes it by name.
 
 This spec reverses a standing decision. ROADMAP: "Every AI command is approved by a human. No auto-approval rules of any kind until a spec argues otherwise." Slice 1's decision table: "No auto-approval rules". This document is that argument, and it replaces both with the rule in "ROADMAP, PRODUCT, README, CLAUDE.md changes".
@@ -155,7 +155,7 @@ A reload never arms a grant. Only `servers.setAutoAllow` does.
   - It calls `servers.autoAllowCheck` on open. On `uid == 0` or `passwordlessSudo` it shows "This is root access: the AI can do anything on this host." On error: "Could not check this host's sudo access."
   - It lists this host's running remote tunnels, if any: "Remote tunnels running on this host reach your machine."
   - Copy: "The AI runs any command this account can run on <host> without asking, including commands planted by what it reads (prompt injection), and can leave things that run later (cron jobs, SSH keys, shell startup files). sudo-exec still asks." Timed adds: "Ends at <time>, when you stop it, or when you lock the vault. The vault will not auto-lock before then." Forever adds: "Stays set after restart. After each unlock it waits for you to click Resume."
-  - Cancel is the default and has focus. **Enable** is mouse-only (`tabIndex=-1`, Enter/Space guarded) and disabled for 500 ms after the dialog appears or its content changes (`ListChanges`). Until turned off also requires typing the host name, as the Files tab's delete does.
+  - Cancel is the default and has focus. **Enable** is mouse-only (`tabIndex=-1`, Enter/Space guarded) and disabled for 500 ms after the dialog appears or its content changes (`ListChanges`). Until turned off also required typing the host name, as the Files tab's delete does, until 2026-11-03 (see the status line).
 - **After unlock with paused forever hosts:** a banner at the top of the Hosts tab and of the AI column: "Auto-allow is paused on A, B." with **Resume** (mouse-only, 500 ms delay; calls `setAutoAllow forever` per host) and **Stop** (calls `off`).
 - **Tab bar:** the AI button is shown while any host is on auto-allow or paused, with a separate non-pulsing "auto N" segment. The amber/pulse state stays tied only to pending requests. A terminal, Files, or Tunnels tab whose host is on auto-allow shows a small `--auto` dot next to its name.
 - **AI column:** an "Auto-allowed" section below the pending requests:
@@ -197,12 +197,12 @@ Go (`internal/hub`, `internal/config`, `internal/broker`, `cmd/sshgate`):
 Desktop (vitest):
 - Chip label and countdown; dropping chips on `locked`; paused state.
 - Feed reducer: newest first, cap 50, cleared on hub stop, truncated label.
-- Dialog: the refusal reason shown and Enable disabled for a refused host; Enable disabled for 500 ms and after content changes, mouse-only, typed host name for forever, root warning from the check result, remote tunnels listed.
+- Dialog: the refusal reason shown and Enable disabled for a refused host; Enable disabled for 500 ms and after content changes, mouse-only, root warning from the check result, remote tunnels listed.
 - No hub call is made in response to `autoAllow.ran` or `autoAllow.off`.
 
 Playwright (sshtestd):
 - Enable 15 min from the host card; an exec from a bridge client runs without a click and shows in the feed; Stop; the next exec waits in the column; enable again, Lock, unlock: chip gone and the next exec waits.
-- Enable forever (typed name); lock; unlock; the banner shows paused; an exec waits; Resume; the next exec runs. (After a hub restart the hub is in the same state as after a lock: no grants, the flag in the vault; the Go tests cover a new `Hub` on the same file.)
+- Enable forever; lock; unlock; the banner shows paused; an exec waits; Resume; the next exec runs. (After a hub restart the hub is in the same state as after a lock: no grants, the flag in the vault; the Go tests cover a new `Hub` on the same file.)
 
 ## ROADMAP, PRODUCT, README, CLAUDE.md changes
 
@@ -244,7 +244,7 @@ Decided in chat with the author on 2026-09-29.
 - **Confirm dialog.** Save shows the Auto-allow confirm dialog before sending when the mode is not Off, except when the host is already armed forever with the same options (the save keeps it as it is). The dialog:
   - shows the chosen duration and has no radios;
   - runs the `autoAllowCheck` probe;
-  - asks for the host name to be typed when forever is newly chosen;
+  - (until 2026-11-03 it also asked for the host name to be typed when forever was newly chosen; removed at the author's request);
   - adds a red warning for each opt-in newly ticked:
     - root: "Allowing root: the AI runs as root, and a command it plants can capture sudo or su passwords you type or store";
     - sudo: "sudo-exec will run without asking: the AI has full root on this host".
@@ -267,4 +267,4 @@ Decided in chat with the author on 2026-09-29.
   - The options are copied by `ApplyServer`, ignored by `dialChanged`, listed by `changes()`, and cleared by `vault.create`.
   - Protocol 7.
 - **Vitest:** the editor form's initial values; when the confirm dialog is needed; that the dialog shows the right warnings; that the opt-ins are disabled while the mode is Off.
-- **Playwright:** enable 15 min from the editor, see an exec run and Stop it from the card; enable forever from the editor with the typed name; tick "Also auto-allow sudo-exec" and see a `sudoExec` run without a click.
+- **Playwright:** enable 15 min from the editor, see an exec run and Stop it from the card; enable forever from the editor; tick "Also auto-allow sudo-exec" and see a `sudoExec` run without a click.

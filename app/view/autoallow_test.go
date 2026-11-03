@@ -190,23 +190,20 @@ func TestEnableWaitsThenSavesTheMode(t *testing.T) {
 	}
 }
 
-func TestForeverNeedsTheNameTyped(t *testing.T) {
+// Forever shows its limit and saves on Enable with nothing typed; the delay
+// is TestEnableWaitsThenSavesTheMode's.
+func TestForeverNeedsNoTypedName(t *testing.T) {
 	_, tt, d, c := confirmApp(t, autoBox(), "Until turned off", "24h")
-	for _, s := range []string{"Until turned off", "Type box to confirm", model.LimitText("24h")} {
+	for _, s := range []string{"Until turned off", model.LimitText("24h")} {
 		if !tt.HasText(s) {
 			t.Fatalf("missing %q in %q", s, tt.Texts())
 		}
 	}
+	if tt.HasText("Type box to confirm") {
+		t.Fatal("the dialog still asks for the name")
+	}
 	pass(c, tt)
 	clickT(t, tt, "Enable")
-	fill(t, tt, "Type box to confirm", "Box")
-	clickT(t, tt, "Enable")
-	tt.flush()
-	if hasCall(d, "servers.save") {
-		t.Fatal("Enable worked without the exact name")
-	}
-	fill(t, tt, "Type box to confirm", "box")
-	clickT(t, tt, "Enable") // typing is not a change: no new delay
 	tt.flush()
 	if got := params(d, "servers.save"); !strings.HasSuffix(got, `"autoAllow":"forever"}`) {
 		t.Fatalf("sent %s", got)
@@ -325,10 +322,10 @@ func TestRefusedHostCannotEnable(t *testing.T) {
 	}
 }
 
-// Cancel, Enter (Cancel has the focus), Esc and Enter in the typed name
-// all go back to the editor with the draft kept, and save nothing.
+// Cancel, Enter (Cancel has the focus) and Esc all go back to the editor
+// with the draft kept, and save nothing.
 func TestCancelReturnsToTheEditor(t *testing.T) {
-	for _, how := range []string{"Cancel", "Enter", "Esc", "Enter in the name"} {
+	for _, how := range []string{"Cancel", "Enter", "Esc"} {
 		a, tt, d, _ := confirmApp(t, autoBox(), "Until turned off", "24h")
 		switch how {
 		case "Cancel":
@@ -340,10 +337,6 @@ func TestCancelReturnsToTheEditor(t *testing.T) {
 			tt.Key(0, ui.KeyEnter)
 		case "Esc":
 			tt.Key(0, ui.KeyEscape)
-		default:
-			clickT(t, tt, "Type box to confirm")
-			tt.Type("box")
-			tt.Key(0, ui.KeyEnter)
 		}
 		tt.flush()
 		if a.editor == nil || a.editor.confirm != nil || a.editor.draft.AutoAllow != "forever" || hasCall(d, "servers.save") || tt.HasText("Auto-allow AI commands on box") {
@@ -404,7 +397,7 @@ func TestConfirmShowsTheNameEscaped(t *testing.T) {
 	s := autoBox()
 	s.Name = "bo\u202ex"
 	_, tt, _, _ := confirmApp(t, s, "Until turned off", "24h")
-	if !tt.HasText(`Auto-allow AI commands on bo\u202ex`) || !tt.HasText(`Type bo\u202ex to confirm`) {
+	if !tt.HasText(`Auto-allow AI commands on bo\u202ex`) {
 		t.Fatal(tt.Texts())
 	}
 	for _, x := range tt.Texts() {

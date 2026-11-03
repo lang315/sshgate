@@ -108,20 +108,16 @@ func TestEnableAllowed(t *testing.T) {
 	now := time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC)
 	ms := func(n int) time.Time { return now.Add(time.Duration(n) * time.Millisecond) }
 	for _, tc := range []struct {
-		typeName       bool
-		typed, refused string
-		changed, at    time.Time
-		want           bool
+		refused     string
+		changed, at time.Time
+		want        bool
 	}{
-		{false, "", "", now, ms(600), true},
-		{false, "", "", now, ms(499), false},
-		{false, "", "", ms(200), ms(600), false},
-		{true, "", "", now, ms(600), false},
-		{true, "box", "", now, ms(600), true},
-		{true, "Box", "", now, ms(600), false},
-		{false, "", "root login", now, ms(600), false},
+		{"", now, ms(600), true},
+		{"", now, ms(499), false},
+		{"", ms(200), ms(600), false},
+		{"root login", now, ms(600), false},
 	} {
-		if got := EnableAllowed(tc.typeName, tc.typed, "box", tc.refused, tc.changed, tc.at); got != tc.want {
+		if got := EnableAllowed(tc.refused, tc.changed, tc.at); got != tc.want {
 			t.Errorf("%+v: got %v", tc, got)
 		}
 	}
@@ -166,7 +162,7 @@ func TestSaveConfirm(t *testing.T) {
 	}{
 		{"off", none, with(none, func(d *HostDraft) { d.AutoAllow = "off" }), Confirm{}},
 		{"timed", none, with(none, func(d *HostDraft) { d.AutoAllow = "15m" }), Confirm{Needed: true}},
-		{"forever newly chosen", none, with(none, func(d *HostDraft) { d.AutoAllow = "forever" }), Confirm{Needed: true, TypeName: true}},
+		{"forever newly chosen", none, with(none, func(d *HostDraft) { d.AutoAllow = "forever" }), Confirm{Needed: true}},
 		{"forever armed, same options", srv(&hubapi.AutoAllow{Forever: true}, true, false), DraftFrom(srv(&hubapi.AutoAllow{Forever: true}, true, false)), Confirm{}},
 		{"armed, root newly ticked", armed, with(armed, func(d *HostDraft) { d.AutoAllowRoot = true }), Confirm{Needed: true, RootNew: true}},
 		{"armed, sudo newly ticked", armed, with(armed, func(d *HostDraft) { d.AutoAllowSudo = true }), Confirm{Needed: true, SudoNew: true}},
@@ -269,7 +265,7 @@ func TestDialogChangeKey(t *testing.T) {
 		at   int64
 		want bool
 	}{{1000, false}, {1499, false}, {1500, true}} {
-		if got := EnableAllowed(false, "", "h", "", lc.At, time.UnixMilli(tc.at)); got != tc.want {
+		if got := EnableAllowed("", lc.At, time.UnixMilli(tc.at)); got != tc.want {
 			t.Errorf("at %d: %v", tc.at, got)
 		}
 	}
