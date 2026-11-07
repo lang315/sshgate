@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"regexp"
 	"strings"
 )
 
@@ -18,14 +19,14 @@ const (
 // the first window with a hit; the counts are that window's, a lower bound.
 // nil: nothing matched.
 //
-// A window with a NUL byte is binary: the key-value, header and URL heuristics
-// read format and UI strings in executables, locale packs and compressed data
-// as secrets, so there only vault secrets, PEM blocks and prefixed tokens
-// count.
-//
-// shortcut: NUL padding hides a "password=..." line from the heuristics; the
-// human approves every transfer, so upgrade only if that gap is used.
-func ScanSecrets(r *Redactor, rd io.Reader) (map[string]int, error) {
+// With binaryOK, a window whose newly read bytes hold a NUL is binary: the
+// key-value, header and URL heuristics read format and UI strings in
+// executables, locale packs and compressed data as secrets, so there only
+// vault secrets, PEM blocks with a body and an END line, and prefixed tokens
+// count. Pass it only when a human approved the transfer: NUL bytes are cheap
+// to add, so with no approver (an auto-allow grant) a file could use them to
+// hide "password=..." lines.
+func ScanSecrets(r *Redactor, rd io.Reader, binaryOK bool) (map[string]int, error) {
 	buf := make([]byte, scanOverlap+scanWindow)
 	carry := 0
 	for {
@@ -33,7 +34,7 @@ func ScanSecrets(r *Redactor, rd io.Reader) (map[string]int, error) {
 		if n > 0 {
 			s, sec := r.RedactCount(string(buf[:carry+n]))
 			var c map[string]int
-			if bytes.IndexByte(buf[:carry+n], 0) >= 0 {
+			if binaryOK && bytes.IndexByte(buf[carry:carry+n], 0) >= 0 {
 				c = binaryPatterns(s)
 			} else {
 				_, c = RedactPatterns(s)
@@ -60,21 +61,26 @@ func ScanSecrets(r *Redactor, rd io.Reader) (map[string]int, error) {
 	}
 }
 
+// binPemRe is a PEM private key with a base64 body and an END line; the bare
+// header text that OpenSSH and TLS tools carry as a string does not match.
+var binPemRe = regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----[A-Za-z0-9+/=:,\s-]{16,}?-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----`)
+
 // binaryPatterns counts the high-precision RedactPatterns kinds only.
 func binaryPatterns(s string) map[string]int {
 	var c map[string]int
-	add := func(kind string, n int) {
-		if n > 0 {
-			if c == nil {
-				c = map[string]int{}
-			}
-			c[kind] += n
+	add := func(kind string) {
+		if c == nil {
+			c = map[string]int{}
 		}
+		c[kind]++
 	}
-	add("private_key", len(pemRe.FindAllStringIndex(s, -1)))
+	for range binPemRe.FindAllStringIndex(s, -1) {
+		add("private_key")
+	}
 	for _, t := range tokenRe.FindAllString(s, -1) {
-		if strings.ContainsAny(t, "0123456789") {
-			add("token", 1)
+		// sk- also starts OpenSSH key type names (sk-ssh-ed25519-cert-v01@openssh.com)
+		if realToken(t) && !strings.HasPrefix(t, "sk-") {
+			add("token")
 		}
 	}
 	return c
