@@ -362,7 +362,9 @@ func (h *Hub) runTransfer(ctx context.Context, r TransferRequest, dc sshx.DialCo
 		}
 		p, err = files.PlanDownloadIn(ctx, c, r.Remote, dest, filepath.Join(r.Root, r.Local[0]))
 		if err == nil {
-			p.Check = func(rd io.Reader) (map[string]int, error) { return config.ScanSecrets(red, rd) }
+			p.Check = func(rd io.Reader) (map[string]int, error) {
+				return config.ScanSecrets(red, rd, base.Approval != "auto")
+			}
 			p.NoExec = true // a download cannot plant an executable (a git hook, say)
 		}
 	}

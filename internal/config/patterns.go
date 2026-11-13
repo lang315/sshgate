@@ -208,7 +208,7 @@ func redactPatterns(s string, orphanEnd bool) (string, map[string]int) {
 	s = kvArrayPass(s, markVal)
 	s = kvPass(kvBracketRe, s, 0)
 	s = tokenRe.ReplaceAllStringFunc(s, func(t string) string {
-		if !strings.ContainsAny(t, "0123456789") {
+		if !realToken(t) {
 			return t // a hyphenated name, not a random token
 		}
 		return mark("token")
@@ -218,6 +218,9 @@ func redactPatterns(s string, orphanEnd bool) (string, map[string]int) {
 	}
 	return s, counts
 }
+
+// realToken reports a tokenRe match with a digit; a hyphenated name has none.
+func realToken(t string) bool { return strings.ContainsAny(t, "0123456789") }
 
 // replaceSubmatch is ReplaceAllStringFunc with the submatch indexes, which
 // the standard library does not offer.
