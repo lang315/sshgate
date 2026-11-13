@@ -378,12 +378,12 @@ func TestLayoutTransfer(t *testing.T) {
 }
 
 func TestTransferToolsOnlyOnBridge(t *testing.T) {
-	if s := inputSchemas(t, BuildBridgeServer(nil)); s["upload"] == "" || s["download"] == "" {
+	if s := inputSchemas(t, BuildBridgeServer(nil)); s["upload"] == "" || s["download"] == "" || s["git-push"] == "" {
 		t.Fatal("bridge lacks transfer tools")
 	}
 	d := &Deps{CLI: &config.CLIConfig{Host: "h", User: "u", HasHost: true, TimeoutMs: 60000, MaxChars: 1000}}
 	s := inputSchemas(t, BuildServer(d, sshx.NewRegistry(), false, 1000))
-	if s["upload"] != "" || s["download"] != "" {
+	if s["upload"] != "" || s["download"] != "" || s["git-push"] != "" {
 		t.Fatal("--host mode has transfer tools")
 	}
 }

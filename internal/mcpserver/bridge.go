@@ -40,6 +40,14 @@ type bridgeSudoInput struct {
 	TimeoutSec  int    `json:"timeoutSec,omitempty" jsonschema:"execution timeout in seconds, 1-600, default 60"`
 }
 
+// execOut is the MCP door's answer to exec, sudoExec and execStdin.
+type execOut struct {
+	ExitCode int            `json:"exitCode"`
+	Stdout   string         `json:"stdout"`
+	Stderr   string         `json:"stderr"`
+	Redacted map[string]int `json:"redacted"`
+}
+
 func clientName(req *mcp.CallToolRequest) string {
 	if req != nil && req.Session != nil {
 		if ip := req.Session.InitializeParams(); ip != nil && ip.ClientInfo != nil {
@@ -195,10 +203,12 @@ func layoutTransfer(op string, r transferOut) string {
 	return b.String()
 }
 
-// BuildBridgeServer forwards the three AI tools to the hub's MCP door over a
-// connection dial supplies. The bridge validates nothing and holds no
-// secrets; the hub is the single policy point. Each tool call dials fresh,
-// so the bridge itself is stateless.
+// BuildBridgeServer forwards the AI tools to the hub's MCP door over a
+// connection dial supplies. The bridge holds no secrets and no policy; the hub
+// is the single policy point. Each door call dials fresh, so the bridge itself
+// is stateless. git-push is the one tool with local work: read-only git plus
+// git bundle create into a temporary folder it removes, then an ordinary
+// upload and exec the hub decides and audits.
 func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "sshgate", Version: Version}, nil)
 
@@ -228,12 +238,7 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 					method, params["stdin"] = "execStdin", in.Stdin
 				}
 
-				var out struct {
-					ExitCode int            `json:"exitCode"`
-					Stdout   string         `json:"stdout"`
-					Stderr   string         `json:"stderr"`
-					Redacted map[string]int `json:"redacted"`
-				}
+				var out execOut
 				noMethod := ""
 				if method == "execStdin" {
 					noMethod = hubNoStdinMsg
@@ -297,6 +302,52 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 		func(ctx context.Context, req *mcp.CallToolRequest, in bridgeDownloadInput) (*mcp.CallToolResult, any, error) {
 			return transfer(ctx, req, "download", in.Server, in.Description, in.Overwrite, in.TimeoutSec,
 				map[string]any{"remote": in.Remote, "local": []string{in.Local}})
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "git-push", Description: gitPushDescription},
+		func(ctx context.Context, req *mcp.CallToolRequest, in bridgeGitPushInput) (*mcp.CallToolResult, any, error) {
+			if in.TimeoutSec == 0 {
+				in.TimeoutSec = 600
+			}
+			if in.TimeoutSec < 1 || in.TimeoutSec > 600 {
+				return textErr("timeoutSec must be 1 to 600"), nil, nil
+			}
+			if err := checkGitRemote(in.Remote, in.Create); err != nil {
+				return textErr(err.Error()), nil, nil
+			}
+			wd, err := os.Getwd()
+			if err != nil {
+				return textErr("cannot read the project folder: " + err.Error()), nil, nil
+			}
+			b, cleanup, err := makeBundle(ctx, wd, in.Branch, planGitPush(in.Remote, "", in.Create).Name)
+			if err != nil {
+				return textErr(err.Error()), nil, nil
+			}
+			defer cleanup()
+			plan := planGitPush(in.Remote, b.Branch, in.Create)
+			res, err := withHub(ctx, func(c *rpc.Client) (*mcp.CallToolResult, error) {
+				var out transferOut
+				if r := callHub(ctx, req, c, "upload", map[string]any{"requestId": randID(), "client": clientName(req), "server": in.Server,
+					"root": wd, "local": []string{b.Rel}, "remote": []string{plan.Dest}, "overwrite": true,
+					"description": "git-push 1/2: " + in.Description, "timeoutSec": in.TimeoutSec}, &out, transferOld); r != nil {
+					return r, nil
+				}
+				if out.Files != 1 || out.ErrorCount != 0 {
+					return textErr(layoutTransfer("upload", out)), nil
+				}
+				return nil, nil
+			})
+			if res != nil || err != nil {
+				return res, nil, err
+			}
+			res, err = withHub(ctx, func(c *rpc.Client) (*mcp.CallToolResult, error) {
+				var out execOut
+				if r := callHub(ctx, req, c, "exec", map[string]any{"requestId": randID(), "client": clientName(req), "server": in.Server,
+					"command": plan.Command, "description": "git-push 2/2: " + in.Description, "timeoutSec": in.TimeoutSec}, &out, ""); r != nil {
+					return r, nil
+				}
+				return textOK(layoutGitPush(in.Server, plan, b, in.Remote, in.Create, out)), nil
+			})
+			return res, nil, err
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "list-servers", Description: "List the saved SSH servers the user has made visible to AI, one per line as `- name (host)`, where host is the server's IP address or hostname; to find a server by its IP, match the host and use its name. " +
 		"A server marked `[locked: unlock the app]` cannot run commands until the user unlocks the app. " +

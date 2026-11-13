@@ -158,3 +158,43 @@ func makeBundle(ctx context.Context, root, branch, name string) (b gitBundle, cl
 	rel, _ := filepath.Rel(root, file)
 	return gitBundle{Rel: filepath.ToSlash(rel), Branch: branch, Commit: commit, Size: fi.Size()}, cleanup, nil
 }
+
+type bridgeGitPushInput struct {
+	Server      string `json:"server" jsonschema:"connection name from list-servers"`
+	Remote      string `json:"remote" jsonschema:"repository folder on the server, absolute, in SFTP form: /home/me/src/app, or /C:/Users/me/src/app on Windows; with create it must not exist and its parent must"`
+	Branch      string `json:"branch,omitempty" jsonschema:"local branch whose committed state is sent; default the branch HEAD names"`
+	Create      bool   `json:"create,omitempty" jsonschema:"make the repository on the server with git clone (first push); default false fast-forwards an existing one"`
+	Description string `json:"description,omitempty" jsonschema:"one sentence on what the push is for; shown to the approver and recorded in the audit log; at most 480 bytes"`
+	TimeoutSec  int    `json:"timeoutSec,omitempty" jsonschema:"timeout in seconds for each of the two steps, 1-600, default 600"`
+}
+
+const gitPushDescription = "Put the committed state of one local branch of your project (this tool's working directory) onto a saved SSH server, Linux, macOS or Windows, with no git hosting: " +
+	"the tool bundles the branch locally, uploads the bundle, then runs one git command there. Uncommitted changes are never sent. " +
+	"Two approvals, the upload and then the git command (shown in full), unless the server has auto-allow on. " +
+	"With create, `git clone` makes the repository; otherwise the server's checked-out branch, whatever its name, is fast-forwarded to your branch with `git pull --ff-only`, never rewritten: " +
+	"if the server has commits your branch lacks, the push is refused. The server's git hooks run as for any git pull, and a file the server ignores is replaced if your commit tracks it. " +
+	"Submodules and LFS objects are not sent; shallow repositories are refused. Needs git on the server's PATH."
+
+// layoutGitPush is the answer: a line per step, then the exec result as
+// layoutExec gives it, then a hint when git failed.
+func layoutGitPush(server string, p gitPushPlan, b gitBundle, remote string, create bool, out execOut) string {
+	h7 := b.Commit[:7]
+	var s strings.Builder
+	fmt.Fprintf(&s, "uploaded bundle of %s %s (%d bytes) to %s:%s\n", b.Branch, h7, b.Size, server, p.Dest)
+	if out.ExitCode == 0 {
+		if create {
+			fmt.Fprintf(&s, "created %s at %s %s; the bundle %s/%s can be deleted\n", remote, b.Branch, h7, p.Dest, p.Name)
+		} else {
+			fmt.Fprintf(&s, "fast-forwarded the server's checked-out branch to %s %s\n", b.Branch, h7)
+		}
+	}
+	s.WriteString(layoutExec(out.ExitCode, out.Stdout, out.Stderr, out.Redacted))
+	if out.ExitCode != 0 {
+		if create {
+			s.WriteString("hint: if the folder already exists, call git-push without create\n")
+		} else {
+			s.WriteString("hint: if the server's branch has commits yours lacks, git-push will not replace them; to discard them, run git fetch and git reset --hard with exec (the human sees it)\n")
+		}
+	}
+	return s.String()
+}

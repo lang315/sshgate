@@ -3,12 +3,18 @@ package mcpserver
 import (
 	"bufio"
 	"context"
+	"encoding/json"
+	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/lang315/sshgate/internal/rpc"
 )
 
 func TestCheckGitRemote(t *testing.T) {
@@ -249,5 +255,160 @@ func TestMakeBundleIgnoresGitEnv(t *testing.T) {
 	defer cleanup()
 	if b.Branch != "main" {
 		t.Fatalf("bundle %+v", b)
+	}
+}
+
+// gitDoor serves upload and exec like the MCP door and records each call.
+func gitDoor(t *testing.T, uploadResp any, uploadErr string, exitCode int) (func(context.Context) (net.Conn, error), func() [][2]any) {
+	var mu sync.Mutex
+	var calls [][2]any
+	dial := func(context.Context) (net.Conn, error) {
+		client, server := net.Pipe()
+		s := rpc.NewServer()
+		record := func(m string, raw json.RawMessage) {
+			var p map[string]any
+			json.Unmarshal(raw, &p)
+			mu.Lock()
+			calls = append(calls, [2]any{m, p})
+			mu.Unlock()
+		}
+		s.HandleRequest("upload", func(_ context.Context, raw json.RawMessage) (any, error) {
+			record("upload", raw)
+			if uploadErr != "" {
+				return nil, &rpc.Error{Code: -32000, Message: uploadErr}
+			}
+			return uploadResp, nil
+		})
+		s.HandleRequest("exec", func(_ context.Context, raw json.RawMessage) (any, error) {
+			record("exec", raw)
+			return map[string]any{"exitCode": exitCode, "stdout": "", "stderr": ""}, nil
+		})
+		go s.Serve(context.Background(), server, server)
+		return client, nil
+	}
+	return dial, func() [][2]any { mu.Lock(); defer mu.Unlock(); return append([][2]any(nil), calls...) }
+}
+
+var oneFile = map[string]any{"files": 1, "bytes": 99}
+
+func TestGitPushUpdate(t *testing.T) {
+	repo := gitRepo(t)
+	t.Chdir(repo)
+	wd, _ := os.Getwd()
+	dial, calls := gitDoor(t, oneFile, "", 0)
+	res := callTool(t, BuildBridgeServer(dial), "git-push", map[string]any{"server": "vis", "remote": "/srv/app", "description": "deploy"})
+	if res.IsError {
+		t.Fatal(text(res))
+	}
+	c := calls()
+	if len(c) != 2 || c[0][0] != "upload" || c[1][0] != "exec" {
+		t.Fatalf("door calls %v", c)
+	}
+	up, ex := c[0][1].(map[string]any), c[1][1].(map[string]any)
+	local := up["local"].([]any)
+	if len(local) != 1 || !regexp.MustCompile(`^\.git/sshgate-[0-9a-f]+/sshgate\.bundle$`).MatchString(local[0].(string)) ||
+		up["remote"].([]any)[0] != "/srv/app/.git" || up["overwrite"] != true || up["description"] != "git-push 1/2: deploy" ||
+		up["timeoutSec"] != float64(600) || up["root"] != wd {
+		t.Fatalf("upload params %v", up)
+	}
+	if ex["command"] != planGitPush("/srv/app", "main", false).Command || ex["description"] != "git-push 2/2: deploy" || ex["timeoutSec"] != float64(600) {
+		t.Fatalf("exec params %v", ex)
+	}
+	h7 := git(t, repo, "rev-parse", "main")[:7]
+	txt := text(res)
+	if !strings.HasPrefix(txt, "uploaded bundle of main "+h7+" (") || !strings.Contains(txt, "fast-forwarded the server's checked-out branch to main "+h7) || !strings.Contains(txt, "exit code: 0") {
+		t.Fatalf("answer %q", txt)
+	}
+	if left := tempLeft(t, repo); len(left) != 0 {
+		t.Fatalf("left %v", left)
+	}
+}
+
+func TestGitPushCreate(t *testing.T) {
+	repo := gitRepo(t)
+	t.Chdir(repo)
+	dial, calls := gitDoor(t, oneFile, "", 0)
+	res := callTool(t, BuildBridgeServer(dial), "git-push", map[string]any{"server": "vis", "remote": "/C:/Users/me/app", "create": true})
+	if res.IsError {
+		t.Fatal(text(res))
+	}
+	c := calls()
+	up, ex := c[0][1].(map[string]any), c[1][1].(map[string]any)
+	if up["remote"].([]any)[0] != "/C:/Users/me" || !strings.HasSuffix(up["local"].([]any)[0].(string), "/.app.sshgate.bundle") {
+		t.Fatalf("upload params %v", up)
+	}
+	if ex["command"] != planGitPush("/C:/Users/me/app", "main", true).Command {
+		t.Fatalf("exec params %v", ex)
+	}
+	h7 := git(t, repo, "rev-parse", "main")[:7]
+	if txt := text(res); !strings.Contains(txt, "created /C:/Users/me/app at main "+h7) || !strings.Contains(txt, "/C:/Users/me/.app.sshgate.bundle can be deleted") {
+		t.Fatalf("answer %q", txt)
+	}
+}
+
+func TestGitPushNotFastForward(t *testing.T) {
+	repo := gitRepo(t)
+	t.Chdir(repo)
+	dial, _ := gitDoor(t, oneFile, "", 1)
+	res := callTool(t, BuildBridgeServer(dial), "git-push", map[string]any{"server": "vis", "remote": "/srv/app"})
+	if res.IsError || !strings.Contains(text(res), "exit code: 1") ||
+		!strings.Contains(text(res), "hint: if the server's branch has commits yours lacks, git-push will not replace them; to discard them, run git fetch and git reset --hard with exec (the human sees it)") {
+		t.Fatalf("update: %v %q", res.IsError, text(res))
+	}
+	res = callTool(t, BuildBridgeServer(dial), "git-push", map[string]any{"server": "vis", "remote": "/srv/app", "create": true})
+	if res.IsError || !strings.Contains(text(res), "hint: if the folder already exists, call git-push without create") {
+		t.Fatalf("create: %v %q", res.IsError, text(res))
+	}
+}
+
+func TestGitPushUploadDenied(t *testing.T) {
+	repo := gitRepo(t)
+	t.Chdir(repo)
+	dial, calls := gitDoor(t, nil, "denied by user", 0)
+	res := callTool(t, BuildBridgeServer(dial), "git-push", map[string]any{"server": "vis", "remote": "/srv/app"})
+	if !res.IsError || text(res) != "denied by user" || len(calls()) != 1 {
+		t.Fatalf("%v %q %v", res.IsError, text(res), calls())
+	}
+	if left := tempLeft(t, repo); len(left) != 0 {
+		t.Fatalf("left %v", left)
+	}
+}
+
+func TestGitPushUploadNotOneFile(t *testing.T) {
+	t.Chdir(gitRepo(t))
+	dial, calls := gitDoor(t, map[string]any{"files": 0, "errorCount": 1, "errors": []string{"x: permission denied"}}, "", 0)
+	res := callTool(t, BuildBridgeServer(dial), "git-push", map[string]any{"server": "vis", "remote": "/srv/app"})
+	if !res.IsError || !strings.Contains(text(res), "x: permission denied") || len(calls()) != 1 {
+		t.Fatalf("%v %q %v", res.IsError, text(res), calls())
+	}
+}
+
+func TestGitPushHubDown(t *testing.T) {
+	repo := gitRepo(t)
+	t.Chdir(repo)
+	dial := func(context.Context) (net.Conn, error) { return nil, errors.New("no hub") }
+	res := callTool(t, BuildBridgeServer(dial), "git-push", map[string]any{"server": "vis", "remote": "/srv/app"})
+	if !res.IsError || text(res) != hubDownMsg {
+		t.Fatalf("%v %q", res.IsError, text(res))
+	}
+	if left := tempLeft(t, repo); len(left) != 0 {
+		t.Fatalf("left %v", left)
+	}
+}
+
+func TestGitPushRefusesBeforeHub(t *testing.T) {
+	repo := gitRepo(t)
+	t.Chdir(repo)
+	dial, calls := gitDoor(t, oneFile, "", 0)
+	for _, args := range []map[string]any{
+		{"server": "vis", "remote": "/srv/app/"},
+		{"server": "vis", "remote": "/srv/app", "timeoutSec": 601},
+	} {
+		if res := callTool(t, BuildBridgeServer(dial), "git-push", args); !res.IsError {
+			t.Errorf("%v accepted: %q", args, text(res))
+		}
+	}
+	if len(calls()) != 0 || len(tempLeft(t, repo)) != 0 {
+		t.Fatalf("calls %v left %v", calls(), tempLeft(t, repo))
 	}
 }
