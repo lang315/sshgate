@@ -1,8 +1,14 @@
 package mcpserver
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"fmt"
+	"os"
+	"os/exec"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode"
@@ -75,4 +81,80 @@ func planGitPush(remote, branch string, create bool) gitPushPlan {
 	}
 	return gitPushPlan{Dest: remote + "/.git", Name: "sshgate.bundle",
 		Command: `git -C "` + r + `" pull -q --ff-only --no-recurse-submodules "` + r + `/.git/sshgate.bundle" ` + branch}
+}
+
+type gitBundle struct {
+	Rel    string // slash-separated path of the bundle file, relative to root
+	Branch string
+	Commit string
+	Size   int64
+}
+
+// localGit runs git in root with every inherited GIT_* variable removed, so a
+// GIT_DIR or GIT_CONFIG_* from the MCP client cannot point it elsewhere.
+func localGit(ctx context.Context, root string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = root
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GIT_") {
+			cmd.Env = append(cmd.Env, kv)
+		}
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// makeBundle writes a bundle of exactly refs/heads/<branch> (branch "" = the
+// one HEAD names) to a fresh 0700 folder inside root. cleanup removes that
+// folder; on error it has already run.
+func makeBundle(ctx context.Context, root, branch, name string) (b gitBundle, cleanup func(), err error) {
+	cleanup = func() {}
+	if branch == "" {
+		if branch, err = localGit(ctx, root, "symbolic-ref", "-q", "--short", "HEAD"); err != nil {
+			return b, cleanup, errors.New("HEAD is detached; pass branch")
+		}
+	}
+	if err := checkGitBranch(branch); err != nil {
+		return b, cleanup, err
+	}
+	if _, err := localGit(ctx, root, "check-ref-format", "--branch", branch); err != nil {
+		return b, cleanup, fmt.Errorf("%q is not a valid branch name", branch)
+	}
+	if out, err := localGit(ctx, root, "rev-parse", "--is-shallow-repository"); err != nil {
+		return b, cleanup, errors.New("the project folder is not a git repository")
+	} else if out == "true" {
+		return b, cleanup, errors.New("shallow repositories cannot be pushed (their bundle cannot be cloned); run git fetch --unshallow first")
+	}
+	commit, err := localGit(ctx, root, "rev-parse", "-q", "--verify", "refs/heads/"+branch+"^{commit}")
+	if err != nil {
+		return b, cleanup, fmt.Errorf("no local branch %s with a commit", branch)
+	}
+	parent, pattern := root, ".sshgate-*"
+	if fi, err := os.Lstat(filepath.Join(root, ".git")); err == nil && fi.IsDir() {
+		parent, pattern = filepath.Join(root, ".git"), "sshgate-*"
+	}
+	dir, err := os.MkdirTemp(parent, pattern)
+	if err != nil {
+		return b, cleanup, err
+	}
+	cleanup = func() { os.RemoveAll(dir) }
+	file := filepath.Join(dir, name)
+	if err = os.Chmod(dir, 0o700); err == nil {
+		_, err = localGit(ctx, root, "bundle", "create", "-q", file, "refs/heads/"+branch)
+	}
+	var fi os.FileInfo
+	if err == nil {
+		fi, err = os.Stat(file)
+	}
+	if err != nil {
+		cleanup()
+		return b, func() {}, fmt.Errorf("git bundle create failed: %v", err)
+	}
+	rel, _ := filepath.Rel(root, file)
+	return gitBundle{Rel: filepath.ToSlash(rel), Branch: branch, Commit: commit, Size: fi.Size()}, cleanup, nil
 }
