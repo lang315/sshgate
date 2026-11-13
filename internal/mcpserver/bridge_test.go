@@ -387,3 +387,42 @@ func TestTransferToolsOnlyOnBridge(t *testing.T) {
 		t.Fatal("--host mode has transfer tools")
 	}
 }
+
+func toolDescriptions(t *testing.T, srv *mcp.Server) map[string]string {
+	t.Helper()
+	ct, st := mcp.NewInMemoryTransports()
+	go srv.Run(context.Background(), st)
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "t", Version: "0"}, nil).Connect(context.Background(), ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	lt, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]string{}
+	for _, tool := range lt.Tools {
+		out[tool.Name] = tool.Description
+	}
+	return out
+}
+
+// The bridge's text must not teach POSIX-only shell on a Windows server.
+func TestBridgeDescriptionsWindows(t *testing.T) {
+	d := toolDescriptions(t, BuildBridgeServer(nil))
+	for _, s := range []string{"/C:/", "PowerShell", "$LASTEXITCODE", "upload", "cd /app && ./run.sh", "cat > path"} {
+		if !strings.Contains(d["exec"], s) {
+			t.Errorf("exec description lacks %q", s)
+		}
+	}
+	if !strings.Contains(d["sudo-exec"], "Linux and macOS only") {
+		t.Error("sudo-exec description lacks the Linux and macOS note")
+	}
+	if !strings.Contains(d["upload"], "/C:/Users/") {
+		t.Error("upload description lacks the Windows path form")
+	}
+	if !strings.Contains(d["list-servers"], "every sshgate tool") || strings.Contains(d["list-servers"], "of exec and sudo-exec") {
+		t.Errorf("list-servers description: %q", d["list-servers"])
+	}
+}
