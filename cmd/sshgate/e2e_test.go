@@ -393,4 +393,62 @@ func TestEndToEndAutoAllow(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(proj, "back", "dist", ".env")); !os.IsNotExist(err) {
 		t.Fatal(".env downloaded")
 	}
+
+	// git-push end to end: the bundle lands over SFTP, and sshtest echoes the
+	// one git command the exec card carried.
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Log("git not installed; git-push part skipped")
+		return
+	}
+	git := func(args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = proj
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1",
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "-q", "-b", "main")
+	git("add", "dist")
+	git("commit", "-qm", "one")
+	head := git("rev-parse", "main")
+	push := func(args map[string]any, wantCmd, bundle string) {
+		t.Helper()
+		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "git-push", Arguments: args})
+		if err != nil || res.IsError {
+			t.Fatalf("git-push: %v %+v", err, res)
+		}
+		if txt := res.Content[0].(*mcp.TextContent).Text; !strings.Contains(txt, "stdout:\n"+wantCmd) {
+			t.Fatalf("git-push answer: %q", txt)
+		}
+		b, err := os.ReadFile(filepath.Join(sftpRoot, bundle))
+		if err != nil || !strings.HasPrefix(string(b), "# v2 git bundle\n") || !strings.Contains(string(b), "\n"+head+" refs/heads/main\n") {
+			t.Fatalf("bundle %s: %v %q", bundle, err, b[:min(len(b), 120)])
+		}
+	}
+	push(map[string]any{"server": "box", "remote": "/home/app", "create": true},
+		`git clone -q -c core.autocrlf=false -b main "/home/.app.sshgate.bundle" "/home/app"`, "home/.app.sshgate.bundle")
+	if err := os.MkdirAll(filepath.Join(sftpRoot, "home", "app", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	push(map[string]any{"server": "box", "remote": "/home/app"},
+		`git -C "/home/app" pull -q --ff-only --no-recurse-submodules "/home/app/.git/sshgate.bundle" main`, "home/app/.git/sshgate.bundle")
+	raw, err = os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines = strings.Split(strings.TrimSpace(string(raw)), "\n")
+	var fileRec, execRec map[string]any
+	json.Unmarshal([]byte(lines[len(lines)-2]), &fileRec)
+	json.Unmarshal([]byte(lines[len(lines)-1]), &execRec)
+	if fileRec["kind"] != "file" || fileRec["approval"] != "auto" || execRec["approval"] != "auto" ||
+		!strings.HasPrefix(execRec["command"].(string), `git -C "/home/app" pull`) {
+		t.Fatalf("audit: %v / %v", fileRec, execRec)
+	}
+	if left, _ := filepath.Glob(filepath.Join(proj, ".git", "sshgate-*")); len(left) != 0 {
+		t.Fatalf("temp folders left: %v", left)
+	}
 }
