@@ -19,14 +19,13 @@ const (
 // the first window with a hit; the counts are that window's, a lower bound.
 // nil: nothing matched.
 //
-// With binaryOK, a window whose newly read bytes hold a NUL is binary: the
-// key-value, header and URL heuristics read format and UI strings in
-// executables, locale packs and compressed data as secrets, so there only
-// vault secrets, PEM blocks with a body and an END line, and prefixed tokens
-// count. Pass it only when a human approved the transfer: NUL bytes are cheap
-// to add, so with no approver (an auto-allow grant) a file could use them to
-// hide "password=..." lines.
-func ScanSecrets(r *Redactor, rd io.Reader, binaryOK bool) (map[string]int, error) {
+// A window whose newly read bytes hold a NUL is binary: the key-value, header
+// and URL heuristics read format and UI strings in executables, locale packs
+// and compressed data as secrets, so there only vault secrets, PEM blocks with
+// a body and an END line, and prefixed tokens count. NUL padding can therefore
+// hide a "password=..." line, on auto-allow runs too; accepted, since a grant
+// already lets exec print any remote file in an encoding redaction misses.
+func ScanSecrets(r *Redactor, rd io.Reader) (map[string]int, error) {
 	buf := make([]byte, scanOverlap+scanWindow)
 	carry := 0
 	for {
@@ -34,7 +33,7 @@ func ScanSecrets(r *Redactor, rd io.Reader, binaryOK bool) (map[string]int, erro
 		if n > 0 {
 			s, sec := r.RedactCount(string(buf[:carry+n]))
 			var c map[string]int
-			if binaryOK && bytes.IndexByte(buf[carry:carry+n], 0) >= 0 {
+			if bytes.IndexByte(buf[carry:carry+n], 0) >= 0 {
 				c = binaryPatterns(s)
 			} else {
 				_, c = RedactPatterns(s)
