@@ -100,6 +100,8 @@ func localGit(ctx context.Context, root string, args ...string) (string, error) 
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}
+	// Never fetch missing objects from a promisor remote (git >= 2.44).
+	cmd.Env = append(cmd.Env, "GIT_NO_LAZY_FETCH=1")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -129,6 +131,15 @@ func makeBundle(ctx context.Context, root, branch, name string) (b gitBundle, cl
 		return b, cleanup, errors.New("the project folder is not a git repository")
 	} else if out == "true" {
 		return b, cleanup, errors.New("shallow repositories cannot be pushed (their bundle cannot be cloned); run git fetch --unshallow first")
+	}
+	// A partial clone lacks objects the bundle needs; git would fetch them over
+	// the network, so refuse it like a shallow one.
+	if out, _ := localGit(ctx, root, "config", "--get-regexp", `^(extensions\.partialclone|remote\..*\.promisor)$`); out != "" {
+		for _, line := range strings.Split(out, "\n") {
+			if !strings.HasSuffix(line, " false") {
+				return b, cleanup, errors.New("partial clones cannot be pushed (their bundle would need objects fetched from the remote); fetch the missing objects first, for example with git fetch --refetch")
+			}
+		}
 	}
 	commit, err := localGit(ctx, root, "rev-parse", "-q", "--verify", "refs/heads/"+branch+"^{commit}")
 	if err != nil {
@@ -172,7 +183,7 @@ const gitPushDescription = "Put the committed state of one local branch of your 
 	"the tool bundles the branch locally, uploads the bundle, then runs one git command there. Uncommitted changes are never sent. " +
 	"Two approvals, the upload and then the git command (shown in full), unless the server has auto-allow on. " +
 	"With create, `git clone` makes the repository; otherwise the server's checked-out branch, whatever its name, is fast-forwarded to your branch with `git pull --ff-only`, never rewritten: " +
-	"if the server has commits your branch lacks, the push is refused. The server's git hooks run as for any git pull, and a file the server ignores is replaced if your commit tracks it. " +
+	"if the two have diverged the push is refused, and a server already ahead of your branch is left as is (check with git rev-parse HEAD there). The server's git hooks run as for any git pull, and a file the server ignores is replaced if your commit tracks it. " +
 	"Submodules and LFS objects are not sent; shallow repositories are refused. Needs git on the server's PATH."
 
 // layoutGitPush is the answer: a line per step, then the exec result as
@@ -185,7 +196,7 @@ func layoutGitPush(server string, p gitPushPlan, b gitBundle, remote string, cre
 		if create {
 			fmt.Fprintf(&s, "created %s at %s %s; the bundle %s/%s can be deleted\n", remote, b.Branch, h7, p.Dest, p.Name)
 		} else {
-			fmt.Fprintf(&s, "fast-forwarded the server's checked-out branch to %s %s\n", b.Branch, h7)
+			fmt.Fprintf(&s, "the server's checked-out branch now contains %s %s (fast-forwarded, or left as is if it was already ahead)\n", b.Branch, h7)
 		}
 	}
 	s.WriteString(layoutExec(out.ExitCode, out.Stdout, out.Stderr, out.Redacted))

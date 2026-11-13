@@ -316,7 +316,7 @@ func TestGitPushUpdate(t *testing.T) {
 	}
 	h7 := git(t, repo, "rev-parse", "main")[:7]
 	txt := text(res)
-	if !strings.HasPrefix(txt, "uploaded bundle of main "+h7+" (") || !strings.Contains(txt, "fast-forwarded the server's checked-out branch to main "+h7) || !strings.Contains(txt, "exit code: 0") {
+	if !strings.HasPrefix(txt, "uploaded bundle of main "+h7+" (") || !strings.Contains(txt, "the server's checked-out branch now contains main "+h7+" (fast-forwarded, or left as is if it was already ahead)") || !strings.Contains(txt, "exit code: 0") {
 		t.Fatalf("answer %q", txt)
 	}
 	if left := tempLeft(t, repo); len(left) != 0 {
@@ -410,5 +410,38 @@ func TestGitPushRefusesBeforeHub(t *testing.T) {
 	}
 	if len(calls()) != 0 || len(tempLeft(t, repo)) != 0 {
 		t.Fatalf("calls %v left %v", calls(), tempLeft(t, repo))
+	}
+}
+
+// pull --ff-only exits 0 when the server is already ahead, so neither the
+// answer nor the tool text may promise that the server now sits at our hash.
+func TestGitPushTextAllowsServerAhead(t *testing.T) {
+	d := toolDescriptions(t, BuildBridgeServer(nil))["git-push"]
+	if strings.Contains(d, "if the server has commits your branch lacks, the push is refused") || !strings.Contains(d, "a server already ahead of your branch is left as is") {
+		t.Fatalf("description: %q", d)
+	}
+	if strings.Contains(layoutGitPush("s", gitPushPlan{Dest: "/r/.git"}, gitBundle{Branch: "main", Commit: "0123456789"}, "/r", false, execOut{}), "fast-forwarded the server's checked-out branch to") {
+		t.Fatal("answer claims the server is at our commit")
+	}
+}
+
+// A partial clone would make git bundle create fetch missing objects from
+// the promisor remote; the bridge's local git must stay offline.
+func TestMakeBundlePartialClone(t *testing.T) {
+	repo := gitRepo(t)
+	git(t, repo, "config", "uploadpack.allowFilter", "true")
+	partial := filepath.Join(t.TempDir(), "p")
+	git(t, repo, "clone", "-q", "--filter=blob:none", "--no-checkout", "file://"+repo, partial)
+	marker := filepath.Join(t.TempDir(), "fetched")
+	git(t, partial, "config", "remote.origin.uploadpack", "touch "+marker+"; git-upload-pack")
+	_, _, err := makeBundle(context.Background(), partial, "main", "sshgate.bundle")
+	if err == nil || !strings.Contains(err.Error(), "partial clone") {
+		t.Fatalf("err %v", err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("bundle step contacted the promisor remote")
+	}
+	if left := tempLeft(t, partial); len(left) != 0 {
+		t.Fatalf("left %v", left)
 	}
 }
