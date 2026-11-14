@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strconv"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/lang315/sshgate/internal/broker"
@@ -497,10 +496,7 @@ func (h *Hub) StartTunnel(server, id string) error {
 		fwd, err = tunnel.Dynamic(client, listenAddr(def), onConns)
 	}
 	switch {
-	// ponytail: on Windows the OS error is WSAEADDRINUSE, which
-	// errors.Is(err, syscall.EADDRINUSE) may not match; the fallback below
-	// (err.Error()) then surfaces the OS text instead of this message.
-	case err != nil && errors.Is(err, syscall.EADDRINUSE):
+	case err != nil && addrInUse(err):
 		return fail(fmt.Sprintf("port %d is already in use", def.ListenPort), err)
 	case err != nil && def.Kind == "remote":
 		return fail("the server refused the remote forward", err)

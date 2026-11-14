@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -147,6 +148,9 @@ func TestImportScanAndApply(t *testing.T) {
 }
 
 func TestImportApplyStopsWhenLockedMidway(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the Match exec gate is POSIX shell")
+	}
 	fx := importHub(t)
 	dir := t.TempDir()
 	started, proceed := filepath.Join(dir, "started"), filepath.Join(dir, "go")
@@ -278,6 +282,9 @@ func TestImportSkipsAliasWhoseSSHGFails(t *testing.T) {
 // web is added by hand after its check and before the write: the import
 // keeps the hand-made server and reports web as already there.
 func TestImportApplySkipsServerAddedDuringScan(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the Match exec gate is POSIX shell")
+	}
 	fx := importHub(t)
 	dir := t.TempDir()
 	started, proceed := filepath.Join(dir, "started"), filepath.Join(dir, "go")

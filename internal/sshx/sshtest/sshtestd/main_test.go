@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,6 +16,9 @@ import (
 
 func TestSSHTestdWritesReadyStore(t *testing.T) {
 	bin := filepath.Join(t.TempDir(), "sshtestd")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
 	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
@@ -48,7 +52,7 @@ func TestSSHTestdWritesReadyStore(t *testing.T) {
 		t.Fatalf("store does not open with pw: %v", err)
 	}
 	info, _ := os.Stat(store)
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 { // Windows has no POSIX modes
 		t.Fatalf("perm %v", info.Mode().Perm())
 	}
 }

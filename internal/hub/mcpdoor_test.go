@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -17,9 +18,18 @@ import (
 
 // isolateDoor points SocketPath at a fresh short directory so tests never
 // touch the user's real hub socket. /tmp keeps the path under sun_path limits.
+// shortTmp is /tmp on Unix, where macOS caps a socket path at 104 bytes;
+// Windows pipes have no such limit, and /tmp there is a path on the current drive.
+func shortTmp() string {
+	if runtime.GOOS == "windows" {
+		return ""
+	}
+	return "/tmp"
+}
+
 func isolateDoor(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "sm")
+	dir, err := os.MkdirTemp(shortTmp(), "sm")
 	if err != nil {
 		t.Fatal(err)
 	}

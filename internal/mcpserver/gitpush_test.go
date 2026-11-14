@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -163,7 +164,7 @@ func TestMakeBundleDefaultBranch(t *testing.T) {
 		t.Fatalf("header %q %q", first, refs)
 	}
 	fi, err := os.Stat(filepath.Dir(filepath.Join(repo, b.Rel)))
-	if err != nil || fi.Mode().Perm() != 0o700 {
+	if err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o700) {
 		t.Fatalf("temp folder mode %v %v", fi.Mode(), err)
 	}
 	cleanup()

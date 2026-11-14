@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -384,6 +385,9 @@ func TestTransferDownloadIntoProjectRoot(t *testing.T) {
 
 // An AI download never creates an executable file (spec 2026-11-02, boundary).
 func TestTransferDownloadDropsExecBits(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no execute bits")
+	}
 	fx, proj := aiFiles(t)
 	p := filepath.Join(fx.root, "home", "hook")
 	os.WriteFile(p, []byte("#!/bin/sh\n"), 0o755)

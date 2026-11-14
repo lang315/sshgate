@@ -251,6 +251,9 @@ func TestPlanErrorsNeverNameALocalPath(t *testing.T) {
 }
 
 func TestPlanDownloadOpenRootFailureIsGeneric(t *testing.T) {
+	if !posixModes {
+		t.Skip("chmod 000 does not deny access on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("root reads everything")
 	}
@@ -300,7 +303,7 @@ func TestPlanUploadInStaysInRoot(t *testing.T) {
 	ev, err := PlanUploadIn(context.Background(), c, root, []string{"evil/secret"}, "/home")
 	if err == nil {
 		defer ev.Close()
-		if ev.Files != 0 || ev.Errors.Count != 1 || len(ev.items) != 0 || !strings.Contains(ev.Errors.List[0], "evil/secret") {
+		if ev.Files != 0 || ev.Errors.Count != 1 || len(ev.items) != 0 || !strings.Contains(ev.Errors.List[0], filepath.FromSlash("evil/secret")) {
 			t.Fatalf("escape planned: files %d errors %v", ev.Files, ev.Errors.List)
 		}
 	}

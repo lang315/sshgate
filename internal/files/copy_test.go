@@ -19,6 +19,9 @@ import (
 	"github.com/lang315/sshgate/internal/sshx/sshtest"
 )
 
+// posixModes: Windows has no POSIX permission bits (Go reports 0666 or 0444).
+var posixModes = runtime.GOOS != "windows"
+
 func noParts(t *testing.T, dir string) {
 	t.Helper()
 	filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
@@ -53,7 +56,7 @@ func TestDownloadRoundTrip(t *testing.T) {
 	if read(t, a) != "alpha" {
 		t.Fatal("content")
 	}
-	if fi, _ := os.Stat(a); fi.Mode().Perm() != 0o755 || fi.Mode()&fs.ModeSetuid != 0 || !fi.ModTime().Equal(mt) {
+	if fi, _ := os.Stat(a); (posixModes && (fi.Mode().Perm() != 0o755 || fi.Mode()&fs.ModeSetuid != 0)) || !fi.ModTime().Equal(mt) {
 		t.Fatalf("a.txt mode %v mtime %v", fi.Mode(), fi.ModTime())
 	}
 	if fi, _ := os.Stat(filepath.Join(dest, "src", "ro")); fi.Mode().Perm() != 0o555 {
@@ -81,7 +84,7 @@ func TestUploadRoundTrip(t *testing.T) {
 	if read(t, x) != "#!/bin/sh" {
 		t.Fatal("content")
 	}
-	if fi, _ := os.Stat(x); fi.Mode().Perm() != 0o775 {
+	if fi, _ := os.Stat(x); posixModes && fi.Mode().Perm() != 0o775 {
 		t.Fatalf("mode %v", fi.Mode())
 	}
 	noParts(t, filepath.Join(root, "home"))
@@ -359,7 +362,7 @@ func TestUploadKeepsMtimeAndDropsSetuid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fi.Mode().Perm() != 0o777 || fi.Mode()&fs.ModeSetuid != 0 || !fi.ModTime().Equal(mt) {
+	if (posixModes && (fi.Mode().Perm() != 0o777 || fi.Mode()&fs.ModeSetuid != 0)) || !fi.ModTime().Equal(mt) {
 		t.Fatalf("mode %v mtime %v", fi.Mode(), fi.ModTime())
 	}
 	noParts(t, filepath.Join(root, "home"))
@@ -609,6 +612,9 @@ func TestDownloadCheckErrorIsPerFileError(t *testing.T) {
 }
 
 func TestDownloadNoExecDropsExecBits(t *testing.T) {
+	if !posixModes {
+		t.Skip("Windows has no execute bits")
+	}
 	for _, noExec := range []bool{false, true} {
 		c, _, rroot := remote(t)
 		write(t, filepath.Join(rroot, "home", "run.sh"), "#!/bin/sh\n", 0o755)
