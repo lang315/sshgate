@@ -20,3 +20,9 @@ func killGroup(cmd *exec.Cmd) {
 		return os.ErrProcessDone
 	}
 }
+
+// runTree is cmd.Output with a timeout that ends ssh's whole process tree.
+func runTree(cmd *exec.Cmd) ([]byte, error) {
+	killGroup(cmd)
+	return cmd.Output()
+}
