@@ -23,6 +23,17 @@ jobs:
       # The redaction sweeps sample under -race (24x slower, nothing to find); run them in full here.
       - run: go test -count=1 ./internal/config
 
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      # -short skips the Docker integration tests in internal/sshx: windows-latest cannot run their Linux image.
+      - run: go test -race -short ./...
+
   app:
     strategy:
       fail-fast: false
@@ -51,8 +62,7 @@ jobs:
         run: go test -race github.com/egoist/mygo/plugins/terminal/...
       - run: go vet ./...
       # Without MYGO_GHOSTTY_VT (Linux, Windows) the terminal tests skip; nothing downloads a prebuilt library.
-      # Windows: the hub's MCP pipe name is per user, not per SSHGATE_RUNTIME_DIR, so two packages' hubs at once fail with "Access is denied"; run one package at a time.
-      - run: go test -race ${{ runner.os == 'Windows' && '-p 1' || '' }} ./...
+      - run: go test -race ./...
       - name: Package the app (macOS)
         if: runner.os == 'macOS'
         run: ./scripts/package-mac.sh
