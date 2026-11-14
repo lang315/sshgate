@@ -40,6 +40,14 @@ type bridgeSudoInput struct {
 	TimeoutSec  int    `json:"timeoutSec,omitempty" jsonschema:"execution timeout in seconds, 1-600, default 60"`
 }
 
+// execOut is the MCP door's answer to exec, sudoExec and execStdin.
+type execOut struct {
+	ExitCode int            `json:"exitCode"`
+	Stdout   string         `json:"stdout"`
+	Stderr   string         `json:"stderr"`
+	Redacted map[string]int `json:"redacted"`
+}
+
 func clientName(req *mcp.CallToolRequest) string {
 	if req != nil && req.Session != nil {
 		if ip := req.Session.InitializeParams(); ip != nil && ip.ClientInfo != nil {
@@ -195,10 +203,12 @@ func layoutTransfer(op string, r transferOut) string {
 	return b.String()
 }
 
-// BuildBridgeServer forwards the three AI tools to the hub's MCP door over a
-// connection dial supplies. The bridge validates nothing and holds no
-// secrets; the hub is the single policy point. Each tool call dials fresh,
-// so the bridge itself is stateless.
+// BuildBridgeServer forwards the AI tools to the hub's MCP door over a
+// connection dial supplies. The bridge holds no secrets and no policy; the hub
+// is the single policy point. Each door call dials fresh, so the bridge itself
+// is stateless. git-push is the one tool with local work: read-only git plus
+// git bundle create into a temporary folder it removes, then an ordinary
+// upload and exec the hub decides and audits.
 func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "sshgate", Version: Version}, nil)
 
@@ -228,12 +238,7 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 					method, params["stdin"] = "execStdin", in.Stdin
 				}
 
-				var out struct {
-					ExitCode int            `json:"exitCode"`
-					Stdout   string         `json:"stdout"`
-					Stderr   string         `json:"stderr"`
-					Redacted map[string]int `json:"redacted"`
-				}
+				var out execOut
 				noMethod := ""
 				if method == "execStdin" {
 					noMethod = hubNoStdinMsg
@@ -253,15 +258,18 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 
 	mcp.AddTool(s, &mcp.Tool{Name: "exec", Description: "Run a shell command on a saved SSH server through the sshgate desktop app. " +
 		"Each call waits until a human approves or denies it in the app; after 5 minutes without a decision it fails as expired, so combine related steps into one command. " +
-		"Each call runs in a fresh non-interactive shell: the working directory, environment variables and activated virtualenvs do not carry over, and ~/.bashrc is usually not read, so write `cd /app && ./run.sh` as one command. " +
+		"Each call runs in a fresh non-interactive shell: the working directory, environment variables and activated virtualenvs do not carry over, and ~/.bashrc is usually not read. " +
+		"The shell depends on the server's OS. Linux and macOS: sh or bash; write `cd /app && ./run.sh` as one command. " +
+		"Windows (OpenSSH): cmd.exe or Windows PowerShell 5.1, whichever the server's admin set; a remote path like `/C:/...` from upload, download or git-push, or `C:\\` in output, means Windows. " +
+		"In PowerShell 5.1 `&&`, `cat > file` and `/dev/null` do not work: join steps with `;` and check `$LASTEXITCODE`; any failing program reports exit code 1 there. On a Windows server use upload to write a file. " +
 		"(On a server configured with a su password, commands run as root inside one persistent root shell instead.) " +
 		"The result is `exit code:` followed by `stdout:` and `stderr:` sections; a non-zero exit code is a normal result, not a tool error. Each stream is capped at 64 KiB (the middle is cut). Saved secrets are masked, and values that look like secrets (keys, passwords, tokens) are masked too, as `[REDACTED:<kind>]`, with a final `note:` line saying how many; there is no way to get them unmasked. " +
-		"To write a file, pass its content as `stdin` with `cat > path`; to edit one, pass a unified diff as `stdin` with `git apply` (or `patch -p1`). Never write back output that contained masked values (`***` or `[REDACTED:…]`): the file would be corrupted. `stdin` is not available on servers configured with a su password. " +
+		"On Linux and macOS, to write a file, pass its content as `stdin` with `cat > path`; to edit one, pass a unified diff as `stdin` with `git apply` (or `patch -p1`). Never write back output that contained masked values (`***` or `[REDACTED:…]`): the file would be corrupted. `stdin` is not available on servers configured with a su password. " +
 		"The call fails if the app is closed, no vault exists yet, the vault is locked, the server is not visible to AI or has no pinned host key, the human denies it, or 5 requests are already waiting."}, execTool("exec"))
 	sudoExec := execTool("sudoExec")
 	mcp.AddTool(s, &mcp.Tool{Name: "sudo-exec", Description: "Run a shell command with sudo on a saved SSH server through the sshgate desktop app. " +
 		"The command runs as `sudo -S` with the server's saved sudo password, or as `sudo -n` when none is saved (which fails if sudo asks for a password). " +
-		"Approval, fresh-shell, output and failure rules are the same as exec."},
+		"Linux and macOS only. Approval, fresh-shell, output and failure rules are the same as exec."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in bridgeSudoInput) (*mcp.CallToolResult, any, error) {
 			return sudoExec(ctx, req, bridgeExecInput{Server: in.Server, Command: in.Command, Description: in.Description, TimeoutSec: in.TimeoutSec})
 		})
@@ -285,7 +293,7 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 		})
 		return res, nil, err
 	}
-	mcp.AddTool(s, &mcp.Tool{Name: "upload", Description: "Copy files or folders from your project folder (this tool's working directory) into an existing folder on a saved SSH server, through the sshgate desktop app. Binary files and folders are fine. Each call waits for a human to approve it, unless the server has auto-allow on. Existing remote files are skipped unless overwrite is true. Symlinks you name are refused; symlinks inside folders are skipped. Not available on servers configured with a su password. For a small text file, exec with stdin (`cat > path`) also works."},
+	mcp.AddTool(s, &mcp.Tool{Name: "upload", Description: "Copy files or folders from your project folder (this tool's working directory) into an existing folder on a saved SSH server, through the sshgate desktop app. Binary files and folders are fine. Each call waits for a human to approve it, unless the server has auto-allow on. Existing remote files are skipped unless overwrite is true. Symlinks you name are refused; symlinks inside folders are skipped. Not available on servers configured with a su password. Remote paths on a Windows server look like `/C:/Users/me/app`. For a small text file on Linux or macOS, exec with stdin (`cat > path`) also works."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in bridgeUploadInput) (*mcp.CallToolResult, any, error) {
 			return transfer(ctx, req, "upload", in.Server, in.Description, in.Overwrite, in.TimeoutSec,
 				map[string]any{"local": in.Local, "remote": []string{in.Remote}})
@@ -295,9 +303,55 @@ func BuildBridgeServer(dial func(ctx context.Context) (net.Conn, error)) *mcp.Se
 			return transfer(ctx, req, "download", in.Server, in.Description, in.Overwrite, in.TimeoutSec,
 				map[string]any{"remote": in.Remote, "local": []string{in.Local}})
 		})
+	mcp.AddTool(s, &mcp.Tool{Name: "git-push", Description: gitPushDescription},
+		func(ctx context.Context, req *mcp.CallToolRequest, in bridgeGitPushInput) (*mcp.CallToolResult, any, error) {
+			if in.TimeoutSec == 0 {
+				in.TimeoutSec = 600
+			}
+			if in.TimeoutSec < 1 || in.TimeoutSec > 600 {
+				return textErr("timeoutSec must be 1 to 600"), nil, nil
+			}
+			if err := checkGitRemote(in.Remote, in.Create); err != nil {
+				return textErr(err.Error()), nil, nil
+			}
+			wd, err := os.Getwd()
+			if err != nil {
+				return textErr("cannot read the project folder: " + err.Error()), nil, nil
+			}
+			b, cleanup, err := makeBundle(ctx, wd, in.Branch, planGitPush(in.Remote, "", in.Create).Name)
+			if err != nil {
+				return textErr(err.Error()), nil, nil
+			}
+			defer cleanup()
+			plan := planGitPush(in.Remote, b.Branch, in.Create)
+			res, err := withHub(ctx, func(c *rpc.Client) (*mcp.CallToolResult, error) {
+				var out transferOut
+				if r := callHub(ctx, req, c, "upload", map[string]any{"requestId": randID(), "client": clientName(req), "server": in.Server,
+					"root": wd, "local": []string{b.Rel}, "remote": []string{plan.Dest}, "overwrite": true,
+					"description": "git-push 1/2: " + in.Description, "timeoutSec": in.TimeoutSec}, &out, transferOld); r != nil {
+					return r, nil
+				}
+				if out.Files != 1 || out.ErrorCount != 0 {
+					return textErr(layoutTransfer("upload", out)), nil
+				}
+				return nil, nil
+			})
+			if res != nil || err != nil {
+				return res, nil, err
+			}
+			res, err = withHub(ctx, func(c *rpc.Client) (*mcp.CallToolResult, error) {
+				var out execOut
+				if r := callHub(ctx, req, c, "exec", map[string]any{"requestId": randID(), "client": clientName(req), "server": in.Server,
+					"command": plan.Command, "description": "git-push 2/2: " + in.Description, "timeoutSec": in.TimeoutSec}, &out, ""); r != nil {
+					return r, nil
+				}
+				return textOK(layoutGitPush(in.Server, plan, b, in.Remote, in.Create, out)), nil
+			})
+			return res, nil, err
+		})
 	mcp.AddTool(s, &mcp.Tool{Name: "list-servers", Description: "List the saved SSH servers the user has made visible to AI, one per line as `- name (host)`, where host is the server's IP address or hostname; to find a server by its IP, match the host and use its name. " +
 		"A server marked `[locked: unlock the app]` cannot run commands until the user unlocks the app. " +
-		"Use these names as the `server` argument of exec and sudo-exec; servers the user has not made visible never appear. Needs no approval."},
+		"Use these names as the `server` argument of every sshgate tool; servers the user has not made visible never appear. Needs no approval."},
 		func(ctx context.Context, req *mcp.CallToolRequest, _ ListInput) (*mcp.CallToolResult, any, error) {
 			res, err := withHub(ctx, func(c *rpc.Client) (*mcp.CallToolResult, error) {
 				var list []struct {
