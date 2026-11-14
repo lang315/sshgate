@@ -1,7 +1,7 @@
 # sshgate: Windows-aware tool text and a bridge-side `git-push` tool — Design
 
 Date: 2026-11-13, revised 2026-11-14
-Status: Approved in chat 2026-11-14. Approach A+C chosen after a five-reviewer critique of the first draft (a hub request type, now rejected; see Approaches). The agent learns the server's OS only from the tool descriptions (A); adding the server's home path to `upload` answers was offered and declined (it needs a hub change).
+Status: Done 2026-11-14: merged in PR #50 (`cc3f696`), exit gate met (see "Exit gate run" below). Approved in chat 2026-11-14. Approach A+C chosen after a five-reviewer critique of the first draft (a hub request type, now rejected; see Approaches). The agent learns the server's OS only from the tool descriptions (A); adding the server's home path to `upload` answers was offered and declined (it needs a hub change).
 
 ## Goal
 
