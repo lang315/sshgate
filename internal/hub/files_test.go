@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -260,6 +261,9 @@ func TestFilesRefusalNeverClosesATrustedConnection(t *testing.T) {
 }
 
 func TestFilesPermissionDenied(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod 000 does not deny access on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("root reads everything")
 	}

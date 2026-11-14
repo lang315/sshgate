@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -18,7 +19,7 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	info, _ := os.Stat(path)
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 { // Windows has no POSIX modes
 		t.Fatalf("perm = %v", info.Mode().Perm())
 	}
 	loaded, err := Load(path)

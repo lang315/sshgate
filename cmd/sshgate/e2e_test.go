@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -18,9 +19,21 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// shortTmp is /tmp on Unix, where macOS caps a socket path at 104 bytes;
+// Windows pipes have no such limit, and /tmp there is a path on the current drive.
+func shortTmp() string {
+	if runtime.GOOS == "windows" {
+		return ""
+	}
+	return "/tmp"
+}
+
 func buildBinary(t *testing.T) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "sshgate")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
 	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
@@ -104,7 +117,7 @@ func TestEndToEndApprovalFlow(t *testing.T) {
 	// this test never touches the real per-user hub socket. The bridge
 	// subprocess below inherits this process's environment, so it dials the
 	// same socket.
-	smDir, err := os.MkdirTemp("/tmp", "sm")
+	smDir, err := os.MkdirTemp(shortTmp(), "sm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,6 +129,7 @@ func TestEndToEndApprovalFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { audit.Close() }) // before TempDir's cleanup: Windows cannot delete an open file
 	h, err := hub.New(hub.Options{StorePath: store, Audit: audit})
 	if err != nil {
 		t.Fatal(err)
@@ -276,7 +290,7 @@ func TestEndToEndAutoAllow(t *testing.T) {
 		t.Fatal("did not observe host-key-learning exec on Execs")
 	}
 
-	smDir, err := os.MkdirTemp("/tmp", "sm")
+	smDir, err := os.MkdirTemp(shortTmp(), "sm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,6 +302,7 @@ func TestEndToEndAutoAllow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { audit.Close() }) // before TempDir's cleanup: Windows cannot delete an open file
 	h, err := hub.New(hub.Options{StorePath: store, Audit: audit})
 	if err != nil {
 		t.Fatal(err)

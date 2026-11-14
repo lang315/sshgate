@@ -26,7 +26,7 @@ func TestListHomeKindsAndLinks(t *testing.T) {
 	for _, e := range l.Entries {
 		got[e.Name] = e
 	}
-	if e := got["a.txt"]; e.Kind != "file" || e.Size != 3 || e.Mode != 0o640 {
+	if e := got["a.txt"]; e.Kind != "file" || e.Size != 3 || (posixModes && e.Mode != 0o640) {
 		t.Fatalf("file %+v", e)
 	}
 	if got["dir"].Kind != "dir" || got["ln"].Kind != "link" || got["ln"].Target != "a.txt" {
@@ -66,6 +66,9 @@ func TestListTruncates(t *testing.T) {
 }
 
 func TestListPermissionDenied(t *testing.T) {
+	if !posixModes {
+		t.Skip("chmod 000 does not deny access on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("root reads everything")
 	}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -32,7 +33,7 @@ func TestAuditAppendsJSONLWithMode0600(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 { // Windows has no POSIX modes
 		t.Fatalf("perm = %v", info.Mode().Perm())
 	}
 	f, err := os.Open(path)
@@ -99,7 +100,7 @@ func TestOpenAuditTightensExistingFileMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("perm = %v, want 0600", info.Mode().Perm())
 	}
 }

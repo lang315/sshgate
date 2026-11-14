@@ -272,7 +272,18 @@ func TestResolveTimesOut(t *testing.T) {
 	dir := t.TempDir()
 	cfg, pidFile := filepath.Join(dir, "config"), filepath.Join(dir, "pid")
 	// The Match exec child outlives ssh and holds its stderr open.
-	write(t, cfg, "Match exec \"echo $$ > "+pidFile+"; exec sleep 30\"\n  User x\nHost web\n")
+	match := "echo $$ > " + pidFile + "; exec sleep 30"
+	if runtime.GOOS == "windows" {
+		// No sh, and no process group to kill: the child outlives Resolve
+		// holding the config open, so wait for it before TempDir's cleanup.
+		match = "ping -n 8 127.0.0.1"
+		t.Cleanup(func() {
+			for deadline := time.Now().Add(10 * time.Second); os.Remove(cfg) != nil && time.Now().Before(deadline); {
+				time.Sleep(100 * time.Millisecond)
+			}
+		})
+	}
+	write(t, cfg, "Match exec \""+match+"\"\n  User x\nHost web\n")
 	start := time.Now()
 	if _, err := Resolve(context.Background(), bin, cfg, "web"); err == nil || time.Since(start) > 7*time.Second {
 		t.Fatalf("got %v after %v, want an error within ~6 s", err, time.Since(start))
