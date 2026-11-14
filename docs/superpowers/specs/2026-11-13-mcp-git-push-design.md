@@ -11,6 +11,8 @@ Why: users test on machines they will not give a GitHub login to (first case: a 
 
 Exit gate (manual): from Claude Code, on buildpc (Windows, PowerShell default shell) and on a Linux server: `git-push` with `create: true` makes the repository; after a new local commit, `git-push` fast-forwards it; `git rev-parse HEAD` there equals the local hash; after an amend, `git-push` is refused as not a fast-forward and the server is unchanged; each push shows in `audit.jsonl` as one `kind: "file"` record and one exec record, `approval: "auto"` under a grant.
 
+Exit gate run 2026-11-14, from Claude Code through a dev build of the bridge, both servers under auto-allow: on buildpc (Windows, PowerShell 5.1) and on a Linux server (git 2.25.1, root login), `create` cloned (`core.autocrlf` false); an update after a new commit left the server's `HEAD` equal to the local hash; an update after an amend failed (exit 1 on PowerShell, 128 on Linux) with "Not possible to fast-forward" and the hint, `HEAD` and work tree unchanged; a push of a commit the server was already ahead of exited 0 and left `HEAD` as is; a push of another branch fast-forwarded the checked-out branch and created no branch; each push wrote one `kind: "file"` and one exec record, `approval: "auto"`; one buildpc upload lost its connection ("transfer stopped: connection lost"), wrote a file record with outcome `error` and no exec record, and a retry worked; a partial clone (`remote.<name>.promisor` true) was refused before any upload. Still unchecked: `cmd.exe` as DefaultShell, and the approval (non-auto) path, covered only by tests.
+
 ## Approaches (2026-11-14)
 
 1. A project skill (written recipe). Rejected: serves one user's agent only, and leaves the dialect to the agent.
