@@ -136,7 +136,11 @@ func TestAliasesMissingFile(t *testing.T) {
 // SSH_AUTH_SOCK at it.
 func serveAgent(t *testing.T, keys ...any) {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "sa") // t.TempDir can exceed the socket path limit on macOS
+	base := "/tmp" // t.TempDir can exceed the socket path limit on macOS
+	if runtime.GOOS == "windows" {
+		base = "" // /tmp there is a folder on the current drive, often missing
+	}
+	dir, err := os.MkdirTemp(base, "sa")
 	if err != nil {
 		t.Fatal(err)
 	}
