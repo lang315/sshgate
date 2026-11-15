@@ -27,3 +27,5 @@ func TestCheckSkipsFIFO(t *testing.T) {
 		t.Fatal("Check blocked reading a FIFO")
 	}
 }
+
+func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }

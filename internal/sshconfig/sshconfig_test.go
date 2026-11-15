@@ -278,14 +278,7 @@ func TestResolveTimesOut(t *testing.T) {
 	// The Match exec child outlives ssh and holds its stderr open.
 	match := "echo $$ > " + pidFile + "; exec sleep 30"
 	if runtime.GOOS == "windows" {
-		// No sh, and no process group to kill: the child outlives Resolve
-		// holding the config open, so wait for it before TempDir's cleanup.
-		match = "ping -n 8 127.0.0.1"
-		t.Cleanup(func() {
-			for deadline := time.Now().Add(10 * time.Second); os.Remove(cfg) != nil && time.Now().Before(deadline); {
-				time.Sleep(100 * time.Millisecond)
-			}
-		})
+		match = "ping -n 31 127.0.0.1" // no sh; the child inherits ssh's handle on cfg
 	}
 	write(t, cfg, "Match exec \""+match+"\"\n  User x\nHost web\n")
 	start := time.Now()
@@ -293,6 +286,12 @@ func TestResolveTimesOut(t *testing.T) {
 		t.Fatalf("got %v after %v, want an error within ~6 s", err, time.Since(start))
 	}
 	if runtime.GOOS == "windows" {
+		// The child holds cfg open while it lives: cfg can be deleted only once it is gone.
+		for deadline := time.Now().Add(2 * time.Second); os.Remove(cfg) != nil; time.Sleep(20 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatal("the Match exec child outlived Resolve")
+			}
+		}
 		return
 	}
 	b, err := os.ReadFile(pidFile)

@@ -156,9 +156,8 @@ func Resolve(ctx context.Context, sshBin, configPath, alias string) (Resolved, e
 		args = append(args, "-F", configPath)
 	}
 	cmd := exec.CommandContext(ctx, sshBin, append(args, "--", alias)...)
-	killGroup(cmd)
-	cmd.WaitDelay = time.Second // a Match exec child can hold the pipes open after ssh is killed
-	out, err := cmd.Output()
+	cmd.WaitDelay = time.Second // backstop: a Match exec child outside ssh's group or job (setsid on Unix) can hold the pipes open after the kill
+	out, err := runTree(cmd)
 	var ee *exec.ExitError
 	if errors.As(err, &ee) && len(ee.Stderr) > 0 {
 		return Resolved{}, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(ee.Stderr)))

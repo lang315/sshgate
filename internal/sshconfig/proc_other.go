@@ -1,7 +1,7 @@
-//go:build !unix
+//go:build !unix && !windows
 
 package sshconfig
 
 import "os/exec"
 
-func killGroup(*exec.Cmd) {}
+func runTree(cmd *exec.Cmd) ([]byte, error) { return cmd.Output() }
