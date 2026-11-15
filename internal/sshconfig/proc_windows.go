@@ -15,6 +15,9 @@ import (
 
 var ntResumeProcess = windows.NewLazySystemDLL("ntdll.dll").NewProc("NtResumeProcess")
 
+// afterStart runs between Start and entering the job; tests use it to land a cancel there.
+var afterStart = func() {}
+
 // runTree is cmd.Output with ssh and every process it starts (a Match exec
 // child) in one job object: a timeout terminates the job, and closing the
 // job's handle on return ends anything still in it, as a process group
@@ -39,6 +42,7 @@ func runTree(cmd *exec.Cmd) ([]byte, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+	afterStart()
 	if err := enterJob(job, cmd.Process.Pid); err != nil {
 		cmd.Process.Kill()
 		cmd.Wait()
