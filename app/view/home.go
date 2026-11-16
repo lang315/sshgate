@@ -71,10 +71,10 @@ func (a *App) buildReady(c *ui.Context) {
 				}
 				if a.tabs.Active == model.AuditTab {
 					a.pausedHome = nil
-					a.buildAudit(c)
+					a.fadeView(c, "audit", a.buildAudit)
 					return
 				}
-				a.buildHosts(c)
+				a.fadeView(c, "hosts", a.buildHosts)
 			})
 			switch {
 			case a.editor != nil:
@@ -90,6 +90,34 @@ func (a *App) buildReady(c *ui.Context) {
 	a.buildHostKeyDialogs(c)
 	a.buildDeleteConfirm(c)
 	a.buildSettings(c)
+}
+
+// fadeView builds the Hosts or Audit view; one just entered fades in over
+// 120 ms (the leaving one is gone at once). It animates only while the fade
+// runs: Animate on every frame of a view at rest costs frames.
+func (a *App) fadeView(c *ui.Context, key string, build func(*ui.Context)) {
+	if a.viewKey != key {
+		a.viewFading = a.viewKey != "" // the first view after start shows at once
+		a.viewKey, a.viewStep = key, 0
+		a.viewFades++
+	}
+	col := ui.Column(c).Grow(1).HeightPercent(100)
+	if a.viewFading {
+		// A fresh key starts at its first target, so the first frame targets 0.
+		target := float32(1)
+		if a.viewStep == 0 {
+			target = 0
+		}
+		a.viewStep++
+		f := col.Animate(fmt.Sprint("viewfade", a.viewFades), target, 120*time.Millisecond)
+		col.Opacity(f)
+		if a.viewStep > 1 && f >= 1 {
+			a.viewFading = false
+		} else {
+			c.Invalidate()
+		}
+	}
+	col.Children(func() { build(c) })
 }
 
 func (a *App) buildHosts(c *ui.Context) {

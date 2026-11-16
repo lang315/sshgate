@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/hubapi"
@@ -121,5 +122,27 @@ func TestCardActionsAreIcons(t *testing.T) {
 		if count(tt.Texts(), w) != 0 {
 			t.Errorf("the card shows the word %q: %q", w, tt.Texts())
 		}
+	}
+}
+
+// The entering view fades in from 0, and nothing animates once it is in.
+func TestViewChangeFadesInThenRests(t *testing.T) {
+	d := &fakeDoor{status: hubapi.Status{HasVault: true}, servers: []hubapi.Server{{Name: "box"}}}
+	d.audit = auditDoor(&[]hubapi.AuditEntry{execEntry(1, "echo one", "allowed")}, 200)
+	a, tt, _, _ := newApp(t, d)
+	tt.flush()
+	if a.viewFading {
+		t.Fatal("the first view fades")
+	}
+	clickT(t, tt, "Audit")
+	if !a.viewFading {
+		t.Fatal("entering Audit does not fade")
+	}
+	tt.flush()
+	tt.Advance(time.Second)
+	tt.Frame()
+	tt.Frame()
+	if a.viewFading || !tt.HasText("echo one") {
+		t.Fatalf("fading %v texts %q", a.viewFading, tt.Texts())
 	}
 }
