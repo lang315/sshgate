@@ -92,11 +92,11 @@ func (a *App) buildSettings(c *ui.Context) {
 			}
 			ui.Text(c, model.LimitHelp(st.chosen)).TextColor(t.TextMuted)
 			if change == "higher" || change == "none" {
-				bg := t.Warning
+				bg := tok(c).WaitTint
 				if change == "none" {
-					bg = t.Danger
+					bg = tok(c).DangerTint
 				}
-				ui.Column(c).Gap(4).Padding(8, 12).Radius(6).Background(bg.Alpha(0.15)).Role(ui.RoleStatus).Children(func() {
+				ui.Column(c).Gap(4).Padding(8, 12).Radius(6).Background(bg).Role(ui.RoleStatus).Children(func() {
 					if len(hosts) == 0 {
 						ui.Text(c, model.LimitNotice(st.chosen)+" No host is on auto-allow now. The limit applies from the next grant.")
 						return

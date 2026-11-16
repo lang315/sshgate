@@ -100,7 +100,7 @@ func (a *App) buildUnlock(c *ui.Context) {
 				names[i] = model.DisplayText(h)
 			}
 			// The label is the whole sentence, for a screen reader; the chips keep each name on one line.
-			ui.Column(c).Gap(8).Padding(12).Radius(8).Background(t.Warning.Alpha(0.15)).Role(ui.RoleStatus).Label("AI auto-allow is still running on: " + strings.Join(names, ", ")).Children(func() {
+			ui.Column(c).Gap(8).Padding(12).Radius(8).Background(tok(c).WaitTint).Role(ui.RoleStatus).Label("AI auto-allow is still running on: " + strings.Join(names, ", ")).Children(func() {
 				ui.Text(c, "AI auto-allow is still running").Bold()
 				ui.Row(c).Wrap().Gap(6).Children(func() {
 					for _, n := range names {

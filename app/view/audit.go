@@ -277,7 +277,7 @@ func (a *App) buildAuditRow(c *ui.Context, l model.AuditLine, i int) {
 		row := p.Trigger.Gap(8).Padding(6, 12).Label(strings.Join([]string{rv.Time, auditKind[rv.Kind], host, mainText}, " "))
 		switch {
 		case rv.Alert:
-			row.Background(t.Danger.Alpha(0.1))
+			row.Background(tok(c).DangerTint)
 		case i%2 == 0:
 			row.Background(t.Surface)
 		}

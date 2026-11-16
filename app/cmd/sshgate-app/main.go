@@ -51,6 +51,7 @@ func main() {
 	if dir, err := mygo.App.Path(mygo.PathUserData); err == nil {
 		themeFile = filepath.Join(dir, "theme.json")
 	}
+	ui.SetDefaultThemes(view.Themes())
 	mygo.Theme.SetSource(themeSource(view.LoadTheme(themeFile)))
 
 	mux := termconn.NewMux()

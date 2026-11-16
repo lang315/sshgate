@@ -123,7 +123,7 @@ func (a *App) buildConfirmBody(c *ui.Context, cf *confirmState, d model.HostDraf
 		ui.Text(c, "Could not check this host's sudo access.").TextColor(t.TextMuted)
 	}
 	if len(remote) > 0 {
-		ui.Column(c).Gap(4).Padding(8, 12).Radius(8).Background(t.Danger.Alpha(0.15)).Children(func() {
+		ui.Column(c).Gap(4).Padding(8, 12).Radius(8).Background(tok(c).DangerTint).Children(func() {
 			ui.Text(c, "Remote tunnels running on this host reach your machine:")
 			for _, r := range remote {
 				ui.Text(c, model.DisplayText(r)).Font("monospace")
@@ -156,7 +156,6 @@ func (a *App) buildPaused(c *ui.Context, lc **model.ListChanges) {
 		*lc = nil
 		return
 	}
-	t := c.Theme()
 	now := a.Now()
 	key := strings.Join(hosts, "\n")
 	ok := guard(c, lc, key, now)
@@ -164,7 +163,7 @@ func (a *App) buildPaused(c *ui.Context, lc **model.ListChanges) {
 	for i, h := range hosts {
 		names[i] = model.DisplayText(h)
 	}
-	ui.Row(c).Gap(8).Padding(8, 12).Radius(8).Background(t.Warning.Alpha(0.15)).Role(ui.RoleStatus).Children(func() {
+	ui.Row(c).Gap(8).Padding(8, 12).Radius(8).Background(tok(c).WaitTint).Role(ui.RoleStatus).Children(func() {
 		ui.Text(c, "Auto-allow is paused on "+strings.Join(names, ", ")+". Once resumed, the AI keeps running there while the app is locked.").Grow(1)
 		if MouseButton(c, "Resume", ok) && model.TrustEnabled((*lc).At, a.Now()) {
 			a.setAuto(hosts, "forever", "resume")

@@ -22,9 +22,19 @@ func TerminalOptions(conn *termconn.Conn, onExit func()) terminal.Options {
 		OpenLink: func(string) bool { return true },
 		// A remote program must not set the local clipboard (OSC 52).
 		NoClipboardWrite: true,
+		Theme:            termTheme(terminal.LightTheme(), false),
+		DarkTheme:        termTheme(terminal.DarkTheme(), true),
 	}
 	if onExit != nil {
 		o.OnExit = func(int) { onExit() }
 	}
 	return o
+}
+
+// termTheme puts the palette's terminal background and text on a stock
+// terminal theme; its cursor, selection and 16 colours stay.
+func termTheme(t *terminal.Theme, dark bool) *terminal.Theme {
+	p := palette(dark)
+	t.Background, t.Foreground = p.TermBg, p.TermFg
+	return t
 }

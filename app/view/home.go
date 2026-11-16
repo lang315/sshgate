@@ -77,12 +77,12 @@ func (a *App) buildReady(c *ui.Context) {
 			// one appearing never moves Allow.
 			ui.Column(c).Grow(1).HeightPercent(100).Children(func() {
 				if a.status != nil && a.status.StoreError != "" {
-					ui.Row(c).Padding(8, 12).Background(t.Danger.Alpha(0.15)).Role(ui.RoleStatus).Children(func() {
+					ui.Row(c).Padding(8, 12).Background(tok(c).DangerTint).Role(ui.RoleStatus).Children(func() {
 						ui.Text(c, capFirst(model.DisplayText(a.status.StoreError)))
 					})
 				}
 				if text := model.RanLockedText(a.ranLocked); text != "" {
-					ui.Row(c).Gap(8).Padding(8, 12).Background(t.Warning.Alpha(0.15)).Role(ui.RoleStatus).Children(func() {
+					ui.Row(c).Gap(8).Padding(8, 12).Background(tok(c).WaitTint).Role(ui.RoleStatus).Children(func() {
 						ui.Text(c, model.DisplayText(text)).Grow(1)
 						if ui.Button(c, "Dismiss").Clicked() {
 							a.ranLocked = nil
@@ -90,7 +90,7 @@ func (a *App) buildReady(c *ui.Context) {
 					})
 				}
 				if a.alert != "" {
-					ui.Row(c).Gap(8).Padding(8, 12).Background(t.Warning.Alpha(0.15)).Children(func() {
+					ui.Row(c).Gap(8).Padding(8, 12).Background(tok(c).WaitTint).Children(func() {
 						ui.Text(c, model.DisplayText(a.alert)).Grow(1)
 						if ui.Button(c, "Dismiss").Clicked() {
 							a.alert = ""

@@ -63,7 +63,6 @@ func (a *App) setTheme(pref string) {
 // buildThemeControl is the Dark / Light / Auto switch of the top row. It
 // calls no hub method.
 func (a *App) buildThemeControl(c *ui.Context) {
-	t := c.Theme()
 	sel := len(themes) - 1
 	for i, th := range themes {
 		if th.pref == a.theme {
@@ -75,7 +74,7 @@ func (a *App) buildThemeControl(c *ui.Context) {
 		for i, th := range themes {
 			seg := p.Segment(i).Label(th.name).Tooltip(th.name).Padding(4, 8).Radius(6)
 			if i == sel {
-				seg.Background(t.Accent.Alpha(0.2))
+				seg.Background(tok(c).AccentTint)
 			}
 			seg.Children(func() { ui.Text(c, th.glyph) })
 		}
