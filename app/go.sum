@@ -4,8 +4,8 @@ github.com/go-text/typesetting v0.3.5 h1:XZPUooClHY0Vf/rFyUyuPRNEkawARaFzLMQcXLS
 github.com/go-text/typesetting v0.3.5/go.mod h1:XZO1hD+nQVyvVa5IicQk7FsCa4PFQaJ2soWAP1f//68=
 github.com/go-text/typesetting-utils v0.0.0-20260419141703-4ffe8874dabc h1:8FGo2It5K75XkavhTiCKExUfVaVDS1feBnLCru5qeoY=
 github.com/go-text/typesetting-utils v0.0.0-20260419141703-4ffe8874dabc/go.mod h1:3/62I4La/HBRX9TcTpBj4eipLiwzf+vhI+7whTc9V7o=
-github.com/lang315/mygo v0.0.0-20261027084635-e6d548b27900 h1:BHU0mpa6sQe6csVNomf2vSlo3mnuqjUH4u+31fqIj3A=
-github.com/lang315/mygo v0.0.0-20261027084635-e6d548b27900/go.mod h1:wqxlon8byfczLkjlC/uz33bl/sG+R+hfDK3kmN1uUiw=
+github.com/lang315/mygo v0.0.0-20261116130948-3413a999e44f h1:StRXRG1xmtv+OeEVwOXe6irOfznaBzmle5aiRxsuftQ=
+github.com/lang315/mygo v0.0.0-20261116130948-3413a999e44f/go.mod h1:RoT2fl8ZuiYmAwdMJPvZTf59sCCkpJqgjSFEXQRbcC4=
 golang.org/x/image v0.46.0 h1:b1+oYj0Jbp6K5MDT4i4/eZpYlk3V8SJhhDKh6LBHAyQ=
 golang.org/x/image v0.46.0/go.mod h1:3B3W05VGVQyuXucLINLjXKrqISASfi4Xj+iCVkLMwew=
 golang.org/x/net v0.59.0 h1:5zfYln+w5XCxwrnMMJPufRgNoXEaGxl0wo5GqPXyues=
