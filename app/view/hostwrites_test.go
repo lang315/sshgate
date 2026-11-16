@@ -284,7 +284,7 @@ func TestForgetComesBackUnfocusedWhenThePinDoes(t *testing.T) {
 // save ran.
 func TestLateSaveReplyKeepsTheDeleteConfirm(t *testing.T) {
 	a, tt, d := editBox(t, boxServer)
-	tt.SetSize(1000, 500) // the sidebar and the sheet leave the card's Delete button no room at 800
+	tt.SetSize(900, 500) // 900 is the window's minimum width
 	tt.Frame()
 	gate := make(chan struct{})
 	d.set(func() { d.gates = map[string]chan struct{}{"servers.save": gate} })

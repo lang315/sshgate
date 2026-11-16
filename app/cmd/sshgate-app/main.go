@@ -86,7 +86,7 @@ func main() {
 	var quitting atomic.Bool
 	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { quitting.Store(true) })
 	mygo.App.WhenReady(func() {
-		w := mygo.NewWindow(mygo.WindowOptions{Title: "sshgate", Width: 1000, Height: 640, Content: ui.View(a.Build)})
+		w := mygo.NewWindow(mygo.WindowOptions{Title: "sshgate", Width: 1000, Height: 640, MinWidth: 900, MinHeight: 500, Content: ui.View(a.Build)})
 		a.Update = w.Update
 		a.Shell = newTrayShell(w)
 		// macOS background mode: a close hides the window and the Dock icon;
