@@ -88,7 +88,7 @@ func (a *App) buildSidebar(c *ui.Context) {
 		}
 		ui.Row(c).Gap(8).Padding(8).AlignItems(ui.Center).Children(func() {
 			a.buildThemeControl(c)
-			if ui.Button(c, "⚙").Label("Settings").Tooltip("Settings").Disabled(a.status == nil || a.status.SoftLockLimit == "").Clicked() {
+			if ui.Button(c, "⚙").Label("Settings").Tooltip("Settings").TextColor(p.RailText).Background(p.RailText.Alpha(0.16)).Disabled(a.status == nil || a.status.SoftLockLimit == "").Clicked() {
 				a.openSettings()
 			}
 		})
@@ -97,11 +97,14 @@ func (a *App) buildSidebar(c *ui.Context) {
 
 // buildAIColumn snaps into place; only its content fades in, over 120 ms.
 func (a *App) buildAIColumn(c *ui.Context) {
-	col := ui.Column(c).Fill().Width(380)
+	col := ui.Column(c).Fill().Width(380).Shrink(0) // never narrows: its buttons stay whole
 	target := float32(1)
 	if !a.aiFaded {
-		a.aiFaded, target = true, 0
-		c.Invalidate() // one more frame, so the fade has a start and an end
+		a.aiFaded = true
+		if !c.Preferences().ReduceMotion { // Animate would otherwise show one transparent frame
+			target = 0
+			c.Invalidate() // one more frame, so the fade has a start and an end
+		}
 	}
 	col.Opacity(col.Animate("fade", target, 120*time.Millisecond))
 	raisedShadow(c).On(col)

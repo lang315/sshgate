@@ -189,22 +189,28 @@ func (a *App) buildAudit(c *ui.Context) {
 		if v.list.Error != "" {
 			ui.Text(c, model.DisplayText(v.list.Error)).TextColor(t.Danger).Role(ui.RoleStatus).Padding(0, 12)
 		}
-		a.buildAuditHead(c)
 		lines := model.AuditLines(v.list.Entries, now)
-		v.ls.Header = func(i int) bool { return lines[i].Heading != "" }
-		ui.List(c.Key("audit-list"), &v.ls, len(lines), func(i int) {
-			if l := lines[i]; l.Heading != "" {
-				ui.Text(c, l.Heading).Bold().Padding(6, 12).Background(t.Surface).Role(ui.RoleHeading)
-			} else {
-				a.buildAuditRow(c, l, i)
-			}
-		}).Grow(1).Children(func() {
-			switch {
-			case v.list.Status == "loading":
-				ui.Text(c, "Loading…").TextColor(t.TextMuted).Padding(12)
-			case v.list.Status == "loaded" && len(v.list.Entries) == 0:
-				ui.Text(c, "No audit records match.").TextColor(t.TextMuted).Padding(12)
-			}
+		// The table keeps its width and scrolls sideways inside the work
+		// column, so the AI column beside it is never pushed out.
+		ui.ScrollHorizontal(c).Grow(1).Children(func() {
+			ui.Column(c).Grow(1).MinWidth(auditTableMin).HeightPercent(100).Children(func() {
+				a.buildAuditHead(c)
+				v.ls.Header = func(i int) bool { return lines[i].Heading != "" }
+				ui.List(c.Key("audit-list"), &v.ls, len(lines), func(i int) {
+					if l := lines[i]; l.Heading != "" {
+						ui.Text(c, l.Heading).Bold().Padding(6, 12).Background(t.Surface).Role(ui.RoleHeading)
+					} else {
+						a.buildAuditRow(c, l, i)
+					}
+				}).Grow(1).Children(func() {
+					switch {
+					case v.list.Status == "loading":
+						ui.Text(c, "Loading…").TextColor(t.TextMuted).Padding(12)
+					case v.list.Status == "loaded" && len(v.list.Entries) == 0:
+						ui.Text(c, "No audit records match.").TextColor(t.TextMuted).Padding(12)
+					}
+				})
+			})
 		})
 		first, _ := v.ls.Visible()
 		v.atTop = first <= 0
@@ -236,11 +242,12 @@ func (a *App) buildAudit(c *ui.Context) {
 
 // The columns' widths; Command or change takes the rest.
 const (
-	auditTimeW  = 72
-	auditKindW  = 64
-	auditHostW  = 130
-	auditBadgeW = 150
-	auditSideW  = 170
+	auditTimeW    = 72
+	auditKindW    = 64
+	auditHostW    = 130
+	auditBadgeW   = 150
+	auditSideW    = 170
+	auditTableMin = 760 // the columns plus a command column of about 130
 )
 
 var auditKind = map[string]string{"exec": "Exec", "config": "Config", "file": "File", "tunnel": "Tunnel"}

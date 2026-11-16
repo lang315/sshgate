@@ -42,7 +42,7 @@ func (a *App) buildReady(c *ui.Context) {
 			// HeightPercent bounds the column so the host list's Scroll scrolls.
 			// Banners sit here, beside the AI column (Electron's main.work), so
 			// one appearing never moves Allow.
-			ui.Column(c).Grow(1).HeightPercent(100).Children(func() {
+			ui.Column(c).Grow(1).MinWidth(0).Clip().HeightPercent(100).Children(func() {
 				if a.status != nil && a.status.StoreError != "" {
 					ui.Row(c).Padding(8, 12).Background(tok(c).DangerTint).Role(ui.RoleStatus).Children(func() {
 						ui.Text(c, capFirst(model.DisplayText(a.status.StoreError)))
@@ -97,7 +97,9 @@ func (a *App) buildReady(c *ui.Context) {
 // runs: Animate on every frame of a view at rest costs frames.
 func (a *App) fadeView(c *ui.Context, key string, build func(*ui.Context)) {
 	if a.viewKey != key {
-		a.viewFading = a.viewKey != "" // the first view after start shows at once
+		// The first view after start shows at once, and so does every view under
+		// Reduce Motion (Animate would show one transparent frame first).
+		a.viewFading = a.viewKey != "" && !c.Preferences().ReduceMotion
 		a.viewKey, a.viewStep = key, 0
 		a.viewFades++
 	}
@@ -178,7 +180,13 @@ func (a *App) buildHosts(c *ui.Context) {
 					iconCol = p.Text
 				}
 				card.Children(func() {
-					if ui.Button(c, "").Label("Open " + shownName).Children(func() {
+					// Flat inside the card: no face or border at rest, a tint on hover.
+					open := ui.Button(c, "").Label("Open " + shownName)
+					open.Background(ui.Color{}).Border(0, ui.Color{})
+					if open.Hovered() {
+						open.Background(p.SurfaceHover)
+					}
+					if open.Children(func() {
 						ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 							a.buildTile(c, p, s, shownName, now)
 							ui.Column(c).Children(func() {
