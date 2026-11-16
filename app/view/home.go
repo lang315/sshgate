@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/lang315/sshgate/app/hubapi"
 	"github.com/lang315/sshgate/app/model"
 )
 
@@ -93,6 +94,7 @@ func (a *App) buildReady(c *ui.Context) {
 
 func (a *App) buildHosts(c *ui.Context) {
 	t := c.Theme()
+	p := tok(c)
 	now := a.Now()
 	shown := model.FilterHosts(a.servers, a.query)
 	ui.Scroll(c).Grow(1).Padding(16).Gap(12).Children(func() {
@@ -117,13 +119,26 @@ func (a *App) buildHosts(c *ui.Context) {
 			for _, s := range shown {
 				name := s.Name
 				shownName := model.DisplayText(name)
-				ui.Column(c.Key("host-"+name)).Width(240).Gap(8).Padding(12).Radius(10).Border(1, t.Border).Background(t.Surface).Justify(ui.SpaceBetween).Children(func() {
+				card := ui.Column(c.Key("host-"+name)).Width(240).MinWidth(200).Gap(8).Padding(12).Radius(radiusCard).Border(1, p.Line).Background(p.Surface).Justify(ui.SpaceBetween)
+				hov := card.Hovered()
+				// Animating only while hovered: an Animate call on every card, at
+				// rest too, made each frame about 7x dearer under -race.
+				if hov {
+					lerpShadow(cardShadow(c), raisedShadow(c), card.Animate("lift", 1, 120*time.Millisecond)).On(card)
+				} else {
+					cardShadow(c).On(card)
+				}
+				iconCol := p.Muted
+				if hov {
+					iconCol = p.Text
+				}
+				card.Children(func() {
 					if ui.Button(c, "").Label("Open " + shownName).Children(func() {
-						ui.Row(c).Gap(8).Children(func() {
-							ui.Text(c, model.Tile(shownName)).Bold()
+						ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+							a.buildTile(c, p, s, shownName, now)
 							ui.Column(c).Children(func() {
 								ui.Text(c, shownName).Bold().SingleLine()
-								ui.Text(c, model.DisplayText(model.Addr(s))).Font("monospace").TextColor(t.TextMuted).SingleLine()
+								ui.Text(c, model.DisplayText(model.Addr(s))).Font("monospace").TextColor(p.Muted).SingleLine()
 							})
 						})
 					}).Clicked() {
@@ -134,16 +149,16 @@ func (a *App) buildHosts(c *ui.Context) {
 					ui.Row(c).Gap(6).Wrap().Justify(ui.End).Children(func() {
 						ui.Row(c).Gap(6).Wrap().Grow(1).Basis(60).Children(func() {
 							if s.AIVisible {
-								ui.Text(c, "AI").TextColor(t.Accent).SingleLine()
+								chip(c, "AI", p.Accent, p.AccentTint, "")
 							}
 							if s.HostKey == "" {
-								ui.Text(c, "New key").TextColor(t.Warning).SingleLine()
+								chip(c, "New key", p.Wait, p.WaitTint, "")
 							}
-							if chip := model.ChipLabel(s.AutoAllow, now); chip != "" {
-								ui.Text(c, chip).TextColor(t.Warning).SingleLine()
+							if label := model.ChipLabel(s.AutoAllow, now); label != "" {
+								chip(c, label, p.Wait, p.WaitTint, "")
 							}
 							if n := model.RunningTunnels(a.tunnels, name); n > 0 {
-								ui.Text(c, fmt.Sprintf("%d ⇄", n)).TextColor(t.Accent).Tooltip("Running tunnels").SingleLine()
+								chip(c, fmt.Sprintf("%d ⇄", n), p.Accent, p.AccentTint, "Running tunnels")
 							}
 						})
 						ui.Row(c).Gap(6).Children(func() {
@@ -153,16 +168,16 @@ func (a *App) buildHosts(c *ui.Context) {
 									a.setAuto([]string{name}, "off", "stop")
 								}
 							}
-							if iconButton(c, "Files", shownName, cardFolderIcon) {
+							if iconButton(c, "Files", shownName, cardFolderIcon, iconCol) {
 								a.openFiles(name)
 							}
-							if iconButton(c, "Tunnels", shownName, tunnelIcon) {
+							if iconButton(c, "Tunnels", shownName, tunnelIcon, iconCol) {
 								a.openTunnels(name)
 							}
-							if iconButton(c, "Edit", shownName, editIcon) {
+							if iconButton(c, "Edit", shownName, editIcon, iconCol) {
 								a.openEditor(name, false)
 							}
-							if iconButton(c, "Delete", shownName, trashIcon) {
+							if iconButton(c, "Delete", shownName, trashIcon, iconCol) {
 								a.askDelete(name)
 							}
 						})
@@ -176,4 +191,52 @@ func (a *App) buildHosts(c *ui.Context) {
 		}
 		ui.Text(c, "Vault file: "+model.DisplayText(path)+" — copy it to back up.").TextColor(t.TextMuted)
 	})
+}
+
+// buildTile is the host's 36 px letter tile: Ok with a "connected" dot while a
+// terminal is open, Accent otherwise, inside the grant ring.
+func (a *App) buildTile(c *ui.Context, p tokens, s hubapi.Server, shownName string, now time.Time) {
+	ring := model.GrantRing(s.AutoAllow, now)
+	wrap := ui.Box(c).Size(44, 44).Center()
+	if ring.Show {
+		wrap.Label(model.ChipLabel(s.AutoAllow, now))
+		wrap.Draw(func(pt *ui.Painter, r ui.Rect) {
+			path := (&ui.Path{}).Circle(r.X+r.W/2, r.Y+r.H/2, r.W/2-1.5)
+			if ring.Dashed {
+				path.Dash(0, 4, 3)
+			}
+			pt.StrokePath(path.Trim(0, float32(ring.Frac)), 2, p.Wait)
+		})
+	}
+	wrap.Children(func() {
+		bg := p.Accent
+		connected := a.tabs.OpenCount(s.Name) > 0
+		if connected {
+			bg = p.Ok
+		}
+		ui.Box(c).Size(36, 36).Radius(8).Background(bg).Center().Children(func() {
+			ui.Text(c, model.Tile(shownName)).Bold().TextColor(p.AccentText)
+		})
+		if connected {
+			ui.Box(c).Absolute().Right(2).Bottom(2).Size(10, 10).Radius(5).Background(p.Ok).Border(2, p.Surface).Label("connected")
+		}
+	})
+}
+
+// chip is a tinted pill; tip, when set, is its tooltip.
+func chip(c *ui.Context, text string, fg, bg ui.Color, tip string) {
+	ui.Row(c).Padding(2, 8).Radius(10).Background(bg).Children(func() {
+		t := ui.Text(c, text).TextColor(fg).SingleLine()
+		if tip != "" {
+			t.Tooltip(tip)
+		}
+	})
+}
+
+// lerpShadow moves from one shadow to another as f goes from 0 to 1.
+func lerpShadow(from, to shadowSpec, f float32) shadowSpec {
+	m := func(a, b float32) float32 { return a + (b-a)*f }
+	mc := func(a, b uint8) uint8 { return uint8(m(float32(a), float32(b))) }
+	return shadowSpec{m(from.X, to.X), m(from.Y, to.Y), m(from.Blur, to.Blur), m(from.Spread, to.Spread),
+		ui.Color{R: mc(from.Color.R, to.Color.R), G: mc(from.Color.G, to.Color.G), B: mc(from.Color.B, to.Color.B), A: mc(from.Color.A, to.Color.A)}}
 }
