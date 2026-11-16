@@ -42,7 +42,7 @@ func (a *App) buildReady(c *ui.Context) {
 			// HeightPercent bounds the column so the host list's Scroll scrolls.
 			// Banners sit here, beside the AI column (Electron's main.work), so
 			// one appearing never moves Allow.
-			ui.Column(c).Grow(1).MinWidth(0).Clip().HeightPercent(100).Children(func() {
+			ui.Column(c.Key("work")).Grow(1).MinWidth(0).Clip().HeightPercent(100).Children(func() {
 				if a.status != nil && a.status.StoreError != "" {
 					ui.Row(c).Padding(8, 12).Background(tok(c).DangerTint).Role(ui.RoleStatus).Children(func() {
 						ui.Text(c, capFirst(model.DisplayText(a.status.StoreError)))

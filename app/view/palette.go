@@ -6,8 +6,9 @@ import "github.com/egoist/mygo/ui"
 // redesign spec.
 const radiusControl, radiusCard, radiusDialog = 6, 10, 14
 
-// railTextHex is RailText in both themes; the rail icons paint with it, as an
-// SVG takes no token.
+// railTextHex is RailText in both themes.
+const railHoverAlpha, railPillAlpha = 0.08, 0.11
+
 const railTextHex = "#E6F2F0"
 
 // tokens are the colours with no ui.Theme field, plus the ones that do, so
@@ -55,6 +56,19 @@ func palette(dark bool) tokens {
 		RailText:      ui.Hex(railTextHex),
 	}
 }
+
+// railTheme scopes the rail: SidebarItem paints its icon in Accent and an
+// unselected item's hover in SurfaceHover, which on the rail must be RailText
+// and a RailText tint (the light rail swallows the stock pair).
+func railTheme(c *ui.Context) *ui.Theme {
+	p := tok(c)
+	t := *c.Theme()
+	t.Accent, t.InactiveAccent, t.Focus = p.RailText, p.RailText, p.RailText
+	t.SurfaceHover = railHover(p)
+	return &t
+}
+
+func railHover(p tokens) ui.Color { return p.RailText.Alpha(railHoverAlpha).Over(p.Rail) }
 
 func tok(c *ui.Context) tokens { return palette(c.Theme().Dark) }
 

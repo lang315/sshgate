@@ -12,8 +12,10 @@ const railWidth = 200
 
 // sidebarShown: the sidebar picks between Hosts and Audit, so a terminal, a
 // file browser or a tunnel tab, which want the width, hide it.
+// A sheet beside the AI column leaves no room for it (200 + 420 + 380 > 900),
+// and the column must neither clip nor move, so the sidebar steps aside, at once.
 func (a *App) sidebarShown() bool {
-	return a.tabs.Active == "" || a.tabs.Active == model.AuditTab
+	return (a.tabs.Active == "" || a.tabs.Active == model.AuditTab) && a.editor == nil && a.imp == nil
 }
 
 // buildTopBar is the full-width bar: Home, the tab strip, AI and Lock. It is
@@ -24,7 +26,7 @@ func (a *App) buildTopBar(c *ui.Context, autoN, liveAuto int) {
 	ui.Row(c).Gap(8).Padding(8).AlignItems(ui.Center).Background(rail).Children(func() {
 		if ui.Button(c, "").Label("Home").Width(railWidth).Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, shieldIcon)
+				ui.Icon(c, shieldIcon).TextColor(tok(c).RailText)
 				ui.Text(c, "sshgate").Bold()
 			})
 		}).Clicked() {
@@ -67,7 +69,7 @@ func (a *App) buildSidebar(c *ui.Context) {
 	if a.tabs.Active == model.AuditTab {
 		sel = "audit"
 	}
-	ui.Column(c).Width(railWidth).Shrink(0).HeightPercent(100).Background(p.Rail).Children(func() {
+	ui.Themed(c, railTheme(c)).Width(railWidth).Shrink(0).HeightPercent(100).Background(p.Rail).Children(func() {
 		sb := ui.Sidebar(c, &sel, func() {
 			for _, it := range []struct {
 				id, label string
@@ -75,7 +77,7 @@ func (a *App) buildSidebar(c *ui.Context) {
 			}{{"hosts", "Hosts", hostsIcon}, {"audit", "Audit", auditIcon}} {
 				item := ui.SidebarItem(c, it.id, it.icon, it.label).TextColor(p.RailText)
 				if sel == it.id {
-					item.Background(p.RailText.Alpha(0.16)) // the pill, per item
+					item.Background(p.RailText.Alpha(railPillAlpha)) // the pill, per item
 				}
 			}
 		}).Grow(1).Background(p.Rail)
@@ -88,7 +90,7 @@ func (a *App) buildSidebar(c *ui.Context) {
 		}
 		ui.Row(c).Gap(8).Padding(8).AlignItems(ui.Center).Children(func() {
 			a.buildThemeControl(c)
-			if ui.Button(c, "⚙").Label("Settings").Tooltip("Settings").TextColor(p.RailText).Background(p.RailText.Alpha(0.16)).Disabled(a.status == nil || a.status.SoftLockLimit == "").Clicked() {
+			if ui.Button(c, "⚙").Label("Settings").Tooltip("Settings").TextColor(p.RailText).Background(p.RailText.Alpha(railPillAlpha)).Disabled(a.status == nil || a.status.SoftLockLimit == "").Clicked() {
 				a.openSettings()
 			}
 		})

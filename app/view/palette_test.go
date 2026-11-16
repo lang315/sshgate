@@ -46,6 +46,12 @@ func TestPaletteContrast(t *testing.T) {
 			{"ok/surface", p.Ok, p.Surface, 4.5}, {"ok/okTint", p.Ok, p.OkTint, 4.5},
 			{"termFg/termBg", p.TermFg, p.TermBg, 4.5},
 			{"railText/rail", p.RailText, p.Rail, 4.5},
+			{"accentText/ok (connected tile)", p.AccentText, p.Ok, 4.5},
+			{"text/dangerTint", p.Text, p.DangerTint, 4.5}, {"text/waitTint", p.Text, p.WaitTint, 4.5},
+			{"rail icon+label/hover", p.RailText, railHover(p), 4.5},
+			{"rail icon+label/pill", p.RailText, p.RailText.Alpha(railPillAlpha).Over(p.Rail), 4.5 + 0.5}, // comfortable margin
+			{"rail icon/rail", p.RailText, p.Rail, 3}, {"rail icon/hover", p.RailText, railHover(p), 3},
+			{"rail icon/pill", p.RailText, p.RailText.Alpha(railPillAlpha).Over(p.Rail), 3},
 			{"controlLine/bg", p.ControlLine, p.Bg, 3}, {"controlLine/surface", p.ControlLine, p.Surface, 3}, {"controlLine/raised", p.ControlLine, p.Raised, 3},
 			{"accent/bg (focus)", p.Accent, p.Bg, 3},
 		} {

@@ -2,11 +2,6 @@ package view
 
 import "github.com/egoist/mygo/ui"
 
-// cardIcon draws one of Electron's stroked 24x24 icons (desktop/src/renderer/icons.tsx).
-func cardIcon(paths string) *ui.SVG {
-	return ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="` + paths + `"/></svg>`))
-}
-
 var (
 	cardFolderIcon = cardIcon("M3 6h6l2 2h10v11H3z")
 	editIcon       = cardIcon("M4 20h4L19 9l-4-4L4 16z")
@@ -14,15 +9,16 @@ var (
 	tunnelIcon     = cardIcon("M4 8h13l-3-3M20 16H7l3 3") // two arrows, one each way
 	lockIcon       = cardIcon("M6 11h12v10H6zM8 11V7a4 4 0 0 1 8 0v4")
 
-	// The rail's icons keep their own stroke: a SidebarItem paints its icon in
-	// the theme's accent, which the light theme's rail swallows.
-	hostsIcon  = railIcon("M4 5h16v6H4zM4 13h16v6H4zM8 8h.01M8 16h.01")
-	auditIcon  = railIcon("M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h7")
-	shieldIcon = railIcon("M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z")
+	// The rail's icons paint in currentColor: the rail's theme (railTheme)
+	// makes a SidebarItem's accent RailText.
+	hostsIcon  = cardIcon("M4 5h16v6H4zM4 13h16v6H4zM8 8h.01M8 16h.01")
+	auditIcon  = cardIcon("M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h7")
+	shieldIcon = cardIcon("M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z")
 )
 
-func railIcon(paths string) *ui.SVG {
-	return ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="none" stroke="` + railTextHex + `" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="` + paths + `"/></svg>`))
+// cardIcon draws one of Electron's stroked 24x24 icons (desktop/src/renderer/icons.tsx).
+func cardIcon(paths string) *ui.SVG {
+	return ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="` + paths + `"/></svg>`))
 }
 
 // iconButton is a card action: an icon named "<verb> <name>", with the verb as its tooltip.

@@ -190,3 +190,44 @@ func TestReduceMotionSkipsFades(t *testing.T) {
 		t.Fatal("the view fades under Reduce Motion")
 	}
 }
+
+// With a sheet open beside the AI column, every decision element stays whole
+// inside the window and Allow does not move when the sheet opens or closes
+// (the sidebar steps aside instead).
+func TestAIColumnStaysPutWithSheetOpen(t *testing.T) {
+	for _, sz := range [][2]int{{900, 500}, {999, 500}} {
+		d := &fakeDoor{status: hubapi.Status{HasVault: true}, servers: []hubapi.Server{{Name: "box", User: "u", Host: "h", Port: 22}},
+			pending: []hubapi.Request{reqN("r1", "box", "ls"), reqN("r2", "box", "pwd")}}
+		_, tt, _, _ := newApp(t, d)
+		tt.SetSize(sz[0], sz[1])
+		tt.flush()
+		tt.Advance(time.Second)
+		tt.Frame()
+		r, ok := tt.Find("Allow")
+		if !ok {
+			t.Fatalf("%v: no Allow", sz)
+		}
+		allowX := r.X
+		check := func(step string) {
+			t.Helper()
+			tt.Advance(time.Second)
+			tt.Frame()
+			for _, l := range []string{"Close AI requests", "Deny all", "Deny", "Allow"} {
+				r, ok := tt.Find(l)
+				if !ok || r.X < 0 || r.Y < 0 || r.X+r.W > float32(sz[0]) || r.Y+r.H > float32(sz[1]) {
+					t.Fatalf("%v %s: %q at %+v (found %v)", sz, step, l, r, ok)
+				}
+			}
+			if r, _ := tt.Find("Allow"); r.X != allowX {
+				t.Fatalf("%v %s: Allow moved from x %v to %v", sz, step, allowX, r.X)
+			}
+		}
+		check("no sheet")
+		for _, s := range []struct{ open, closeL string }{{"New host", "Close host editor"}, {"Import from SSH config", "Close import"}} {
+			clickT(t, tt, s.open)
+			check(s.open)
+			clickT(t, tt, s.closeL)
+			check("closed after " + s.open)
+		}
+	}
+}
