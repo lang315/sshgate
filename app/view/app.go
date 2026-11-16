@@ -68,6 +68,7 @@ type App struct {
 	// The paused banner's Resume delay on the Hosts tab and in the AI
 	// column; nil while that banner is not drawn.
 	pausedHome, pausedCol *model.ListChanges
+	lift                  map[string]float32 // host cards hovered or fading out, with their shadow lift 0..1
 
 	busy                   bool   // unlock, create vault or stop-and-lock in flight
 	password, newPw, again string // field values

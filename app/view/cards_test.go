@@ -168,3 +168,37 @@ func TestStopAutoAllowStillOnCard(t *testing.T) {
 		t.Fatal(tt.Texts())
 	}
 }
+
+// Every hover fades the shadow in and out, not only the first.
+func TestHoverCardFadesEveryTime(t *testing.T) {
+	servers := []hubapi.Server{{Name: "hostA", User: "u", Host: "a.example", Port: 22}, {Name: "hostB", User: "u", Host: "b.example", Port: 22}}
+	a, tt, _ := readyApp(t, servers)
+	tt.SetSize(900, 500)
+	tt.flush()
+	over := func(name string) {
+		r, ok := tt.Find("Open " + name)
+		if !ok {
+			t.Fatalf("no card %s", name)
+		}
+		tt.Move(r.X+r.W/2, r.Y+r.H/2)
+		tt.Frame()
+	}
+	over("hostA")
+	tt.Advance(200 * time.Millisecond)
+	if got := a.lift["hostA"]; got != 1 {
+		t.Fatalf("after 200 ms hover lift %v", got)
+	}
+	over("hostB")
+	tt.Advance(200 * time.Millisecond)
+	if _, still := a.lift["hostA"]; still {
+		t.Fatalf("A kept animating after it faded out: %v", a.lift)
+	}
+	over("hostA")
+	tt.Advance(40 * time.Millisecond)
+	if got := a.lift["hostA"]; got <= 0 || got >= 1 {
+		t.Fatalf("second hover jumped: lift %v", got)
+	}
+	if !tt.FramePending() {
+		t.Fatal("no frame pending during the fade")
+	}
+}

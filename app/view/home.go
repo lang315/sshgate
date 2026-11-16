@@ -121,10 +121,27 @@ func (a *App) buildHosts(c *ui.Context) {
 				shownName := model.DisplayText(name)
 				card := ui.Column(c.Key("host-"+name)).Width(240).MinWidth(200).Gap(8).Padding(12).Radius(radiusCard).Border(1, p.Line).Background(p.Surface).Justify(ui.SpaceBetween)
 				hov := card.Hovered()
-				// Animating only while hovered: an Animate call on every card, at
-				// rest too, made each frame about 7x dearer under -race.
-				if hov {
-					lerpShadow(cardShadow(c), raisedShadow(c), card.Animate("lift", 1, 120*time.Millisecond)).On(card)
+				// Only a hovered card, or one still fading out, calls Animate: one on
+				// every card at rest made each frame about 7x dearer under -race.
+				lift, lifting := a.lift[name]
+				if hov || lifting {
+					if !lifting {
+						card.Animate("lift", 0, 120*time.Millisecond) // a first Animate starts at its target
+					}
+					target := float32(0)
+					if hov {
+						target = 1
+					}
+					lift = card.Animate("lift", target, 120*time.Millisecond)
+					if a.lift == nil {
+						a.lift = map[string]float32{}
+					}
+					if hov || lift > 0 {
+						a.lift[name] = lift
+					} else {
+						delete(a.lift, name)
+					}
+					lerpShadow(cardShadow(c), raisedShadow(c), lift).On(card)
 				} else {
 					cardShadow(c).On(card)
 				}
@@ -201,7 +218,7 @@ func (a *App) buildTile(c *ui.Context, p tokens, s hubapi.Server, shownName stri
 	if ring.Show {
 		wrap.Label(model.ChipLabel(s.AutoAllow, now))
 		wrap.Draw(func(pt *ui.Painter, r ui.Rect) {
-			path := (&ui.Path{}).Circle(r.X+r.W/2, r.Y+r.H/2, r.W/2-1.5)
+			path := clockCircle(r.X+r.W/2, r.Y+r.H/2, r.W/2-1.5)
 			if ring.Dashed {
 				path.Dash(0, 4, 3)
 			}
@@ -239,4 +256,16 @@ func lerpShadow(from, to shadowSpec, f float32) shadowSpec {
 	mc := func(a, b uint8) uint8 { return uint8(m(float32(a), float32(b))) }
 	return shadowSpec{m(from.X, to.X), m(from.Y, to.Y), m(from.Blur, to.Blur), m(from.Spread, to.Spread),
 		ui.Color{R: mc(from.Color.R, to.Color.R), G: mc(from.Color.G, to.Color.G), B: mc(from.Color.B, to.Color.B), A: mc(from.Color.A, to.Color.A)}}
+}
+
+// clockCircle is a circle that starts at 12 o'clock and runs clockwise, so a
+// Trim of it reads as time left (ui.Path.Circle starts at 3).
+func clockCircle(cx, cy, r float32) *ui.Path {
+	const k = 0.5522847498
+	return (&ui.Path{}).MoveTo(cx, cy-r).
+		CubeTo(cx+r*k, cy-r, cx+r, cy-r*k, cx+r, cy).
+		CubeTo(cx+r, cy+r*k, cx+r*k, cy+r, cx, cy+r).
+		CubeTo(cx-r*k, cy+r, cx-r, cy+r*k, cx-r, cy).
+		CubeTo(cx-r, cy-r*k, cx-r*k, cy-r, cx, cy-r).
+		Close()
 }
