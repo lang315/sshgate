@@ -26,7 +26,7 @@ func (a *App) buildTopBar(c *ui.Context, autoN, liveAuto int) {
 	ui.Row(c).Gap(8).Padding(8).AlignItems(ui.Center).Background(rail).Children(func() {
 		if ui.Button(c, "").Label("Home").Width(railWidth).Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, shieldIcon).TextColor(tok(c).RailText)
+				ui.Icon(c, shieldIcon)
 				ui.Text(c, "sshgate").Bold()
 			})
 		}).Clicked() {
