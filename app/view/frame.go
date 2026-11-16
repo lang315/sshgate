@@ -1,0 +1,109 @@
+package view
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/lang315/sshgate/app/model"
+)
+
+const railWidth = 200
+
+// sidebarShown: the sidebar picks between Hosts and Audit, so a terminal, a
+// file browser or a tunnel tab, which want the width, hide it.
+func (a *App) sidebarShown() bool {
+	return a.tabs.Active == "" || a.tabs.Active == model.AuditTab
+}
+
+// buildTopBar is the full-width bar: Home, the tab strip, AI and Lock. It is
+// the same whatever the sidebar does, so the tabs never move.
+func (a *App) buildTopBar(c *ui.Context, autoN, liveAuto int) {
+	t := c.Theme()
+	rail := tok(c).Rail
+	ui.Row(c).Gap(8).Padding(8).AlignItems(ui.Center).Background(rail).Children(func() {
+		if ui.Button(c, "").Label("Home").Width(railWidth).Children(func() {
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, shieldIcon)
+				ui.Text(c, "sshgate").Bold()
+			})
+		}).Clicked() {
+			a.tabs.ShowHome()
+		}
+		a.buildTabStrip(c) // grows, so AI and Lock stay at the right
+		if a.aiOpen || len(a.items) > 0 || autoN > 0 {
+			label := fmt.Sprintf("AI %d", len(a.items))
+			if autoN > 0 {
+				label += fmt.Sprintf(" · auto %d", autoN)
+			}
+			b := ui.Button(c, "").Label("AI requests").Children(func() {
+				txt := ui.Text(c, label)
+				if model.AIButtonWaiting(a.aiOpen, len(a.items)) {
+					txt.TextColor(t.Warning)
+				}
+			})
+			if b.Clicked() {
+				a.aiOpen = !a.aiOpen
+			}
+		}
+		lock := ui.Button(c, "Lock")
+		if tip := model.LockTitle(liveAuto); tip != "" {
+			lock.Tooltip(tip)
+		}
+		if lock.Clicked() {
+			a.lock()
+		}
+	})
+}
+
+// buildSidebar is the left rail: Hosts and Audit, then the theme switch and
+// Settings. It draws nothing while a tab is active, and the page snaps.
+func (a *App) buildSidebar(c *ui.Context) {
+	if !a.sidebarShown() {
+		return
+	}
+	p := tok(c)
+	sel := "hosts"
+	if a.tabs.Active == model.AuditTab {
+		sel = "audit"
+	}
+	ui.Column(c).Width(railWidth).Shrink(0).HeightPercent(100).Background(p.Rail).Children(func() {
+		sb := ui.Sidebar(c, &sel, func() {
+			for _, it := range []struct {
+				id, label string
+				icon      *ui.SVG
+			}{{"hosts", "Hosts", hostsIcon}, {"audit", "Audit", auditIcon}} {
+				item := ui.SidebarItem(c, it.id, it.icon, it.label).TextColor(p.RailText)
+				if sel == it.id {
+					item.Background(p.RailText.Alpha(0.16)) // the pill, per item
+				}
+			}
+		}).Grow(1).Background(p.Rail)
+		if sb.Changed() {
+			if sel == "audit" {
+				a.tabs.ShowAudit()
+			} else {
+				a.tabs.ShowHome()
+			}
+		}
+		ui.Row(c).Gap(8).Padding(8).AlignItems(ui.Center).Children(func() {
+			a.buildThemeControl(c)
+			if ui.Button(c, "⚙").Label("Settings").Tooltip("Settings").Disabled(a.status == nil || a.status.SoftLockLimit == "").Clicked() {
+				a.openSettings()
+			}
+		})
+	})
+}
+
+// buildAIColumn snaps into place; only its content fades in, over 120 ms.
+func (a *App) buildAIColumn(c *ui.Context) {
+	col := ui.Column(c).Fill().Width(380)
+	target := float32(1)
+	if !a.aiFaded {
+		a.aiFaded, target = true, 0
+		c.Invalidate() // one more frame, so the fade has a start and an end
+	}
+	col.Opacity(col.Animate("fade", target, 120*time.Millisecond))
+	raisedShadow(c).On(col)
+	col.Children(func() { a.buildColumn(c) })
+}

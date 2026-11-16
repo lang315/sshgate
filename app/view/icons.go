@@ -13,7 +13,17 @@ var (
 	trashIcon      = cardIcon("M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13")
 	tunnelIcon     = cardIcon("M4 8h13l-3-3M20 16H7l3 3") // two arrows, one each way
 	lockIcon       = cardIcon("M6 11h12v10H6zM8 11V7a4 4 0 0 1 8 0v4")
+
+	// The rail's icons keep their own stroke: a SidebarItem paints its icon in
+	// the theme's accent, which the light theme's rail swallows.
+	hostsIcon  = railIcon("M4 5h16v6H4zM4 13h16v6H4zM8 8h.01M8 16h.01")
+	auditIcon  = railIcon("M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h7")
+	shieldIcon = railIcon("M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z")
 )
+
+func railIcon(paths string) *ui.SVG {
+	return ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="none" stroke="` + railTextHex + `" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="` + paths + `"/></svg>`))
+}
 
 // iconButton is a card action: an icon named "<verb> <name>", with the verb as its tooltip.
 // cardButtonPadX keeps a card's five actions (Stop included) inside its 240 DIP.

@@ -57,6 +57,7 @@ type App struct {
 	seedGen      int
 	seedErr      string
 	aiOpen       bool
+	aiFaded      bool // the AI column has built once since it opened
 	itemBusy     map[string]bool
 	itemErr      map[string]string
 	denyAllErr   string

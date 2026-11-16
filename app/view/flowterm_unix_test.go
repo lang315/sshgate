@@ -181,7 +181,7 @@ func TestFlowHostKeyPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.until(func() bool { return tabState(f.a, id) == "exited" && strings.Contains(termText(f.a, id), "[exited: ") }, "the tab to end")
-	f.click("Hosts")
+	f.click("Home")
 	f.click("Open box")
 	f.until(func() bool { return f.tt.HasText("Trust this host key?") }, "the prompt again")
 	f.tt.Key(0, ui.KeyEnter) // Cancel

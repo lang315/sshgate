@@ -133,6 +133,9 @@ func (d *hubDoor) Call(_ context.Context, method string, _, result any) error {
 }
 
 func (d *hubDoor) Notify(method string, params any) error {
+	d.mu.Lock()
+	d.calls = append(d.calls, method)
+	d.mu.Unlock()
 	if method == "term.write" {
 		p := params.(map[string]any)
 		d.mu.Lock()

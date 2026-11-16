@@ -109,7 +109,7 @@ func (f *flowT) liveTunnels(host, pw, targetHost string, targetPort int) {
 		}
 	}
 	banners()
-	f.click("Hosts")
+	f.click("Home")
 	f.until(func() bool { return f.tt.HasText("2 ⇄") }, "the badge 2 ⇄")
 
 	f.click("Lock")

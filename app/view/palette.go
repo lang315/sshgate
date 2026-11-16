@@ -6,6 +6,10 @@ import "github.com/egoist/mygo/ui"
 // redesign spec.
 const radiusControl, radiusCard, radiusDialog = 6, 10, 14
 
+// railTextHex is RailText in both themes; the rail icons paint with it, as an
+// SVG takes no token.
+const railTextHex = "#E6F2F0"
+
 // tokens are the colours with no ui.Theme field, plus the ones that do, so
 // a view reads every colour from one place.
 type tokens struct {
@@ -48,7 +52,7 @@ func palette(dark bool) tokens {
 		TermBg:        pick("#0E1012", "#ffffff"),
 		TermFg:        pick("#D8D4CC", "#1b1f2e"),
 		Rail:          pick("#0F2A29", "#0F5F59"),
-		RailText:      ui.Hex("#E6F2F0"),
+		RailText:      ui.Hex(railTextHex),
 	}
 }
 

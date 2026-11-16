@@ -238,7 +238,7 @@ func TestLiveFiles(t *testing.T) {
 		port = s.Port
 	}
 	f.tt.SetSize(1000, 1200) // the whole editor in view: the Tester clicks where an element is
-	f.click("Hosts")
+	f.click("Home")
 	f.click("Edit " + model.DisplayText(host))
 	f.until(func() bool { return f.a.editor != nil }, "the host editor")
 	// A host on auto-allow (even paused) would ask the Auto-allow dialog on

@@ -45,7 +45,7 @@ func filesApp(t *testing.T, dirs map[string][]hubapi.FileEntry) (*App, *tester, 
 func openFilesTab(t *testing.T, a *App, tt *tester) (string, *filesTab) {
 	t.Helper()
 	if a.tabs.Active != "" {
-		clickT(t, tt, "Hosts")
+		clickT(t, tt, "Home")
 	}
 	clickT(t, tt, "Files box")
 	tt.flush()

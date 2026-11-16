@@ -100,7 +100,7 @@ func TestResumeWaitsAgainWhenShownAgain(t *testing.T) {
 		t.Fatal("Resume worked at once in the reopened AI column")
 	}
 	clickT(t, tt, "Close AI requests")
-	clickT(t, tt, "Hosts")
+	clickT(t, tt, "Home")
 	tt.flush()
 	clickT(t, tt, "Resume")
 	tt.flush()

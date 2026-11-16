@@ -159,7 +159,7 @@ func (f *flowT) unlockWith(pw string) {
 func (f *flowT) openBox() string {
 	f.t.Helper()
 	if f.a.tabs.Active != "" {
-		f.click("Hosts")
+		f.click("Home")
 	}
 	n := len(f.a.tabs.Tabs)
 	f.click("Open box")

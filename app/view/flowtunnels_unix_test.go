@@ -108,7 +108,7 @@ func tunnelsFlow(t *testing.T) *flowT {
 func (f *flowT) openTunnels(server string) {
 	f.t.Helper()
 	if f.a.tabs.Active != "" {
-		f.click("Hosts")
+		f.click("Home")
 	}
 	f.click("Tunnels " + model.DisplayText(server))
 	f.until(func() bool { return f.tt.HasText("Tunnels on " + model.DisplayText(server)) }, "the Tunnels tab")
@@ -195,7 +195,7 @@ func TestFlowTunnels(t *testing.T) {
 	sc := socks(t, dp, echo)
 	pingOn(t, sc)
 
-	f.click("Hosts")
+	f.click("Home")
 	f.until(func() bool { return f.tt.HasText("2 ⇄") }, "the badge 2 ⇄")
 
 	f.click("Lock")
@@ -214,7 +214,7 @@ func TestFlowTunnels(t *testing.T) {
 	}
 	refused(t, lp)
 	refused(t, dp)
-	f.click("Hosts")
+	f.click("Home")
 	if f.tt.HasText("⇄") {
 		t.Fatal("the badge outlived the tunnels")
 	}

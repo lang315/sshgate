@@ -21,9 +21,8 @@ func capFirst(s string) string {
 
 func (a *App) buildReady(c *ui.Context) {
 	if !a.aiOpen {
-		a.col.mounted, a.pausedCol = false, nil
+		a.col.mounted, a.pausedCol, a.aiFaded = false, nil, false
 	}
-	t := c.Theme()
 	now := a.Now()
 	autoN := len(model.AutoHostNames(a.servers, now))
 	liveAuto := autoN - len(model.PausedHosts(a.servers))
@@ -36,42 +35,9 @@ func (a *App) buildReady(c *ui.Context) {
 		}
 	}
 	ui.Column(c).Fill().Children(func() {
-		ui.Row(c).Gap(8).Padding(8).Children(func() {
-			if ui.Button(c, "Hosts").Selected(a.tabs.Active == "").Clicked() {
-				a.tabs.ShowHome()
-			}
-			if ui.Button(c, "Audit").Selected(a.tabs.Active == model.AuditTab).Clicked() {
-				a.tabs.ShowAudit()
-			}
-			a.buildTabStrip(c) // grows, so AI and Lock stay at the right
-			if a.aiOpen || len(a.items) > 0 || autoN > 0 {
-				label := fmt.Sprintf("AI %d", len(a.items))
-				if autoN > 0 {
-					label += fmt.Sprintf(" · auto %d", autoN)
-				}
-				b := ui.Button(c, "").Label("AI requests").Children(func() {
-					txt := ui.Text(c, label)
-					if model.AIButtonWaiting(a.aiOpen, len(a.items)) {
-						txt.TextColor(t.Warning)
-					}
-				})
-				if b.Clicked() {
-					a.aiOpen = !a.aiOpen
-				}
-			}
-			a.buildThemeControl(c)
-			if ui.Button(c, "\u2699").Label("Settings").Tooltip("Settings").Disabled(a.status == nil || a.status.SoftLockLimit == "").Clicked() {
-				a.openSettings()
-			}
-			lock := ui.Button(c, "Lock")
-			if tip := model.LockTitle(liveAuto); tip != "" {
-				lock.Tooltip(tip)
-			}
-			if lock.Clicked() {
-				a.lock()
-			}
-		})
+		a.buildTopBar(c, autoN, liveAuto)
 		ui.Row(c).Grow(1).Children(func() {
+			a.buildSidebar(c)
 			// HeightPercent bounds the column so the host list's Scroll scrolls.
 			// Banners sit here, beside the AI column (Electron's main.work), so
 			// one appearing never moves Allow.
@@ -116,7 +82,7 @@ func (a *App) buildReady(c *ui.Context) {
 				a.buildImport(c)
 			}
 			if a.aiOpen {
-				ui.Column(c).Fill().Width(380).Children(func() { a.buildColumn(c) })
+				a.buildAIColumn(c)
 			}
 		})
 	})
