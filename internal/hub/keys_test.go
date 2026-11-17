@@ -77,6 +77,10 @@ func TestKeysCreateListDelete(t *testing.T) {
 		Name, Type, PublicKey, Created string
 		UsedBy                         []string
 	}
+	var rawList json.RawMessage
+	if err := c.Call(ctx, "keys.list", map[string]any{}, &rawList); err != nil || !strings.Contains(string(rawList), `"usedBy":[]`) {
+		t.Fatalf("list json: %v %s", err, rawList)
+	}
 	var keys []listed
 	if err := c.Call(ctx, "keys.list", map[string]any{}, &keys); err != nil || len(keys) != 1 || keys[0].Name != "k1" || len(keys[0].UsedBy) != 0 {
 		t.Fatalf("list: %v %+v", err, keys)
@@ -152,11 +156,15 @@ func TestKeysCreateRefusesBeforeHelper(t *testing.T) {
 	h, _, _ := keyHub(t)
 	c, _ := startUI(t, h)
 	ctx := context.Background()
+	marker := filepath.Join(t.TempDir(), "ran")
+	t.Setenv("FAKE_MARKER", marker)
 	if err := c.Call(ctx, "keys.create", map[string]any{"name": "dup"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	marker := filepath.Join(t.TempDir(), "ran")
-	t.Setenv("FAKE_MARKER", marker)
+	if _, err := os.Stat(marker); err != nil { // positive control: a valid create runs the helper
+		t.Fatal("a valid create did not run the helper")
+	}
+	os.Remove(marker)
 	if err := c.Call(ctx, "keys.create", map[string]any{"name": "dup"}, nil); err == nil || !strings.Contains(err.Error(), config.ErrKeyExists.Error()) {
 		t.Fatalf("duplicate: %v", err)
 	}
@@ -168,6 +176,9 @@ func TestKeysCreateRefusesBeforeHelper(t *testing.T) {
 	}
 	if err := c.Call(ctx, "keys.create", map[string]any{"name": "other"}, nil); err == nil || !strings.Contains(err.Error(), ErrLocked.Error()) {
 		t.Fatalf("locked: %v", err)
+	}
+	if err := c.Call(ctx, "keys.create", map[string]any{"name": "bad name!"}, nil); err == nil || !strings.Contains(err.Error(), ErrLocked.Error()) {
+		t.Fatalf("invalid name on a locked hub: %v", err)
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("the helper ran for a refused create")

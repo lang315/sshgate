@@ -17,7 +17,7 @@ type uiKey struct {
 	Type      string   `json:"type"`
 	PublicKey string   `json:"publicKey"`
 	Created   string   `json:"created"`
-	UsedBy    []string `json:"usedBy,omitempty"`
+	UsedBy    []string `json:"usedBy"`
 }
 
 // ListKeys needs an unlocked vault.
@@ -31,7 +31,11 @@ func (h *Hub) ListKeys() ([]uiKey, error) {
 	clear(k)
 	out := []uiKey{}
 	for _, k := range h.deps.File.Keys {
-		out = append(out, uiKey{k.Name, k.Type, k.PublicKey, k.Created, h.deps.File.KeyUsers(k.Name)})
+		users := h.deps.File.KeyUsers(k.Name)
+		if users == nil {
+			users = []string{}
+		}
+		out = append(out, uiKey{k.Name, k.Type, k.PublicKey, k.Created, users})
 	}
 	return out, nil
 }
@@ -40,13 +44,13 @@ func (h *Hub) ListKeys() ([]uiKey, error) {
 // blob in the vault. The lock state and the name are checked before the
 // helper runs, and h.mu is not held across it.
 func (h *Hub) CreateKey(ctx context.Context, name string) (uiKey, error) {
-	if err := config.ValidKeyName(name); err != nil {
-		return uiKey{}, err
-	}
 	h.mu.Lock()
-	k, err := h.writeKeyLocked()
+	k, err := h.writeKeyLocked() // lock state first, then the name, then uniqueness
 	if err == nil {
 		clear(k)
+		err = config.ValidKeyName(name)
+	}
+	if err == nil {
 		if slices.ContainsFunc(h.deps.File.Keys, func(k config.Key) bool { return k.Name == name }) {
 			err = config.ErrKeyExists
 		}
