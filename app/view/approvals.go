@@ -76,8 +76,14 @@ func segments(c *ui.Context, segs []model.Segment) {
 // codeBlock draws what the AI sent (a command, a path, stdin) on the
 // terminal's own background.
 func codeBlock(c *ui.Context, children func()) {
+	termBlock(c, 8).Gap(4).Children(children)
+}
+
+// termBlock is a column on the terminal's own background with a Line
+// outline, so it reads on a surface that shares TermBg (the light theme's).
+func termBlock(c *ui.Context, padV float32) ui.Element {
 	p := tok(c)
-	ui.Column(c).Gap(4).Padding(8, 10).Radius(radiusControl).Background(p.TermBg).TextColor(p.TermFg).Children(children)
+	return ui.Column(c).Padding(padV, 10).Radius(radiusControl).Border(1, p.Line).Background(p.TermBg).TextColor(p.TermFg)
 }
 
 // allowButton is the Allow decision button: outlined in Ok once enabled.

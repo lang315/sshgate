@@ -459,6 +459,10 @@ func TestHostKeyFingerprintsInBlocks(t *testing.T) {
 			if n := countNear(shot(tt), ui.Rect{X: r.X - 4, Y: r.Y, W: 2, H: r.H}, p.TermBg, 3); n < int(r.H)*2-2 {
 				t.Fatalf("dark=%v: %q not on TermBg (%d of %d)", dark, s, n, int(r.H)*2)
 			}
+			// a Line outline, so the block reads where TermBg equals the dialog (light)
+			if n := countNear(shot(tt), grow(r, 13), p.Line, 3); n < 40 {
+				t.Fatalf("dark=%v: %q has no Line outline (%d px)", dark, s, n)
+			}
 			return r
 		}
 		k := &keyDial{answer: func(int) (*termconn.Conn, error) { return nil, &termconn.OpenError{Status: mis.Status, Key: mis} }}

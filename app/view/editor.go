@@ -320,7 +320,7 @@ func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (
 	if s != nil {
 		section(c, "Host key", func() {
 			if s.HostKey != "" {
-				ui.Column(c).Padding(6, 10).Radius(radiusControl).Background(p.TermBg).Children(func() {
+				termBlock(c, 6).Children(func() {
 					ui.Text(c, model.DisplayText(strings.TrimSpace(s.HostKeyAlgo+" "+s.HostKey))).Font("monospace").Selectable().TextColor(p.TermFg)
 				})
 				// Keyed: a re-mount would AutoFocus it again, and Enter would forget.

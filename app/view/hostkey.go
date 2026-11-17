@@ -89,7 +89,7 @@ func fingerprintBlock(c *ui.Context, text string, col ui.Color) {
 	if col == (ui.Color{}) {
 		col = p.TermFg
 	}
-	ui.Column(c).Padding(6, 10).Radius(radiusControl).Background(p.TermBg).Children(func() {
+	termBlock(c, 6).Children(func() {
 		ui.Text(c, model.DisplayText(text)).Font("monospace").Selectable().TextColor(col)
 	})
 }

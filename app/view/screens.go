@@ -42,7 +42,7 @@ func (a *App) buildHub(c *ui.Context) {
 		case "failed":
 			ui.Text(c, "The hub stopped").Bold()
 			ui.Text(c, model.DisplayText(a.hubState.Message))
-			ui.Column(c).Padding(8, 10).Radius(radiusControl).Background(tok(c).TermBg).TextColor(tok(c).TermFg).Children(func() {
+			termBlock(c, 8).Children(func() {
 				for _, line := range strings.Split(a.hubState.Stderr, "\n") {
 					if line != "" {
 						ui.Text(c, model.DisplayText(line)).Font("monospace")
