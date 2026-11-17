@@ -25,6 +25,7 @@ type Deps struct {
 	MasterKey []byte
 	Insecure  bool
 	Path      string
+	KeyHelper string // the sshgate-touchid helper that signs for keychain servers; "" where there is none
 }
 
 func (d *Deps) ServerNames() []string {
@@ -49,7 +50,7 @@ func (d *Deps) IsLocked(name string) bool {
 		return false
 	}
 	enc := s.EncPassword != "" || s.EncSuPassword != "" || s.EncSudoPassword != "" || s.EncKeyPassphrase != ""
-	return enc && d.MasterKey == nil
+	return (enc || s.Auth == "keychain") && d.MasterKey == nil
 }
 
 func (d *Deps) Resolve(name string) (sshx.DialConfig, error) {
@@ -114,6 +115,16 @@ func (d *Deps) Resolve(name string) (sshx.DialConfig, error) {
 		Host: s.Host, Port: s.Port, User: s.User, Password: pw, Auth: s.Auth,
 		SuPassword: su, SudoPassword: sudo, Passphrase: passphrase, HostKey: s.HostKey, HostKeyAlgo: s.HostKeyAlgo,
 		Insecure: d.Insecure, StrictHostKey: true, TimeoutMs: 60000,
+	}
+	if s.Auth == "keychain" {
+		if d.MasterKey == nil {
+			return sshx.DialConfig{}, fmt.Errorf("vault locked; unlock it in the app")
+		}
+		blob, pub, err := config.KeyBlob(d.File, d.MasterKey, s.KeyName)
+		if err != nil {
+			return sshx.DialConfig{}, err
+		}
+		dc.SEKeyBlob, dc.PublicKey, dc.KeyHelper = blob, pub, d.KeyHelper
 	}
 	if s.KeyPath != "" {
 		data, err := os.ReadFile(expandPath(s.KeyPath))

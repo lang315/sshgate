@@ -3,7 +3,9 @@ package mcpserver
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/lang315/sshgate/internal/config"
 )
@@ -82,5 +84,28 @@ func TestResolveNamedIsStrictWithNoLearner(t *testing.T) {
 	cli, err := (&Deps{CLI: &config.CLIConfig{Host: "h", Port: 22, User: "u", HasHost: true}}).Resolve("")
 	if err != nil || cli.StrictHostKey {
 		t.Fatalf("--host mode must keep TOFU: %v %+v", err, cli)
+	}
+}
+
+func TestResolveKeychain(t *testing.T) {
+	k, mk, _ := config.NewKDF("pw")
+	f := &config.File{Version: 1, KDF: &k, Servers: []config.Server{{Name: "kc", Host: "h", Port: 22, User: "u", Auth: "keychain", KeyName: "k1"}}}
+	if err := config.AddKey(f, mk, "k1", "ecdsa-sha2-nistp256 AAAA", []byte("opaque-blob"), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	d := &Deps{File: f, MasterKey: mk, KeyHelper: "/h/sshgate-touchid"}
+	dc, err := d.Resolve("kc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(dc.SEKeyBlob) != "opaque-blob" || dc.PublicKey != "ecdsa-sha2-nistp256 AAAA" || dc.KeyHelper != "/h/sshgate-touchid" {
+		t.Fatalf("got blob=%q pub=%q helper=%q", dc.SEKeyBlob, dc.PublicKey, dc.KeyHelper)
+	}
+	d.MasterKey = nil
+	if _, err := d.Resolve("kc"); err == nil || !strings.Contains(err.Error(), "vault locked") {
+		t.Fatalf("locked resolve: %v", err)
+	}
+	if !d.IsLocked("kc") {
+		t.Fatal("IsLocked must be true for a keychain server without the master key, though no Enc* field is set")
 	}
 }

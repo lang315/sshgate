@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lang315/sshgate/internal/sekey"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 	"os"
@@ -27,7 +28,9 @@ type DialConfig struct {
 	HostKeyAlgo                                  string // the pinned key's type; limits negotiation to its family
 	Port, TimeoutMs                              int
 	Insecure                                     bool
-	StrictHostKey                                bool // hub paths: no TOFU, an unpinned host fails with *HostKeyUnknownError
+	StrictHostKey                                bool   // hub paths: no TOFU, an unpinned host fails with *HostKeyUnknownError
+	SEKeyBlob                                    []byte // Auth "keychain": the Secure Enclave key's opaque blob; never logged or put in an error
+	PublicKey, KeyHelper                         string // Auth "keychain": the key's authorized_keys line, and the helper that signs with it
 	OnLearnHostKey                               func(fp string)
 }
 
@@ -68,18 +71,49 @@ func (m *Manager) currentConfig() DialConfig {
 	return c
 }
 
-func (m *Manager) authMethods() ([]ssh.AuthMethod, error) {
+var (
+	ErrSEKeyWrongMac  = errors.New("this Secure Enclave key does not work on this Mac")
+	ErrSEKeyNoHelper  = errors.New("Secure Enclave keys need the sshgate app on macOS")
+	errSEKeyBadPublic = errors.New("the Secure Enclave key's public key is invalid")
+)
+
+// wrongMacSigner remembers that the helper refused the key: ssh.Dial reports
+// a failed signature only as a failed login.
+type wrongMacSigner struct {
+	ssh.Signer
+	wrongMac atomic.Bool
+}
+
+func (w *wrongMacSigner) Sign(r io.Reader, data []byte) (*ssh.Signature, error) {
+	sig, err := w.Signer.Sign(r, data)
+	if errors.Is(err, sekey.ErrWrongMac) {
+		w.wrongMac.Store(true)
+	}
+	return sig, err
+}
+
+func (m *Manager) authMethods() ([]ssh.AuthMethod, *wrongMacSigner, error) {
 	switch m.cfg.Auth {
+	case "keychain":
+		if m.cfg.KeyHelper == "" {
+			return nil, nil, ErrSEKeyNoHelper
+		}
+		pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(m.cfg.PublicKey))
+		if err != nil {
+			return nil, nil, errSEKeyBadPublic
+		}
+		w := &wrongMacSigner{Signer: sekey.NewSigner(m.cfg.KeyHelper, m.cfg.SEKeyBlob, pub)}
+		return []ssh.AuthMethod{ssh.PublicKeys(w)}, w, nil
 	case "agent":
 		sock := os.Getenv("SSH_AUTH_SOCK")
 		if sock == "" {
-			return nil, fmt.Errorf("SSH_AUTH_SOCK not set for agent auth")
+			return nil, nil, fmt.Errorf("SSH_AUTH_SOCK not set for agent auth")
 		}
 		conn, err := net.Dial("unix", sock)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return []ssh.AuthMethod{ssh.PublicKeysCallback(agent.NewClient(conn).Signers)}, nil
+		return []ssh.AuthMethod{ssh.PublicKeysCallback(agent.NewClient(conn).Signers)}, nil, nil
 	case "key":
 		var signer ssh.Signer
 		var err error
@@ -89,11 +123,11 @@ func (m *Manager) authMethods() ([]ssh.AuthMethod, error) {
 			signer, err = ssh.ParsePrivateKey([]byte(m.cfg.PrivateKey))
 		}
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
+		return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil, nil
 	default:
-		return []ssh.AuthMethod{ssh.Password(m.cfg.Password)}, nil
+		return []ssh.AuthMethod{ssh.Password(m.cfg.Password)}, nil, nil
 	}
 }
 
@@ -101,7 +135,7 @@ func (m *Manager) ensure() error {
 	if m.client != nil {
 		return nil
 	}
-	auth, err := m.authMethods()
+	auth, seSigner, err := m.authMethods()
 	if err != nil {
 		return err
 	}
@@ -119,6 +153,9 @@ func (m *Manager) ensure() error {
 	addr := net.JoinHostPort(m.cfg.Host, strconv.Itoa(m.cfg.Port))
 	client, err := ssh.Dial("tcp", addr, cc)
 	if err != nil {
+		if seSigner != nil && seSigner.wrongMac.Load() {
+			return ErrSEKeyWrongMac
+		}
 		return err
 	}
 	m.client = client
