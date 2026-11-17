@@ -284,7 +284,7 @@ func (a *App) buildTunnelDialog(c *ui.Context, id string, v *tunnelsTab) {
 	}
 	open := true
 	m := modal(c.Key(fmt.Sprintf("tunnel-%p", dl)), &open, func() {
-		ui.Column(c).Width(440).Gap(10).Padding(20).Children(func() {
+		ui.Column(c).Width(440).Gap(10).Children(func() {
 			ui.Text(c, title).Bold().FontSize(16)
 			ui.Text(c, "On "+model.DisplayText(v.server)+". Listens on 127.0.0.1 only.").TextColor(th.TextMuted)
 			ui.Text(c, "Kind")

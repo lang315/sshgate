@@ -46,7 +46,7 @@ func (a *App) buildHostKeyDialogs(c *ui.Context) {
 	answer := 0 // 1 trust, 2 cancel
 	open := true
 	m := modal(c.Key("hk-"+key), &open, func() { // keyed: Cancel takes the focus again for the next prompt
-		ui.Column(c).Width(460).Gap(10).Padding(20).Children(func() {
+		ui.Column(c).Width(460).Gap(10).Children(func() {
 			ui.Text(c, "Trust this host key?").Bold().FontSize(16)
 			ui.Row(c).Gap(8).Children(func() {
 				ui.Text(c, model.DisplayText(k.Server)).Bold()
@@ -65,7 +65,7 @@ func (a *App) buildHostKeyDialogs(c *ui.Context) {
 			}
 			ui.Text(c, "Trust only if this matches the key you expect. Once trusted it is pinned, and a different key later is refused.").TextColor(t.TextMuted)
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if MouseButton(c, "Trust and connect", trust) && model.TrustEnabled(a.hk.lc.At, a.Now()) {
+				if decisionButton(c, "Trust and connect", "Trust and connect", trust, toneAccent) && model.TrustEnabled(a.hk.lc.At, a.Now()) {
 					answer = 1
 				}
 				if ui.Button(c, "Cancel").AutoFocus().Clicked() {
@@ -114,7 +114,7 @@ func (a *App) buildMismatch(c *ui.Context, k hubapi.HostKey) {
 	closed, edit := false, false
 	open := true
 	m := modal(c, &open, func() {
-		ui.Column(c).Width(460).Gap(10).Padding(20).Children(func() {
+		ui.Column(c).Width(460).Gap(10).Children(func() {
 			ui.Text(c, "Host key changed").Bold().FontSize(16).TextColor(t.Danger)
 			ui.Row(c).Gap(8).Children(func() {
 				ui.Text(c, model.DisplayText(k.Server)).Bold()

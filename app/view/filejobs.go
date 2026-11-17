@@ -376,7 +376,7 @@ func (a *App) buildFileConfirm(c *ui.Context, v *filesTab) {
 	if j.op == "delete" {
 		needs := model.DeleteNeedsTyping(j.hasFolder, len(j.names), p)
 		m = modal(c.Key("confirm-"+j.id), &open, func() {
-			ui.Column(c).Width(440).Gap(10).Padding(20).Children(func() {
+			ui.Column(c).Width(440).Gap(10).Children(func() {
 				ui.Text(c, "Delete for good?").Bold().FontSize(16).TextColor(th.Danger)
 				for i, n := range j.names {
 					if i == 10 {
@@ -394,7 +394,7 @@ func (a *App) buildFileConfirm(c *ui.Context, v *filesTab) {
 					}
 				}
 				ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-					if mouseButtonNamed(c, "Delete", "Delete for good", ok && (!needs || j.typed == model.DeleteWord)) {
+					if decisionButton(c, "Delete", "Delete for good", ok && (!needs || j.typed == model.DeleteWord), toneDangerFill) {
 						choice = "skip"
 					}
 					cancel := ui.Button(c, "Cancel")
@@ -410,7 +410,7 @@ func (a *App) buildFileConfirm(c *ui.Context, v *filesTab) {
 	} else {
 		n := p.Conflicts.Count
 		m = modal(c.Key("confirm-"+j.id), &open, func() {
-			ui.Column(c).Width(440).Gap(10).Padding(20).Children(func() {
+			ui.Column(c).Width(440).Gap(10).Children(func() {
 				ui.Text(c, model.ConflictTitle(n)).Bold().FontSize(16)
 				where := j.dest // a download's local folder
 				if j.op == "upload" {
@@ -424,10 +424,10 @@ func (a *App) buildFileConfirm(c *ui.Context, v *filesTab) {
 					ui.Text(c, fmt.Sprintf("and %d more", more)).TextColor(th.TextMuted)
 				}
 				ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-					if MouseButton(c, "Overwrite all", ok) {
+					if decisionButton(c, "Overwrite all", "Overwrite all", ok, toneDanger) {
 						choice = "overwrite"
 					}
-					if MouseButton(c, "Skip existing", ok) {
+					if decisionButton(c, "Skip existing", "Skip existing", ok, toneNeutral) {
 						choice = "skip"
 					}
 					if ui.Button(c, "Cancel").AutoFocus().Clicked() {

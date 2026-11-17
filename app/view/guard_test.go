@@ -1,6 +1,7 @@
 package view
 
 import (
+	"image"
 	"testing"
 	"time"
 
@@ -66,5 +67,61 @@ func TestMouseButtonWaitsAndNeverTakesKeys(t *testing.T) {
 	_ = tt.Click("Allow")
 	if v.clicked != 1 {
 		t.Fatal("clicked right after the list changed")
+	}
+}
+
+// toneView shows one decision button of one tone, enabled or not.
+type toneView struct {
+	t       tone
+	enabled bool
+}
+
+func (v *toneView) build(c *ui.Context) {
+	ui.Column(c).Padding(20).Children(func() { decisionButton(c, "Go", "Go", v.enabled, v.t) })
+}
+
+func toneShot(t *testing.T, v *toneView, dark bool) (*image.RGBA, ui.Rect) {
+	tt := ui.NewTester(v.build, 300, 120)
+	tt.SetDark(dark)
+	tt.Frame()
+	for _, n := range tt.Nodes() {
+		if n.Label == "Go" {
+			return shot(&tester{Tester: tt}), n.Bounds
+		}
+	}
+	t.Fatal("no Go button")
+	return nil, ui.Rect{}
+}
+
+func TestDecisionButtonDisabledLooksNeutral(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	for _, dark := range []bool{false, true} {
+		ref, r := toneShot(t, &toneView{t: toneNeutral}, dark)
+		for _, tn := range []tone{toneOk, toneAccent, toneDanger, toneDangerFill} {
+			img, rr := toneShot(t, &toneView{t: tn}, dark)
+			if rr != r || !sameRegion(img, ref, grow(r, 2)) {
+				t.Errorf("tone %d disabled differs from neutral (dark=%v)", tn, dark)
+			}
+		}
+	}
+}
+
+func TestDecisionButtonTones(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	for _, dark := range []bool{false, true} {
+		p := palette(dark)
+		for tn, col := range map[tone]ui.Color{toneOk: p.Ok, toneAccent: p.Accent, toneDanger: p.Danger} {
+			img, r := toneShot(t, &toneView{t: tn, enabled: true}, dark)
+			if n := countNear(img, grow(r, 1), col, 20); n < 10 {
+				t.Errorf("tone %d dark=%v: %d border pixels", tn, dark, n)
+			}
+		}
+		img, r := toneShot(t, &toneView{t: toneDangerFill, enabled: true}, dark)
+		patch := ui.Rect{X: r.X + 2, Y: r.Y + 2, W: 6, H: 4}
+		if n := countNear(img, patch, p.DangerFill, 3); n != 24 {
+			t.Errorf("dangerFill dark=%v: %d of 24 pixels", dark, n)
+		}
 	}
 }

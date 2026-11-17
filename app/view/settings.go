@@ -61,8 +61,8 @@ func (a *App) buildSettings(c *ui.Context) {
 	}
 	open := true
 	m := modal(c.Key(fmt.Sprintf("settings-%p", st)), &open, func() { // keyed: Cancel takes the focus on each open
-		ui.Column(c).Width(460).Gap(10).Padding(20).Children(func() {
-			ui.Text(c, "Settings").Bold().FontSize(16)
+		ui.Column(c).Width(460).Gap(10).Children(func() {
+			ui.Text(c, "Settings").Bold().FontSize(16).Margin(0, 0, 6, 0)
 			if st.touch.Supported {
 				section(c, "Unlock", func() {
 					var sw ui.Element

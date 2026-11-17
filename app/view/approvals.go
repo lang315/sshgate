@@ -80,18 +80,9 @@ func codeBlock(c *ui.Context, children func()) {
 	ui.Column(c).Gap(4).Padding(8, 10).Radius(radiusControl).Background(p.TermBg).TextColor(p.TermFg).Children(children)
 }
 
-// allowButton is MouseButton for Allow: enabled it is outlined and written
-// in Ok; disabled it looks like any disabled MouseButton.
+// allowButton is the Allow decision button: outlined in Ok once enabled.
 func allowButton(c *ui.Context, enabled bool) bool {
-	t := c.Theme()
-	b := ui.Row(c).Role(ui.RoleButton).Label("Allow").Padding(6, 12).Radius(radiusControl).Border(1, t.Border).Disabled(!enabled)
-	if enabled {
-		ok := tok(c).Ok
-		b.Border(1, ok).Children(func() { ui.Text(c, "Allow").TextColor(ok) })
-	} else {
-		b.Children(func() { ui.Text(c, "Allow") })
-	}
-	return enabled && b.Clicked()
+	return decisionButton(c, "Allow", "Allow", enabled, toneOk)
 }
 
 func (a *App) buildColumn(c *ui.Context) {
