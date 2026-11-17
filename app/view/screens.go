@@ -12,7 +12,8 @@ import (
 
 func card(c *ui.Context, body func()) {
 	t := c.Theme()
-	ui.Column(c).Fill().Center().Children(func() {
+	// Centred while it fits, scrolls when the window is too short for it.
+	ui.Scroll(c).Fill().FillViewport().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
 		p := ui.Column(c).Width(360).Gap(12).Padding(24).Radius(radiusDialog).Border(1, tok(c).Line).Background(tok(c).Surface)
 		raisedShadow(c).On(p)
 		p.Children(func() {
@@ -109,7 +110,7 @@ func (a *App) buildUnlock(c *ui.Context) {
 						ui.Text(c, n).Font("monospace").SingleLine().Padding(2, 8).Radius(6).Background(t.Surface)
 					}
 				})
-				ui.Text(c, "AI commands on these hosts run without asking while the vault is locked.").TextColor(t.TextMuted)
+				ui.Text(c, "AI commands on these hosts run without asking while the vault is locked.")
 				if ui.Button(c, "Stop auto-allow and lock").AlignSelf(ui.Start).Clicked() {
 					a.stopAndLock()
 				}

@@ -1,6 +1,8 @@
 package view
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -245,5 +247,101 @@ func TestUnlockFitsAtMinimumWindow(t *testing.T) {
 	tt.flush()
 	if a.Screen() != model.ScreenReady {
 		t.Fatal("Unlock did not unlock")
+	}
+}
+
+// Four kept servers make the create-vault card taller than the minimum
+// window: the fields and the button must be reachable, scrolling if need be.
+func TestCreateVaultFitsAtMinimumWindow(t *testing.T) {
+	var kept []hubapi.Server
+	for _, n := range []string{"a", "b", "c", "d"} {
+		kept = append(kept, hubapi.Server{Name: n, User: "u", Host: n + ".h", Port: 22})
+	}
+	d := &fakeDoor{status: hubapi.Status{HasVault: false}, servers: kept}
+	a, tt, _, _ := newApp(t, d)
+	tt.SetSize(900, 500)
+	tt.flush()
+	reach(t, tt, "Create vault", 900, 500)
+	reach(t, tt, "New master password", 900, 500)
+	tt.Type("password1")
+	reach(t, tt, "Confirm master password", 900, 500)
+	tt.Key(0, ui.KeyTab)
+	tt.Type("password1")
+	tt.Frame()
+	d.mu.Lock()
+	d.status = hubapi.Status{HasVault: true}
+	d.mu.Unlock()
+	reach(t, tt, "Create vault", 900, 500)
+	if err := tt.Click("Create vault"); err != nil {
+		t.Fatal(err)
+	}
+	tt.flush()
+	if d.params["vault.create"] != `{"password":"password1"}` || a.Screen() != "ready" {
+		t.Fatal(d.params["vault.create"], a.Screen())
+	}
+}
+
+func TestHubFailedFitsAtMinimumWindow(t *testing.T) {
+	a, tt, _, _ := newApp(t, &fakeDoor{status: hubapi.Status{HasVault: true}})
+	tt.SetSize(900, 500)
+	var lines []string
+	for i := 1; i <= 40; i++ {
+		lines = append(lines, fmt.Sprintf("stderr line %d", i))
+	}
+	a.Update(func() { a.HubState(hubproc.State{Kind: "failed", Message: "boom\n" + strings.Join(lines, "\n")}) })
+	tt.flush()
+	reach(t, tt, "stderr line 40", 900, 500)
+}
+
+// reach scrolls the element labelled label into view and fails when it still
+// lies outside a w x h window.
+func reach(t *testing.T, tt *tester, label string, w, h float32) {
+	t.Helper()
+	for _, n := range tt.Nodes() {
+		if n.Label == label {
+			tt.ScrollIntoView(n.ID)
+			break
+		}
+	}
+	r, ok := tt.Find(label)
+	if !ok {
+		t.Fatalf("%q missing: %q", label, tt.Texts())
+	}
+	if r.Y+r.H > h || r.H == 0 { // a disabled control takes no scroll-into-view
+		tt.Move(w/2, h/2)
+		tt.Scroll(w/2, h/2, 0, 20000)
+		tt.Frame()
+		r, _ = tt.Find(label)
+	}
+	if r.X < 0 || r.Y < 0 || r.X+r.W > w || r.Y+r.H > h || r.W == 0 || r.H == 0 {
+		t.Fatalf("%q at %+v not reachable in %vx%v", label, r, w, h)
+	}
+}
+
+// Muted text on WaitTint is 4.18:1 in dark, so the auto-allow sentence on the
+// unlock screen uses Text: none of its pixels is Muted, some are Text.
+func TestUnlockWaitSentenceNotMuted(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	for _, dark := range []bool{false, true} {
+		d := &fakeDoor{status: hubapi.Status{HasVault: true, Locked: true, AutoHosts: []string{"box"}}}
+		_, tt, _, _ := newApp(t, d)
+		tt.SetDark(dark)
+		tt.SetSize(900, 700)
+		tt.flush()
+		tt.Advance(time.Second)
+		tt.Frame()
+		r, ok := tt.Find("AI commands on these hosts run without asking while the vault is locked.")
+		if !ok {
+			t.Fatal(tt.Texts())
+		}
+		p := palette(dark)
+		img := shot(tt)
+		if n := countNear(img, r, p.Muted, 3); n != 0 {
+			t.Fatalf("dark=%v: %d Muted pixels in the sentence", dark, n)
+		}
+		if n := countNear(img, r, p.Text, 3); n == 0 {
+			t.Fatalf("dark=%v: no Text pixels in the sentence at %+v", dark, r)
+		}
 	}
 }
