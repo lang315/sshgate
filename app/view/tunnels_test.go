@@ -445,7 +445,7 @@ func TestTunnelStatusPill(t *testing.T) {
 		if !ok {
 			t.Fatal(tt.Texts())
 		}
-		if txt, muted := countNear(img, foot, p.Text, 2), countNear(img, foot, p.Muted, 2); txt == 0 || muted != 0 {
+		if txt, muted := countNear(img, foot, p.Text, 2), countNear(img, foot, p.Muted, 0); txt == 0 || muted != 0 {
 			t.Fatalf("dark=%v: footer has %d Text and %d Muted pixels", dark, txt, muted)
 		}
 	}

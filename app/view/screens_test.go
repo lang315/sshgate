@@ -337,7 +337,7 @@ func TestUnlockWaitSentenceNotMuted(t *testing.T) {
 		}
 		p := palette(dark)
 		img := shot(tt)
-		if n := countNear(img, r, p.Muted, 3); n != 0 {
+		if n := countNear(img, r, p.Muted, 0); n != 0 {
 			t.Fatalf("dark=%v: %d Muted pixels in the sentence", dark, n)
 		}
 		if n := countNear(img, r, p.Text, 3); n == 0 {

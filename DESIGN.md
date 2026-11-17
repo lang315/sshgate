@@ -1,17 +1,17 @@
 ---
 name: sshgate
-description: A native macOS gate between an AI agent and real servers; a calm slate work area inside a deep-teal shell, where every command waits for a human.
+description: A native macOS gate between an AI agent and real servers; a calm warm-neutral work area inside a deep-teal shell, where every command waits for a human.
 colors:
-  bg-light: "#f5f6fa"
-  surface-light: "#ffffff"
-  raised-light: "#eef0f6"
-  surface-hover-light: "#e6e9f1"
-  line-light: "#dde0ea"
-  control-line-light: "#7C8196"
-  divider-light: "#e6e8ef"
-  text-light: "#1b1f2e"
-  muted-light: "#62698a"
-  label-light: "#474e6b"
+  bg-light: "#F6F4F0"
+  surface-light: "#FFFDFB"
+  raised-light: "#EEEBE5"
+  surface-hover-light: "#E6E2DA"
+  line-light: "#DFDAD2"
+  control-line-light: "#857E73"
+  divider-light: "#E6E2DB"
+  text-light: "#1F1C19"
+  muted-light: "#6B655D"
+  label-light: "#4A453F"
   accent-light: "#12766F"
   accent-hover-light: "#0F6A64"
   accent-pressed-light: "#0C5A55"
@@ -23,19 +23,19 @@ colors:
   wait-tint-light: "#fcefdc"
   ok-light: "#3D7554"
   ok-tint-light: "#e9f6ee"
-  term-bg-light: "#ffffff"
-  term-fg-light: "#1b1f2e"
+  term-bg-light: "#FFFDFB"
+  term-fg-light: "#1F1C19"
   rail-light: "#0F5F59"
-  bg-dark: "#14171A"
-  surface-dark: "#1A1E22"
-  raised-dark: "#21262B"
-  surface-hover-dark: "#282E34"
-  line-dark: "#3A4148"
-  control-line-dark: "#737B82"
-  divider-dark: "#2B3137"
+  bg-dark: "#161514"
+  surface-dark: "#1C1A19"
+  raised-dark: "#23211F"
+  surface-hover-dark: "#2B2927"
+  line-dark: "#3D3A37"
+  control-line-dark: "#7A746D"
+  divider-dark: "#2E2B29"
   text-dark: "#ECE8E0"
-  muted-dark: "#8B908E"
-  label-dark: "#B3B5B1"
+  muted-dark: "#9A948C"
+  label-dark: "#B8B3AB"
   accent-dark: "#56BFB9"
   accent-hover-dark: "#6CCAC4"
   accent-pressed-dark: "#45A9A3"
@@ -47,7 +47,7 @@ colors:
   wait-tint-dark: "#3A2C14"
   ok-dark: "#6CC58F"
   ok-tint-dark: "#1A3324"
-  term-bg-dark: "#0E1012"
+  term-bg-dark: "#100F0E"
   term-fg-dark: "#D8D4CC"
   rail-dark: "#134542"
   rail-text: "#E6F2F0"
@@ -159,11 +159,11 @@ Recorded from the shipped app in `app/view/` (palette.go, guard.go, modal.go, ap
 
 **Creative North Star: "The Teal Gatehouse"**
 
-A calm slate work area held inside a deep-teal shell. The shell is the gate: a full-width top bar and a left sidebar in one teal, with pale text on it. Inside it the work is quiet, so the few things that ask for a decision stand out: an amber ring around a host the AI may run on without a click, a filled red Deny, a red edge on a SUDO request.
+A calm warm-neutral work area held inside a deep-teal shell. The shell is the gate: a full-width top bar and a left sidebar in one teal, with pale text on it. Inside it the work is quiet, so the few things that ask for a decision stand out: an amber ring around a host the AI may run on without a click, a filled red Deny, a red edge on a SUDO request.
 
 It is an Operate surface for one person who keeps it open all day, so it is dense and flat, with system type and no decoration. Colour carries state, not mood: teal is identity and action, green is connected or allowed, amber is waiting or a live grant, red is refusal and risk. Tints are used at full strength for chips and banners, never faded.
 
-The incumbent ground is cool slate in light and near-neutral blue-grey in dark, with a warm off-white text in dark. See the open question under Colors.
+The ground is warm neutral in both themes (hue about 30-40 degrees, low chroma). Neutrals warmed 2026-11-17 at the author's request.
 
 **Key Characteristics:**
 - Teal shell (rail) around a neutral work area; the terminal and Files yield the sidebar.
@@ -174,7 +174,7 @@ The incumbent ground is cool slate in light and near-neutral blue-grey in dark, 
 
 ## Colors
 
-A teal shell, slate neutrals, and four state hues each with a tint. Every text and UI pair is checked in `palette_test.go` (see Accessibility).
+A teal shell, warm neutrals, and four state hues each with a tint. Every text and UI pair is checked in `palette_test.go` (see Accessibility).
 
 ### Primary
 - **Deep Teal** (light `#12766F`, dark `#56BFB9`): action and identity. Primary buttons, the AI chip, tunnel chips, focus, host tiles, selected rows. Hover `#0F6A64` / `#6CCAC4`, pressed `#0C5A55` / `#45A9A3`. Text on it: white in light, `#0E1012` in dark. Tint `#dcf1ec` / `#16312F` for chip and selection fills.
@@ -188,14 +188,14 @@ A teal shell, slate neutrals, and four state hues each with a tint. Every text a
 - **Deny Fill** (`#B5412F`, both themes; hover `#A23A2A`, pressed `#8F3325`, text white): the filled Deny and Delete-for-good buttons.
 
 ### Neutral
-- **Bg** (light `#f5f6fa`, dark `#14171A`): window ground and text-field fill.
-- **Surface** (light `#ffffff`, dark `#1A1E22`): host cards, the AI column, dialogs, sheets, the unlock card.
-- **Raised** (light `#eef0f6`, dark `#21262B`): request cards, section groups, table headers, row hover. `c.Theme().Surface` maps to this step.
-- **Surface Hover** (`#e6e9f1` / `#282E34`) and **Line** (`#dde0ea` / `#3A4148`, also the pressed fill): hover on flat items, card and divider outlines.
-- **Divider** (`#e6e8ef` / `#2B3137`): hairlines.
-- **Control Line** (`#7C8196` / `#737B82`): the border of buttons and inputs; the only line that must reach 3:1.
-- **Ink** (`#1b1f2e` / `#ECE8E0`), **Label** (`#474e6b` / `#B3B5B1`), **Muted** (`#62698a` / `#8B908E`): primary text, section titles, secondary text and addresses.
-- **Terminal** (bg `#ffffff` / `#0E1012`, text `#1b1f2e` / `#D8D4CC`): the terminal and every block that shows what the AI sent. Always outlined with Line so it reads on a surface that shares its colour.
+- **Bg** (light `#F6F4F0`, dark `#161514`): window ground and text-field fill.
+- **Surface** (light `#FFFDFB`, dark `#1C1A19`): host cards, the AI column, dialogs, sheets, the unlock card.
+- **Raised** (light `#EEEBE5`, dark `#23211F`): request cards, section groups, table headers, row hover. `c.Theme().Surface` maps to this step.
+- **Surface Hover** (`#E6E2DA` / `#2B2927`) and **Line** (`#DFDAD2` / `#3D3A37`, also the pressed fill): hover on flat items, card and divider outlines.
+- **Divider** (`#E6E2DB` / `#2E2B29`): hairlines.
+- **Control Line** (`#857E73` / `#7A746D`): the border of buttons and inputs; the only line that must reach 3:1.
+- **Ink** (`#1F1C19` / `#ECE8E0`), **Label** (`#4A453F` / `#B8B3AB`), **Muted** (`#6B655D` / `#9A948C`): primary text, section titles, secondary text and addresses.
+- **Terminal** (bg `#FFFDFB` / `#100F0E`, text `#1F1C19` / `#D8D4CC`): the terminal and every block that shows what the AI sent. Always outlined with Line so it reads on a surface that shares its colour.
 
 ### Named Rules
 **The State-Not-Style Rule.** Teal, green, amber and red each mean one thing and are never used for decoration. Green is a human-confirmed or connected state; amber is waiting or a live grant; red is refusal or risk.
@@ -204,8 +204,8 @@ A teal shell, slate neutrals, and four state hues each with a tint. Every text a
 
 **The Full-Strength Tint Rule.** Chips and banners use the tint colour at full strength with the matching hue as text. No translucent washes except the rail's own overlays (8 % hover, 11 % pill, 60 % outline of Rail Mist).
 
-### Open question: warm or cool neutrals
-The brief's intent says "warm-neutral work area, never pure grey", but the shipped neutrals are cool slate: light ground `#f5f6fa` and ink `#1b1f2e` lean blue, dark ground `#14171A` leans blue-grey. Only the dark ink `#ECE8E0` and terminal text `#D8D4CC` are warm. The author has not decided whether to warm them. The values above are what ships; do not warm or cool them in a new surface without that decision. A comment in palette.go and a test comment still say "warm neutrals".
+### Decision: warm neutrals
+The author chose warm neutrals; neutrals warmed 2026-11-17 at the author's request (hue about 30-40 degrees, red >= green >= blue, same lightness roles as the slate they replace). Accent, rail and state colours did not change. Light Surface and terminal background are a warm white `#FFFDFB`, not pure white.
 
 ## Typography
 
@@ -324,4 +324,3 @@ No animation calls the hub; clocks and ring steps redraw from the app's own time
 ### Not canonized (defects the build carries)
 - The Stop auto-allow button is the text glyph `■` and the tunnel chip uses `⇄` in its text; glyph icons are not a pattern to repeat, use `cardIcon` SVGs.
 - A few radii are raw literals off the scale: 8 on the letter tile and the unlock notice card, 6 on the feed rows and the "AI" request-feed boxes; new work uses `radiusControl`, `radiusCard`, `radiusDialog`.
-- Stale "warm neutrals" comments (see Open question).

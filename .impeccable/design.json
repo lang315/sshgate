@@ -10,8 +10,8 @@
       "danger-light": { "role": "secondary", "displayName": "Stop Red", "canonical": "#B5412F", "tonalRamp": ["#36140E", "#5A2018", "#7F2E21", "#A33A2A", "#BF594A", "#D28A7F", "#E5BBB5", "#F8ECEA"] },
       "wait-dark": { "role": "secondary", "displayName": "Wait Amber", "canonical": "#E9A23B", "tonalRamp": ["#463112", "#74511E", "#A37129", "#D29235", "#ECAE54", "#F1C687", "#F7DEB9", "#FDF6EB"] },
       "ok-light": { "role": "secondary", "displayName": "Go Green", "canonical": "#3D7554", "tonalRamp": ["#122319", "#1E3A2A", "#2B523B", "#37694C", "#56876A", "#88AA96", "#BACEC2", "#ECF1EE"] },
-      "bg-light": { "role": "neutral", "displayName": "Slate Ground (light)", "canonical": "#f5f6fa", "tonalRamp": ["#1b1f2e", "#474e6b", "#62698a", "#7C8196", "#dde0ea", "#e6e9f1", "#eef0f6", "#f5f6fa"] },
-      "bg-dark": { "role": "neutral", "displayName": "Slate Ground (dark)", "canonical": "#14171A", "tonalRamp": ["#0E1012", "#14171A", "#1A1E22", "#21262B", "#282E34", "#3A4148", "#737B82", "#ECE8E0"] }
+      "bg-light": { "role": "neutral", "displayName": "Warm Ground (light)", "canonical": "#F6F4F0", "tonalRamp": ["#1F1C19", "#4A453F", "#6B655D", "#857E73", "#DFDAD2", "#E6E2DA", "#EEEBE5", "#F6F4F0"] },
+      "bg-dark": { "role": "neutral", "displayName": "Warm Ground (dark)", "canonical": "#161514", "tonalRamp": ["#100F0E", "#161514", "#1C1A19", "#23211F", "#2B2927", "#3D3A37", "#7A746D", "#ECE8E0"] }
     },
     "typographyMeta": {
       "title": { "displayName": "Title", "purpose": "Unlock and create-vault cards." },
@@ -21,8 +21,8 @@
       "mono": { "displayName": "Mono", "purpose": "Addresses, commands, stdin, paths, fingerprints, timestamps only." }
     },
     "shadows": [
-      { "name": "card", "value": "0 1px 3px 0 rgba(27,31,46,0.078) light / rgba(0,0,0,0.35) dark", "purpose": "Host cards at rest." },
-      { "name": "raised", "value": "0 6px 18px 0 rgba(27,31,46,0.149) light / rgba(0,0,0,0.59) dark", "purpose": "Hovered host card, dialogs, sheets, AI column edge, auth card." }
+      { "name": "card", "value": "0 1px 3px 0 rgba(31,28,25,0.078) light / rgba(0,0,0,0.35) dark", "purpose": "Host cards at rest." },
+      { "name": "raised", "value": "0 6px 18px 0 rgba(31,28,25,0.149) light / rgba(0,0,0,0.59) dark", "purpose": "Hovered host card, dialogs, sheets, AI column edge, auth card." }
     ],
     "motion": [
       { "name": "fade-120", "value": "120ms", "purpose": "Hover and press colour, card shadow lift, AI column content, new request card opacity, view cross-fade." },
@@ -71,7 +71,7 @@
       "refersTo": "host-card",
       "description": "Letter tile, name, monospace address, chips; hover lifts the shadow.",
       "html": "<div class=\"ds-host\"><div class=\"ds-row\"><div class=\"ds-tile\">B</div><div><b>build</b><div class=\"ds-addr\">ci@10.0.0.5:22</div></div></div><span class=\"ds-chip\">AI</span></div>",
-      "css": ".ds-host{width:240px;box-sizing:border-box;padding:12px;background:#fff;color:#1b1f2e;border:1px solid #dde0ea;border-radius:10px;box-shadow:0 1px 3px rgba(27,31,46,.078);display:flex;flex-direction:column;gap:8px;transition:box-shadow 120ms}.ds-host:hover{box-shadow:0 6px 18px rgba(27,31,46,.149)}.ds-row{display:flex;gap:10px;align-items:center}.ds-tile{width:36px;height:36px;border-radius:8px;background:#12766F;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center}.ds-addr{font-family:monospace;color:#62698a}.ds-chip{align-self:flex-start;background:#dcf1ec;color:#12766F;border-radius:10px;padding:2px 8px}"
+      "css": ".ds-host{width:240px;box-sizing:border-box;padding:12px;background:#FFFDFB;color:#1F1C19;border:1px solid #DFDAD2;border-radius:10px;box-shadow:0 1px 3px rgba(31,28,25,.078);display:flex;flex-direction:column;gap:8px;transition:box-shadow 120ms}.ds-host:hover{box-shadow:0 6px 18px rgba(31,28,25,.149)}.ds-row{display:flex;gap:10px;align-items:center}.ds-tile{width:36px;height:36px;border-radius:8px;background:#12766F;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center}.ds-addr{font-family:monospace;color:#6B655D}.ds-chip{align-self:flex-start;background:#dcf1ec;color:#12766F;border-radius:10px;padding:2px 8px}"
     },
     {
       "name": "AI Request Card (SUDO)",
@@ -79,7 +79,7 @@
       "refersTo": "request-card",
       "description": "Raised card with a termBlock command and a 4px red left edge for sudo.",
       "html": "<div class=\"ds-req\"><div><b>staging</b> <span class=\"ds-sudo\">SUDO</span></div><div class=\"ds-term\">apt-get upgrade -y</div></div>",
-      "css": ".ds-req{background:#eef0f6;color:#1b1f2e;border:1px solid #B5412F;border-left-width:4px;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px;width:320px}.ds-sudo{background:#fbe2dc;color:#B5412F;border-radius:6px;padding:2px 8px;font-weight:700}.ds-term{background:#fff;color:#1b1f2e;border:1px solid #dde0ea;border-radius:6px;padding:8px 10px;font-family:monospace}"
+      "css": ".ds-req{background:#EEEBE5;color:#1F1C19;border:1px solid #B5412F;border-left-width:4px;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px;width:320px}.ds-sudo{background:#fbe2dc;color:#B5412F;border-radius:6px;padding:2px 8px;font-weight:700}.ds-term{background:#FFFDFB;color:#1F1C19;border:1px solid #DFDAD2;border-radius:6px;padding:8px 10px;font-family:monospace}"
     },
     {
       "name": "Status Chip",
@@ -92,7 +92,7 @@
   ],
   "narrative": {
     "northStar": "The Teal Gatehouse",
-    "overview": "A calm slate work area held inside a deep-teal shell. The shell is the gate: a full-width top bar and a left sidebar in one teal, with pale text on it. Inside it the work is quiet, so the few things that ask for a decision stand out: an amber ring around a host the AI may run on without a click, a filled red Deny, a red edge on a SUDO request. Open question: the neutrals ship cool slate although the brief says warm; undecided.",
+    "overview": "A calm warm-neutral work area held inside a deep-teal shell. The shell is the gate: a full-width top bar and a left sidebar in one teal, with pale text on it. Inside it the work is quiet, so the few things that ask for a decision stand out: an amber ring around a host the AI may run on without a click, a filled red Deny, a red edge on a SUDO request. Open question: the neutrals ship cool slate although the brief says warm; undecided.",
     "keyCharacteristics": [
       "Teal shell (rail) around a neutral work area; the terminal and Files yield the sidebar.",
       "Three surface steps, two shadows, three radii.",
