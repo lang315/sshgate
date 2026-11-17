@@ -18,6 +18,7 @@ type ServerInput struct {
 	User          string  `json:"user"`
 	Auth          string  `json:"auth"`
 	KeyPath       string  `json:"keyPath"`
+	KeyName       string  `json:"keyName,omitempty"`
 	AIVisible     bool    `json:"aiVisible"`
 	AutoAllowRoot bool    `json:"autoAllowRoot"`
 	AutoAllowSudo bool    `json:"autoAllowSudo"`
@@ -46,10 +47,12 @@ func (in ServerInput) Validate() error {
 		return errors.New("port: must be 1-65535")
 	case !plainToken(in.User):
 		return errors.New("user: required, with no spaces or control characters")
-	case in.Auth != "password" && in.Auth != "key" && in.Auth != "agent":
-		return errors.New("auth: must be password, key, or agent")
+	case in.Auth != "password" && in.Auth != "key" && in.Auth != "agent" && in.Auth != "keychain":
+		return errors.New("auth: must be password, key, agent, or keychain")
 	case in.Auth == "key" && in.KeyPath == "":
 		return errors.New("keyPath: required for key auth")
+	case in.Auth == "keychain" && in.KeyName == "":
+		return errors.New("keyName: required for keychain auth")
 	}
 	return nil
 }
@@ -83,7 +86,12 @@ func ApplyServer(f *File, original string, in ServerInput, masterKey []byte) (be
 	if in.Auth != "key" {
 		in.KeyPath = ""
 	}
-	after = Server{Name: in.Name, Host: in.Host, Port: in.Port, User: in.User, Auth: in.Auth, KeyPath: in.KeyPath, AIVisible: in.AIVisible,
+	if in.Auth != "keychain" {
+		in.KeyName = ""
+	} else if f.findKey(in.KeyName) == nil {
+		return before, after, ErrNoKey
+	}
+	after = Server{Name: in.Name, Host: in.Host, Port: in.Port, User: in.User, Auth: in.Auth, KeyPath: in.KeyPath, KeyName: in.KeyName, AIVisible: in.AIVisible,
 		AutoAllowRoot: in.AutoAllowRoot, AutoAllowSudo: in.AutoAllowSudo, Tunnels: before.Tunnels}
 	moved := idx >= 0 && (before.Host != in.Host || before.Port != in.Port)
 	if idx >= 0 && !moved {
