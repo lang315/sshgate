@@ -131,7 +131,7 @@ func (a *App) buildHosts(c *ui.Context) {
 	ui.Scroll(c).Grow(1).Padding(16).Gap(12).Children(func() {
 		ui.Row(c).Gap(8).Children(func() {
 			ui.TextInput(c.Key("search"), &a.query).Placeholder("Search hosts").Label("Search hosts").Grow(1).Bind(&a.searchH)
-			if ui.Button(c, "New host").Clicked() {
+			if ui.PrimaryButton(c, "New host").Clicked() {
 				a.openEditor("", false)
 			}
 			if ui.Button(c, "Import from SSH config").Clicked() {
@@ -187,7 +187,7 @@ func (a *App) buildHosts(c *ui.Context) {
 				}
 				card.Children(func() {
 					// Flat inside the card: no face or border at rest, a tint on hover.
-					open := ui.Button(c, "").Label("Open " + shownName)
+					open := ui.Button(c, "").Label("Open " + shownName).Justify(ui.Start)
 					open.Background(ui.Color{}).Border(0, ui.Color{})
 					if open.Hovered() {
 						open.Background(p.SurfaceHover)

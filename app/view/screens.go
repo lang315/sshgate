@@ -42,13 +42,15 @@ func (a *App) buildHub(c *ui.Context) {
 		case "failed":
 			ui.Text(c, "The hub stopped").Bold()
 			ui.Text(c, model.DisplayText(a.hubState.Message))
-			termBlock(c, 8).Children(func() {
-				for _, line := range strings.Split(a.hubState.Stderr, "\n") {
-					if line != "" {
-						ui.Text(c, model.DisplayText(line)).Font("monospace")
+			if strings.TrimSpace(a.hubState.Stderr) != "" {
+				termBlock(c, 8).Children(func() {
+					for _, line := range strings.Split(a.hubState.Stderr, "\n") {
+						if line != "" {
+							ui.Text(c, model.DisplayText(line)).Font("monospace")
+						}
 					}
-				}
-			})
+				})
+			}
 		default:
 			ui.Spinner(c).AlignSelf(ui.Center)
 			ui.Text(c, "Starting the hub…").AlignSelf(ui.Center)

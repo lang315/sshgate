@@ -399,3 +399,30 @@ func TestHubStartingShowsSpinner(t *testing.T) {
 		t.Fatal("restarting: no spinner")
 	}
 }
+
+// The failed-hub screen draws its stderr block only when there is stderr.
+func TestHubFailedBlockOnlyWithStderr(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	p := palette(true)
+	for _, c := range []struct {
+		msg  string
+		want bool
+	}{{"the hub crashed", false}, {"the hub crashed\nboom", true}} {
+		a, tt, _, _ := newApp(t, &fakeDoor{status: hubapi.Status{HasVault: true}})
+		tt.SetDark(true)
+		a.Update(func() { a.HubState(hubproc.State{Kind: "failed", Message: c.msg}) })
+		tt.flush()
+		tt.Advance(time.Second)
+		tt.Frame()
+		img := shot(tt)
+		r, ok := tt.Find("the hub crashed")
+		if !ok {
+			t.Fatal(tt.Texts())
+		}
+		n := countNear(img, ui.Rect{X: r.X, Y: r.Y + r.H + 4, W: 100, H: 14}, p.TermBg, 3) // just under the message, inside the card
+		if (n > 0) != c.want {
+			t.Fatalf("%q: %d TermBg pixels, block wanted %v", c.msg, n, c.want)
+		}
+	}
+}

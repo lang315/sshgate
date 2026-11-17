@@ -267,6 +267,10 @@ func TestShots(t *testing.T) {
 		clickT(t, tt, "Home")
 		return tt
 	})
+	if os.Getenv("MYGO_GHOSTTY_VT") == "" { // the other shots need no terminal library
+		t.Log("terminal-live skipped: MYGO_GHOSTTY_VT unset")
+		return
+	}
 	each("terminal-live", 1000, 640, func(bool) *tester {
 		a, tt, _, _, m := tabApp(t)
 		clickT(t, tt, "Open box")
