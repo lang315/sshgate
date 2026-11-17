@@ -38,8 +38,9 @@ type AuditRecord struct {
 type ConfigRecord struct {
 	Time           time.Time `json:"time"`
 	Kind           string    `json:"kind"`   // always "config"; exec records have none
-	Action         string    `json:"action"` // trust, forgetHostKey, delete, vaultCreate, save, import, autoAllowOn, autoAllowResume, autoAllowOff, autoAllowCheck, softLock, softLockLimit
+	Action         string    `json:"action"` // trust, forgetHostKey, delete, vaultCreate, save, import, autoAllowOn, autoAllowResume, autoAllowOff, autoAllowCheck, softLock, softLockLimit, keyCreate, keyDelete
 	Server         string    `json:"server,omitempty"`
+	Key            string    `json:"key,omitempty"` // keyCreate, keyDelete: the key's name, never the blob
 	Host           string    `json:"host,omitempty"`
 	Port           int       `json:"port,omitempty"`
 	Fingerprint    string    `json:"fingerprint,omitempty"`

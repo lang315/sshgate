@@ -43,7 +43,8 @@ func main() {
 		_, err := os.Stat(p)
 		return err == nil
 	}
-	launch := hubproc.LaunchFor(os.Environ(), packaged, resources, repoRoot, runtime.GOOS, exists)
+	keyHelper := touchid.HelperPath(os.Environ(), packaged, resources, repoRoot, runtime.GOOS, exists) // also makes and signs Keychain keys for the hub
+	launch := hubproc.LaunchFor(os.Environ(), packaged, resources, repoRoot, runtime.GOOS, keyHelper, exists)
 
 	// The theme choice lives beside mygo's own window-state.json; no
 	// SSHGATE_* knob moves it. It applies before the window opens.
@@ -63,7 +64,7 @@ func main() {
 	touch := &touchid.Manager{Hub: func() touchid.Hub { return a.Hub() }}
 	if dir, err := mygo.App.Path(mygo.PathUserData); err == nil && dir != "" {
 		touch.File = filepath.Join(dir, "touchid.json")
-		touch.Helper = touchid.HelperPath(os.Environ(), packaged, resources, repoRoot, runtime.GOOS, exists)
+		touch.Helper = keyHelper
 	}
 	a.Touch = touch
 	a.Door = liveDoor{&client}

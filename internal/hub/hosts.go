@@ -94,7 +94,7 @@ func changes(a, b config.Server, in config.ServerInput) []string {
 		x, y any
 	}{
 		{"name", a.Name, b.Name}, {"host", a.Host, b.Host}, {"port", a.Port, b.Port}, {"user", a.User, b.User},
-		{"auth", a.Auth, b.Auth}, {"keyPath", a.KeyPath, b.KeyPath}, {"aiVisible", a.AIVisible, b.AIVisible},
+		{"auth", a.Auth, b.Auth}, {"keyPath", a.KeyPath, b.KeyPath}, {"keyName", a.KeyName, b.KeyName}, {"aiVisible", a.AIVisible, b.AIVisible},
 		{"autoAllow", a.AutoAllow, b.AutoAllow}, {"autoAllowRoot", a.AutoAllowRoot, b.AutoAllowRoot},
 		{"autoAllowSudo", a.AutoAllowSudo, b.AutoAllowSudo}, {"hostKey", a.HostKey, b.HostKey},
 	} {

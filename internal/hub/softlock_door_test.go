@@ -33,6 +33,9 @@ var doorParams = map[string]string{
 	"import.scan":               `{}`,
 	"import.apply":              `{"aliases":["x"]}`,
 	"audit.read":                `{}`,
+	"keys.list":                 `{}`,
+	"keys.create":               `{"name":"k1"}`,
+	"keys.delete":               `{"name":"k1"}`,
 	"term.open":                 `{"id":"t1","server":"vis","rows":24,"cols":80}`,
 	"term.close":                `{"id":"t1"}`,
 	"term.closeAll":             `{}`,
@@ -60,7 +63,7 @@ var doorSkipped = map[string]bool{
 var doorMustRefuse = []string{
 	"servers.save", "servers.delete", "servers.forgetHostKey", "servers.setAutoAllow", "servers.autoAllowCheck",
 	"import.scan", "import.apply", "audit.read", "term.open", "files.list", "files.mkdir", "files.rename",
-	"files.plan", "files.run", "tunnels.save", "tunnels.start", "tunnels.delete", "decide",
+	"keys.list", "keys.create", "keys.delete", "files.plan", "files.run", "tunnels.save", "tunnels.start", "tunnels.delete", "decide",
 }
 
 // These must fail under both locks, but not as "locked": vault.create refuses

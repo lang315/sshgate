@@ -78,6 +78,7 @@ type Options struct {
 	Dialer         func(sshx.DialConfig) Executor // test seam; nil = real Registry
 	IdleLock       time.Duration                  // 0 means 15 minutes; < 0 disables auto-lock
 	KnownHostsPath string                         // "" means ~/.ssh/known_hosts; only a hint in the Trust prompt
+	KeyHelper      string                         // sshgate-touchid, which makes and signs with Keychain keys; "" where there is none
 	SSHConfigPath  string                         // "" means ~/.ssh/config, read by ssh -G without -F; hub --sshConfig
 }
 
@@ -138,7 +139,7 @@ func New(o Options) (*Hub, error) {
 	if o.Audit != nil {
 		o.Audit.OnAppend(h.auditAppended)
 	}
-	h.deps = &mcpserver.Deps{Path: o.StorePath}
+	h.deps = &mcpserver.Deps{Path: o.StorePath, KeyHelper: o.KeyHelper}
 	f, err := config.Load(o.StorePath)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("cannot read config store: %w", err)

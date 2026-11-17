@@ -1,4 +1,4 @@
-// Package hubapi is the typed side of sshgate hub's UI door (protocol 13)
+// Package hubapi is the typed side of sshgate hub's UI door (protocol 14)
 // that the desktop app's screens use.
 package hubapi
 
