@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-17T00:00:00Z",
+  "title": "Design System: sshgate",
+  "extensions": {
+    "colorMeta": {
+      "accent-light": { "role": "primary", "displayName": "Deep Teal (light)", "canonical": "#12766F", "tonalRamp": ["#052321", "#093B38", "#0D534E", "#106A64", "#308882", "#6DABA7", "#AACECC", "#E7F1F1"] },
+      "accent-dark": { "role": "primary", "displayName": "Deep Teal (dark)", "canonical": "#56BFB9", "tonalRamp": ["#1A3938", "#2B605C", "#3C8682", "#4DACA6", "#6CC7C2", "#97D8D4", "#C3E8E6", "#EEF9F8"] },
+      "rail-light": { "role": "primary", "displayName": "Rail Teal", "canonical": "#0F5F59", "tonalRamp": ["#041C1B", "#08302C", "#0A423E", "#0D5550", "#2E746E", "#6C9D99", "#A9C6C4", "#E7EFEE"] },
+      "danger-light": { "role": "secondary", "displayName": "Stop Red", "canonical": "#B5412F", "tonalRamp": ["#36140E", "#5A2018", "#7F2E21", "#A33A2A", "#BF594A", "#D28A7F", "#E5BBB5", "#F8ECEA"] },
+      "wait-dark": { "role": "secondary", "displayName": "Wait Amber", "canonical": "#E9A23B", "tonalRamp": ["#463112", "#74511E", "#A37129", "#D29235", "#ECAE54", "#F1C687", "#F7DEB9", "#FDF6EB"] },
+      "ok-light": { "role": "secondary", "displayName": "Go Green", "canonical": "#3D7554", "tonalRamp": ["#122319", "#1E3A2A", "#2B523B", "#37694C", "#56876A", "#88AA96", "#BACEC2", "#ECF1EE"] },
+      "bg-light": { "role": "neutral", "displayName": "Slate Ground (light)", "canonical": "#f5f6fa", "tonalRamp": ["#1b1f2e", "#474e6b", "#62698a", "#7C8196", "#dde0ea", "#e6e9f1", "#eef0f6", "#f5f6fa"] },
+      "bg-dark": { "role": "neutral", "displayName": "Slate Ground (dark)", "canonical": "#14171A", "tonalRamp": ["#0E1012", "#14171A", "#1A1E22", "#21262B", "#282E34", "#3A4148", "#737B82", "#ECE8E0"] }
+    },
+    "typographyMeta": {
+      "title": { "displayName": "Title", "purpose": "Unlock and create-vault cards." },
+      "heading": { "displayName": "Heading", "purpose": "Dialog and sheet titles; Stop Red on destructive confirms." },
+      "body": { "displayName": "Body", "purpose": "Toolkit default size; the app sets no body size." },
+      "section-label": { "displayName": "Section label", "purpose": "Heading above a section group." },
+      "mono": { "displayName": "Mono", "purpose": "Addresses, commands, stdin, paths, fingerprints, timestamps only." }
+    },
+    "shadows": [
+      { "name": "card", "value": "0 1px 3px 0 rgba(27,31,46,0.078) light / rgba(0,0,0,0.35) dark", "purpose": "Host cards at rest." },
+      { "name": "raised", "value": "0 6px 18px 0 rgba(27,31,46,0.149) light / rgba(0,0,0,0.59) dark", "purpose": "Hovered host card, dialogs, sheets, AI column edge, auth card." }
+    ],
+    "motion": [
+      { "name": "fade-120", "value": "120ms", "purpose": "Hover and press colour, card shadow lift, AI column content, new request card opacity, view cross-fade." },
+      { "name": "enter-160", "value": "160ms, opacity + scale 0.98 to 1 from centre", "purpose": "Dialog and sheet entrance." },
+      { "name": "snap", "value": "0ms", "purpose": "Sidebar hide/show and AI column position; never animated." },
+      { "name": "grant-ring-step", "value": "15s clock, no tween", "purpose": "Grant ring arc redraw." }
+    ],
+    "breakpoints": []
+  },
+  "components": [
+    {
+      "name": "Rail Button",
+      "kind": "button",
+      "refersTo": "rail-button",
+      "description": "Top-bar button: Rail Mist on an 11% pill with a 60% outline.",
+      "html": "<div style=\"background:#0F5F59;padding:12px\"><button class=\"ds-rail-btn\">Lock</button></div>",
+      "css": ".ds-rail-btn{color:#E6F2F0;background:rgba(230,242,240,0.11);border:1px solid rgba(230,242,240,0.6);border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer}.ds-rail-btn:hover{background:rgba(230,242,240,0.08)}.ds-rail-btn:focus-visible{outline:2px solid #E6F2F0;outline-offset:2px}"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary-light",
+      "description": "New host, Save, Create vault, and the filled Cancel in dialogs.",
+      "html": "<button class=\"ds-btn-primary\">New host</button>",
+      "css": ".ds-btn-primary{background:#12766F;color:#fff;border:0;border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer}.ds-btn-primary:hover{background:#0F6A64}.ds-btn-primary:active{background:#0C5A55}.ds-btn-primary:focus-visible{outline:2px solid #12766F;outline-offset:2px}"
+    },
+    {
+      "name": "Deny Button",
+      "kind": "button",
+      "refersTo": "button-deny",
+      "description": "Filled red Deny; the default, keyboard-reachable decision.",
+      "html": "<button class=\"ds-deny\">Deny</button>",
+      "css": ".ds-deny{background:#B5412F;color:#fff;border:1px solid #B5412F;border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer}.ds-deny:hover{background:#A23A2A}.ds-deny:active{background:#8F3325}.ds-deny:focus-visible{outline:2px solid #12766F;outline-offset:2px}"
+    },
+    {
+      "name": "Allow Button",
+      "kind": "button",
+      "refersTo": "button-allow",
+      "description": "Outline in Go Green once its delay ends; neutral while waiting; mouse-only.",
+      "html": "<button class=\"ds-allow\">Allow</button>",
+      "css": ".ds-allow{background:transparent;color:#3D7554;border:1px solid #3D7554;border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer}"
+    },
+    {
+      "name": "Host Card",
+      "kind": "card",
+      "refersTo": "host-card",
+      "description": "Letter tile, name, monospace address, chips; hover lifts the shadow.",
+      "html": "<div class=\"ds-host\"><div class=\"ds-row\"><div class=\"ds-tile\">B</div><div><b>build</b><div class=\"ds-addr\">ci@10.0.0.5:22</div></div></div><span class=\"ds-chip\">AI</span></div>",
+      "css": ".ds-host{width:240px;box-sizing:border-box;padding:12px;background:#fff;color:#1b1f2e;border:1px solid #dde0ea;border-radius:10px;box-shadow:0 1px 3px rgba(27,31,46,.078);display:flex;flex-direction:column;gap:8px;transition:box-shadow 120ms}.ds-host:hover{box-shadow:0 6px 18px rgba(27,31,46,.149)}.ds-row{display:flex;gap:10px;align-items:center}.ds-tile{width:36px;height:36px;border-radius:8px;background:#12766F;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center}.ds-addr{font-family:monospace;color:#62698a}.ds-chip{align-self:flex-start;background:#dcf1ec;color:#12766F;border-radius:10px;padding:2px 8px}"
+    },
+    {
+      "name": "AI Request Card (SUDO)",
+      "kind": "card",
+      "refersTo": "request-card",
+      "description": "Raised card with a termBlock command and a 4px red left edge for sudo.",
+      "html": "<div class=\"ds-req\"><div><b>staging</b> <span class=\"ds-sudo\">SUDO</span></div><div class=\"ds-term\">apt-get upgrade -y</div></div>",
+      "css": ".ds-req{background:#eef0f6;color:#1b1f2e;border:1px solid #B5412F;border-left-width:4px;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px;width:320px}.ds-sudo{background:#fbe2dc;color:#B5412F;border-radius:6px;padding:2px 8px;font-weight:700}.ds-term{background:#fff;color:#1b1f2e;border:1px solid #dde0ea;border-radius:6px;padding:8px 10px;font-family:monospace}"
+    },
+    {
+      "name": "Status Chip",
+      "kind": "chip",
+      "refersTo": "chip-wait",
+      "description": "Tinted pill, full-strength tint with the hue as text.",
+      "html": "<span class=\"ds-chip-wait\">New key</span>",
+      "css": ".ds-chip-wait{background:#fcefdc;color:#8B6123;border-radius:10px;padding:2px 8px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Teal Gatehouse",
+    "overview": "A calm slate work area held inside a deep-teal shell. The shell is the gate: a full-width top bar and a left sidebar in one teal, with pale text on it. Inside it the work is quiet, so the few things that ask for a decision stand out: an amber ring around a host the AI may run on without a click, a filled red Deny, a red edge on a SUDO request. Open question: the neutrals ship cool slate although the brief says warm; undecided.",
+    "keyCharacteristics": [
+      "Teal shell (rail) around a neutral work area; the terminal and Files yield the sidebar.",
+      "Three surface steps, two shadows, three radii.",
+      "Filled letter tiles; a state ring is the one signature move.",
+      "System font; monospace only for what is literal.",
+      "Decisions are slow on purpose: Allow is outline and mouse-only, Cancel is the filled default."
+    ],
+    "rules": [
+      { "name": "The State-Not-Style Rule", "body": "Teal, green, amber and red each mean one thing and are never used for decoration.", "section": "colors" },
+      { "name": "The Shell Stays Shell Rule", "body": "Rail Teal and Rail Mist appear only on the top bar and sidebar.", "section": "colors" },
+      { "name": "The Full-Strength Tint Rule", "body": "Chips and banners use the tint colour at full strength with the matching hue as text.", "section": "colors" },
+      { "name": "The Literal-Only Rule", "body": "Monospace marks text the user may have to copy or compare exactly.", "section": "typography" },
+      { "name": "The Weight-Not-Size Rule", "body": "Emphasis is bold or Muted. There is no display size.", "section": "typography" },
+      { "name": "The Two-Shadows Rule", "body": "Card and Raised are the whole vocabulary.", "section": "elevation" },
+      { "name": "The Border-Plus-Shadow Rule", "body": "A card also has a 1 px Line border so it reads in dark.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do read every colour from tok(c) / palette(dark); add a new pair to palette_test.go before using it (4.5:1 text, 3:1 UI).",
+      "Do make Deny the filled, default, keyboard-reachable button and Allow an outline that waits 500 ms and takes a mouse click.",
+      "Do make Cancel the filled primary with AutoFocus in any dialog that has a risky action.",
+      "Do show a request's command, stdin, paths and addresses in monospace on the Terminal colours with a Line outline.",
+      "Do put banners in the work column, not in the AI column.",
+      "Do use 6 / 10 / 14 radii, the two shadows, and the Bg / Surface / Raised steps.",
+      "Do keep terminal-resizing layout changes instant (snap), never animated."
+    ],
+    "donts": [
+      "Don't animate the sidebar or AI column width, or anything that moves a decision button or resizes a terminal.",
+      "Don't call the hub from an animation, timer or autoAllow notification; the app polls only status.",
+      "Don't use Rail Teal or Rail Mist outside the top bar and sidebar.",
+      "Don't put a monospace face on labels, buttons or prose.",
+      "Don't write a raw colour or add a third shadow.",
+      "Don't make Allow, Trust, Enable, Resume, Overwrite all, Skip existing or Delete easier than their safe counterpart.",
+      "Don't show a secret."
+    ]
+  }
+}
