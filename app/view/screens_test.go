@@ -361,10 +361,11 @@ func TestHubFailedLook(t *testing.T) {
 	if !ok {
 		t.Fatal(tt.Texts())
 	}
-	shield := ui.Rect{X: 450 - 20, Y: f.Y - 12 - 40, W: 40, H: 40}
+	// The app icon, not a recoloured shield, sits above the title.
+	mark := ui.Rect{X: 450 - 26, Y: f.Y - 12 - 52, W: 52, H: 52}
 	img := shot(tt)
-	if countNear(img, shield, p.Danger, 6) == 0 || countNear(img, shield, p.Accent, 6) != 0 {
-		t.Fatalf("shield: danger %d accent %d", countNear(img, shield, p.Danger, 6), countNear(img, shield, p.Accent, 6))
+	if n := countNear(img, mark, p.Surface, 3); n > int(mark.W*mark.H)/2 {
+		t.Fatalf("no app icon above the title (%d of %d pixels are the card)", n, int(mark.W*mark.H))
 	}
 	r, ok := tt.Find("line one")
 	if !ok {

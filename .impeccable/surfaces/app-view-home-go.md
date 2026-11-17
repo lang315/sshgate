@@ -9,7 +9,7 @@ Mode: Operate, code-led. Surface: the Hosts view, frame.go shell.
 
 ## Direction contract
 
-THESIS: A calm cool-neutral app where teal is only the accent; each host has its own muted tile hue (ring removed 2026-11-17 at the author's request; the chip carries the grant). On 2026-11-17 the author replaced the heavy teal shell with a cool neutral; refuses a saturated shell block and a top-tab strip.
+THESIS: (Carbon, 2026-11-18: true neutral greys, a near-white/near-black accent and colour only for meaning replaced the cool-neutral-plus-teal look below.) A calm cool-neutral app where teal is only the accent; each host has its own muted tile hue (ring removed 2026-11-17 at the author's request; the chip carries the grant). On 2026-11-17 the author replaced the heavy teal shell with a cool neutral; refuses a saturated shell block and a top-tab strip.
 
 OWN-WORLD: Cool-neutral work area (bg, surface, raised steps; low-chroma blue-grey, cool off-white in light, cool charcoal in dark), a neutral `rail` step under the sidebar and the full-width top bar with neutral railText and a 1 px Divider edge; teal only on primary buttons, focus, the chosen sidebar item, the home mark's shield and links. Filled letter tiles in six muted hues, green when a terminal is open. Radii 6/10/14, two shadows (card, raised). Tints at full strength for chips and banners. Monospace only for addresses and commands.
 

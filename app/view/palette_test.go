@@ -65,6 +65,8 @@ func TestPaletteContrast(t *testing.T) {
 			{"accent/waitTint (Resume)", p.Accent, p.WaitTint, 4.5},
 			{"ok/bg (allowed)", p.Ok, p.Bg, 4.5},
 			{"dangerFill/surface (Delete)", p.DangerFill, p.Surface, 3},
+			{"white knob/switchOn", ui.Hex("#ffffff"), p.SwitchOn, 3},
+			{"switchOn/bg", p.SwitchOn, p.Bg, 3}, {"switchOn/surface", p.SwitchOn, p.Surface, 3}, {"switchOn/raised", p.SwitchOn, p.Raised, 3},
 		} {
 			if r := ratio(c.fg, c.bg); r < c.min {
 				t.Errorf("dark=%v %s: %.2f < %.1f", dark, c.name, r, c.min)

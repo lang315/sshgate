@@ -23,14 +23,14 @@ func (a *App) sidebarShown() bool {
 func (a *App) buildTopBar(c *ui.Context, autoN, liveAuto int) {
 	p := tok(c)
 	ui.Row(c).Gap(8).Padding(8).AlignItems(ui.Center).Background(p.Rail).BorderWidth(0, 0, 1, 0).BorderColor(p.Divider).Children(func() {
-		// The mark, not a button: a teal shield and the name, with no face at
+		// The mark, not a button: the app icon and the name, with no face at
 		// rest, under the pointer or while Home shows (the pointer stays on it
 		// after a click, so a hover face read as a selected box). It stays a
 		// button underneath for focus, role and clicks.
 		home := ui.Button(c, "").Label("Home").Width(railWidth).Justify(ui.Start).PaddingX(8).TextColor(p.Text).Background(ui.Color{}).Border(0, ui.Color{})
 		if home.Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, shieldIcon).Size(20, 20).TextColor(p.Accent)
+				ui.Image(c, appMark).Size(22, 22)
 				ui.Text(c, "sshgate").Bold().TextColor(p.Text)
 			})
 		}).Clicked() {

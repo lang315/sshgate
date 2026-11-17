@@ -83,6 +83,16 @@ decision in this spec when it is made.
 One function builds the light and dark `ui.Theme`, called once at startup with
 `ui.SetDefaultThemes`.
 
+**Palette note, 2026-11-18: carbon.** The author chose the "carbon" palette
+after seeing real screenshots. It replaced the cool-neutral-plus-teal look
+(2026-11-17), whose notes below are kept as history. Greys are true neutral
+(dark `#1E1E1E`, light `#F5F5F5`); the accent is near-white in dark and
+near-black in light; colour is for meaning only: amber waits or auto-allow, red
+is danger, green is ok or connected, plus the six tile hues (teal `#2F7D78` is
+one of them now). A switch is on in green (`SwitchOn`, a scoped theme). The
+app icon replaces the outline shield as the home mark and the card mark. The
+table in `app/view/palette.go` and `DESIGN.md` is the source of the values.
+
 **Palette note, 2026-11-17: cool neutral.** The author asked for "một màu
 trung tính hơi lạnh, không quá đậm như hiện tại" (a slightly cool neutral, not
 as heavy as now): the cool neutral replaced the warm-neutral-plus-teal look

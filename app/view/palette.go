@@ -6,9 +6,12 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Cool neutrals with a teal accent; the rail (top bar and sidebar) is one
-// neutral step off the work area, not a colour. The table lives in the
-// 2026-11-16 visual redesign spec.
+// Carbon: true neutral greys (dark #1E1E1E, light #F5F5F5) and no decorative
+// hue. The accent is near-white in dark and near-black in light. Colour is
+// for meaning only: amber waits and auto-allow, red is danger, green is ok or
+// connected, plus the host tile hues. The rail (top bar and sidebar) is one
+// neutral step off the work area. The table lives in the 2026-11-16 visual
+// redesign spec (palette replaced 2026-11-18).
 const radiusControl, radiusCard, radiusDialog = 6, 10, 14
 
 const railHoverAlpha = 0.08
@@ -19,7 +22,7 @@ type tokens struct {
 	Bg, Surface, Raised, SurfaceHover, Line, ControlLine, Divider, Text, Muted, Label                          ui.Color
 	Accent, AccentHover, AccentPressed, AccentText, AccentTint                                                 ui.Color
 	Danger, DangerFill, DangerFillHover, DangerFillPressed, DangerText, DangerTint, Wait, WaitTint, Ok, OkTint ui.Color
-	TermBg, TermFg, Rail, RailText, RailButton, WaitFill, WaitFillHover, OnWaitFill, TileText                  ui.Color
+	TermBg, TermFg, Rail, RailText, RailButton, WaitFill, WaitFillHover, OnWaitFill, TileText, SwitchOn        ui.Color
 	TileHues                                                                                                   [6]ui.Color
 }
 
@@ -39,51 +42,53 @@ func palette(dark bool) tokens {
 		return ui.Hex(l)
 	}
 	return tokens{
-		Bg:                pick("#16181B", "#F4F5F7"),
-		Surface:           pick("#1C1F23", "#FCFCFD"),
-		Raised:            pick("#23272C", "#EDEFF2"),
-		SurfaceHover:      pick("#2B2F35", "#E4E7EB"),
-		Line:              pick("#363B42", "#DADEE3"),
-		ControlLine:       pick("#737B86", "#7D8590"),
-		Divider:           pick("#2A2E34", "#E3E6EA"),
-		Text:              pick("#E5E8EC", "#1A1E23"),
-		Muted:             pick("#959CA7", "#5D6570"),
-		Label:             pick("#B3B9C2", "#3F4650"),
-		Accent:            pick("#55B8B2", "#0F726D"),
-		AccentHover:       pick("#6BC4BF", "#0C6662"),
-		AccentPressed:     pick("#45A29D", "#0A5754"),
-		AccentText:        pick("#0F1114", "#FCFCFD"),
-		AccentTint:        pick("#172E2E", "#DCEFEC"),
-		Danger:            pick("#EE8A74", "#B5412F"),
-		DangerFill:        ui.Hex("#B9432F"),
-		DangerFillHover:   ui.Hex("#A63B2A"),
-		DangerFillPressed: ui.Hex("#923425"),
-		DangerText:        ui.Hex("#ffffff"),
-		DangerTint:        pick("#3B1D21", "#FBE3DE"),
-		Wait:              pick("#E0A048", "#87601F"),
-		WaitTint:          pick("#30281A", "#FBEFDC"),
-		Ok:                pick("#6CC08F", "#3B7352"),
-		OkTint:            pick("#1B2D24", "#E6F4EC"),
-		TermBg:            pick("#0F1114", "#FCFCFD"),
-		TermFg:            pick("#D4D8DE", "#1A1E23"),
-		Rail:              pick("#1D2024", "#EBEDF0"),
-		RailText:          pick("#BFC5CD", "#3F4650"),
+		Bg:                pick("#1E1E1E", "#F5F5F5"),
+		Surface:           pick("#262626", "#FFFFFF"),
+		Raised:            pick("#2D2D2D", "#ECECEC"),
+		SurfaceHover:      pick("#363636", "#E2E2E2"),
+		Line:              pick("#3C3C3C", "#DADADA"),
+		ControlLine:       pick("#797979", "#838383"),
+		Divider:           pick("#313131", "#E4E4E4"),
+		Text:              pick("#EDEDED", "#1D1D1F"),
+		Muted:             pick("#A0A0A0", "#636363"),
+		Label:             pick("#C6C6C6", "#404040"),
+		Accent:            pick("#EDEDED", "#1D1D1F"),
+		AccentHover:       pick("#F0F0F0", "#3D3D3E"),
+		AccentPressed:     pick("#C7C7C7", "#18181A"),
+		AccentText:        pick("#141414", "#FFFFFF"),
+		AccentTint:        pick("#343434", "#DADADA"),
+		Danger:            pick("#EE8A74", "#AA3D2C"),
+		DangerFill:        pick("#CC4B35", "#B9432F"),
+		DangerFillHover:   pick("#BE432E", "#A63B2A"),
+		DangerFillPressed: pick("#AD3B28", "#923425"),
+		DangerText:        pick("#ffffff", "#ffffff"),
+		DangerTint:        pick("#41302D", "#FBE3DE"),
+		Wait:              pick("#E0A048", "#805B1D"),
+		WaitTint:          pick("#3F3425", "#FBEFDC"),
+		Ok:                pick("#6CC08F", "#386D4E"),
+		OkTint:            pick("#2B3A31", "#E3F2EA"),
+		TermBg:            pick("#141414", "#FFFFFF"),
+		TermFg:            pick("#DADADA", "#1D1D1F"),
+		Rail:              pick("#181818", "#E9E9E9"),
+		RailText:          pick("#C6C6C6", "#404040"),
 		// The face of a rail button and a chosen theme segment: white on the
 		// light rail (a grey pill there reads as disabled), a lighter step on
 		// the dark one.
-		RailButton: pick("#2F3237", "#FCFCFD"),
+		RailButton: pick("#2E2E2E", "#FFFFFF"),
 		// Light: deep amber with white text, since a pale amber cannot reach
 		// 3:1 on the light rail; its hover darkens for the same reason.
 		WaitFill:      pick("#E9A23B", "#9A5800"),
 		WaitFillHover: pick("#ECAF59", "#864C00"),
 		OnWaitFill:    pick("#0E1012", "#FFFFFF"),
-		TileText:      ui.Hex("#ffffff"),
-		// Plum, blue, violet, rose, amber-brown, slate, muted to sit on the
-		// grey; no green, which is the connected tile's, and no teal, which is
-		// the accent's. White text on each is at least 4.5:1.
+		// A switch track when on: green, since the near-white accent would sit
+		// under the white knob. White on it is at least 3:1 in both themes.
+		SwitchOn: pick("#2F8F5B", "#386D4E"),
+		TileText: ui.Hex("#ffffff"),
+		// Plum, blue, teal, rose, amber-brown, slate, muted to sit on the grey;
+		// no green, which is the connected tile's. White text on each is at
+		// least 4.5:1.
 		TileHues: [6]ui.Color{
-			ui.Hex("#7E4F86"), ui.Hex("#3D67A8"), ui.Hex("#6A55A8"),
-			ui.Hex("#A44C68"), ui.Hex("#8A6230"), ui.Hex("#56657A"),
+			ui.Hex("#7E4F86"), ui.Hex("#3D67A8"), ui.Hex("#2F7D78"), ui.Hex("#A44C68"), ui.Hex("#8A6230"), ui.Hex("#56657A"),
 		},
 	}
 }
@@ -107,6 +112,20 @@ func accentTheme(c *ui.Context) *ui.Theme {
 	t := *railTheme(c)
 	t.Accent, t.InactiveAccent = p.Accent, p.Accent
 	return &t
+}
+
+// switchTheme scopes a switch so its on track is green, not the accent.
+func switchTheme(c *ui.Context) *ui.Theme {
+	t := *c.Theme()
+	t.Accent, t.InactiveAccent = tok(c).SwitchOn, tok(c).SwitchOn
+	return &t
+}
+
+// onSwitch is ui.Switch with a green on state.
+func onSwitch(c *ui.Context, on *bool) ui.Element {
+	var sw ui.Element
+	ui.Themed(c, switchTheme(c)).Background(ui.Color{}).Children(func() { sw = ui.Switch(c, on) })
+	return sw
 }
 
 func railHover(p tokens) ui.Color { return p.RailText.Alpha(railHoverAlpha).Over(p.Rail) }
@@ -156,7 +175,7 @@ func shade(c *ui.Context, light, dark uint8) ui.Color {
 	if c.Theme().Dark {
 		return ui.Color{A: dark}
 	}
-	return ui.Color{R: 26, G: 30, B: 35, A: light}
+	return ui.Color{R: 29, G: 29, B: 31, A: light}
 }
 
 // cardShadow is the shadow of a card at rest.

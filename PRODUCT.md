@@ -40,8 +40,8 @@ Every AI-issued command blocks on an explicit human Allow by default. The one ex
 ## Brand Commitments
 
 - Name: sshgate (renamed from ssh-mcp on 2026-09-26, when the project left the tufantunc/ssh-mcp fork).
-- Logo: the app icon, a teal shield holding a `>_` prompt above a keyhole, on a warm near-black rounded square (`app/icon/icon.png`; source `app/icon/icon-source.png`, added 2026-10-01). It is used only as the macOS bundle icon so far. Colours are delegated to the design work; no separate brand palette exists.
-- Standing visual preference (2026-09-25): the user's own design (`ssh-mcp Desktop UI.html`): warm-neutral dark, teal focus/link accent, Termius-like structure (left sidebar, host cards, terminal tabs in a full-width top bar) at Termius's craft level. System fonts. Not Termius's name, logo, or assets.
+- Logo: the app icon, a teal shield holding a `>_` prompt above a keyhole, on a warm near-black rounded square (`app/icon/icon.png`; source `app/icon/icon-source.png`, added 2026-10-01). It is the macOS bundle icon and, since 2026-11-18, the home mark and the mark on the unlock, create-vault and hub cards (a 128 px copy, `app/view/icon128.png`). Colours are delegated to the design work; no separate brand palette exists.
+- Standing visual preference (2026-09-25): the user's own design (`ssh-mcp Desktop UI.html`): warm-neutral dark, teal focus/link accent (superseded 2026-11-18 by the carbon palette: true neutral greys, near-white or near-black accent, colour only for meaning: amber waits, red danger, green ok; see DESIGN.md), Termius-like structure (left sidebar, host cards, terminal tabs in a full-width top bar) at Termius's craft level. System fonts. Not Termius's name, logo, or assets.
 
 ## Evidence on Hand
 

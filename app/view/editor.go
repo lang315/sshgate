@@ -371,7 +371,7 @@ func group(c *ui.Context, fn func()) {
 func (a *App) buildAIAccess(c *ui.Context, s *hubapi.Server) {
 	t := c.Theme()
 	d := &a.editor.draft
-	ui.Field(c, "Visible to AI", func() { ui.Switch(c, &d.AIVisible) })
+	ui.Field(c, "Visible to AI", func() { onSwitch(c, &d.AIVisible) })
 	ui.Text(c, "AI clients can see this server and ask to run commands. Commands wait for your approval unless auto-allow is on.").TextColor(t.TextMuted)
 	if s == nil || s.HostKey == "" {
 		ui.Text(c, "Needs a pinned host key.").TextColor(t.TextMuted)
