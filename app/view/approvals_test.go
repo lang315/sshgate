@@ -434,7 +434,14 @@ func TestArrivingRequestFadesWithoutMovingOthers(t *testing.T) {
 	if len(now) != 2 || now[0].Bounds != r1 || !now[1].Disabled || !tt.FramePending() {
 		t.Fatalf("at +40 ms: %+v pending %v", now, tt.FramePending())
 	}
-	card := ui.Rect{X: now[1].Bounds.X - 300, Y: now[1].Bounds.Y - 200, W: 380, H: 195}
+	cmd, ok := tt.Find("echo two")
+	if !ok {
+		t.Fatal(tt.Texts())
+	}
+	card := grow(cmd, 20) // Allow-free: only the fade can change it
+	if _, fading := a.col.fading["r2"]; !fading {
+		t.Fatal("r2 is not in fading at +40 ms")
+	}
 	mid := shot(tt)
 	adv(tt, c, 459*time.Millisecond) // +499 ms
 	tt.Frame()
@@ -446,11 +453,11 @@ func TestArrivingRequestFadesWithoutMovingOthers(t *testing.T) {
 	if n := allowNodes(tt); n[1].Disabled {
 		t.Fatal("r2 Allow still disabled at +501 ms")
 	}
-	if sameRegion(mid, shot(tt), card) {
-		t.Fatal("r2's card did not change from its fade to rest")
-	}
 	adv(tt, c, time.Second)
 	tt.Frame()
+	if sameRegion(mid, shot(tt), card) {
+		t.Fatal("r2's command block looks the same mid-fade and at rest")
+	}
 	if len(a.col.fading) != 0 || tt.FramePending() {
 		t.Fatalf("fading %v pending %v", a.col.fading, tt.FramePending())
 	}
@@ -460,8 +467,10 @@ func TestRequestsPresentAtOpenDoNotFade(t *testing.T) {
 	d := &fakeDoor{status: hubapi.Status{HasVault: true}, pending: []hubapi.Request{reqN("r1", "box", "ls"), reqN("r2", "box", "pwd")}}
 	a, tt, _, _ := newApp(t, d)
 	tt.flush()
-	if len(a.Items()) != 2 || len(a.col.fading) != 0 {
-		t.Fatalf("items %d fading %v", len(a.Items()), a.col.fading)
+	_, ok1 := tt.Find("ls")
+	_, ok2 := tt.Find("pwd")
+	if !a.aiOpen || !ok1 || !ok2 || len(a.Items()) != 2 || len(a.col.fading) != 0 {
+		t.Fatalf("open %v ls %v pwd %v items %d fading %v", a.aiOpen, ok1, ok2, len(a.Items()), a.col.fading)
 	}
 }
 
@@ -531,5 +540,33 @@ func TestAllowTurnsGreenWhenEnabled(t *testing.T) {
 	tt.Frame()
 	if got := countNear(shot(tt), box, ok, 20); got <= 10 {
 		t.Fatalf("%d green pixels when enabled", got)
+	}
+}
+
+// A disabled Allow looks like a disabled Send to tab: the same box, border
+// and corners (their texts differ, so only the left edge strip is compared).
+func TestDisabledAllowLooksLikeMouseButton(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	a, tt, _, _ := colApp(t)
+	note(t, a, tt, "pending", map[string]any{"request": reqN("r1", "box", "echo one")})
+	tt.Advance(time.Second) // the app's clock has not moved: both stay disabled
+	tt.Frame()
+	var al, st ui.Rect
+	for _, n := range tt.Nodes() {
+		switch n.Label {
+		case "Allow":
+			al = n.Bounds
+		case "Send to tab":
+			st = n.Bounds
+		}
+	}
+	if al.H == 0 || al.H != st.H {
+		t.Fatalf("allow %+v send %+v", al, st)
+	}
+	img := shot(tt)
+	strip := func(r ui.Rect) ui.Rect { return ui.Rect{X: r.X - 1, Y: r.Y - 1, W: 8, H: r.H + 2} }
+	if string(region(img, strip(al))) != string(region(img, strip(st))) {
+		t.Fatal("a disabled Allow's edge differs from a disabled Send to tab's")
 	}
 }
