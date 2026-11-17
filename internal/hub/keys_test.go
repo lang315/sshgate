@@ -66,9 +66,19 @@ func TestKeysCreateListDelete(t *testing.T) {
 	c, _ := startUI(t, h)
 	ctx := context.Background()
 
-	var made struct{ Name, Type, PublicKey, Created string }
-	if err := c.Call(ctx, "keys.create", map[string]any{"name": "k1"}, &made); err != nil {
+	var rawMade json.RawMessage
+	if err := c.Call(ctx, "keys.create", map[string]any{"name": "k1"}, &rawMade); err != nil {
 		t.Fatal(err)
+	}
+	if strings.Contains(string(rawMade), "usedBy") {
+		t.Fatalf("create reply has usedBy: %s", rawMade)
+	}
+	var made struct{ Name, Type, PublicKey, Created string }
+	if err := json.Unmarshal(rawMade, &made); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(made.PublicKey, " k1") {
+		t.Fatalf("public key has no name comment: %q", made.PublicKey)
 	}
 	if made.Name != "k1" || made.Type != "se-p256" || !strings.HasPrefix(made.PublicKey, "ecdsa-sha2-nistp256 ") || made.Created == "" {
 		t.Fatalf("create: %+v", made)

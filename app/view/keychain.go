@@ -86,7 +86,7 @@ type keyDelState struct {
 
 func keyDate(s string) string {
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t.Format("2 Jan 2006")
+		return t.Local().Format("2 Jan 2006")
 	}
 	return s
 }
@@ -299,7 +299,12 @@ func (a *App) deleteKey(name string) {
 func (a *App) buildKeychainAuth(c *ui.Context, d *model.HostDraft) {
 	t, p := c.Theme(), tok(c)
 	if len(a.keys.list) == 0 {
-		if a.keys.loaded {
+		if a.keys.err != "" {
+			ui.Text(c, model.DisplayText(a.keys.err)).TextColor(t.Danger)
+			if ui.Button(c, "Try again").Clicked() {
+				a.keysLoad()
+			}
+		} else if a.keys.loaded {
 			ui.Text(c, "No keys yet. Create one in Keychain.").TextColor(t.TextMuted)
 		}
 		return

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 )
@@ -23,7 +24,7 @@ func Build(t testing.TB) string {
 		if dir, err = os.MkdirTemp("", "sekey-fake"); err != nil {
 			return
 		}
-		path = filepath.Join(dir, "fakehelper")
+		path = filepath.Join(dir, binName(runtime.GOOS))
 		out, e := exec.Command("go", "build", "-o", path, "github.com/lang315/sshgate/internal/sekey/fakehelper").CombinedOutput()
 		if e != nil {
 			err = &buildErr{e, string(out)}
@@ -33,6 +34,14 @@ func Build(t testing.TB) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+// binName is the helper's file name: Windows runs only files with an extension from PATHEXT.
+func binName(goos string) string {
+	if goos == "windows" {
+		return "fakehelper.exe"
+	}
+	return "fakehelper"
 }
 
 type buildErr struct {

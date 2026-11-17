@@ -20,6 +20,14 @@ type uiKey struct {
 	UsedBy    []string `json:"usedBy"`
 }
 
+// createdKey is the keys.create reply: a new key is used by nothing, so no usedBy.
+type createdKey struct {
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	PublicKey string `json:"publicKey"`
+	Created   string `json:"created"`
+}
+
 // ListKeys needs an unlocked vault.
 func (h *Hub) ListKeys() ([]uiKey, error) {
 	h.mu.Lock()
@@ -43,7 +51,7 @@ func (h *Hub) ListKeys() ([]uiKey, error) {
 // CreateKey makes a Secure Enclave key through the helper and stores its
 // blob in the vault. The lock state and the name are checked before the
 // helper runs, and h.mu is not held across it.
-func (h *Hub) CreateKey(ctx context.Context, name string) (uiKey, error) {
+func (h *Hub) CreateKey(ctx context.Context, name string) (createdKey, error) {
 	h.mu.Lock()
 	k, err := h.writeKeyLocked() // lock state first, then the name, then uniqueness
 	if err == nil {
@@ -57,23 +65,25 @@ func (h *Hub) CreateKey(ctx context.Context, name string) (uiKey, error) {
 	}
 	h.mu.Unlock()
 	if err != nil {
-		return uiKey{}, err
+		return createdKey{}, err
 	}
 	if h.o.KeyHelper == "" {
-		return uiKey{}, sshx.ErrSEKeyNoHelper
+		return createdKey{}, sshx.ErrSEKeyNoHelper
 	}
-	blob, pub, err := sekey.Create(ctx, h.o.KeyHelper)
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	blob, pub, err := sekey.Create(cctx, h.o.KeyHelper)
 	if err != nil {
-		return uiKey{}, err
+		return createdKey{}, err
 	}
 	defer clear(blob)
-	pubLine := sekey.AuthorizedKey(pub, "")
+	pubLine := sekey.AuthorizedKey(pub, name)
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	mk, err := h.writeKeyLocked() // the lock state may have changed meanwhile
 	if err != nil {
-		return uiKey{}, err
+		return createdKey{}, err
 	}
 	defer clear(mk)
 	now := time.Now()
@@ -82,11 +92,11 @@ func (h *Hub) CreateKey(ctx context.Context, name string) (uiKey, error) {
 		return config.AddKey(f, mk, name, pubLine, blob, now)
 	})
 	if err != nil {
-		return uiKey{}, err
+		return createdKey{}, err
 	}
 	reloadErr := h.reloadLocked()
 	h.auditConfig(broker.ConfigRecord{Action: "keyCreate", Key: name})
-	return uiKey{Name: name, Type: "se-p256", PublicKey: pubLine, Created: now.UTC().Format(time.RFC3339)}, reloadErr
+	return createdKey{Name: name, Type: "se-p256", PublicKey: pubLine, Created: now.UTC().Format(time.RFC3339)}, reloadErr
 }
 
 // DeleteKey refuses a key a server still uses.

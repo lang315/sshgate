@@ -1,6 +1,7 @@
 package view
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -240,5 +241,27 @@ func TestUnlockOnKeychainTabMakesNoCall(t *testing.T) {
 	tt.flush()
 	if n := countCalls(d, "keys.list"); n != 0 {
 		t.Fatalf("keys.list %d after unlock", n)
+	}
+}
+
+func TestEditorKeychainListErrorOffersRetry(t *testing.T) {
+	s := boxServer
+	s.Auth, s.KeyName, s.KeyPublicKey = "keychain", "spare", keyFree.PublicKey
+	_, tt, d := edReady(t, []hubapi.Server{s})
+	d.set(func() {
+		d.keys = []hubapi.Key{keyFree}
+		d.errs = map[string]error{"keys.list": errors.New("boom list")}
+	})
+	clickT(t, tt, "Edit box")
+	tt.flush()
+	if tt.HasText("No keys yet. Create one in Keychain.") || !tt.HasText("boom list") || !tt.HasText("Try again") {
+		t.Fatalf("no error and retry: %q", tt.Texts())
+	}
+	d.set(func() { d.errs = nil })
+	d.resetCalls()
+	clickT(t, tt, "Try again")
+	tt.flush()
+	if n := countCalls(d, "keys.list"); n != 1 || !tt.HasText(keyFree.PublicKey) {
+		t.Fatalf("retry: %d calls, %q", n, tt.Texts())
 	}
 }

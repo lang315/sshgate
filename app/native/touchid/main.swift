@@ -101,7 +101,7 @@ case "key-sign":
   guard let inp = try? JSONDecoder().decode(KeySignIn.self, from: FileHandle.standardInput.readDataToEndOfFile()),
         let blob = Data(base64Encoded: inp.blob), let data = Data(base64Encoded: inp.data) else { fail(1, "bad input") }
   guard let key = try? SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob) else { fail(3) }
-  guard let sig = try? key.signature(for: data) else { fail(1, "sign failed") }
+  guard let sig = try? key.signature(for: data) else { fail(3) }
   FileHandle.standardOutput.write(Data("{\"sig\":\"\(b64(sig.rawRepresentation))\"}".utf8))
 
 default:
