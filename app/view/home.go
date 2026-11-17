@@ -187,7 +187,7 @@ func (a *App) buildHosts(c *ui.Context) {
 				}
 				card.Children(func() {
 					// Flat inside the card: no face or border at rest, a tint on hover.
-					open := ui.Button(c, "").Label("Open " + shownName).Justify(ui.Start)
+					open := ui.Button(c, "").Label("Open "+shownName).Justify(ui.Start).Padding(4, 0) // flush with the chips below
 					open.Background(ui.Color{}).Border(0, ui.Color{})
 					if open.Hovered() {
 						open.Background(p.SurfaceHover)
