@@ -288,7 +288,7 @@ func MaskedCount(r AuditRecord) int {
 	return int(n)
 }
 
-// Badge tones: "ai", "auto", "danger", "wait" and "plain".
+// Badge tones: "ok", "auto", "danger", "wait" and "plain".
 type Badge struct{ Text, Tone string }
 
 // RowView is one table row: time, kind, host, badges, the main text, and
@@ -305,7 +305,7 @@ type RowView struct {
 }
 
 var execBadge = map[string]Badge{
-	"allowed":                {"allowed", "ai"},
+	"allowed":                {"allowed", "ok"},
 	"denied":                 {"denied", "danger"},
 	"expired":                {"expired", "wait"},
 	"sent_to_tab":            {"sent to tab", "plain"},

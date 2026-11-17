@@ -47,7 +47,7 @@ func TestThemeControlAppliesKeepsAndCallsNothing(t *testing.T) {
 	a.Shell = sh
 	tt := newTester(t, a)
 	running(a, tt)
-	for _, s := range []string{"Theme", "Dark", "☾", "Light", "☀", "Auto"} {
+	for _, s := range []string{"Theme", "Dark", "Light", "Auto"} {
 		if !tt.HasText(s) {
 			t.Fatalf("missing %q in %q", s, tt.Texts())
 		}

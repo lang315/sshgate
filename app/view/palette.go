@@ -17,7 +17,7 @@ type tokens struct {
 	Bg, Surface, Raised, SurfaceHover, Line, ControlLine, Divider, Text, Muted, Label                          ui.Color
 	Accent, AccentHover, AccentPressed, AccentText, AccentTint                                                 ui.Color
 	Danger, DangerFill, DangerFillHover, DangerFillPressed, DangerText, DangerTint, Wait, WaitTint, Ok, OkTint ui.Color
-	TermBg, TermFg, Rail, RailText                                                                             ui.Color
+	TermBg, TermFg, Rail, RailText, WaitFill, OnWaitFill                                                       ui.Color
 }
 
 func palette(dark bool) tokens {
@@ -55,8 +55,10 @@ func palette(dark bool) tokens {
 		OkTint:            pick("#1A3324", "#e9f6ee"),
 		TermBg:            pick("#0E1012", "#ffffff"),
 		TermFg:            pick("#D8D4CC", "#1b1f2e"),
-		Rail:              pick("#0F2A29", "#0F5F59"),
+		Rail:              pick("#134542", "#0F5F59"),
 		RailText:          ui.Hex(railTextHex),
+		WaitFill:          ui.Hex("#E9A23B"),
+		OnWaitFill:        ui.Hex("#0E1012"),
 	}
 }
 
@@ -72,6 +74,19 @@ func railTheme(c *ui.Context) *ui.Theme {
 }
 
 func railHover(p tokens) ui.Color { return p.RailText.Alpha(railHoverAlpha).Over(p.Rail) }
+
+// railButton styles a top-bar button for the rail: RailText on a pill, a
+// RailText outline, and the hover tint.
+func railButton(e ui.Element, p tokens) ui.Element {
+	e = e.TextColor(p.RailText).Background(railButtonFill(p)).Border(1, railButtonBorder(p))
+	if e.Hovered() {
+		e = e.Background(railHover(p))
+	}
+	return e
+}
+
+func railButtonFill(p tokens) ui.Color   { return p.RailText.Alpha(railPillAlpha).Over(p.Rail) }
+func railButtonBorder(p tokens) ui.Color { return p.RailText.Alpha(0.6).Over(p.Rail) }
 
 func tok(c *ui.Context) tokens { return palette(c.Theme().Dark) }
 

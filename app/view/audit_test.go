@@ -366,3 +366,29 @@ func TestAuditDetailInset(t *testing.T) {
 		t.Fatal("the outcome has no Danger pixels")
 	}
 }
+
+// An allowed run reads as a success (Ok), not as the AI's Accent.
+func TestAuditAllowedReadsGreen(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	for _, dark := range []bool{false, true} {
+		_, tt, _, _ := auditApp(t, execEntry(1, "systemctl restart app", "allowed"))
+		tt.SetDark(dark)
+		clickT(t, tt, "Audit")
+		tt.flush()
+		tt.Advance(time.Second)
+		tt.Frame()
+		p := palette(dark)
+		o, ok := tt.Find("allowed")
+		if !ok {
+			t.Fatal(tt.Texts())
+		}
+		img := shot(tt)
+		if n := countNear(img, o, p.Ok, 20); n == 0 {
+			t.Fatalf("dark=%v: the allowed outcome has no Ok pixels", dark)
+		}
+		if n := countNear(img, o, p.Accent, 20); n != 0 {
+			t.Fatalf("dark=%v: the allowed outcome has %d Accent pixels", dark, n)
+		}
+	}
+}

@@ -56,6 +56,10 @@ func TestPaletteContrast(t *testing.T) {
 			{"rail icon/pill", p.RailText, p.RailText.Alpha(railPillAlpha).Over(p.Rail), 3},
 			{"controlLine/bg", p.ControlLine, p.Bg, 3}, {"controlLine/surface", p.ControlLine, p.Surface, 3}, {"controlLine/raised", p.ControlLine, p.Raised, 3},
 			{"accent/bg (focus)", p.Accent, p.Bg, 3},
+			{"waitFill/rail", p.WaitFill, p.Rail, 3},
+			{"railText/railButton", p.RailText, railButtonFill(p), 4.5}, {"railText/railButton hover", p.RailText, railHover(p), 4.5},
+			{"railButtonBorder/rail", railButtonBorder(p), p.Rail, 3},
+			{"onWaitFill/waitFill", p.OnWaitFill, p.WaitFill, 4.5},
 		} {
 			if r := ratio(c.fg, c.bg); r < c.min {
 				t.Errorf("dark=%v %s: %.2f < %.1f", dark, c.name, r, c.min)

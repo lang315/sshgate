@@ -13,6 +13,13 @@ var (
 	hostsIcon  = cardIcon("M4 5h16v6H4zM4 13h16v6H4zM8 8h.01M8 16h.01")
 	auditIcon  = cardIcon("M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h7")
 	shieldIcon = cardIcon("M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z")
+	gearIcon   = cardIcon("M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM10.5 3h3l.5 2.2 1.8 1 2.1-.8 1.5 2.6-1.7 1.5v2l1.7 1.5-1.5 2.6-2.1-.8-1.8 1-.5 2.2h-3l-.5-2.2-1.8-1-2.1.8-1.5-2.6 1.7-1.5v-2L4.6 8l1.5-2.6 2.1.8 1.8-1z")
+	moonIcon   = cardIcon("M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z")
+	sunIcon    = cardIcon("M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5")
+
+	xIcon           = cardIcon("M6 6l12 12M18 6L6 18")
+	chevronIcon     = cardIcon("M9 6l6 6-6 6")
+	chevronDownIcon = cardIcon("M6 9l6 6 6-6")
 )
 
 // cardIcon draws one of Electron's stroked 24x24 icons (desktop/src/renderer/icons.tsx).

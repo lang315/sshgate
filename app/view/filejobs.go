@@ -320,7 +320,7 @@ func (a *App) buildTransfers(c *ui.Context, v *filesTab) {
 								}
 							}
 						}
-					} else if ui.Button(c, "×").Label("Dismiss " + title).Tooltip("Dismiss").Clicked() {
+					} else if ui.Button(c, "").Label("Dismiss " + title).Tooltip("Dismiss").Children(func() { ui.Icon(c, xIcon).TextColor(tok(c).Text) }).Clicked() {
 						click = func() { v.jobs = deleteJob(v.jobs, j) }
 					}
 				})

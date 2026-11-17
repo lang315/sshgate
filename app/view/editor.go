@@ -85,7 +85,7 @@ func (a *App) buildSheet(c *ui.Context, key, title, label, closeLabel, errText s
 	sheet.Children(func() {
 		ui.Row(c).Gap(8).Padding(12, 16).Children(func() {
 			ui.Text(c, title).Bold().FontSize(16).Grow(1)
-			if ui.Button(c, "×").Label(closeLabel).Tooltip("Close").Clicked() {
+			if ui.Button(c, "").Label(closeLabel).Tooltip("Close").Children(func() { ui.Icon(c, xIcon).TextColor(tok(c).Text) }).Clicked() {
 				closed = true
 			}
 		})

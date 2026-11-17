@@ -150,7 +150,7 @@ func (a *App) buildColumn(c *ui.Context) {
 			if ui.Button(c, "Deny all").Disabled(len(a.items) < 2).Clicked() {
 				a.denyAll()
 			}
-			if ui.Button(c, "×").Label("Close AI requests").Clicked() {
+			if ui.Button(c, "").Label("Close AI requests").Children(func() { ui.Icon(c, xIcon).TextColor(tok(c).Text) }).Clicked() {
 				a.aiOpen = false
 				a.focusActive()
 			}

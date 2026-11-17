@@ -289,11 +289,11 @@ func (a *App) buildAuditRow(c *ui.Context, l model.AuditLine, i int) {
 			row.Background(t.Surface)
 		}
 		row.Children(func() {
-			arrow := "▸"
+			arrow := chevronIcon
 			if *v.open[seq] {
-				arrow = "▾"
+				arrow = chevronDownIcon
 			}
-			ui.Text(c, arrow).TextColor(t.TextMuted).Width(14)
+			ui.Icon(c, arrow).TextColor(t.TextMuted).Width(14)
 			ui.Text(c, rv.Time).Font("monospace").Width(auditTimeW)
 			ui.Text(c, auditKind[rv.Kind]).Width(auditKindW)
 			ui.Text(c, host).Width(auditHostW).SingleLine()
@@ -329,8 +329,8 @@ func (a *App) buildAuditRow(c *ui.Context, l model.AuditLine, i int) {
 // auditTone is a badge tone's colour.
 func auditTone(t *ui.Theme, tone string) ui.Color {
 	switch tone {
-	case "ai":
-		return t.Accent
+	case "ok":
+		return t.Success
 	case "auto", "wait":
 		return t.Warning
 	case "danger":
