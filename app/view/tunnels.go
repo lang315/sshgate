@@ -245,7 +245,7 @@ func (a *App) buildTunnelRow(c *ui.Context, tab string, v *tunnelsTab, x hubapi.
 			st := ui.Text(c, status).TextColor(th.TextMuted)
 			switch x.Status {
 			case "running":
-				st.TextColor(tok(c).Ok).Background(tok(c).OkTint).Padding(2, 8).Radius(radiusControl)
+				st.TextColor(tok(c).Ok).Background(tok(c).OkTint).Padding(2, 8).Radius(10)
 			case "error":
 				st.TextColor(th.Danger)
 			}

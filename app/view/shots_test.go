@@ -267,6 +267,23 @@ func TestShots(t *testing.T) {
 		clickT(t, tt, "Home")
 		return tt
 	})
+	// The AI column closed with requests waiting: the AI button is lit.
+	each("topbar-ai-lit", 1000, 640, func(bool) *tester {
+		d := &fakeDoor{status: hubapi.Status{HasVault: true}, servers: servers, pending: []hubapi.Request{reqN("r1", "build", "ls")}}
+		_, tt, _, _ := newApp(t, d)
+		tt.SetSize(1000, 640)
+		tt.flush()
+		clickT(t, tt, "Close AI requests")
+		return tt
+	})
+	// A tab whose host has a live auto-allow grant shows the dot.
+	each("tab-auto", 1000, 640, func(bool) *tester {
+		a, tt, _, _, _ := tabApp(t)
+		clickT(t, tt, "Open box")
+		tabsUntil(t, tt, func() bool { return tabState(a, "t1") == "open" }, "t1 open")
+		a.Update(func() { a.servers[0].AutoAllow = &hubapi.AutoAllow{Forever: true} })
+		return tt
+	})
 	if os.Getenv("MYGO_GHOSTTY_VT") == "" { // the other shots need no terminal library
 		t.Log("terminal-live skipped: MYGO_GHOSTTY_VT unset")
 		return

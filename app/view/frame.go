@@ -41,6 +41,9 @@ func (a *App) buildTopBar(c *ui.Context, autoN, liveAuto int) {
 			b := ui.Button(c, "").Label("AI requests").Children(func() { ui.Text(c, label) })
 			if waiting {
 				b.TextColor(p.OnWaitFill).Background(p.WaitFill) // a lit button, not a pill
+				if b.Hovered() {
+					b.Background(waitFillHover(p))
+				}
 			} else {
 				railButton(b, p)
 			}

@@ -170,16 +170,13 @@ func (a *App) buildImportRow(c *ui.Context, cand hubapi.Candidate) {
 			} else {
 				ui.Text(c, alias).Bold()
 			}
-			chip := func(word string, fg, bg ui.Color) {
-				ui.Text(c, word).Padding(2, 8).Radius(radiusControl).Background(bg).TextColor(fg)
-			}
 			switch cand.Status {
 			case "ready":
-				chip("Ready", p.Ok, p.OkTint)
+				chip(c, "Ready", p.Ok, p.OkTint, "")
 			case "exists":
-				chip("Already in vault", p.Wait, p.WaitTint)
+				chip(c, "Already in vault", p.Wait, p.WaitTint, "")
 			default:
-				chip("Skipped", p.Wait, p.WaitTint)
+				chip(c, "Skipped", p.Wait, p.WaitTint, "")
 			}
 		})
 		if cand.Status == "skipped" {

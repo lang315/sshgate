@@ -197,3 +197,36 @@ func TestRailIconsDrawn(t *testing.T) {
 		}
 	}
 }
+
+// The lit AI button takes a hover tint like the other top-bar buttons.
+func TestLitAIButtonHover(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	for _, dark := range []bool{false, true} {
+		p := palette(dark)
+		d := &fakeDoor{status: hubapi.Status{HasVault: true}, servers: []hubapi.Server{boxServer}, pending: []hubapi.Request{reqN("r1", "box", "ls")}}
+		_, tt, _, _ := newApp(t, d)
+		tt.SetDark(dark)
+		tt.SetSize(1000, 640)
+		tt.flush()
+		tt.Advance(time.Second)
+		tt.Frame()
+		clickT(t, tt, "Close AI requests") // closed with requests waiting: the button is lit
+		tt.Advance(time.Second)
+		tt.Frame()
+		r, ok := tt.Find("AI requests")
+		if !ok {
+			t.Fatalf("no AI button in %q", tt.Texts())
+		}
+		patch := ui.Rect{X: r.X + 3, Y: r.Y + r.H/2 - 1, W: 3, H: 3}
+		if n := countNear(shot(tt), patch, p.WaitFill, 2); n != 9 {
+			t.Fatalf("dark=%v at rest: %d of 9 pixels on WaitFill", dark, n)
+		}
+		tt.Move(r.X+r.W/2, r.Y+r.H/2)
+		tt.Advance(time.Second)
+		tt.Frame()
+		if n := countNear(shot(tt), patch, waitFillHover(p), 2); n != 9 {
+			t.Fatalf("dark=%v hovered: %d of 9 pixels on waitFillHover", dark, n)
+		}
+	}
+}

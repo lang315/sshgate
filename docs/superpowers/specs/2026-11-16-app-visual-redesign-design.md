@@ -117,10 +117,11 @@ Tokens with no `ui.Theme` field live in an app struct picked by `c.Theme().Dark`
 **Where colour is stronger than in the 2026-09-25 table** (the author asked
 for a bolder look, and that table alone is grey with one accent):
 
-- The shell is teal, not grey. `rail` is a deep teal (dark `#0F2A29`, light
+- The shell is teal, not grey. `rail` is a deep teal (dark `#134542`, light
   `#0F5F59`) under the sidebar and the top bar, with `railText` `#E6F2F0` in
   both themes: the frame of the window carries the brand colour, the work area
-  stays neutral.
+  stays neutral. (Dark rail value changed 2026-11-17 after the finish review:
+  the old value read as near-black (1.19:1 against bg).)
 - Host tiles are filled, not outlined: the letter sits on a solid tile, teal by
   default, green while that host has an open terminal.
 - Chips, banners and the request cards' edges use the tints at full strength

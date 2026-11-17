@@ -474,6 +474,11 @@ func TestSheetEntersWithoutMovingAIColumn(t *testing.T) {
 	if !ok {
 		t.Fatal("no Allow")
 	}
+	closeAI, ok := tt.Find("Close AI requests")
+	if !ok {
+		t.Fatal("no AI column")
+	}
+	col := ui.Rect{X: closeAI.X, Y: closeAI.Y, W: 1000 - closeAI.X, H: 640 - closeAI.Y} // the column, right of its close button
 	clickT(t, tt, "New host")
 	first := shot(tt)
 	tt.Advance(40 * time.Millisecond)
@@ -488,6 +493,9 @@ func TestSheetEntersWithoutMovingAIColumn(t *testing.T) {
 		t.Fatalf("Allow moved at rest: %+v to %+v", before, r)
 	}
 	rest, r := shot(tt), sheetRight(t, tt)
+	if !sameRegion(first, mid, col) || !sameRegion(first, rest, col) {
+		t.Fatal("the AI column's pixels changed during the sheet's entrance")
+	}
 	if sameRegion(first, rest, r) {
 		t.Fatal("the sheet did not change after its entrance")
 	}

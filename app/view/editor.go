@@ -263,7 +263,6 @@ func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (
 				ui.Text(c, portErr).TextColor(t.Danger)
 			}
 		})
-
 	})
 
 	section(c, "Credentials", func() {
@@ -295,7 +294,6 @@ func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (
 				secret(model.SecretKeyPassphrase)
 			}
 		}
-
 	})
 
 	esc := "Privilege escalation (su / sudo)"

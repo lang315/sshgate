@@ -196,7 +196,7 @@ func (a *App) buildTabStrip(c *ui.Context) {
 			case t.State == "exited":
 				label += " · exited"
 			}
-			ui.Row(c.Key("tab-" + id)).Gap(2).Children(func() {
+			ui.Row(c.Key("tab-" + id)).Gap(2).AlignItems(ui.Center).Children(func() {
 				if auto[server] {
 					ui.Column(c).Width(8).Height(8).Radius(4).Background(p.WaitFill).Label("auto-allow on") // Electron's .autodot
 				}

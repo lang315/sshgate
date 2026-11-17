@@ -85,6 +85,10 @@ func railButton(e ui.Element, p tokens) ui.Element {
 	return e
 }
 
+// waitFillHover is the lit AI button under the pointer: a little lighter, since
+// a darker amber would fall under 3:1 against the light rail.
+func waitFillHover(p tokens) ui.Color { return p.WaitFill.Mix(ui.Hex("#FFFFFF"), 0.12) }
+
 func railButtonFill(p tokens) ui.Color   { return p.RailText.Alpha(railPillAlpha).Over(p.Rail) }
 func railButtonBorder(p tokens) ui.Color { return p.RailText.Alpha(0.6).Over(p.Rail) }
 

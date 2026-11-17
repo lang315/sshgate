@@ -60,6 +60,10 @@ func TestPaletteContrast(t *testing.T) {
 			{"railText/railButton", p.RailText, railButtonFill(p), 4.5}, {"railText/railButton hover", p.RailText, railHover(p), 4.5},
 			{"railButtonBorder/rail", railButtonBorder(p), p.Rail, 3},
 			{"onWaitFill/waitFill", p.OnWaitFill, p.WaitFill, 4.5},
+			{"onWaitFill/waitFillHover", p.OnWaitFill, waitFillHover(p), 4.5}, {"waitFillHover/rail", waitFillHover(p), p.Rail, 3},
+			{"accent/waitTint (Resume)", p.Accent, p.WaitTint, 4.5},
+			{"ok/bg (allowed)", p.Ok, p.Bg, 4.5},
+			{"dangerFill/surface (Delete)", p.DangerFill, p.Surface, 3},
 		} {
 			if r := ratio(c.fg, c.bg); r < c.min {
 				t.Errorf("dark=%v %s: %.2f < %.1f", dark, c.name, r, c.min)

@@ -92,7 +92,7 @@ spacing:
   xl: "24px"
 components:
   rail-button:
-    backgroundColor: "{colors.rail-text}"
+    backgroundColor: "#276F6A" # light; dark #2A5855: 11 % Rail Mist over the rail (railButtonFill)
     textColor: "{colors.rail-text}"
     rounded: "{rounded.control}"
   button-primary-light:
@@ -183,7 +183,7 @@ A teal shell, slate neutrals, and four state hues each with a tint. Every text a
 ### Secondary (state hues)
 - **Go Green** (light `#3D7554`, dark `#6CC58F`): connected tile and its dot, the Allow outline and label, success text, "Ready" chip. Tint `#e9f6ee` / `#1a3324`.
 - **Wait Amber** (light `#8B6123`, dark `#E9A23B`): pending or live-grant state. Chip text, the grant ring, warnings, amber banners. Tint `#fcefdc` / `#3a2c14`.
-- **Wait Fill** (`#E9A23B`, both themes, text `#0E1012`): the lit AI button when requests wait, and the grant ring stroke. A fill, not a pill.
+- **Wait Fill** (`#E9A23B`, both themes, text `#0E1012`): the lit AI button when requests wait (hover: 12 % lighter). A fill, not a pill. The grant ring is Wait Amber, not Wait Fill.
 - **Stop Red** (light `#B5412F`, dark `#F28B73`): text and outline red. Errors, the Delete and Enable tones, SUDO label, the red edge. Tint `#fbe2dc` / `#3d1d18`.
 - **Deny Fill** (`#B5412F`, both themes; hover `#A23A2A`, pressed `#8F3325`, text white): the filled Deny and Delete-for-good buttons.
 
@@ -252,7 +252,7 @@ Three radii and one tile exception. **Control 6 px** (buttons, inputs, the termi
 ## Components
 
 ### Rail top bar and buttons
-The full-width Rail Teal bar, padding 8, gap 8: the Home button ("sshgate" with the shield, 200 px wide to line up with the sidebar), the tab strip (grows), the AI button, Lock. Rail buttons are Rail Mist text on an 11 % Rail Mist pill with a 60 % Rail Mist outline, hover 8 %; the same style on every top-bar button. The AI button appears while the column is open, requests wait or a grant is on; label `AI n` (plus ` · auto n`). When requests are waiting it is a lit Wait Fill button with dark text, not a pill.
+The full-width Rail Teal bar, padding 8, gap 8: the Home button ("sshgate" with the shield, 200 px wide to line up with the sidebar), the tab strip (grows), the AI button, Lock. A tab is a rail button; the open one is a Bg-filled button with Text colour, so it reads as the page it shows. A host with a live or paused auto-allow grant puts an 8 px Wait Fill dot, vertically centred, before its tab. Rail buttons are Rail Mist text on an 11 % Rail Mist pill with a 60 % Rail Mist outline, hover 8 %; the same style on every top-bar button. The AI button appears while the column is open, requests wait or a grant is on; label `AI n` (plus ` · auto n`). When requests are waiting it is a lit Wait Fill button with dark text, not a pill.
 
 ### Sidebar
 Rail Teal, 200 px, Hosts and Audit with 24 px stroke icons. Selected item is an 11 % Rail Mist pill; hover is 8 %. It is theme-scoped so icons and focus are Rail Mist. At the foot: the Moon / Sun / Auto theme control and a Settings gear.
@@ -266,7 +266,7 @@ Surface, Line border, card shadow, 240 px, radius 10, padding 12. Top row is a f
 Raised, Line border, radius 10, padding 12, gap 6. Header: bold server name, a SUDO label (Stop Red on Stop Red tint) when sudo, time in monospace Muted. Then the target (`user@host:port`, monospace Muted), then the command in a **termBlock** (Terminal colours, 1 px Line border, radius 6, padding 8 × 10, monospace, non-ASCII runs shown as `\uXXXX` in Stop Red and underlined). A sudo request has a red outline with a 4 px red left edge. Stdin and transfers use the same block; transfer lines are `UPLOAD` / `DOWNLOAD` bold, paths in monospace. The AI's description is labelled "unverified". A "Reason (optional)" field sits above the buttons. Buttons, left to right: **Deny** (filled Deny Fill, white text, the default and keyboard-reachable), **Send to tab** (plain, disabled for stdin and transfers with a tooltip), **Allow** (outline and label in Go Green once enabled, mouse-only).
 
 ### Decision buttons and tones
-`MouseButton` and `decisionButton` are a row that never takes focus: 1 px Control-line border, padding 6 × 12, radius 6. While disabled (the 500 ms delay, or busy) every tone looks neutral. Once enabled the tone shows: Ok (Allow), Accent (Trust and connect, Resume), Danger (Enable, Overwrite all: red outline and label), DangerFill (Delete host, Delete for good, Deny: filled). Skip existing stays neutral.
+`MouseButton` and `decisionButton` are a row that never takes focus: 1 px Line border (`t.Border`; the tone colour once enabled), padding 6 × 12, radius 6. While disabled (the 500 ms delay, or busy) every tone looks neutral. Once enabled the tone shows: Ok (Allow), Accent (Trust and connect, Resume), Danger (Enable, Overwrite all: red outline and label), DangerFill (Delete host, Delete for good, Deny: filled). Skip existing stays neutral.
 
 ### Dialogs and sheets
 Dialogs use Surface, radius 14, Raised shadow, a bold 16 px title. **Cancel is the filled primary button and takes focus** (the safe default); the risky action beside it is a delayed decision button and neutral until its delay ends. Destructive titles are Stop Red. Sheets (host editor, import) are 420 px columns on Surface with a 1 px Line left edge and Raised shadow: title row with an × (padding 12 × 16), a scrolling body, a footer row with the error at left and buttons at right; Save is the primary button. Both enter with the 160 ms fade and 0.98 to 1 scale.
@@ -275,7 +275,7 @@ Dialogs use Surface, radius 14, Raised shadow, a bold 16 px title. **Cancel is t
 A bold 12 px Label-colour heading above a Raised card (radius 10, padding 12, gap 8) that holds the fields. Used in the editor and settings.
 
 ### Status chips and banners
-Chip: tinted pill, padding 2 × 8, radius 10, text in the hue (AI teal, New key and timed grant amber, Ready green, Already in vault and Skipped amber). Banners are full-width rows with padding 8 × 12 on a tint: Stop Red tint for store errors, Wait tint for paused or ran-while-locked and tunnel warnings, each with a Dismiss button where the user may clear it.
+Chip (one `chip()` helper in home.go, also the import and tunnel status chips): tinted pill, padding 2 × 8, a fixed radius of 10 (the Card step), text in the hue (AI teal, New key and timed grant amber, Ready green, Already in vault and Skipped amber). Banners are full-width rows with padding 8 × 12 on a tint: Stop Red tint for store errors, Wait tint for paused or ran-while-locked and tunnel warnings, each with a Dismiss button where the user may clear it.
 
 ### Tables and lists
 Raised header row (padding 8 × 12, bold) over Surface rows inside a Surface, radius-10, clipped container (tunnels, files). The audit list is a header-less list with Surface date headings (bold, padding 6 × 12), monospace times and commands, filter toggles in a toggle group, and a search field; its table scrolls sideways inside the work column so the AI column is never pushed.
@@ -298,7 +298,7 @@ Only these animate; all app-driven motion is skipped under Reduce Motion and the
 | Sidebar hide and show | none; it snaps | 0 |
 | Grant ring | steps on the app's 15 s clock | none between steps |
 
-No animation calls the hub; clocks and ring steps redraw from the app's own time. No animation changes the size of a mounted terminal or moves an element near a decision button; dialog buttons that follow the delay rule are at their final position from the first frame.
+No animation calls the hub; clocks and ring steps redraw from the app's own time. No animation changes the size of a mounted terminal or moves an element near a decision button; a dialog's 0.98 to 1 entrance does move its buttons for 160 ms, which is safe because decision buttons are disabled for their first 500 ms, so no click can land on one in motion.
 
 ## Do's and Don'ts
 

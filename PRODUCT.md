@@ -34,7 +34,7 @@ Every AI-issued command blocks on an explicit human Allow by default. The one ex
 - Planned, own spec: Keychain.
 - Not built and not to be designed as if present: snippets, ProxyJump, local shell, split panes, sync (later roadmap slices, each behind an entry gate).
 - UI language: English.
-- Themes: dark, light, and Auto (follows the OS), chosen with a ☾ / ☀ / Auto control; Auto is the default, and the choice is a per-machine display preference.
+- Themes: dark, light, and Auto (follows the OS), chosen with a three-way control (a moon icon, a sun icon and Auto); Auto is the default, and the choice is a per-machine display preference.
 - Playwright e2e tests select on current roles, labels and a few class names (`nav.hosts`, `.tabbar .tab`, `.approvals`, `.approval`, `button.allow`, `button.denyall`, `.audittab`, `tr.auditrow`, `tr.auditdetail`); a redesign updates them in the same change.
 
 ## Brand Commitments
