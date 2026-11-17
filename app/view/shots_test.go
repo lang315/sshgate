@@ -9,7 +9,9 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/hubapi"
+	"github.com/lang315/sshgate/app/hubproc"
 	"github.com/lang315/sshgate/app/model"
+	"github.com/lang315/sshgate/app/termconn"
 )
 
 // TestShots writes the redesign's screenshots to $SSHGATE_SHOTS; skipped
@@ -117,4 +119,107 @@ func TestShots(t *testing.T) {
 		}
 		save(tt, "ai-"+name+".png")
 	}
+
+	// Every other screen, light and dark. each builds the screen with the
+	// shared fakes, then the theme and size are applied and it is saved.
+	each := func(name string, w, h int, build func(dark bool) *tester) {
+		for _, dark := range []bool{false, true} {
+			tt := build(dark)
+			tt.SetDark(dark)
+			tt.SetSize(w, h)
+			tt.flush()
+			suffix := "-light.png"
+			if dark {
+				suffix = "-dark.png"
+			}
+			save(tt, name+suffix)
+		}
+	}
+	editS := boxServer
+	editS.AIVisible, editS.HasSuPassword = true, true
+	each("editor", 1000, 1300, func(bool) *tester {
+		_, tt, _ := editBox(t, editS)
+		openAI(t, tt) // the lower fold first: opening one moves what is below it
+		clickFold(t, tt, "Privilege escalation (su / sudo) · saved")
+		return tt
+	})
+	each("editor-new", 1000, 900, func(bool) *tester {
+		_, tt, _ := edReady(t, []hubapi.Server{boxServer})
+		clickT(t, tt, "New host")
+		return tt
+	})
+	each("import", 1000, 900, func(bool) *tester {
+		_, tt, _ := importApp(t, scanRows)
+		return tt
+	})
+	each("files", 1000, 640, func(bool) *tester {
+		a, tt, _, _, sh, _ := jobsApp(t)
+		upload(t, tt, sh, "/l/proj")
+		note(t, a, tt, "files.planned", plannedNote("f1", 2, 1, 0))
+		note(t, a, tt, "files.progress", map[string]any{"id": "f1", "file": "proj/a.txt", "done": 1024, "total": 2048})
+		return tt
+	})
+	each("filejob-confirm", 1000, 640, func(bool) *tester {
+		a, tt, _, c, sh, _ := jobsApp(t)
+		upload(t, tt, sh, "/l/proj")
+		note(t, a, tt, "files.planned", plannedNote("f1", 2, 1, 2, "proj/a.txt", "proj/sub/b.txt"))
+		pass(c, tt)
+		return tt
+	})
+	each("newfolder", 1000, 640, func(bool) *tester {
+		_, tt, _, _, _, _ := jobsApp(t)
+		clickT(t, tt, "New folder")
+		return tt
+	})
+	remote := hubapi.TunnelView{Server: "box", Tunnel: hubapi.Tunnel{ID: "c3", Kind: "remote", ListenPort: 8080, TargetHost: "localhost", TargetPort: 3000, Label: "preview"}, Status: "stopped"}
+	each("tunnels", 1000, 640, func(bool) *tester {
+		a, tt, _, _ := tunnelsApp(t, pgTunnel("running", 2), socksTunnel("stopped"), remote)
+		openTunnelsTab(t, a, tt)
+		return tt
+	})
+	each("tunnel-dialog", 1000, 900, func(bool) *tester {
+		a, tt, _, _ := tunnelsApp(t, pgTunnel("stopped", 0))
+		openTunnelsTab(t, a, tt)
+		clickT(t, tt, "Add tunnel")
+		return tt
+	})
+	each("audit-detail", 1100, 900, func(bool) *tester {
+		_, tt, _, _ := auditApp(t, execEntry(1, "systemctl restart app", "allowed"), execEntry(2, "df -h", "denied"))
+		clickT(t, tt, "Audit")
+		tt.flush()
+		clickFold(t, tt, "df -h")
+		return tt
+	})
+	each("hostkey-unknown", 1000, 640, func(bool) *tester {
+		_, tt, _, _ := hkApp(t, &keyDial{answer: func(int) (*termconn.Conn, error) { return nil, unknownKey("SHA256:abc") }})
+		clickOpenBox(t, tt)
+		return tt
+	})
+	each("hostkey-mismatch", 1000, 640, func(bool) *tester {
+		mis := hubapi.HostKey{Status: "hostKeyMismatch", Server: "box", Host: "127.0.0.1", Port: 2222, User: "test", Pinned: "SHA256:old", Presented: "SHA256:new"}
+		_, tt, _, _ := hkApp(t, &keyDial{answer: func(int) (*termconn.Conn, error) { return nil, &termconn.OpenError{Status: mis.Status, Key: mis} }})
+		clickOpenBox(t, tt)
+		return tt
+	})
+	each("delete-confirm", 1000, 640, func(bool) *tester {
+		_, tt, _ := openDelete(t, &fakeDoor{status: hubapi.Status{HasVault: true}, servers: []hubapi.Server{boxServer}})
+		return tt
+	})
+	each("autoallow", 1000, 900, func(bool) *tester {
+		_, tt, _, c := confirmApp(t, autoBox(), "15 min", "24h")
+		pass(c, tt)
+		return tt
+	})
+	each("hub-starting", 1000, 640, func(bool) *tester {
+		a, tt, _ := readyApp(t, nil)
+		a.Update(func() { a.HubState(hubproc.State{Kind: "starting"}) })
+		return tt
+	})
+	each("hub-failed", 1000, 640, func(bool) *tester {
+		a, tt, _ := readyApp(t, nil)
+		a.Update(func() {
+			a.HubState(hubproc.State{Kind: "failed", Message: "the hub crashed 3 times in 60 s\nsshgate: open /Users/me/.config/sshgate/servers.json: permission denied\nsshgate: another sshgate hub is already running\npanic: runtime error: invalid memory address"})
+		})
+		return tt
+	})
 }
