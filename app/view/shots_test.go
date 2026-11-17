@@ -36,9 +36,8 @@ func TestShots(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	until := time.Date(2026, 10, 15, 12, 25, 0, 0, time.UTC).Format(time.RFC3339)
 	servers := []hubapi.Server{
-		{Name: "build", User: "ci", Host: "10.0.0.5", Port: 22, HostKey: "k", HostKeyAlgo: "ssh-ed25519", AIVisible: true, AutoAllow: &hubapi.AutoAllow{Until: until}},
+		{Name: "build", User: "ci", Host: "10.0.0.5", Port: 22, HostKey: "k", HostKeyAlgo: "ssh-ed25519", AIVisible: true},
 		{Name: "staging", User: "deploy", Host: "10.0.0.6", Port: 22, HostKey: "k", HostKeyAlgo: "ssh-ed25519", AIVisible: true, AutoAllow: &hubapi.AutoAllow{Forever: true, Paused: true}},
 		{Name: "new-box", User: "root", Host: "10.0.0.7", Port: 22},
 		{Name: "db", User: "pg", Host: "10.0.0.8", Port: 22, HostKey: "k", HostKeyAlgo: "ssh-ed25519"},
@@ -52,7 +51,11 @@ func TestShots(t *testing.T) {
 		a.Dial = (&dialRec{err: os.ErrClosed}).dial
 		tt.SetDark(dark)
 		tt.SetSize(1000, 640)
-		a.Update(func() { a.openTab("db"); a.tabs.ShowHome() })
+		a.Update(func() {
+			a.servers[0].AutoAllow = &hubapi.AutoAllow{Until: a.Now().Add(25 * time.Minute).Format(time.RFC3339)}
+			a.openTab("db")
+			a.tabs.ShowHome()
+		})
 		tt.flush()
 		name := "light"
 		if dark {

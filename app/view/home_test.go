@@ -138,12 +138,29 @@ func TestViewChangeFadesInThenRests(t *testing.T) {
 	if !a.viewFading {
 		t.Fatal("entering Audit does not fade")
 	}
+	tt.flushOnce()
+	tt.Advance(40 * time.Millisecond)
+	tt.Frame()
+	row, ok := tt.Find("echo one")
+	if !ok {
+		t.Fatalf("no row: %q", tt.Texts())
+	}
+	row = grow(row, 4)
+	mid := shot(tt)
 	tt.flush()
 	tt.Advance(time.Second)
 	tt.Frame()
 	tt.Frame()
 	if a.viewFading || !tt.HasText("echo one") {
 		t.Fatalf("fading %v texts %q", a.viewFading, tt.Texts())
+	}
+	rest := shot(tt)
+	if sameRegion(mid, rest, row) {
+		t.Fatal("the row looks the same mid-fade and at rest")
+	}
+	tt.Frame()
+	if !sameRegion(rest, shot(tt), row) {
+		t.Fatal("the row changes at rest")
 	}
 }
 

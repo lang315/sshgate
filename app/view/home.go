@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -146,6 +147,11 @@ func (a *App) buildHosts(c *ui.Context) {
 			ui.Text(c, fmt.Sprintf(`No hosts match "%s"`, model.DisplayText(strings.TrimSpace(a.query)))).TextColor(t.TextMuted)
 		}
 		ui.Row(c).Wrap().Gap(12).AlignItems(ui.Stretch).Children(func() {
+			for name := range a.lift { // a host that is gone has no card to finish its fade
+				if !slices.ContainsFunc(shown, func(s hubapi.Server) bool { return s.Name == name }) {
+					delete(a.lift, name)
+				}
+			}
 			for _, s := range shown {
 				name := s.Name
 				shownName := model.DisplayText(name)
