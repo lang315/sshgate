@@ -59,7 +59,7 @@ func TestPaletteContrast(t *testing.T) {
 			{"controlLine/rail (railButton border)", p.ControlLine, p.Rail, 3},
 			{"text/rail (home mark)", p.Text, p.Rail, 4.5},
 			{"accent/rail (shield, focus)", p.Accent, p.Rail, 3},
-			{"text/termBg (active tab)", p.Text, p.TermBg, 4.5}, {"muted/termBg (tab close)", p.Muted, p.TermBg, 3},
+			{"text/termBg (active tab)", p.Text, p.TermBg, 4.5}, {"accent/termBg (active tab bar)", p.Accent, p.TermBg, 3}, {"muted/termBg (tab close)", p.Muted, p.TermBg, 3},
 			{"onWaitFill/waitFill", p.OnWaitFill, p.WaitFill, 4.5},
 			{"onWaitFill/waitFillHover", p.OnWaitFill, p.WaitFillHover, 4.5}, {"waitFillHover/rail", p.WaitFillHover, p.Rail, 3},
 			{"accent/waitTint (Resume)", p.Accent, p.WaitTint, 4.5},
@@ -87,8 +87,8 @@ func TestPaletteContrast(t *testing.T) {
 // the ones kept on purpose.
 func TestThemesOverrideStock(t *testing.T) {
 	kept := map[string]bool{
-		"light.AccentText": true, // white on teal, which is the stock value
-		"light.Scrollbar":  true, // stock scrollbar thumbs read fine on the warm neutrals
+		"light.AccentText": true, // kept on purpose when it equals the stock value
+		"light.Scrollbar":  true, // stock scrollbar thumbs read fine on the cool neutrals
 		"dark.Scrollbar":   true,
 	}
 	light, dark := Themes()

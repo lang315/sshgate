@@ -149,7 +149,7 @@ func (a *App) buildUnlock(c *ui.Context) {
 			ui.Text(c, model.DisplayText(a.unlockErr)).TextColor(t.Danger)
 		}
 		unlock := ui.PrimaryButton
-		if touch {
+		if touch || a.busy || a.password == "" { // disabled, it is neutral like every other disabled button, not a dimmed teal
 			unlock = ui.Button
 		}
 		if (unlock(c, "Unlock").Disabled(a.busy || a.password == "").Clicked() || in.Submitted()) && a.password != "" {

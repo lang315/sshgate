@@ -112,7 +112,7 @@ is the current one (old value in brackets):
 | railText | `#BFC5CD` (`#E6F2F0`) | `#3F4650` (`#E6F2F0`) | none |
 | termBg | `#0F1114` (`#100F0E`) | `#FCFCFD` (`#FFFDFB`) | none |
 | waitFill / onWaitFill | `#E9A23B` / `#0E1012` | `#9A5800` / white (`#E9A23B` / `#0E1012`) | none |
-| railButton | `#2F3237` (11 % railText pill) | `#FCFCFD` (same pill) | none |
+| railButton | `#2F3237` (was an 11 % railText pill) | `#FCFCFD` (was the same pill) | none |
 | dangerTint | `#3B1D21` (`#3D1D18`) | `#FBE3DE` (`#fbe2dc`) | none |
 | tile hues | plum `#7E4F86`, blue `#3D67A8`, violet `#6A55A8`, rose `#A44C68`, amber-brown `#8A6230`, slate `#56657A`, both themes (teal dropped: teal is the accent) | same | none |
 | dangerFill | `#B9432F` (`#B5412F`) | same | none | `Success` |
@@ -144,8 +144,9 @@ for a bolder look, and that table alone is grey with one accent):
   `#EBEDF0`, `railText` `#BFC5CD` / `#3F4650`) with a 1 px `divider` under the
   top bar and beside the sidebar, and the home mark is a teal shield with the
   name in `text`, with no face at rest, hovered or while Home shows.
-- Host tiles are filled, not outlined: the letter sits on a solid tile, teal by
-  default, green while that host has an open terminal.
+- Host tiles are filled, not outlined: the letter sits on a solid tile in the
+  host's own muted hue (no teal since 2026-11-17), green while that host has an
+  open terminal.
 - Chips, banners and the request cards' edges use the tints at full strength
   instead of 15 % alpha.
 

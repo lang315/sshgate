@@ -127,8 +127,8 @@ components:
     padding: "12px"
     width: "240px"
   host-tile:
-    backgroundColor: "{colors.accent-light}"
-    textColor: "{colors.accent-text-light}"
+    backgroundColor: "#3D67A8" # one of colors.tile-hues, by host name; Go Green while connected
+    textColor: "#ffffff"
     rounded: "{rounded.tile}"
     size: "36px"
   request-card:
@@ -210,7 +210,7 @@ Cool neutrals, one teal accent, and four state hues each with a tint. Every text
 
 **The Shell Stays Shell Rule.** Rail and Rail Text appear only on the top bar and sidebar. The work area never borrows them, and the shell never takes a hue: it is told apart by a neutral step and a 1 px Divider.
 
-**The Full-Strength Tint Rule.** Chips and banners use the tint colour at full strength with the matching hue as text. No translucent washes except the rail's own overlays (8 % hover, 11 % pill of Rail Text).
+**The Full-Strength Tint Rule.** Chips and banners use the tint colour at full strength with the matching hue as text. No translucent washes except the rail's own 8 % Rail Text hover.
 
 ### Decision: cool neutrals, teal as the accent only (2026-11-17)
 On 2026-11-17 the author asked for a slightly cool neutral that is not as heavy as the deep-teal shell; the cool neutral replaced the warm-neutral-plus-teal-shell look of the same day. Neutrals are cool grey (blue a few points above red, low chroma) with the same lightness roles; the rail is a neutral step, not Rail Teal; teal is the accent only; the tile hues and state colours were muted a little to sit on grey. Light Surface and terminal background are `#FCFCFD`, not pure white.
