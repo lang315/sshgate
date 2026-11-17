@@ -536,3 +536,27 @@ func TestEditorGroupsOnRaised(t *testing.T) {
 		}
 	}
 }
+
+// A posed element costs a layer every frame, so the sheet is posed only
+// while it enters. The Tester shows no pose, so this checks what it can:
+// frames come while it enters and stop at rest, and typing at rest (a build
+// after the entrance) starts no frames again. The cost itself is in the
+// report's measurements.
+func TestSheetStopsPosingAtRest(t *testing.T) {
+	_, tt, _ := edReady(t, []hubapi.Server{boxServer})
+	clickT(t, tt, "New host")
+	if !tt.FramePending() {
+		t.Fatal("no frame pending while the sheet enters")
+	}
+	tt.Advance(time.Second)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("frames still pending at rest")
+	}
+	fill(t, tt, "Label", "x")
+	tt.Advance(time.Second)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("a build at rest asked for frames")
+	}
+}
