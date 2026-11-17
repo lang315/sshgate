@@ -1,6 +1,6 @@
 # Keychain: Secure Enclave SSH keys (mygo app + hub)
 
-Date: 2026-11-17. Status: draft for the author's review.
+Date: 2026-11-17. Status: built.
 
 ## Intent
 
