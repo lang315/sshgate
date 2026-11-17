@@ -13,7 +13,12 @@ import (
 func card(c *ui.Context, body func()) {
 	t := c.Theme()
 	ui.Column(c).Fill().Center().Children(func() {
-		ui.Column(c).Width(420).Gap(12).Padding(24).Radius(12).Border(1, t.Border).Background(t.Surface).Children(body)
+		p := ui.Column(c).Width(360).Gap(12).Padding(24).Radius(radiusDialog).Border(1, tok(c).Line).Background(tok(c).Surface)
+		raisedShadow(c).On(p)
+		p.Children(func() {
+			ui.Icon(c, shieldIcon).FontSize(32).TextColor(t.Accent).AlignSelf(ui.Center)
+			body()
+		})
 	})
 }
 
@@ -60,15 +65,15 @@ func (a *App) buildCreateVault(c *ui.Context) {
 		again := ui.TextInput(c.Key("cv-again"), &a.again).Password().Label("Confirm master password").Placeholder("Confirm master password")
 		check(c, length, "At least 8 characters")
 		check(c, match, "Both passwords match")
+		if a.createErr != "" {
+			ui.Text(c, model.DisplayText(a.createErr)).TextColor(t.Danger)
+		}
 		ui.Text(c, "The master password cannot be recovered. If you forget it, this vault cannot be unlocked and its saved passwords are lost.").TextColor(t.Warning)
 		if len(a.servers) > 0 {
 			ui.Text(c, "These servers from your existing file are kept, with Visible to AI turned off and their host keys unpinned; you'll confirm each key on the next connect.").TextColor(t.TextMuted)
 			for _, s := range a.servers {
 				ui.Text(c, model.DisplayText(s.Name)+"  "+model.DisplayText(model.Addr(s))).Font("monospace")
 			}
-		}
-		if a.createErr != "" {
-			ui.Text(c, model.DisplayText(a.createErr)).TextColor(t.Danger)
 		}
 		if (ui.PrimaryButton(c, "Create vault").Disabled(a.busy || !ok).Clicked() || again.Submitted()) && ok {
 			a.createVault(a.newPw)
@@ -85,14 +90,11 @@ func (a *App) buildUnlock(c *ui.Context) {
 	t := c.Theme()
 	touch := a.touch != nil && a.touch.Enabled && a.touch.Available
 	card(c, func() {
-		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, lockIcon).FontSize(28).TextColor(t.Accent)
-			ui.Column(c).Gap(2).Children(func() {
-				ui.Text(c, "Unlock vault").Bold().FontSize(18)
-				if a.lockReason == "idle" {
-					ui.Text(c, "Locked after inactivity.").TextColor(t.TextMuted)
-				}
-			})
+		ui.Column(c).Gap(2).Children(func() {
+			ui.Text(c, "Unlock vault").Bold().FontSize(18)
+			if a.lockReason == "idle" {
+				ui.Text(c, "Locked after inactivity.").TextColor(t.TextMuted)
+			}
 		})
 		if len(a.lockHosts) > 0 {
 			names := make([]string, len(a.lockHosts))

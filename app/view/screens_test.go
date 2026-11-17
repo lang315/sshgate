@@ -155,3 +155,62 @@ func TestClickKeepsPasswordFieldFocused(t *testing.T) {
 		}
 	}
 }
+
+func TestUnlockCardCentred(t *testing.T) {
+	d := &fakeDoor{status: hubapi.Status{HasVault: true, Locked: true}}
+	_, tt, _, _ := newApp(t, d)
+	tt.SetSize(900, 500)
+	tt.flush()
+	f, ok := tt.Find("Master password")
+	if !ok {
+		t.Fatal(tt.Texts())
+	}
+	if cx := f.X + f.W/2; cx < 449 || cx > 451 || f.W > 312 {
+		t.Fatalf("field %+v: centre %v, width %v", f, cx, f.W)
+	}
+}
+
+func TestCreateVaultErrorUnderFields(t *testing.T) {
+	d := &fakeDoor{status: hubapi.Status{HasVault: false}, servers: []hubapi.Server{{Name: "old", User: "u", Host: "h", Port: 22}}}
+	a, tt, _, _ := newApp(t, d)
+	a.Update(func() { a.createErr = "disk full" })
+	tt.flush()
+	match, ok1 := tt.Find("Both passwords match (not yet)")
+	msg, ok2 := tt.Find("disk full")
+	btn, ok3 := tt.Find("Create vault")
+	if !ok1 || !ok2 || !ok3 {
+		t.Fatal(tt.Texts())
+	}
+	warn, ok4 := tt.Find("old  u@h:22") // the kept-servers list sits below the error
+	if !ok4 {
+		t.Fatal(tt.Texts())
+	}
+	if msg.Y < match.Y+match.H || msg.Y+msg.H > btn.Y || msg.Y+msg.H > warn.Y {
+		t.Fatalf("error %+v not directly under checks %+v (server row %+v, button %+v)", msg, match, warn, btn)
+	}
+}
+
+func TestCardOnSurface(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	for _, dark := range []bool{false, true} {
+		d := &fakeDoor{status: hubapi.Status{HasVault: true, Locked: true}}
+		_, tt, _, _ := newApp(t, d)
+		tt.SetDark(dark)
+		tt.SetSize(900, 500)
+		tt.flush()
+		tt.Advance(time.Second)
+		tt.Frame()
+		f, ok := tt.Find("Master password")
+		title, ok2 := tt.Find("Unlock vault")
+		if !ok || !ok2 {
+			t.Fatal(tt.Texts())
+		}
+		card := grow(f, 24)
+		// 8 px inside the card's left edge, level with the title (the card's top is above it)
+		patch := ui.Rect{X: card.X + 8, Y: title.Y, W: 4, H: 4}
+		if n := countNear(shot(tt), patch, palette(dark).Surface, 2); n != 16 {
+			t.Fatalf("dark=%v: %d of 16 pixels on Surface", dark, n)
+		}
+	}
+}
