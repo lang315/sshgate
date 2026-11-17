@@ -339,7 +339,7 @@ func (a *App) buildNameDialog(c *ui.Context, id string, v *filesTab) {
 	}
 	submit, cancel := false, false
 	open := true
-	m := ui.Modal(c.Key(fmt.Sprintf("name-%p", nd)), &open, func() {
+	m := modal(c.Key(fmt.Sprintf("name-%p", nd)), &open, func() {
 		ui.Column(c).Width(400).Gap(10).Padding(20).Children(func() {
 			ui.Text(c, title).Bold().FontSize(16)
 			var in ui.Element
