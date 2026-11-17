@@ -46,7 +46,8 @@ func (a *App) keysLoad() {
 	}()
 }
 
-// keysEnsure reads the list once per ready episode, for a view that shows it.
+// keysEnsure reads the list unless it is loaded or loading. Call it from an
+// event handler only (a click), never from a build function.
 func (a *App) keysEnsure() {
 	if !a.keys.loaded && !a.keys.loading {
 		a.keysLoad()
@@ -92,7 +93,6 @@ func keyDate(s string) string {
 
 func (a *App) buildKeychain(c *ui.Context) {
 	t, p := c.Theme(), tok(c)
-	a.keysEnsure()
 	ui.Scroll(c).Grow(1).Padding(16).Gap(12).Label("Keychain").Children(func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, "Keychain").Bold().FontSize(16).Grow(1)
@@ -298,7 +298,6 @@ func (a *App) deleteKey(name string) {
 // the chosen key's public key. No passphrase: the key never leaves the Secure Enclave.
 func (a *App) buildKeychainAuth(c *ui.Context, d *model.HostDraft) {
 	t, p := c.Theme(), tok(c)
-	a.keysEnsure()
 	if len(a.keys.list) == 0 {
 		if a.keys.loaded {
 			ui.Text(c, "No keys yet. Create one in Keychain.").TextColor(t.TextMuted)
@@ -309,10 +308,17 @@ func (a *App) buildKeychainAuth(c *ui.Context, d *model.HostDraft) {
 	for i, k := range a.keys.list {
 		names[i] = k.Name
 	}
-	if !slices.Contains(names, d.KeyName) {
-		d.KeyName = names[0]
+	// A name not in the list (or none) shows "Choose a key"; Save stays off until one is picked.
+	const none = "Choose a key"
+	sel := d.KeyName
+	if !slices.Contains(names, sel) {
+		sel = none
 	}
-	ui.Field(c, "Keychain key", func() { ui.Select(c.Key("keyname"), &d.KeyName, names) })
+	ui.Field(c, "Keychain key", func() { ui.Select(c.Key("keyname"), &sel, append([]string{none}, names...)) })
+	d.KeyName = sel
+	if sel == none {
+		d.KeyName = ""
+	}
 	if k := a.key(d.KeyName); k != nil {
 		termBlock(c, 6).Children(func() {
 			ui.Text(c, model.DisplayText(k.PublicKey)).Font("monospace").Selectable().TextColor(p.TermFg)

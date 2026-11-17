@@ -245,6 +245,9 @@ func (a *App) setScreen() {
 	}
 	switch next {
 	case model.ScreenReady:
+		if a.tabs.Active == model.KeychainTab {
+			a.tabs.ShowHome() // the list is read only by a click, so an unlock never lands on an unread view
+		}
 		a.everReady, a.touchAsked = true, false // an unlock ends the episode
 		a.reloadServers()
 		a.reloadTunnels()

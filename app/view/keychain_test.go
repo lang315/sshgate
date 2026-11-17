@@ -150,6 +150,8 @@ func TestEditorKeychainAuth(t *testing.T) {
 	clickT(t, tt, "+ Key or agent")
 	clickT(t, tt, "Keychain")
 	tt.flush()
+	choose(t, tt, "Choose a key", "spare")
+	tt.flush()
 	if !tt.HasText("spare") || !tt.HasText(keyFree.PublicKey) {
 		t.Fatalf("select / public key: %q", tt.Texts())
 	}
@@ -172,5 +174,71 @@ func TestKeychainEmptyState(t *testing.T) {
 	tt.flush()
 	if !tt.HasText("No keys yet. Create one with New key.") || !tt.HasText("New key") {
 		t.Fatalf("empty: %q", tt.Texts())
+	}
+}
+
+func TestEditorKeychainHostLoadsOnce(t *testing.T) {
+	s := boxServer
+	s.Auth, s.KeyName, s.KeyPublicKey = "keychain", "spare", keyFree.PublicKey
+	_, tt, d := edReady(t, []hubapi.Server{s})
+	d.set(func() { d.keys = []hubapi.Key{keyFree} })
+	d.resetCalls()
+	clickT(t, tt, "Edit box")
+	tt.flush()
+	for i := 0; i < 5; i++ {
+		tt.Frame()
+	}
+	tt.Advance(time.Minute)
+	tt.flush()
+	if n := countCalls(d, "keys.list"); n != 1 {
+		t.Fatalf("keys.list %d", n)
+	}
+	if !tt.HasText(keyFree.PublicKey) {
+		t.Fatalf("no public key: %q", tt.Texts())
+	}
+}
+
+func TestEditorRadioLoadsOnceAndSaveNeedsPick(t *testing.T) {
+	_, tt, d := edReady(t, []hubapi.Server{boxServer})
+	d.set(func() { d.keys = []hubapi.Key{keyFree} })
+	clickT(t, tt, "Edit box")
+	clickT(t, tt, "+ Key or agent")
+	d.resetCalls()
+	if countCalls(d, "keys.list") != 0 {
+		t.Fatal("loaded before the choice")
+	}
+	clickT(t, tt, "Keychain")
+	tt.flush()
+	tt.Advance(time.Minute)
+	tt.flush()
+	if n := countCalls(d, "keys.list"); n != 1 {
+		t.Fatalf("keys.list %d", n)
+	}
+	if !tt.HasText("Choose a key") {
+		t.Fatalf("no placeholder: %q", tt.Texts())
+	}
+	if dis, _ := keyNode(tt, "Save"); !dis {
+		t.Fatal("Save enabled with no key chosen")
+	}
+}
+
+func TestUnlockOnKeychainTabMakesNoCall(t *testing.T) {
+	d := &fakeDoor{status: hubapi.Status{HasVault: true, StorePath: "/v/servers.json"}, pw: "pw", keys: []hubapi.Key{keyUsed}}
+	a, tt, _, _ := newApp(t, d)
+	tt.SetSize(900, 900)
+	tt.flush()
+	clickT(t, tt, "Keychain")
+	tt.flush()
+	d.set(func() { d.status.Locked = true })
+	a.Update(func() { a.refresh() })
+	tt.flush()
+	d.set(func() { d.status.Locked = false })
+	d.resetCalls()
+	a.Update(func() { a.refresh() })
+	tt.flush()
+	tt.Advance(time.Minute)
+	tt.flush()
+	if n := countCalls(d, "keys.list"); n != 0 {
+		t.Fatalf("keys.list %d after unlock", n)
 	}
 }

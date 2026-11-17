@@ -48,6 +48,9 @@ func (a *App) openEditor(name string, focusForget bool) {
 	a.sheetSeq++
 	a.imp = nil
 	a.editor = &editorState{name: name, draft: model.DraftFrom(s), showAuth: s != nil && s.Auth != "password", focusForget: focusForget}
+	if s != nil && s.Auth == "keychain" {
+		a.keysEnsure()
+	}
 }
 
 // dropDialogs closes the host dialogs when the ready screen goes (lock, hub
@@ -291,7 +294,9 @@ func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (
 					if v == "keychain" {
 						label = "Keychain"
 					}
-					ui.Radio(c.Key("auth-"+v), &d.Auth, v, label)
+					if ui.Radio(c.Key("auth-"+v), &d.Auth, v, label).Changed() && v == "keychain" {
+						a.keysEnsure() // the person's choice, not a redraw
+					}
 				}
 			}).Row().Label("Auth")
 			if d.Auth == "key" {

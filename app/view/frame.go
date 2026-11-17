@@ -93,7 +93,7 @@ func (a *App) buildSidebar(c *ui.Context) {
 				a.tabs.ShowAudit()
 			case "keychain":
 				a.tabs.ShowKeychain()
-				a.keysLoad() // on entering the view
+				a.keysLoad() // on entering the view, by the click
 			default:
 				a.tabs.ShowHome()
 			}
