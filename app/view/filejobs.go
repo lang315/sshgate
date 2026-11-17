@@ -350,6 +350,11 @@ func deleteJob(js []*fileJob, j *fileJob) []*fileJob {
 	return out
 }
 
+// raisedList holds the names a confirm lists, on a Raised block.
+func raisedList(c *ui.Context, names func()) {
+	ui.Column(c).Gap(2).Padding(8, 10).Radius(radiusControl).Background(tok(c).Raised).Children(names)
+}
+
 // buildFileConfirm shows the oldest job of tab v waiting for the person,
 // unless a name dialog is open (it waits its turn): the conflict dialog for
 // an upload or download, the delete dialog for a delete. The decisive
@@ -378,13 +383,15 @@ func (a *App) buildFileConfirm(c *ui.Context, v *filesTab) {
 		m = modal(c.Key("confirm-"+j.id), &open, func() {
 			ui.Column(c).Width(440).Gap(10).Children(func() {
 				ui.Text(c, "Delete for good?").Bold().FontSize(16).TextColor(th.Danger)
-				for i, n := range j.names {
-					if i == 10 {
-						ui.Text(c, fmt.Sprintf("and %d more", len(j.names)-10)).TextColor(th.TextMuted)
-						break
+				raisedList(c, func() {
+					for i, n := range j.names {
+						if i == 10 {
+							ui.Text(c, fmt.Sprintf("and %d more", len(j.names)-10)).TextColor(th.TextMuted)
+							break
+						}
+						ui.Text(c, model.DisplayText(n)).Font("monospace").SingleLine()
 					}
-					ui.Text(c, model.DisplayText(n)).Font("monospace").SingleLine()
-				}
+				})
 				ui.Text(c, model.DeleteSummary(p))
 				if needs {
 					var in ui.Element
@@ -417,12 +424,14 @@ func (a *App) buildFileConfirm(c *ui.Context, v *filesTab) {
 					where = v.server + ":" + j.dest
 				}
 				ui.Text(c, "in "+model.DisplayText(where)).Font("monospace").TextColor(th.TextMuted)
-				for _, s := range p.Conflicts.Sample {
-					ui.Text(c, model.DisplayText(s)).Font("monospace").SingleLine()
-				}
-				if more := n - len(p.Conflicts.Sample); more > 0 {
-					ui.Text(c, fmt.Sprintf("and %d more", more)).TextColor(th.TextMuted)
-				}
+				raisedList(c, func() {
+					for _, s := range p.Conflicts.Sample {
+						ui.Text(c, model.DisplayText(s)).Font("monospace").SingleLine()
+					}
+					if more := n - len(p.Conflicts.Sample); more > 0 {
+						ui.Text(c, fmt.Sprintf("and %d more", more)).TextColor(th.TextMuted)
+					}
+				})
 				ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 					if decisionButton(c, "Overwrite all", "Overwrite all", ok, toneDanger) {
 						choice = "overwrite"

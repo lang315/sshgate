@@ -10,14 +10,16 @@ import (
 	"github.com/lang315/sshgate/app/model"
 )
 
-func card(c *ui.Context, body func()) {
-	t := c.Theme()
+func card(c *ui.Context, body func()) { cardShield(c, tok(c).Accent, body) }
+
+// cardShield is card with the shield in col.
+func cardShield(c *ui.Context, col ui.Color, body func()) {
 	// Centred while it fits, scrolls when the window is too short for it.
 	ui.Scroll(c).Fill().FillViewport().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
 		p := ui.Column(c).Width(360).Gap(12).Padding(24).Radius(radiusDialog).Border(1, tok(c).Line).Background(tok(c).Surface)
 		raisedShadow(c).On(p)
 		p.Children(func() {
-			ui.Icon(c, shieldIcon).FontSize(32).TextColor(t.Accent).AlignSelf(ui.Center)
+			ui.Icon(c, shieldIcon).FontSize(32).TextColor(col).AlignSelf(ui.Center)
 			body()
 		})
 	})
@@ -25,9 +27,14 @@ func card(c *ui.Context, body func()) {
 
 func (a *App) buildHub(c *ui.Context) {
 	t := c.Theme()
-	card(c, func() {
+	col := tok(c).Accent
+	if a.hubState.Kind == "failed" {
+		col = tok(c).Danger
+	}
+	cardShield(c, col, func() {
 		switch a.hubState.Kind {
 		case "restarting":
+			ui.Spinner(c).AlignSelf(ui.Center)
 			left := int(math.Max(0, math.Round(float64(a.hubSince.Add(a.hubState.In).Sub(a.Now()))/float64(time.Second))))
 			ui.Text(c, fmt.Sprintf("Hub crashed. Restarting in %d s (attempt %d).", left, a.hubState.Attempt)).Bold()
 			ui.Text(c, "The vault will be locked again after the restart. Open terminals will end.").TextColor(t.TextMuted)
@@ -35,13 +42,16 @@ func (a *App) buildHub(c *ui.Context) {
 		case "failed":
 			ui.Text(c, "The hub stopped").Bold()
 			ui.Text(c, model.DisplayText(a.hubState.Message))
-			for _, line := range strings.Split(a.hubState.Stderr, "\n") {
-				if line != "" {
-					ui.Text(c, model.DisplayText(line)).Font("monospace").TextColor(t.TextMuted)
+			ui.Column(c).Padding(8, 10).Radius(radiusControl).Background(tok(c).TermBg).TextColor(tok(c).TermFg).Children(func() {
+				for _, line := range strings.Split(a.hubState.Stderr, "\n") {
+					if line != "" {
+						ui.Text(c, model.DisplayText(line)).Font("monospace")
+					}
 				}
-			}
+			})
 		default:
-			ui.Text(c, "Starting the hub…")
+			ui.Spinner(c).AlignSelf(ui.Center)
+			ui.Text(c, "Starting the hub…").AlignSelf(ui.Center)
 		}
 	})
 }
@@ -107,7 +117,7 @@ func (a *App) buildUnlock(c *ui.Context) {
 				ui.Text(c, "AI auto-allow is still running").Bold()
 				ui.Row(c).Wrap().Gap(6).Children(func() {
 					for _, n := range names {
-						ui.Text(c, n).Font("monospace").SingleLine().Padding(2, 8).Radius(6).Background(t.Surface)
+						ui.Text(c, n).Font("monospace").SingleLine().Padding(2, 8).Radius(6).Background(tok(c).Raised)
 					}
 				})
 				ui.Text(c, "AI commands on these hosts run without asking while the vault is locked.")

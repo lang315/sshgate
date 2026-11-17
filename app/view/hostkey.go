@@ -54,7 +54,7 @@ func (a *App) buildHostKeyDialogs(c *ui.Context) {
 			})
 			ui.Text(c, "No host key is pinned for this server yet. Check the fingerprint against one you got another way, from the server's console or its admin.")
 			ui.Text(c, model.DisplayText(k.KeyType)+" fingerprint").TextColor(t.TextMuted)
-			ui.Text(c, model.DisplayText(k.Fingerprint)).Font("monospace").Selectable()
+			fingerprintBlock(c, k.Fingerprint, ui.Color{})
 			switch k.KnownHosts {
 			case "match":
 				ui.Text(c, "Your ~/.ssh/known_hosts lists this same key for this host.").TextColor(t.TextMuted)
@@ -80,6 +80,18 @@ func (a *App) buildHostKeyDialogs(c *ui.Context) {
 	if answer != 0 {
 		a.answerHostKey(answer == 1)
 	}
+}
+
+// fingerprintBlock draws a fingerprint on the terminal's own background,
+// in col (TermFg when zero).
+func fingerprintBlock(c *ui.Context, text string, col ui.Color) {
+	p := tok(c)
+	if col == (ui.Color{}) {
+		col = p.TermFg
+	}
+	ui.Column(c).Padding(6, 10).Radius(radiusControl).Background(p.TermBg).Children(func() {
+		ui.Text(c, model.DisplayText(text)).Font("monospace").Selectable().TextColor(col)
+	})
 }
 
 // answerHostKey takes the shown prompt: Trust retries its tab's open (or
@@ -124,9 +136,9 @@ func (a *App) buildMismatch(c *ui.Context, k hubapi.HostKey) {
 				ui.Text(c, "This server presented a different host key than the one pinned. The connection may be intercepted. Nothing was sent.")
 			})
 			ui.Text(c, "Pinned").TextColor(t.TextMuted)
-			ui.Text(c, model.DisplayText(k.Pinned)).Font("monospace").Selectable()
+			fingerprintBlock(c, k.Pinned, ui.Color{})
 			ui.Text(c, "Presented now").TextColor(t.Danger)
-			ui.Text(c, model.DisplayText(k.Presented)).Font("monospace").Selectable().TextColor(t.Danger)
+			fingerprintBlock(c, k.Presented, tok(c).Danger)
 			ui.RichText(c,
 				ui.Span{Text: "Did the key change on purpose?", Weight: 700},
 				ui.Span{Text: " If the server was rebuilt or its keys rotated, confirm the new fingerprint with its admin, then forget the old key in the host editor and connect again."})

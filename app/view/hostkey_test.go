@@ -441,3 +441,43 @@ func TestHostKeyDialogEscapesServerText(t *testing.T) {
 		}
 	}
 }
+
+// Fingerprints sit in TermBg blocks; the presented one reads in Danger.
+func TestHostKeyFingerprintsInBlocks(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	mis := hubapi.HostKey{Status: "hostKeyMismatch", Server: "box", Host: "127.0.0.1", Port: 2222, User: "test", Pinned: "SHA256:old", Presented: "SHA256:new"}
+	for _, dark := range []bool{false, true} {
+		p := palette(dark)
+		onBlock := func(tt *tester, s string) ui.Rect {
+			t.Helper()
+			r, ok := tt.Find(s)
+			if !ok {
+				t.Fatalf("dark=%v: no %q in %q", dark, s, tt.Texts())
+			}
+			// the block's padding strip left of the text, 4 px inside it
+			if n := countNear(shot(tt), ui.Rect{X: r.X - 4, Y: r.Y, W: 2, H: r.H}, p.TermBg, 3); n < int(r.H)*2-2 {
+				t.Fatalf("dark=%v: %q not on TermBg (%d of %d)", dark, s, n, int(r.H)*2)
+			}
+			return r
+		}
+		k := &keyDial{answer: func(int) (*termconn.Conn, error) { return nil, &termconn.OpenError{Status: mis.Status, Key: mis} }}
+		_, tt, _, _ := hkApp(t, k)
+		tt.SetDark(dark)
+		clickOpenBox(t, tt)
+		tt.Advance(time.Second)
+		tt.Frame()
+		onBlock(tt, "SHA256:old")
+		r := onBlock(tt, "SHA256:new")
+		if n := countNear(shot(tt), r, p.Danger, 12); n == 0 {
+			t.Fatalf("dark=%v: presented fingerprint has no Danger pixels", dark)
+		}
+		k = &keyDial{answer: func(int) (*termconn.Conn, error) { return nil, unknownKey("SHA256:abc") }}
+		_, tt, _, _ = hkApp(t, k)
+		tt.SetDark(dark)
+		clickOpenBox(t, tt)
+		tt.Advance(time.Second)
+		tt.Frame()
+		onBlock(tt, "SHA256:abc")
+	}
+}

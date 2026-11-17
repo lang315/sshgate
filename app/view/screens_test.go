@@ -345,3 +345,57 @@ func TestUnlockWaitSentenceNotMuted(t *testing.T) {
 		}
 	}
 }
+
+func TestHubFailedLook(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	a, tt, _, _ := newApp(t, &fakeDoor{status: hubapi.Status{HasVault: true}})
+	tt.SetDark(true)
+	tt.SetSize(900, 500)
+	a.Update(func() { a.HubState(hubproc.State{Kind: "failed", Message: "boom\nline one\nline two"}) })
+	tt.flush()
+	tt.Advance(time.Second)
+	tt.Frame()
+	p := palette(true)
+	f, ok := tt.Find("The hub stopped")
+	if !ok {
+		t.Fatal(tt.Texts())
+	}
+	shield := ui.Rect{X: 450 - 20, Y: f.Y - 12 - 40, W: 40, H: 40}
+	img := shot(tt)
+	if countNear(img, shield, p.Danger, 6) == 0 || countNear(img, shield, p.Accent, 6) != 0 {
+		t.Fatalf("shield: danger %d accent %d", countNear(img, shield, p.Danger, 6), countNear(img, shield, p.Accent, 6))
+	}
+	r, ok := tt.Find("line one")
+	if !ok {
+		t.Fatal(tt.Texts())
+	}
+	if n := countNear(img, ui.Rect{X: r.X - 4, Y: r.Y, W: 2, H: r.H}, p.TermBg, 3); n < int(r.H)*2-2 {
+		t.Fatalf("stderr not on TermBg (%d)", n)
+	}
+}
+
+// The starting and restarting screens show mygo's Spinner: local drawing,
+// no hub call.
+func TestHubStartingShowsSpinner(t *testing.T) {
+	d := &fakeDoor{}
+	c := &clock{t: time.Unix(1000, 0)}
+	a := &App{Door: d, Now: c.now}
+	tt := newTester(t, a)
+	tt.Frame()
+	sp, ok := tt.AccessByRole(ui.RoleProgress, "")
+	if !ok {
+		t.Fatal("starting: no spinner")
+	}
+	before, calls := shot(tt), len(d.callList())
+	tt.Advance(300 * time.Millisecond)
+	tt.Frame()
+	if sameRegion(before, shot(tt), sp.Bounds) || len(d.callList()) != calls {
+		t.Fatalf("spinner did not turn by itself, or called the hub: %v", d.callList())
+	}
+	a.Update(func() { a.HubState(hubproc.State{Kind: "restarting", Attempt: 1, In: 3 * time.Second}) })
+	tt.flush()
+	if _, ok := tt.AccessByRole(ui.RoleProgress, ""); !ok {
+		t.Fatal("restarting: no spinner")
+	}
+}
