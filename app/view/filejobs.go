@@ -277,7 +277,7 @@ func baseNames(paths []string) []string {
 func (a *App) buildTransfers(c *ui.Context, v *filesTab) {
 	th := c.Theme()
 	var click func()
-	ui.Column(c).Gap(6).Label("Transfers").Children(func() {
+	ui.Column(c).Gap(6).Padding(8, 12).Background(tok(c).Raised).BorderWidth(1, 0, 0, 0).BorderColor(tok(c).Line).Label("Transfers").Children(func() {
 		for _, j := range v.jobs {
 			title := j.title()
 			ui.Column(c.Key("job-" + j.id)).Gap(2).Children(func() {

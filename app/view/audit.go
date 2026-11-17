@@ -344,13 +344,13 @@ func auditTone(t *ui.Theme, tone string) ui.Color {
 func (a *App) buildAuditDetail(c *ui.Context, r model.AuditRow) {
 	t := c.Theme()
 	rec := r.Rec
-	ui.Column(c).Gap(6).Padding(8, 12, 10, 34).Children(func() {
+	ui.Column(c).Gap(6).Padding(10).Margin(0, 12, 10, 16).Radius(radiusControl).Background(tok(c).Raised).Children(func() {
 		exec := rec["kind"] == nil
 		if cmd, ok := rec["command"].(string); exec && ok {
 			ui.Text(c, model.DisplayText(cmd)).Font("monospace").Selectable()
 		}
 		if in, ok := rec["stdin"].(string); exec && ok && in != "" {
-			ui.Text(c, "stdin").TextColor(t.TextMuted)
+			ui.Text(c, "stdin").TextColor(tok(c).Label)
 			ui.Text(c, model.AuditStdinText(in)).Font("monospace").Selectable()
 		}
 		if d, ok := rec["description"].(string); ok && d != "" {
@@ -359,12 +359,12 @@ func (a *App) buildAuditDetail(c *ui.Context, r model.AuditRow) {
 		}
 		for _, f := range model.AuditFacts(rec) {
 			ui.Row(c).Gap(8).Children(func() {
-				ui.Text(c, f.Label).TextColor(t.TextMuted).Width(80)
+				ui.Text(c, f.Label).TextColor(tok(c).Label).Width(80)
 				ui.Text(c, model.DisplayText(f.Value)).Selectable()
 			})
 		}
 		if m := model.AuditMasked(rec); m != "" {
-			ui.Text(c, m).TextColor(t.TextMuted)
+			ui.Text(c, m).TextColor(tok(c).Label)
 		}
 		ui.Collapsible(c, "Raw JSON", a.audit.raw[r.Seq], func() {
 			ui.Text(c, model.AuditRaw(r.Raw)).Font("monospace").Selectable()

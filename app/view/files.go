@@ -229,6 +229,7 @@ func (a *App) buildFiles(c *ui.Context, t model.Tab) {
 			if ui.Button(c, "Upload folder").Disabled(!ready).Clicked() {
 				act = func() { a.pickUpload(id, true) }
 			}
+			ui.Box(c).Width(1).Height(20).Background(tok(c).Divider) // what follows needs a selection
 			if ui.Button(c, "Download").Disabled(!ready || len(sel) == 0).Clicked() {
 				act = func() { a.pickDownload(id) }
 			}
@@ -248,13 +249,14 @@ func (a *App) buildFiles(c *ui.Context, t model.Tab) {
 		if v.listing != nil && v.listing.Bad > 0 {
 			ui.Text(c, model.BadNote(v.listing.Bad)).TextColor(th.TextMuted)
 		}
-		zone := ui.Column(c).Grow(1)
+		zone := ui.Column(c).Grow(1).Background(tok(c).Surface).Radius(radiusCard).Clip()
 		if zone.FileDragOver() {
 			zone.Border(2, th.Accent)
 		}
 		zone.Children(func() {
 			rows := v.rows
 			v.ls.Selected, v.ls.Selection, v.ls.Sort = &v.sel, &v.selection, &v.sort
+			v.ls.HeaderCell = func(e ui.Element, _ int) { e.Background(tok(c).Raised) }
 			v.ls.Key = func(i int) any { return rows[i].Name }
 			v.ls.Label = func(i int) string { return model.DisplayText(rows[i].Name) }
 			tb := ui.Table(c.Key("files-"+id), &v.ls, fileColumns, len(rows), func(row, col int) { buildFileCell(c, rows[row], col) }).

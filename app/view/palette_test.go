@@ -37,7 +37,7 @@ func TestPaletteContrast(t *testing.T) {
 		}{
 			{"text/bg", p.Text, p.Bg, 4.5}, {"text/surface", p.Text, p.Surface, 4.5}, {"text/raised", p.Text, p.Raised, 4.5},
 			{"muted/bg", p.Muted, p.Bg, 4.5}, {"muted/surface", p.Muted, p.Surface, 4.5}, {"muted/raised", p.Muted, p.Raised, 4.5},
-			{"label/surface", p.Label, p.Surface, 4.5},
+			{"label/surface", p.Label, p.Surface, 4.5}, {"label/raised", p.Label, p.Raised, 4.5},
 			{"accent/surface", p.Accent, p.Surface, 4.5}, {"accent/accentTint", p.Accent, p.AccentTint, 4.5},
 			{"accentText/accent", p.AccentText, p.Accent, 4.5},
 			{"danger/surface", p.Danger, p.Surface, 4.5}, {"danger/dangerTint", p.Danger, p.DangerTint, 4.5},

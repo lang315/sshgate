@@ -285,3 +285,44 @@ func TestHubStopEndsALoadInFlight(t *testing.T) {
 		t.Fatalf("a Files tab exited: %+v", tab)
 	}
 }
+
+func TestFilesTableAndJobStrip(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	a, tt, _, _, sh, v := jobsApp(t)
+	upload(t, tt, sh, "/l/proj")
+	tt.Advance(time.Second)
+	tt.Frame()
+	p := palette(false)
+	img := shot(tt)
+	h, ok := tt.Find("Size")
+	if !ok {
+		t.Fatal(tt.Texts())
+	}
+	if n := countNear(img, ui.Rect{X: h.X - 6, Y: h.Y + h.H/2 - 2, W: 4, H: 4}, p.Raised, 2); n != 16 {
+		t.Fatalf("%d of 16 column header pixels are Raised", n)
+	}
+	var strip ui.Rect
+	for _, n := range tt.Nodes() {
+		if n.Label == "Transfers" {
+			strip = n.Bounds
+		}
+	}
+	if strip.W == 0 {
+		t.Fatal("no Transfers strip")
+	}
+	if n := countNear(img, ui.Rect{X: strip.X + 3, Y: strip.Y + 3, W: 4, H: 4}, p.Raised, 2); n != 16 {
+		t.Fatalf("%d of 16 strip pixels are Raised", n)
+	}
+	if n := countNear(img, ui.Rect{X: strip.X + 20, Y: strip.Y - 1, W: 100, H: 3}, p.Line, 2); n < 100 {
+		t.Fatalf("%d strip top edge pixels are Line", n)
+	}
+	// a path of 300 characters must not push the toolbar out of the window
+	tt.SetSize(900, 500)
+	a.Update(func() { v.pathIn = strings.Repeat("a", 300) })
+	tt.flush()
+	r, ok := tt.Find("Refresh")
+	if !ok || r.X+r.W > 900 {
+		t.Fatalf("Refresh at %+v in a 900 px window", r)
+	}
+}

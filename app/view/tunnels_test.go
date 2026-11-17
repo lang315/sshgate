@@ -3,6 +3,7 @@ package view
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -401,5 +402,59 @@ func TestTunnelStatusIsSanitized(t *testing.T) {
 	tunnelState(t, a, tt, "a1", "running\u200b", 0)
 	if !tt.HasText(`running\u200b`) || tt.HasText("running\u200b") {
 		t.Fatalf("status shown raw: %q", tt.Texts())
+	}
+}
+
+func TestTunnelStatusPill(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	long := pgTunnel("stopped", 0)
+	long.ID, long.Label, long.TargetHost = "z9", "long", strings.Repeat("h", 190)
+	for _, dark := range []bool{false, true} {
+		a, tt, _, _ := tunnelsApp(t, pgTunnel("running", 2), socksTunnel("stopped"))
+		tt.SetDark(dark)
+		openTunnelsTab(t, a, tt)
+		tt.Advance(time.Second)
+		tt.Frame()
+		p := palette(dark)
+		img := shot(tt)
+		run, ok1 := tt.Find("running")
+		stop, ok2 := tt.Find("stopped")
+		if !ok1 || !ok2 {
+			t.Fatal(tt.Texts())
+		}
+		if n := countNear(img, grow(run, 2), p.OkTint, 2); n == 0 {
+			t.Fatalf("dark=%v: running has no OkTint behind it", dark)
+		}
+		if n := countNear(img, run, p.Ok, 20); n == 0 {
+			t.Fatalf("dark=%v: running text has no Ok pixels", dark)
+		}
+		if n := countNear(img, grow(stop, 2), p.OkTint, 2); n != 0 {
+			t.Fatalf("dark=%v: stopped has %d OkTint pixels", dark, n)
+		}
+		r1, _ := tt.Find("L 127.0.0.1:5433 → db:5432")
+		r2, ok := tt.Find("D 127.0.0.1:1080 SOCKS5")
+		if !ok || r1.Y >= r2.Y {
+			t.Fatalf("rows: %+v %+v %q", r1, r2, tt.Texts())
+		}
+		gap := ui.Rect{X: r1.X, Y: r1.Y + r1.H, W: 100, H: r2.Y - r1.Y - r1.H}
+		if n := countNear(img, gap, p.Divider, 2); n < 100 {
+			t.Fatalf("dark=%v: %d Divider pixels between the rows", dark, n)
+		}
+		foot, ok := tt.Find("While a tunnel runs, any program on this computer can use its local port, and any program on the server can use a remote tunnel’s port.")
+		if !ok {
+			t.Fatal(tt.Texts())
+		}
+		if txt, muted := countNear(img, foot, p.Text, 2), countNear(img, foot, p.Muted, 2); txt == 0 || muted != 0 {
+			t.Fatalf("dark=%v: footer has %d Text and %d Muted pixels", dark, txt, muted)
+		}
+	}
+	a, tt, _, _ := tunnelsApp(t, long)
+	tt.SetSize(900, 500)
+	openTunnelsTab(t, a, tt)
+	for _, n := range tt.Nodes() {
+		if n.Label == "Delete long" && n.Bounds.X+n.Bounds.W > 900 {
+			t.Fatalf("Delete at %+v in a 900 px window", n.Bounds)
+		}
 	}
 }
