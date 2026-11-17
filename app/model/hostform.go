@@ -142,7 +142,7 @@ func ClosesTabs(s *hubapi.Server, d HostDraft) bool {
 		return false
 	}
 	in := ToInput(d)
-	return in.Name != s.Name || in.Host != s.Host || in.Port != s.Port || in.User != s.User || in.Auth != s.Auth || in.KeyPath != s.KeyPath ||
+	return in.Name != s.Name || in.Host != s.Host || in.Port != s.Port || in.User != s.User || in.Auth != s.Auth || in.KeyPath != s.KeyPath || in.KeyName != s.KeyName ||
 		in.Password != nil || in.SuPassword != nil || in.SudoPassword != nil || in.KeyPassphrase != nil
 }
 

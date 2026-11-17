@@ -373,6 +373,19 @@ func TestReloadDetectsRollbackByOneRevision(t *testing.T) {
 	}
 }
 
+// A KDF-less file was never MAC'd: a planted Keychain entry would show its
+// (attacker's) public key as "your key" with a Copy button.
+func TestCreateVaultRefusesPlantedKeys(t *testing.T) {
+	h, path := newHubAt(t, &config.File{Version: 1,
+		Keys: []config.Key{{Name: "laptop", Type: "se-p256", PublicKey: "ecdsa-sha2-nistp256 AAAA x", EncBlob: "x"}}}, nil)
+	if err := h.CreateVault("longenough"); err == nil {
+		t.Fatal("vault.create kept a planted key")
+	}
+	if f, _ := config.Load(path); f.KDF != nil || len(f.Keys) != 1 {
+		t.Fatalf("file changed: kdf %v keys %d", f.KDF != nil, len(f.Keys))
+	}
+}
+
 func TestCreateVaultClearsSoftLockLimit(t *testing.T) {
 	h, path := newHubAt(t, &config.File{Version: 1, SoftLockLimit: "none", Servers: []config.Server{
 		{Name: "a", Host: "h", Port: 22, User: "u", Auth: "agent"}}}, nil)

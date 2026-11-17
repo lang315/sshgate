@@ -2,36 +2,19 @@
 package sekeytest
 
 import (
-	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sync"
 	"testing"
 )
 
-var (
-	once sync.Once
-	path string
-	err  error
-	dir  string
-)
-
-// Build compiles internal/sekey/fakehelper once per test binary and returns its path.
+// Build compiles internal/sekey/fakehelper into the test's temp dir, which
+// the test removes; the Go build cache keeps a rebuild to a quick link.
 func Build(t testing.TB) string {
 	t.Helper()
-	once.Do(func() {
-		if dir, err = os.MkdirTemp("", "sekey-fake"); err != nil {
-			return
-		}
-		path = filepath.Join(dir, binName(runtime.GOOS))
-		out, e := exec.Command("go", "build", "-o", path, "github.com/lang315/sshgate/internal/sekey/fakehelper").CombinedOutput()
-		if e != nil {
-			err = &buildErr{e, string(out)}
-		}
-	})
-	if err != nil {
-		t.Fatal(err)
+	path := filepath.Join(t.TempDir(), binName(runtime.GOOS))
+	if out, err := exec.Command("go", "build", "-o", path, "github.com/lang315/sshgate/internal/sekey/fakehelper").CombinedOutput(); err != nil {
+		t.Fatalf("build fakehelper: %v\n%s", err, out)
 	}
 	return path
 }
@@ -43,10 +26,3 @@ func binName(goos string) string {
 	}
 	return "fakehelper"
 }
-
-type buildErr struct {
-	err error
-	out string
-}
-
-func (b *buildErr) Error() string { return "build fakehelper: " + b.err.Error() + "\n" + b.out }

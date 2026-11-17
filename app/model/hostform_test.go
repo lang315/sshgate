@@ -152,6 +152,13 @@ func TestClosesTabsOnlyForConnectionChanges(t *testing.T) {
 	if ClosesTabs(&box, vis) || !ClosesTabs(&box, user) || !ClosesTabs(&box, sudo) || ClosesTabs(nil, user) {
 		t.Fatal("closesTabs rows")
 	}
+	kc := box
+	kc.Auth, kc.KeyName = "keychain", "a"
+	other := DraftFrom(&kc)
+	other.KeyName = "b"
+	if ClosesTabs(&kc, DraftFrom(&kc)) || !ClosesTabs(&kc, other) {
+		t.Fatal("a Keychain key change must warn: the hub redials")
+	}
 	if got := EditorWarnings(&box, vis, 2, 0); len(got) != 0 {
 		t.Fatalf("Visible to AI alone warns: %q", got)
 	}
