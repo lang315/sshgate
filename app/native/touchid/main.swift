@@ -38,8 +38,15 @@ func knownCode(_ e: Error) -> Int32? {
   return nil
 }
 
+// key-create / key-sign: SSH keys in the Secure Enclave, no biometry (spec
+// 2026-11-17-keychain). Exit 5: no Secure Enclave; 3: the blob no longer
+// loads (another Mac, erased enclave). Nothing about the blob goes to stderr.
+struct KeySignIn: Codable { let blob: String; let data: String }
+
+func b64(_ d: Data) -> String { d.base64EncodedString() }
+
 let args = CommandLine.arguments
-guard args.count == 2 else { fail(1, "usage: sshgate-touchid available|enroll|unlock") }
+guard args.count == 2 else { fail(1, "usage: sshgate-touchid available|enroll|unlock|key-create|key-sign") }
 
 switch args[1] {
 case "available":
@@ -78,6 +85,25 @@ case "unlock":
   guard let pw = try? AES.GCM.open(box, using: boxKey(secret)) else { fail(1, "open failed") }
   FileHandle.standardOutput.write(pw)
 
+case "key-create":
+  guard SecureEnclave.isAvailable else { fail(5) }
+  guard let ac = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, [.privateKeyUsage], nil) else {
+    fail(1, "access control")
+  }
+  do {
+    let key = try SecureEnclave.P256.Signing.PrivateKey(accessControl: ac)
+    let json = "{\"v\":1,\"blob\":\"\(b64(key.dataRepresentation))\",\"pub\":\"\(b64(key.publicKey.x963Representation))\"}"
+    FileHandle.standardOutput.write(Data(json.utf8))
+  } catch { fail(1, "key-create failed") }
+
+case "key-sign":
+  guard SecureEnclave.isAvailable else { fail(5) }
+  guard let inp = try? JSONDecoder().decode(KeySignIn.self, from: FileHandle.standardInput.readDataToEndOfFile()),
+        let blob = Data(base64Encoded: inp.blob), let data = Data(base64Encoded: inp.data) else { fail(1, "bad input") }
+  guard let key = try? SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob) else { fail(3) }
+  guard let sig = try? key.signature(for: data) else { fail(1, "sign failed") }
+  FileHandle.standardOutput.write(Data("{\"sig\":\"\(b64(sig.rawRepresentation))\"}".utf8))
+
 default:
-  fail(1, "usage: sshgate-touchid available|enroll|unlock")
+  fail(1, "usage: sshgate-touchid available|enroll|unlock|key-create|key-sign")
 }
