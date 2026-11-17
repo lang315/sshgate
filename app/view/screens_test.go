@@ -7,6 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/hubapi"
 	"github.com/lang315/sshgate/app/hubproc"
+	"github.com/lang315/sshgate/app/model"
 )
 
 func TestHubScreens(t *testing.T) {
@@ -212,5 +213,37 @@ func TestCardOnSurface(t *testing.T) {
 		if n := countNear(shot(tt), patch, palette(dark).Surface, 2); n != 16 {
 			t.Fatalf("dark=%v: %d of 16 pixels on Surface", dark, n)
 		}
+	}
+}
+
+// The tallest unlock card (auto-allow box, Touch ID, an error) in the
+// smallest window: password field and both buttons stay on screen, or the
+// card scrolls and clicking Unlock still works.
+func TestUnlockFitsAtMinimumWindow(t *testing.T) {
+	ft := &fakeToucher{status: touchOn}
+	d := lockedDoor(ft)
+	d.status.AutoHosts = []string{"box", "db"}
+	a, tt, _ := touchApp(t, ft, d, false)
+	tt.SetSize(900, 500)
+	a.Update(func() { a.unlockErr = "wrong master password" })
+	tt.flush()
+	inside := func(label string) {
+		t.Helper()
+		r, ok := tt.Find(label)
+		if !ok {
+			t.Fatalf("%q missing: %q", label, tt.Texts())
+		}
+		if r.X < 0 || r.Y < 0 || r.X+r.W > 900 || r.Y+r.H > 500 {
+			t.Fatalf("%q at %+v lies outside the 900x500 window", label, r)
+		}
+	}
+	for _, l := range []string{"Master password", "Unlock", "Stop auto-allow and lock"} {
+		inside(l)
+	}
+	tt.Type("pw")
+	clickT(t, tt, "Unlock")
+	tt.flush()
+	if a.Screen() != model.ScreenReady {
+		t.Fatal("Unlock did not unlock")
 	}
 }

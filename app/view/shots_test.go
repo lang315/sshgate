@@ -9,6 +9,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/hubapi"
+	"github.com/lang315/sshgate/app/model"
 )
 
 // TestShots writes the redesign's screenshots to $SSHGATE_SHOTS; skipped
@@ -72,4 +73,40 @@ func TestShots(t *testing.T) {
 		tt.flush()
 		save(tt, "terminal-dark.png")
 	}
+	for _, dark := range []bool{false, true} { // locked, one host on auto-allow
+		d := &fakeDoor{status: hubapi.Status{HasVault: true, Locked: true, StorePath: "/v/servers.json", AutoHosts: []string{"staging"}}}
+		a, tt, _, _ := newApp(t, d)
+		tt.SetDark(dark)
+		tt.SetSize(1000, 640)
+		a.Update(func() { a.lockReason = "manual" })
+		tt.flush()
+		name := "light"
+		if dark {
+			name = "dark"
+		}
+		save(tt, "unlock-"+name+".png")
+	}
+	d := &fakeDoor{status: hubapi.Status{HasVault: true, SoftLockLimit: "24h"}, servers: servers}
+	a, tt, _, _ := newApp(t, d)
+	ft := &fakeToucher{status: model.TouchStatus{Supported: true, Available: true}}
+	a.Touch = ft
+	tt.SetDark(true)
+	tt.SetSize(1000, 640)
+	tt.flush()
+	clickT(t, tt, "Settings")
+	tt.flush()
+	a.Update(func() { a.settings.chosen = "none" })
+	tt.flush()
+	save(tt, "settings-dark.png")
+
+	sudo := reqN("r2", "staging", "apt-get upgrade -y")
+	sudo.Sudo = true
+	xfer := reqN("r3", "build", "")
+	xfer.Command = ""
+	xfer.Transfer = &hubapi.Transfer{Op: "upload", Root: "/Users/me/proj", Local: []string{"dist/app.tar.gz"}, Remote: []string{"/srv/releases/"}}
+	d = &fakeDoor{status: hubapi.Status{HasVault: true}, servers: servers, pending: []hubapi.Request{reqN("r1", "build", "docker compose pull"), sudo, xfer}}
+	_, tt, _, _ = newApp(t, d)
+	tt.SetSize(1000, 640)
+	tt.flush()
+	save(tt, "ai-light.png")
 }
