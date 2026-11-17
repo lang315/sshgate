@@ -68,7 +68,7 @@ func (a *App) buildHostKeyDialogs(c *ui.Context) {
 				if decisionButton(c, "Trust and connect", "Trust and connect", trust, toneAccent) && model.TrustEnabled(a.hk.lc.At, a.Now()) {
 					answer = 1
 				}
-				if ui.Button(c, "Cancel").AutoFocus().Clicked() {
+				if ui.PrimaryButton(c, "Cancel").AutoFocus().Clicked() {
 					answer = 2
 				}
 			})

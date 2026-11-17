@@ -404,7 +404,7 @@ func (a *App) buildFileConfirm(c *ui.Context, v *filesTab) {
 					if decisionButton(c, "Delete", "Delete for good", ok && (!needs || j.typed == model.DeleteWord), toneDangerFill) {
 						choice = "skip"
 					}
-					cancel := ui.Button(c, "Cancel")
+					cancel := ui.PrimaryButton(c, "Cancel")
 					if !needs {
 						cancel = cancel.AutoFocus()
 					}
@@ -439,7 +439,7 @@ func (a *App) buildFileConfirm(c *ui.Context, v *filesTab) {
 					if decisionButton(c, "Skip existing", "Skip existing", ok, toneNeutral) {
 						choice = "skip"
 					}
-					if ui.Button(c, "Cancel").AutoFocus().Clicked() {
+					if ui.PrimaryButton(c, "Cancel").AutoFocus().Clicked() {
 						choice = "cancel"
 					}
 				})

@@ -485,3 +485,59 @@ func TestHostKeyFingerprintsInBlocks(t *testing.T) {
 		onBlock(tt, "SHA256:abc")
 	}
 }
+
+// Cancel, the safe choice beside a delayed risky button, is the filled
+// primary in every such dialog.
+func TestCancelIsPrimaryBesideDelayedButtons(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	for _, dark := range []bool{false, true} {
+		p := palette(dark)
+		for _, d := range []struct {
+			name, sibling string
+			cancelFirst   bool // Cancel left of the sibling, else right
+			open          func() *tester
+		}{
+			{"hostkey", "Trust and connect", false, func() *tester {
+				_, tt, _, _ := hkApp(t, &keyDial{answer: func(int) (*termconn.Conn, error) { return nil, unknownKey("SHA256:abc") }})
+				clickOpenBox(t, tt)
+				return tt
+			}},
+			{"host delete", "Delete host", true, func() *tester {
+				_, tt, _ := openDelete(t, &fakeDoor{status: hubapi.Status{HasVault: true}, servers: []hubapi.Server{boxServer}})
+				return tt
+			}},
+			{"files delete", "Delete for good", false, func() *tester {
+				a, tt, _, _, _, _ := jobsApp(t)
+				clickT(t, tt, "proj")
+				tt.Key(0, ui.KeyDelete)
+				tt.flush()
+				note(t, a, tt, "files.planned", plannedNote("f1", 3, 1, 0))
+				return tt
+			}},
+			{"file conflict", "Skip existing", false, func() *tester {
+				a, tt, _, c, sh, _ := jobsApp(t)
+				upload(t, tt, sh, "/l/proj")
+				note(t, a, tt, "files.planned", plannedNote("f1", 2, 1, 2, "proj/a.txt", "proj/sub/b.txt"))
+				pass(c, tt)
+				return tt
+			}},
+		} {
+			tt := d.open()
+			tt.SetDark(dark)
+			tt.Advance(time.Second)
+			tt.Frame()
+			sib, ok := tt.Find(d.sibling) // Cancel is the next button, 8 DIP away
+			if !ok {
+				t.Fatalf("%s: no %q in %q", d.name, d.sibling, tt.Texts())
+			}
+			strip := ui.Rect{X: sib.X + sib.W + 12, Y: sib.Y + 4, W: 2, H: sib.H - 8}
+			if d.cancelFirst {
+				strip.X = sib.X - 14
+			}
+			if n := countNear(shot(tt), strip, p.Accent, 3); n < int(strip.H)*2-2 {
+				t.Fatalf("dark=%v %s: Cancel is not the filled primary (%d of %d Accent px)", dark, d.name, n, int(strip.H)*2)
+			}
+		}
+	}
+}

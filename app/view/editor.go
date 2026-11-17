@@ -454,7 +454,7 @@ func (a *App) buildDeleteConfirm(c *ui.Context) {
 		ui.Column(c).Width(420).Gap(12).Children(func() {
 			ui.Text(c, "Delete "+model.DisplayText(del.name)+"? Its saved passwords and host key are removed and its open tabs close.")
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if ui.Button(c, "Cancel").AutoFocus().Clicked() {
+				if ui.PrimaryButton(c, "Cancel").AutoFocus().Clicked() {
 					answer = 2
 				}
 				if decisionButton(c, "Delete host", "Delete host", ok, toneDangerFill) && model.TrustEnabled(del.at, a.Now()) {
