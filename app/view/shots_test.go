@@ -4,6 +4,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,8 +16,8 @@ import (
 )
 
 // TestShots writes the redesign's screenshots to $SSHGATE_SHOTS; skipped
-// without it. The terminal shot is the tab-open state of a failed dial: the
-// terminal plugin does not render in a Tester.
+// without it. terminal-light/dark is the tab-open state of a failed dial;
+// terminal-live-* feeds a real tab output (needs MYGO_GHOSTTY_VT).
 func TestShots(t *testing.T) {
 	dir := os.Getenv("SSHGATE_SHOTS")
 	if dir == "" {
@@ -65,15 +66,12 @@ func TestShots(t *testing.T) {
 			name = "dark"
 		}
 		save(tt, "hosts-"+name+".png")
-		if !dark {
-			continue
-		}
 		clickT(t, tt, "Audit")
 		tt.flush()
-		save(tt, "audit-dark.png")
+		save(tt, "audit-"+name+".png")
 		a.Update(func() { a.tabs.Active = a.tabs.Tabs[0].ID })
 		tt.flush()
-		save(tt, "terminal-dark.png")
+		save(tt, "terminal-"+name+".png")
 	}
 	for _, dark := range []bool{false, true} { // locked, one host on auto-allow
 		d := &fakeDoor{status: hubapi.Status{HasVault: true, Locked: true, StorePath: "/v/servers.json", AutoHosts: []string{"staging"}}}
@@ -88,18 +86,23 @@ func TestShots(t *testing.T) {
 		}
 		save(tt, "unlock-"+name+".png")
 	}
-	d := &fakeDoor{status: hubapi.Status{HasVault: true, SoftLockLimit: "24h"}, servers: servers}
-	a, tt, _, _ := newApp(t, d)
-	ft := &fakeToucher{status: model.TouchStatus{Supported: true, Available: true}}
-	a.Touch = ft
-	tt.SetDark(true)
-	tt.SetSize(1000, 640)
-	tt.flush()
-	clickT(t, tt, "Settings")
-	tt.flush()
-	a.Update(func() { a.settings.chosen = "none" })
-	tt.flush()
-	save(tt, "settings-dark.png")
+	for _, dark := range []bool{false, true} {
+		d := &fakeDoor{status: hubapi.Status{HasVault: true, SoftLockLimit: "24h"}, servers: servers}
+		a, tt, _, _ := newApp(t, d)
+		a.Touch = &fakeToucher{status: model.TouchStatus{Supported: true, Available: true}}
+		tt.SetDark(dark)
+		tt.SetSize(1000, 640)
+		tt.flush()
+		clickT(t, tt, "Settings")
+		tt.flush()
+		a.Update(func() { a.settings.chosen = "none" })
+		tt.flush()
+		name := "light"
+		if dark {
+			name = "dark"
+		}
+		save(tt, "settings-"+name+".png")
+	}
 
 	sudo := reqN("r2", "staging", "apt-get upgrade -y")
 	sudo.Sudo = true
@@ -107,7 +110,7 @@ func TestShots(t *testing.T) {
 	xfer.Command = ""
 	xfer.Transfer = &hubapi.Transfer{Op: "upload", Root: "/Users/me/proj", Local: []string{"dist/app.tar.gz"}, Remote: []string{"/srv/releases/"}}
 	for _, dark := range []bool{false, true} { // all three request kinds, the plain one's Allow enabled
-		d = &fakeDoor{status: hubapi.Status{HasVault: true}, servers: servers, pending: []hubapi.Request{reqN("r1", "build", "docker compose pull"), sudo, xfer}}
+		d := &fakeDoor{status: hubapi.Status{HasVault: true}, servers: servers, pending: []hubapi.Request{reqN("r1", "build", "docker compose pull"), sudo, xfer}}
 		_, tt, c, _ := newApp(t, d)
 		tt.SetDark(dark)
 		tt.SetSize(1000, 1100)
@@ -220,6 +223,56 @@ func TestShots(t *testing.T) {
 		a.Update(func() {
 			a.HubState(hubproc.State{Kind: "failed", Message: "the hub crashed 3 times in 60 s\nsshgate: open /Users/me/.config/sshgate/servers.json: permission denied\nsshgate: another sshgate hub is already running\npanic: runtime error: invalid memory address"})
 		})
+		return tt
+	})
+	each("create-vault", 1000, 900, func(bool) *tester {
+		kept := []hubapi.Server{{Name: "build", User: "ci", Host: "10.0.0.5", Port: 22}, {Name: "db", User: "pg", Host: "10.0.0.8", Port: 22}}
+		a, tt, _, _ := newApp(t, &fakeDoor{status: hubapi.Status{HasVault: false}, servers: kept})
+		a.Update(func() { a.newPw, a.again = "password1", "password2" })
+		return tt
+	})
+	each("rename", 1000, 640, func(bool) *tester {
+		_, tt, _, _, _, _ := jobsApp(t)
+		clickT(t, tt, "proj")
+		clickT(t, tt, "Rename")
+		return tt
+	})
+	// The delete delay runs on the app clock (c), which save does not move,
+	// so Delete stays disabled here.
+	each("files-delete", 1000, 640, func(bool) *tester {
+		a, tt, _, _, _, _ := jobsApp(t)
+		clickT(t, tt, "proj")
+		tt.Key(0, ui.KeyDelete)
+		tt.flush()
+		note(t, a, tt, "files.planned", plannedNote("f1", 3, 1, 0))
+		return tt
+	})
+	each("hub-restarting", 1000, 640, func(bool) *tester {
+		a, tt, _ := readyApp(t, nil)
+		a.Update(func() { a.HubState(hubproc.State{Kind: "restarting", Attempt: 1, In: 5 * time.Second}) })
+		return tt
+	})
+	each("store-error", 1000, 640, func(bool) *tester {
+		d := &fakeDoor{status: hubapi.Status{HasVault: true, StoreError: "the vault file failed its integrity check or could not be read; the app keeps the last good copy"}, servers: servers}
+		_, tt, _, _ := newApp(t, d)
+		return tt
+	})
+	// A real tab open on the fake hub: OpenCount counts every tab of the
+	// server that has not exited, so the card's tile turns green.
+	each("hosts-connected", 1000, 900, func(bool) *tester {
+		a, tt, _, _, _ := tabApp(t)
+		tt.SetSize(1000, 900)
+		clickT(t, tt, "Open box")
+		tabsUntil(t, tt, func() bool { return tabState(a, "t1") == "open" }, "t1 open")
+		clickT(t, tt, "Home")
+		return tt
+	})
+	each("terminal-live", 1000, 640, func(bool) *tester {
+		a, tt, _, _, m := tabApp(t)
+		clickT(t, tt, "Open box")
+		tabsUntil(t, tt, func() bool { return tabState(a, "t1") == "open" }, "t1 open")
+		hubNote(m, "term.data", map[string]any{"id": "t1", "data": []byte("test@box:~$ ls -la\r\ntotal 8\r\ndrwxr-xr-x 2 test test 4096 proj\r\ntest@box:~$ ")})
+		tabsUntil(t, tt, func() bool { return strings.Contains(termText(a, "t1"), "proj") }, "output")
 		return tt
 	})
 }
