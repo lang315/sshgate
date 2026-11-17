@@ -29,6 +29,6 @@ func modal(c *ui.Context, open *bool, fn func()) ui.Element {
 		*entered++
 		c.Invalidate()
 	}
-	panel.AnimatePose(p, a)
+	panel.TransformOrigin(0.5, 0.5).AnimatePose(p, a)
 	return panel
 }

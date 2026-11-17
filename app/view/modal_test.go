@@ -45,10 +45,17 @@ func TestModalEntersThenRests(t *testing.T) {
 	}
 	r := grow(dialogRect(t, tt), 20)
 	first := shot(tt)
+	tt.Advance(40 * time.Millisecond)
+	tt.Frame()
+	mid := shot(tt)
 	tt.Advance(time.Second)
 	tt.Frame()
-	if sameRegion(first, shot(tt), r) {
+	rest := shot(tt)
+	if sameRegion(first, rest, r) {
 		t.Fatal("the dialog did not change after its entrance")
+	}
+	if sameRegion(mid, first, r) || sameRegion(mid, rest, r) {
+		t.Fatal("no mid-fade frame: the entrance went instant")
 	}
 	if tt.FramePending() {
 		t.Fatal("frames still pending at rest")
