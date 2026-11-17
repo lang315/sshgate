@@ -22,17 +22,16 @@ func (a *App) sidebarShown() bool {
 // the same whatever the sidebar does, so the tabs never move.
 func (a *App) buildTopBar(c *ui.Context, autoN, liveAuto int) {
 	p := tok(c)
-	ui.Row(c).Gap(8).Padding(8).AlignItems(ui.Center).Background(p.Rail).Children(func() {
-		// The mark, not a button: plain RailText content, a railHover tint under
-		// the pointer. It stays a button underneath for focus, role and clicks.
-		home := ui.Button(c, "").Label("Home").Width(railWidth).TextColor(p.RailText).Background(ui.Color{}).Border(0, ui.Color{})
-		if home.Hovered() {
-			home.Background(railHover(p))
-		}
+	ui.Row(c).Gap(8).Padding(8).AlignItems(ui.Center).Background(p.Rail).BorderWidth(0, 0, 1, 0).BorderColor(p.Divider).Children(func() {
+		// The mark, not a button: a teal shield and the name, with no face at
+		// rest, under the pointer or while Home shows (the pointer stays on it
+		// after a click, so a hover face read as a selected box). It stays a
+		// button underneath for focus, role and clicks.
+		home := ui.Button(c, "").Label("Home").Width(railWidth).Justify(ui.Start).PaddingX(8).TextColor(p.Text).Background(ui.Color{}).Border(0, ui.Color{})
 		if home.Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, shieldIcon).Size(20, 20).TextColor(p.RailText)
-				ui.Text(c, "sshgate").Bold().TextColor(p.RailText)
+				ui.Icon(c, shieldIcon).Size(20, 20).TextColor(p.Accent)
+				ui.Text(c, "sshgate").Bold().TextColor(p.Text)
 			})
 		}).Clicked() {
 			a.tabs.ShowHome()
@@ -48,7 +47,7 @@ func (a *App) buildTopBar(c *ui.Context, autoN, liveAuto int) {
 			if waiting {
 				b.TextColor(p.OnWaitFill).Background(p.WaitFill) // a lit button, not a pill
 				if b.Hovered() {
-					b.Background(waitFillHover(p))
+					b.Background(p.WaitFillHover)
 				}
 			} else {
 				railButton(b, p)
@@ -81,16 +80,20 @@ func (a *App) buildSidebar(c *ui.Context) {
 	case model.KeychainTab:
 		sel = "keychain"
 	}
-	ui.Themed(c, railTheme(c)).Width(railWidth).Shrink(0).HeightPercent(100).Background(p.Rail).Children(func() {
+	ui.Themed(c, railTheme(c)).Width(railWidth).Shrink(0).HeightPercent(100).Background(p.Rail).BorderEndWidth(1).BorderColor(p.Divider).Children(func() {
 		sb := ui.Sidebar(c, &sel, func() {
 			for _, it := range []struct {
 				id, label string
 				icon      *ui.SVG
 			}{{"hosts", "Hosts", hostsIcon}, {"audit", "Audit", auditIcon}, {"keychain", "Keychain", keyIcon}} {
-				item := ui.SidebarItem(c, it.id, it.icon, it.label).TextColor(p.RailText)
-				if sel == it.id {
-					item.Background(p.RailText.Alpha(railPillAlpha)) // the pill, per item
+				if sel != it.id {
+					ui.SidebarItem(c, it.id, it.icon, it.label).TextColor(p.RailText)
+					continue
 				}
+				// The chosen item: the theme's AccentTint row, its icon and label in Accent.
+				ui.Themed(c, accentTheme(c)).Background(ui.Color{}).Children(func() {
+					ui.SidebarItem(c, it.id, it.icon, it.label).TextColor(p.Accent).FontWeight(600)
+				})
 			}
 		}).Grow(1).Background(p.Rail)
 		if sb.Changed() {
@@ -106,7 +109,7 @@ func (a *App) buildSidebar(c *ui.Context) {
 		}
 		ui.Row(c).Gap(8).Padding(8).AlignItems(ui.Center).Children(func() {
 			a.buildThemeControl(c)
-			if ui.Button(c, "").Label("Settings").Tooltip("Settings").TextColor(p.RailText).Background(p.RailText.Alpha(railPillAlpha)).Children(func() { ui.Icon(c, gearIcon).TextColor(p.RailText) }).Disabled(a.status == nil || a.status.SoftLockLimit == "").Clicked() {
+			if ui.Button(c, "").Label("Settings").Tooltip("Settings").TextColor(p.RailText).Background(p.RailButton).Children(func() { ui.Icon(c, gearIcon).Size(16, 16).TextColor(p.RailText) }).Disabled(a.status == nil || a.status.SoftLockLimit == "").Clicked() {
 				a.openSettings()
 			}
 		})

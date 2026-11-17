@@ -16,8 +16,9 @@ a place (a sidebar entry) but does not build it.
 
 ## Goals
 
-- The app's own colours: warm-neutral dark and its light pair, teal accent,
-  as the author chose on 2026-09-25 and confirmed on 2026-11-16.
+- The app's own colours: a cool neutral in both themes with a teal accent
+  (2026-11-17; before that, warm-neutral dark and its light pair inside a teal
+  shell, as the author chose on 2026-09-25 and confirmed on 2026-11-16).
 - A left sidebar for main navigation, as Termius has.
 - Host cards, the AI approval column, and the unlock / create vault / Settings
   screens look designed: colour that carries state, depth, clear hierarchy.
@@ -80,21 +81,41 @@ decision in this spec when it is made.
 ### Tokens (`app/view/palette.go`, new)
 
 One function builds the light and dark `ui.Theme`, called once at startup with
-`ui.SetDefaultThemes`. Values are the 2026-09-25 table; neutrals warmed 2026-11-17 at the author's request (bg, surface, raised, line, text, muted and the rest of the neutrals; accent and state colours unchanged):
+`ui.SetDefaultThemes`.
+
+**Palette note, 2026-11-17: cool neutral.** The author asked for "một màu
+trung tính hơi lạnh, không quá đậm như hiện tại" (a slightly cool neutral, not
+as heavy as now): the cool neutral replaced the warm-neutral-plus-teal look
+(warm grounds, a deep-teal top bar and sidebar). Neutrals are a low-chroma
+blue-grey in both themes; the rail is a neutral step with a 1 px `divider`
+edge, not teal; teal is the accent only (primary buttons, focus, the chosen
+sidebar item, the home mark's shield, links); tile hues and state colours are
+muted a little; after the finish review the open tab got a 2 px accent bar,
+dialogs a 1 px `line` border, the Keychain key tile the accent tint, and the
+light rail buttons a white face. `palette.go` and DESIGN.md hold the full set; the table below
+is the current one (old value in brackets):
 
 | Token | Dark | Light | `ui.Theme` field |
 |---|---|---|---|
-| bg | `#161514` | `#F6F4F0` | `Background`, `Field` |
-| surface | `#1C1A19` | `#FFFDFB` | none: cards, columns and dialogs paint it themselves |
-| raised | `#23211F` | `#EEEBE5` | `Surface` (the face of a button; so a button on a card is visible), `RowHover` |
-| line | `#3D3A37` | `#DFDAD2` | `Border` (card edges and dividers: decoration, exempt from 3:1) |
-| controlLine | builder picks, 3:1 on `bg`, `surface` and `raised` | same | `ControlBorder`, `ButtonBorder` (mygo's 3:1 border, `ui/theme.go:36`) |
-| text | `#ECE8E0` | `#1F1C19` | `Text` |
-| muted | `#9A948C` | `#6B655D` | `TextMuted` |
-| accent | `#56BFB9` | `#12766F` | `Accent`, `Focus` |
-| danger | `#F28B73` | `#B5412F` | `Danger` |
-| wait | `#E9A23B` | `#8B6123` | `Warning` |
-| ok | `#6CC58F` | `#3F7A57` | `Success` |
+| bg | `#16181B` (`#161514`) | `#F4F5F7` (`#F6F4F0`) | `Background`, `Field` |
+| surface | `#1C1F23` (`#1C1A19`) | `#FCFCFD` (`#FFFDFB`) | none: cards, columns and dialogs paint it themselves |
+| raised | `#23272C` (`#23211F`) | `#EDEFF2` (`#EEEBE5`) | `Surface` (the face of a button; so a button on a card is visible), `RowHover` |
+| line | `#363B42` (`#3D3A37`) | `#DADEE3` (`#DFDAD2`) | `Border` (card edges and dividers: decoration, exempt from 3:1) |
+| controlLine | `#737B86` (`#7A746D`) | `#7D8590` (`#857E73`) | `ControlBorder`, `ButtonBorder` (mygo's 3:1 border, `ui/theme.go:36`) |
+| text | `#E5E8EC` (`#ECE8E0`) | `#1A1E23` (`#1F1C19`) | `Text` |
+| muted | `#959CA7` (`#9A948C`) | `#5D6570` (`#6B655D`) | `TextMuted` |
+| accent | `#55B8B2` (`#56BFB9`) | `#0F726D` (`#12766F`) | `Accent`, `Focus` |
+| danger | `#EE8A74` (`#F28B73`) | `#B5412F` | `Danger` |
+| wait | `#E0A048` (`#E9A23B`) | `#87601F` (`#8B6123`) | `Warning` |
+| ok | `#6CC08F` (`#6CC58F`) | `#3B7352` (`#3D7554`) |
+| rail | `#1D2024` (`#134542`) | `#EBEDF0` (`#0F5F59`) | none |
+| railText | `#BFC5CD` (`#E6F2F0`) | `#3F4650` (`#E6F2F0`) | none |
+| termBg | `#0F1114` (`#100F0E`) | `#FCFCFD` (`#FFFDFB`) | none |
+| waitFill / onWaitFill | `#E9A23B` / `#0E1012` | `#9A5800` / white (`#E9A23B` / `#0E1012`) | none |
+| railButton | `#2F3237` (11 % railText pill) | `#FCFCFD` (same pill) | none |
+| dangerTint | `#3B1D21` (`#3D1D18`) | `#FBE3DE` (`#fbe2dc`) | none |
+| tile hues | plum `#7E4F86`, blue `#3D67A8`, violet `#6A55A8`, rose `#A44C68`, amber-brown `#8A6230`, slate `#56657A`, both themes (teal dropped: teal is the accent) | same | none |
+| dangerFill | `#B9432F` (`#B5412F`) | same | none | `Success` |
 
 The remaining `ui.Theme` fields are set too, never left at the stock theme's
 values: `AccentHover` and `AccentPressed` (accent lightened / darkened one
@@ -117,11 +138,12 @@ Tokens with no `ui.Theme` field live in an app struct picked by `c.Theme().Dark`
 **Where colour is stronger than in the 2026-09-25 table** (the author asked
 for a bolder look, and that table alone is grey with one accent):
 
-- The shell is teal, not grey. `rail` is a deep teal (dark `#134542`, light
-  `#0F5F59`) under the sidebar and the top bar, with `railText` `#E6F2F0` in
-  both themes: the frame of the window carries the brand colour, the work area
-  stays neutral. (Dark rail value changed 2026-11-17 after the finish review:
-  the old value read as near-black (1.19:1 against bg).)
+- (Superseded 2026-11-17.) The shell was teal: `rail` a deep teal (dark
+  `#134542`, light `#0F5F59`) with `railText` `#E6F2F0`. The author found the
+  block too heavy; the shell is now a neutral step (`rail` `#1D2024` /
+  `#EBEDF0`, `railText` `#BFC5CD` / `#3F4650`) with a 1 px `divider` under the
+  top bar and beside the sidebar, and the home mark is a teal shield with the
+  name in `text`, with no face at rest, hovered or while Home shows.
 - Host tiles are filled, not outlined: the letter sits on a solid tile, teal by
   default, green while that host has an open terminal.
 - Chips, banners and the request cards' edges use the tints at full strength
@@ -168,8 +190,10 @@ for addresses, commands and fingerprints.
   Keychain is added by its own project. `ui.Sidebar` is one scroll with no
   footer (`ui/sidebar.go:43`), so the theme control and Settings are ordinary
   buttons in a wrapper column under it, on the same `rail`. The selected item
-  is a lighter teal pill, set on that item (its `Draw` or background), not
-  through `Theme.RowSelected`, which would also recolour tables and menus.
+  is the `accentTint` row (the theme's `RowSelected`, already `accentTint`)
+  with its icon and label in `accent`, through a theme scoped to that one item
+  (`accentTheme`); the other items are `railText` (2026-11-17; before, a
+  lighter teal pill).
 - **Sidebar and tabs**: while a terminal or Files tab is active the sidebar is
   not shown; the home button, or choosing Hosts or Audit, shows it again. It
   appears and disappears without animation (see Motion grammar).
@@ -289,7 +313,7 @@ The author asked for the impeccable skill. Its playbook still requires:
 
 - Sidebar width 200 and hiding it fully (not an icon rail) while a tab is
   active.
-- A teal shell (`rail`) as the main way the app gets bolder.
+- A teal shell (`rail`) as the main way the app gets bolder (superseded 2026-11-17 by the cool-neutral shell).
 - "Connected" on a card means this app has a terminal tab open on the host.
 - Theme control and Settings at the bottom of the sidebar; Lock stays in the
   top bar so it is reachable with the sidebar hidden.

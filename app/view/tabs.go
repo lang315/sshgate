@@ -208,6 +208,11 @@ func (a *App) buildTabStrip(c *ui.Context) {
 			if !active && row.Hovered() {
 				row.Background(railHover(p))
 			}
+			if active { // the accent indicator: a 2 px bar inside the bottom edge
+				row.DrawOver(func(pt *ui.Painter, r ui.Rect) {
+					pt.Fill(ui.Rect{X: r.X + 8, Y: r.Y + r.H - 2, W: r.W - 16, H: 2}, p.Accent, 1)
+				})
+			}
 			// A tab is one container: the dot, the label (activates) and the
 			// close icon (closes) are separate controls inside it.
 			row.Children(func() {

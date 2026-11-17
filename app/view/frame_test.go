@@ -152,8 +152,8 @@ func TestAIColumnKeepsItsNodeWhenSidebarHides(t *testing.T) {
 	}
 }
 
-// The top-bar buttons wear the rail's pill, not the stock face (light: dark
-// grey on the teal rail).
+// The top-bar buttons wear RailButton, not the stock face (light: dark
+// grey on the grey rail).
 func TestTopBarButtonsStyledForRail(t *testing.T) {
 	ui.SetDefaultThemes(Themes())
 	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
@@ -168,8 +168,8 @@ func TestTopBarButtonsStyledForRail(t *testing.T) {
 			t.Fatalf("no Lock in %q", tt.Texts())
 		}
 		strip := ui.Rect{X: r.X - 4, Y: r.Y, W: 2, H: r.H}
-		if n := countNear(shot(tt), strip, railButtonFill(p), 3); n < int(r.H)*2-2 {
-			t.Fatalf("dark=%v: Lock not on the rail-button fill (%d of %d)", dark, n, int(r.H)*2)
+		if n := countNear(shot(tt), strip, p.RailButton, 3); n < int(r.H)*2-2 {
+			t.Fatalf("dark=%v: Lock not on RailButton (%d of %d)", dark, n, int(r.H)*2)
 		}
 	}
 }
@@ -225,7 +225,7 @@ func TestLitAIButtonHover(t *testing.T) {
 		tt.Move(r.X+r.W/2, r.Y+r.H/2)
 		tt.Advance(time.Second)
 		tt.Frame()
-		if n := countNear(shot(tt), patch, waitFillHover(p), 2); n != 9 {
+		if n := countNear(shot(tt), patch, p.WaitFillHover, 2); n != 9 {
 			t.Fatalf("dark=%v hovered: %d of 9 pixels on waitFillHover", dark, n)
 		}
 	}
