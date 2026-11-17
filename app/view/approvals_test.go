@@ -570,3 +570,74 @@ func TestDisabledAllowLooksLikeMouseButton(t *testing.T) {
 		t.Fatal("a disabled Allow's edge differs from a disabled Send to tab's")
 	}
 }
+
+// The safety cue for sudo: a 4 px red left edge and a SUDO chip on DangerTint,
+// neither on a plain card.
+func TestSudoCardHasRedEdgeAndChip(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	for _, dark := range []bool{false, true} {
+		a, tt, c, _ := colApp(t)
+		tt.SetDark(dark)
+		tt.SetSize(1000, 900)
+		sudo := reqN("s1", "sudobox", "echo sudo")
+		sudo.Sudo = true
+		note(t, a, tt, "pending", map[string]any{"request": sudo})
+		note(t, a, tt, "pending", map[string]any{"request": reqN("p1", "plainbox", "echo plain")})
+		adv(tt, c, time.Second)
+		tt.Frame()
+		img, p := shot(tt), palette(dark)
+		edge := func(server string) int {
+			r, ok := tt.Find(server)
+			if !ok {
+				t.Fatal(tt.Texts())
+			}
+			// the card's left edge is its padding (12) and a border (4 on sudo, 1 on plain) to the left of the name
+			return countNear(img, ui.Rect{X: r.X - 16, Y: r.Y, W: 4, H: r.H}, p.Danger, 30)
+		}
+		if n := edge("sudobox"); n < 3*10 {
+			t.Fatalf("dark=%v: sudo card's left strip has %d Danger pixels", dark, n)
+		}
+		if n := edge("plainbox"); n != 0 {
+			t.Fatalf("dark=%v: plain card's left strip has %d Danger pixels", dark, n)
+		}
+		chip, ok := tt.Find("SUDO")
+		if !ok {
+			t.Fatal(tt.Texts())
+		}
+		if n := countNear(img, grow(chip, 4), p.DangerTint, 3); n == 0 {
+			t.Fatalf("dark=%v: no DangerTint pixels around the SUDO chip", dark)
+		}
+	}
+}
+
+// Deny sets its own background, so it paints its own hover colour.
+func TestDenyHoverColour(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	a, tt, c, _ := colApp(t)
+	tt.SetSize(1000, 900)
+	note(t, a, tt, "pending", map[string]any{"request": reqN("r1", "box", "echo one")})
+	adv(tt, c, time.Second)
+	tt.Frame()
+	var r ui.Rect
+	for _, n := range tt.Nodes() {
+		if n.Label == "Deny" && n.Role == ui.RoleButton {
+			r = n.Bounds
+		}
+	}
+	if r.W == 0 {
+		t.Fatal("no Deny button")
+	}
+	patch := ui.Rect{X: r.X + 5, Y: r.Y + r.H/2 - 1, W: 3, H: 3} // inside the button, left of its label
+	p := palette(false)
+	if n := countNear(shot(tt), patch, p.DangerFill, 3); n != 9 {
+		t.Fatalf("at rest: %d of 9 pixels on DangerFill", n)
+	}
+	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Advance(time.Second)
+	tt.Frame()
+	if n := countNear(shot(tt), patch, p.DangerFillHover, 3); n != 9 {
+		t.Fatalf("hovered: %d of 9 pixels on DangerFillHover", n)
+	}
+}

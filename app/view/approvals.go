@@ -269,7 +269,15 @@ func (a *App) buildItem(c *ui.Context, it model.PendingItem, now time.Time) {
 			a.focusActive() // back to the active tab's terminal; none: stay here
 		}
 		ui.Row(c).Gap(8).Children(func() {
-			if ui.Button(c, "Deny").Disabled(busy).Background(p.DangerFill).TextColor(p.DangerText).Clicked() {
+			deny := ui.Button(c, "Deny").Disabled(busy).TextColor(p.DangerText)
+			// Own background, so mygo's hover and press tint no longer apply.
+			fill := p.DangerFill
+			if deny.Pressed() {
+				fill = p.DangerFillPressed
+			} else if deny.Hovered() {
+				fill = p.DangerFillHover
+			}
+			if deny.Background(fill).Clicked() {
 				a.decide(id, hubapi.Denied, *reason)
 			}
 			sendOK := r.Stdin == "" && r.Transfer == nil && model.ClickAllowed(it, now, a.col.lc.At, busy)
