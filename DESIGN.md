@@ -159,7 +159,7 @@ Recorded from the shipped app in `app/view/` (palette.go, guard.go, modal.go, ap
 
 **Creative North Star: "The Teal Gatehouse"**
 
-A calm warm-neutral work area held inside a deep-teal shell. The shell is the gate: a full-width top bar and a left sidebar in one teal, with pale text on it. Inside it the work is quiet, so the few things that ask for a decision stand out: an amber ring around a host the AI may run on without a click, a filled red Deny, a red edge on a SUDO request.
+A calm warm-neutral work area held inside a deep-teal shell. The shell is the gate: a full-width top bar and a left sidebar in one teal, with pale text on it. Inside it the work is quiet, so the few things that ask for a decision stand out: an amber Auto chip on a host the AI may run on without a click, a filled red Deny, a red edge on a SUDO request.
 
 It is an Operate surface for one person who keeps it open all day, so it is dense and flat, with system type and no decoration. Colour carries state, not mood: teal is identity and action, green is connected or allowed, amber is waiting or a live grant, red is refusal and risk. Tints are used at full strength for chips and banners, never faded.
 
@@ -168,7 +168,7 @@ The ground is warm neutral in both themes (hue about 30-40 degrees, low chroma).
 **Key Characteristics:**
 - Teal shell (rail) around a neutral work area; the terminal and Files yield the sidebar.
 - Three surface steps, two shadows, three radii.
-- Filled letter tiles; a state ring is the one signature move.
+- Filled letter tiles, one hue per host (never green); the grant shows as the Auto chip (ring removed 2026-11-17 at the author's request; the chip carries the grant).
 - System font; monospace only for what is literal.
 - Decisions are slow on purpose: Allow is outline and mouse-only, Cancel is the filled default.
 
@@ -182,8 +182,8 @@ A teal shell, warm neutrals, and four state hues each with a tint. Every text an
 
 ### Secondary (state hues)
 - **Go Green** (light `#3D7554`, dark `#6CC58F`): connected tile and its dot, the Allow outline and label, success text, "Ready" chip. Tint `#e9f6ee` / `#1a3324`.
-- **Wait Amber** (light `#8B6123`, dark `#E9A23B`): pending or live-grant state. Chip text, the grant ring, warnings, amber banners. Tint `#fcefdc` / `#3a2c14`.
-- **Wait Fill** (`#E9A23B`, both themes, text `#0E1012`): the lit AI button when requests wait (hover: 12 % lighter). A fill, not a pill. The grant ring is Wait Amber, not Wait Fill.
+- **Wait Amber** (light `#8B6123`, dark `#E9A23B`): pending or live-grant state. Chip text, warnings, amber banners. Tint `#fcefdc` / `#3a2c14`.
+- **Wait Fill** (`#E9A23B`, both themes, text `#0E1012`): the lit AI button when requests wait (hover: 12 % lighter). A fill, not a pill.
 - **Stop Red** (light `#B5412F`, dark `#F28B73`): text and outline red. Errors, the Delete and Enable tones, SUDO label, the red edge. Tint `#fbe2dc` / `#3d1d18`.
 - **Deny Fill** (`#B5412F`, both themes; hover `#A23A2A`, pressed `#8F3325`, text white): the filled Deny and Delete-for-good buttons.
 
@@ -247,7 +247,7 @@ Tonal layering plus two shadows. Depth is mostly steps of colour: Bg (the ground
 
 ## Shapes
 
-Three radii and one tile exception. **Control 6 px** (buttons, inputs, the terminal block, the SUDO label, filter toggles); **Card 10 px** (host cards, request cards, section groups, table containers, status chips); **Dialog 14 px** (modals, the auth card). Letter tiles are 36 px squares with an 8 px radius inside a 44 px ring box; the connected dot is a 10 px circle with a 2 px Surface border. Outlines are 1 px; a SUDO request adds a 4 px red left edge (`BorderStartWidth(4)`). Icons are 24 px viewBox, 2 px round-cap strokes in the current colour, drawn as SVG.
+Three radii and one tile exception. **Control 6 px** (buttons, inputs, the terminal block, the SUDO label, filter toggles); **Card 10 px** (host cards, request cards, section groups, table containers, status chips); **Dialog 14 px** (modals, the auth card). Letter tiles are 36 px squares with an 8 px radius; the connected dot is a 10 px circle with a 2 px Surface border. Outlines are 1 px; a SUDO request adds a 4 px red left edge (`BorderStartWidth(4)`). Icons are 24 px viewBox, 2 px round-cap strokes in the current colour, drawn as SVG.
 
 ## Components
 
@@ -260,7 +260,7 @@ Rail Teal, 200 px, Hosts, Audit and Keychain with 24 px stroke icons. Selected i
 ### Host card
 Surface, Line border, card shadow, 240 px, radius 10, padding 12. Top row is a flat "Open" button (no face at rest, Surface Hover on hover) holding the tile, the bold name and the monospace Muted address. Below: chips at left (`AI` teal, `New key` amber, the timed-grant label amber, `n ⇄` running tunnels teal), and the actions at right (Stop auto-allow while a grant is on or paused, Files, Tunnels, Edit, Delete as icon buttons, Muted until the card is hovered, then ink). Hover lifts the shadow to Raised.
 - **Tile**: 36 px, Accent with the host's letter in Accent Text; Go Green with a 10 px "connected" dot while a terminal tab is open.
-- **Grant ring**: a 2 px Wait Amber arc around the tile (44 px box), a clock of time left on a fixed 4 h scale; a forever grant is a full ring, a paused one is dashed. It is the system's one signature mark.
+- **Letter tile**: a 36 px square, white letter on one of six hues (teal, blue, violet, rose, amber-brown, slate; each at least 4.5:1 with white) picked by FNV-1a of the host name; green is only the connected tile. The grant is shown by the Auto chip (ring removed 2026-11-17 at the author's request; the chip carries the grant).
 
 ### Key card
 The Keychain tab's card (`buildKeyCard`): Surface, Line border, card shadow, radius 10, padding 12, gap 10. Top row: a 36 px Accent tile holding the key icon, the bold key name, "ECDSA P-256 · Secure Enclave" and "Created <date>" in Muted, and a chip at right ("Not used" Muted on Raised; "Used by N host(s)" Accent on Accent tint, the host names in its tooltip). Below, the OpenSSH public key in a **termBlock** (selectable). At the foot, right-aligned: "Copy public key" and Delete. Delete is disabled while a host uses the key (tooltip names the hosts); its confirm is a dialog with Cancel as the filled primary with focus and Delete as a delayed `toneDangerFill` decision button. The tab header is the bold 16 px "Keychain" with New key as the primary button.
@@ -299,9 +299,8 @@ Only these animate; all app-driven motion is skipped under Reduce Motion and the
 | View change (Hosts, Audit) | cross-fade | 120 ms |
 | Dialogs and sheets | fade and scale 0.98 to 1 from centre | 160 ms |
 | Sidebar hide and show | none; it snaps | 0 |
-| Grant ring | steps on the app's 15 s clock | none between steps |
 
-No animation calls the hub; clocks and ring steps redraw from the app's own time. No animation changes the size of a mounted terminal or moves an element near a decision button; a dialog's 0.98 to 1 entrance does move its buttons for 160 ms, which is safe because decision buttons are disabled for their first 500 ms, so no click can land on one in motion.
+No animation calls the hub; clocks redraw from the app's own time. No animation changes the size of a mounted terminal or moves an element near a decision button; a dialog's 0.98 to 1 entrance does move its buttons for 160 ms, which is safe because decision buttons are disabled for their first 500 ms, so no click can land on one in motion.
 
 ## Do's and Don'ts
 
@@ -311,7 +310,7 @@ No animation calls the hub; clocks and ring steps redraw from the app's own time
 - **Do** make Cancel the filled primary with AutoFocus in any dialog that has a risky action.
 - **Do** show a request's command, stdin, paths and addresses in monospace on the Terminal colours with a Line outline.
 - **Do** put banners in the work column, not in the AI column.
-- **Do** keep a tile and ring as the way a host shows its state: teal default, green connected, amber ring grant.
+- **Do** keep the tile as the way a host shows its state: its own hue by default, green connected; the Auto chip shows a grant.
 - **Do** use 6 / 10 / 14 radii, the two shadows, and the Bg / Surface / Raised steps.
 - **Do** keep terminal-resizing layout changes instant (snap), never animated.
 

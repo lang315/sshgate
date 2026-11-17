@@ -27,8 +27,7 @@
     "motion": [
       { "name": "fade-120", "value": "120ms", "purpose": "Hover and press colour, card shadow lift, AI column content, new request card opacity, view cross-fade." },
       { "name": "enter-160", "value": "160ms, opacity + scale 0.98 to 1 from centre", "purpose": "Dialog and sheet entrance." },
-      { "name": "snap", "value": "0ms", "purpose": "Sidebar hide/show and AI column position; never animated." },
-      { "name": "grant-ring-step", "value": "15s clock, no tween", "purpose": "Grant ring arc redraw." }
+      { "name": "snap", "value": "0ms", "purpose": "Sidebar hide/show and AI column position; never animated." }
     ],
     "breakpoints": []
   },
@@ -92,11 +91,11 @@
   ],
   "narrative": {
     "northStar": "The Teal Gatehouse",
-    "overview": "A calm warm-neutral work area held inside a deep-teal shell. The shell is the gate: a full-width top bar and a left sidebar in one teal, with pale text on it. Inside it the work is quiet, so the few things that ask for a decision stand out: an amber ring around a host the AI may run on without a click, a filled red Deny, a red edge on a SUDO request. Open question: the neutrals ship cool slate although the brief says warm; undecided.",
+    "overview": "A calm warm-neutral work area held inside a deep-teal shell. The shell is the gate: a full-width top bar and a left sidebar in one teal, with pale text on it. Inside it the work is quiet, so the few things that ask for a decision stand out: an amber Auto chip on a host the AI may run on without a click, a filled red Deny, a red edge on a SUDO request. Open question: the neutrals ship cool slate although the brief says warm; undecided.",
     "keyCharacteristics": [
       "Teal shell (rail) around a neutral work area; the terminal and Files yield the sidebar.",
       "Three surface steps, two shadows, three radii.",
-      "Filled letter tiles; a state ring is the one signature move.",
+      "Filled letter tiles, each host its own hue (never green, which is the connected tile). Grant ring removed 2026-11-17 at the author's request; the chip carries the grant.",
       "System font; monospace only for what is literal.",
       "Decisions are slow on purpose: Allow is outline and mouse-only, Cancel is the filled default."
     ],

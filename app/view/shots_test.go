@@ -309,6 +309,17 @@ func TestShots(t *testing.T) {
 		a.Update(func() { a.servers[0].AutoAllow = &hubapi.AutoAllow{Forever: true} })
 		return tt
 	})
+	// Two tabs, the first active and the second inactive.
+	each("tabs-two", 1000, 640, func(bool) *tester {
+		a, tt, _, _, _ := tabApp(t)
+		clickT(t, tt, "Open box")
+		tabsUntil(t, tt, func() bool { return tabState(a, "t1") == "open" }, "t1 open")
+		clickT(t, tt, "Home")
+		clickT(t, tt, "Open box")
+		tabsUntil(t, tt, func() bool { return tabState(a, "t2") == "open" }, "t2 open")
+		a.Update(func() { a.activate("t1") })
+		return tt
+	})
 	if os.Getenv("MYGO_GHOSTTY_VT") == "" { // the other shots need no terminal library
 		t.Log("terminal-live skipped: MYGO_GHOSTTY_VT unset")
 		return

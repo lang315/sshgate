@@ -23,12 +23,18 @@ func (a *App) sidebarShown() bool {
 func (a *App) buildTopBar(c *ui.Context, autoN, liveAuto int) {
 	p := tok(c)
 	ui.Row(c).Gap(8).Padding(8).AlignItems(ui.Center).Background(p.Rail).Children(func() {
-		if railButton(ui.Button(c, "").Label("Home").Width(railWidth).Children(func() {
+		// The mark, not a button: plain RailText content, a railHover tint under
+		// the pointer. It stays a button underneath for focus, role and clicks.
+		home := ui.Button(c, "").Label("Home").Width(railWidth).TextColor(p.RailText).Background(ui.Color{}).Border(0, ui.Color{})
+		if home.Hovered() {
+			home.Background(railHover(p))
+		}
+		if home.Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, shieldIcon)
-				ui.Text(c, "sshgate").Bold()
+				ui.Icon(c, shieldIcon).Size(20, 20).TextColor(p.RailText)
+				ui.Text(c, "sshgate").Bold().TextColor(p.RailText)
 			})
-		}), p).Clicked() {
+		}).Clicked() {
 			a.tabs.ShowHome()
 		}
 		a.buildTabStrip(c) // grows, so AI and Lock stay at the right

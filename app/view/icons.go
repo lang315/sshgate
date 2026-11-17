@@ -23,6 +23,9 @@ var (
 	chevronDownIcon = cardIcon("M6 9l6 6 6-6")
 )
 
+// stopIcon is a filled square, the card's Stop auto-allow.
+var stopIcon = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M6 6h12v12H6z"/></svg>`))
+
 // cardIcon draws one of Electron's stroked 24x24 icons (desktop/src/renderer/icons.tsx).
 func cardIcon(paths string) *ui.SVG {
 	return ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="` + paths + `"/></svg>`))
@@ -33,5 +36,11 @@ func cardIcon(paths string) *ui.SVG {
 const cardButtonPadX = 10
 
 func iconButton(c *ui.Context, verb, name string, icon *ui.SVG, col ui.Color) bool {
-	return ui.Button(c, "").Label(verb+" "+name).Tooltip(verb).Padding(6, cardButtonPadX).Children(func() { ui.Icon(c, icon).TextColor(col) }).Clicked()
+	b := ui.Button(c, "").Label(verb+" "+name).Tooltip(verb).Padding(6, cardButtonPadX)
+	// Ghost: no face or border at rest, a Raised tint under the pointer.
+	b.Background(ui.Color{}).Border(0, ui.Color{})
+	if b.Hovered() {
+		b.Background(tok(c).Raised)
+	}
+	return b.Children(func() { ui.Icon(c, icon).TextColor(col) }).Clicked()
 }

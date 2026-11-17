@@ -69,6 +69,16 @@ func TestPaletteContrast(t *testing.T) {
 				t.Errorf("dark=%v %s: %.2f < %.1f", dark, c.name, r, c.min)
 			}
 		}
+		for i, hue := range p.TileHues {
+			if r := ratio(p.TileText, hue); r < 4.5 {
+				t.Errorf("dark=%v white/tileHue[%d]: %.2f < 4.5", dark, i, r)
+			}
+			for j := 0; j < i; j++ {
+				if p.TileHues[j] == hue {
+					t.Errorf("dark=%v tileHue[%d] repeats [%d]", dark, i, j)
+				}
+			}
+		}
 	}
 }
 
@@ -96,6 +106,14 @@ func TestThemesOverrideStock(t *testing.T) {
 			if g.R == s.R && g.G == s.G && g.B == s.B && g.A == s.A {
 				t.Errorf("%s theme: %s still the stock value", c.name, f.Name)
 			}
+		}
+	}
+}
+
+func TestTileHueIndex(t *testing.T) {
+	for name, want := range map[string]int{"": 1, "a": 4, "fviainboxes-server": 5, "buildpc": 2, "key": 4, "long": 1, "quyen-gmail": 2, "hang-nguyen": 0} {
+		if got := tileHueIndex(name); got != want {
+			t.Errorf("tileHueIndex(%q) = %d, want %d", name, got, want)
 		}
 	}
 }

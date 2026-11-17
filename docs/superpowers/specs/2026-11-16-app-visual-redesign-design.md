@@ -189,14 +189,7 @@ teal. Hover: the card lifts to the raised shadow and the action icons go from
 muted to full. The Stop auto-allow button is always visible while a grant is on
 or paused, as now.
 
-**Signature move, the grant ring** (builder's proposal, see Open calls): a host
-on timed auto-allow shows an amber ring around its tile, redrawn on the 15 s
-clock the app already has. The hub sends only when a grant ends
-(`hubapi.AutoAllow`: `Until`, `Forever`, `Paused`), not when it began, so the
-ring is a clock of time left on a fixed 4 h scale, 4 h being the longest timed
-mode: a full ring is 4 h left, a quarter ring 1 h, a 15 min grant a thin arc.
-A forever grant is a full ring; a paused one is dashed. Drawn with
-`Path.Circle`, `Trim` and `Dash` (`ui/path.go`). The same amber is on the AI button when
+**Grant ring (removed)**: ring removed 2026-11-17 at the author's request; the chip carries the grant. A host on auto-allow shows the Auto chip only. The same amber is on the AI button when
 requests wait. One glance at the Hosts view tells which servers an AI can act
 on right now and for how long.
 
@@ -228,7 +221,6 @@ order as now.
 | AI column open / close | position snaps; content fades in (opacity only) | 120 ms |
 | Dialogs and editor sheet | fade + scale 0.98 → 1 | 160 ms |
 | View change (Hosts ↔ Audit) | cross-fade | 120 ms |
-| Grant ring | steps with the 15 s clock | none between steps |
 
 The two snaps are the rule from Anti-goals: an animated width would resize a
 mounted terminal on every frame, and each resize is a `term.resize` to the hub
@@ -288,8 +280,7 @@ The author asked for the impeccable skill. Its playbook still requires:
   ratio, both themes.
 - Shell tests: sidebar chooses Hosts and Audit; opening a tab hides it; the
   back button shows it.
-- Grant ring: a `model` function maps a grant and the time to a fraction of
-  4 h, with a table test (timed, over 4 h, forever, paused, expired).
+- Grant ring: removed, with its `model` function (2026-11-17).
 - All existing safety tests pass unchanged in meaning: Allow delay, mouse-only
   buttons, Deny default, "Deny all" always rendered.
 - By hand per slice: the packaged app, both themes, Reduce Motion on and off.
@@ -302,7 +293,7 @@ The author asked for the impeccable skill. Its playbook still requires:
 - "Connected" on a card means this app has a terminal tab open on the host.
 - Theme control and Settings at the bottom of the sidebar; Lock stays in the
   top bar so it is reachable with the sidebar hidden.
-- The grant ring as the signature move, and its fixed 4 h scale.
+- The grant ring (removed 2026-11-17).
 - The AI column does not slide; only its content fades in.
 - A separate, darker border colour for buttons and inputs (3:1), while card
   edges keep the soft `line`.

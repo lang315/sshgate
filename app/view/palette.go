@@ -1,6 +1,10 @@
 package view
 
-import "github.com/egoist/mygo/ui"
+import (
+	"hash/fnv"
+
+	"github.com/egoist/mygo/ui"
+)
 
 // Warm neutrals with a teal shell; the table lives in the 2026-11-16 visual
 // redesign spec.
@@ -17,7 +21,16 @@ type tokens struct {
 	Bg, Surface, Raised, SurfaceHover, Line, ControlLine, Divider, Text, Muted, Label                          ui.Color
 	Accent, AccentHover, AccentPressed, AccentText, AccentTint                                                 ui.Color
 	Danger, DangerFill, DangerFillHover, DangerFillPressed, DangerText, DangerTint, Wait, WaitTint, Ok, OkTint ui.Color
-	TermBg, TermFg, Rail, RailText, WaitFill, OnWaitFill                                                       ui.Color
+	TermBg, TermFg, Rail, RailText, WaitFill, OnWaitFill, TileText                                             ui.Color
+	TileHues                                                                                                   [6]ui.Color
+}
+
+// tileHueIndex picks a host's tile hue from its name: FNV-1a 32 bit, modulo
+// the number of hues, so a host keeps its colour across runs and renames only.
+func tileHueIndex(name string) int {
+	h := fnv.New32a()
+	h.Write([]byte(name))
+	return int(h.Sum32() % uint32(len(tokens{}.TileHues)))
 }
 
 func palette(dark bool) tokens {
@@ -59,6 +72,13 @@ func palette(dark bool) tokens {
 		RailText:          ui.Hex(railTextHex),
 		WaitFill:          ui.Hex("#E9A23B"),
 		OnWaitFill:        ui.Hex("#0E1012"),
+		TileText:          ui.Hex("#ffffff"),
+		// Teal, blue, violet, rose, amber-brown, slate; no green, which is the
+		// connected tile's. White text on each is at least 4.5:1.
+		TileHues: [6]ui.Color{
+			pick("#15807A", "#0F766E"), pick("#3A6BC4", "#2563B8"), pick("#7B52C2", "#6D43B5"),
+			pick("#BE4767", "#B03A5B"), pick("#9A6516", "#8A5A12"), pick("#566B82", "#475A70"),
+		},
 	}
 }
 
