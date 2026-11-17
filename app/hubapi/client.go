@@ -224,3 +224,24 @@ func (h *Client) AuditRead(ctx context.Context, q AuditQuery) (AuditPage, error)
 	}
 	return p, nil
 }
+
+func (h *Client) KeysList(ctx context.Context) ([]Key, error) {
+	var l []Key
+	if err := h.c.Call(ctx, "keys.list", struct{}{}, &l); err != nil {
+		return nil, err
+	}
+	if l == nil {
+		l = []Key{}
+	}
+	return l, nil
+}
+
+func (h *Client) KeysCreate(ctx context.Context, name string) (Key, error) {
+	var k Key
+	err := h.c.Call(ctx, "keys.create", map[string]string{"name": name}, &k)
+	return k, err
+}
+
+func (h *Client) KeysDelete(ctx context.Context, name string) error {
+	return h.c.Call(ctx, "keys.delete", map[string]string{"name": name}, nil)
+}

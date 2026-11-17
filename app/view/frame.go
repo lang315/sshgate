@@ -15,7 +15,7 @@ const railWidth = 200
 // A sheet beside the AI column leaves no room for it (200 + 420 + 380 > 900),
 // and the column must neither clip nor move, so the sidebar steps aside, at once.
 func (a *App) sidebarShown() bool {
-	return (a.tabs.Active == "" || a.tabs.Active == model.AuditTab) && a.editor == nil && a.imp == nil
+	return (a.tabs.Active == "" || a.tabs.Active == model.AuditTab || a.tabs.Active == model.KeychainTab) && a.editor == nil && a.imp == nil
 }
 
 // buildTopBar is the full-width bar: Home, the tab strip, AI and Lock. It is
@@ -61,7 +61,7 @@ func (a *App) buildTopBar(c *ui.Context, autoN, liveAuto int) {
 	})
 }
 
-// buildSidebar is the left rail: Hosts and Audit, then the theme switch and
+// buildSidebar is the left rail: Hosts, Audit and Keychain, then the theme switch and
 // Settings. It draws nothing while a tab is active, and the page snaps.
 func (a *App) buildSidebar(c *ui.Context) {
 	if !a.sidebarShown() {
@@ -69,15 +69,18 @@ func (a *App) buildSidebar(c *ui.Context) {
 	}
 	p := tok(c)
 	sel := "hosts"
-	if a.tabs.Active == model.AuditTab {
+	switch a.tabs.Active {
+	case model.AuditTab:
 		sel = "audit"
+	case model.KeychainTab:
+		sel = "keychain"
 	}
 	ui.Themed(c, railTheme(c)).Width(railWidth).Shrink(0).HeightPercent(100).Background(p.Rail).Children(func() {
 		sb := ui.Sidebar(c, &sel, func() {
 			for _, it := range []struct {
 				id, label string
 				icon      *ui.SVG
-			}{{"hosts", "Hosts", hostsIcon}, {"audit", "Audit", auditIcon}} {
+			}{{"hosts", "Hosts", hostsIcon}, {"audit", "Audit", auditIcon}, {"keychain", "Keychain", keyIcon}} {
 				item := ui.SidebarItem(c, it.id, it.icon, it.label).TextColor(p.RailText)
 				if sel == it.id {
 					item.Background(p.RailText.Alpha(railPillAlpha)) // the pill, per item
@@ -85,9 +88,13 @@ func (a *App) buildSidebar(c *ui.Context) {
 			}
 		}).Grow(1).Background(p.Rail)
 		if sb.Changed() {
-			if sel == "audit" {
+			switch sel {
+			case "audit":
 				a.tabs.ShowAudit()
-			} else {
+			case "keychain":
+				a.tabs.ShowKeychain()
+				a.keysLoad() // on entering the view
+			default:
 				a.tabs.ShowHome()
 			}
 		}
