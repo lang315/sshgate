@@ -16,7 +16,7 @@ const railTextHex = "#E6F2F0"
 type tokens struct {
 	Bg, Surface, Raised, SurfaceHover, Line, ControlLine, Divider, Text, Muted, Label ui.Color
 	Accent, AccentHover, AccentPressed, AccentText, AccentTint                        ui.Color
-	Danger, DangerFill, DangerTint, Wait, WaitTint, Ok, OkTint                        ui.Color
+	Danger, DangerFill, DangerText, DangerTint, Wait, WaitTint, Ok, OkTint            ui.Color
 	TermBg, TermFg, Rail, RailText                                                    ui.Color
 }
 
@@ -45,10 +45,11 @@ func palette(dark bool) tokens {
 		AccentTint:    pick("#16312F", "#dcf1ec"),
 		Danger:        pick("#F28B73", "#B5412F"),
 		DangerFill:    ui.Hex("#B5412F"),
+		DangerText:    ui.Hex("#ffffff"),
 		DangerTint:    pick("#3D1D18", "#fbe2dc"),
 		Wait:          pick("#E9A23B", "#8B6123"),
 		WaitTint:      pick("#3A2C14", "#fcefdc"),
-		Ok:            pick("#6CC58F", "#3F7A57"),
+		Ok:            pick("#6CC58F", "#3D7554"),
 		OkTint:        pick("#1A3324", "#e9f6ee"),
 		TermBg:        pick("#0E1012", "#ffffff"),
 		TermFg:        pick("#D8D4CC", "#1b1f2e"),

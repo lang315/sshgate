@@ -23,7 +23,7 @@ func capFirst(s string) string {
 
 func (a *App) buildReady(c *ui.Context) {
 	if !a.aiOpen {
-		a.col.mounted, a.pausedCol, a.aiFaded = false, nil, false
+		a.col.mounted, a.col.seen, a.col.fading, a.pausedCol, a.aiFaded = false, nil, nil, nil, false
 	}
 	now := a.Now()
 	autoN := len(model.AutoHostNames(a.servers, now))
