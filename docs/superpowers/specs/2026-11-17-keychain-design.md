@@ -98,7 +98,7 @@ Two new commands. Exit codes: 0 ok, 1 other, 3 the key no longer works on this M
     - `PublicKey()` is parsed from `PublicKey`;
     - `Sign` runs the helper's `key-sign` with a 10 s timeout, the blob on stdin and never in argv, and converts r||s into the SSH ecdsa signature blob;
     - helper exit 3 becomes "this Secure Enclave key does not work on this Mac".
-  - The `Redactor` treats `SEKeyBlob` as a secret.
+  - No Redactor change (plan audit, 2026-11-17): the blob is never sent to a server, so remote output cannot contain it. The hub's own errors are kept free of it by a test.
 - **Auto-allow:** `snapOf` works from `DialConfig` (`internal/hub/autoallow.go:43`), so it includes `DialConfig.PublicKey`, the key's identity. Changing a host's key then ends its grant ("server changed"). `dialChanged` includes `KeyName`.
 - **New UI-door methods** (protocol 13 → 14). Params are strict, and all of them are refused while locked (`writeKeyLocked` for writes):
   - `keys.list` returns `[{name, type, publicKey, created, usedBy: [server]}]`. No blob.
@@ -106,7 +106,7 @@ Two new commands. Exit codes: 0 ok, 1 other, 3 the key no longer works on this M
   - `keys.delete {name}` returns `ErrKeyInUse` while any server uses the key; otherwise `DeleteKey`. It writes a config record, `action: "keyDelete"`.
   - `servers.save` takes `keyName` in `ServerInput`.
   - `servers` entries carry `keyName` and, for display only, the key's `publicKey`.
-- **Unchanged:** the MCP door, `listServers`, import (`import.apply` never sets `keychain`), and `vault.create` (a KDF-less file cannot hold keys; `vault.create` clears `Keys` of a kept file, if any).
+- **Unchanged:** the MCP door, `listServers`, import (`import.apply` never sets `keychain`), and `vault.create`. A KDF-less file cannot hold keys, because a blob needs the master key, so `vault.create` has nothing to clear. A hand-written file is not guarded (plan audit, 2026-11-17).
 
 ### App
 
