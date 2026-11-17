@@ -104,9 +104,17 @@ func TestShots(t *testing.T) {
 	xfer := reqN("r3", "build", "")
 	xfer.Command = ""
 	xfer.Transfer = &hubapi.Transfer{Op: "upload", Root: "/Users/me/proj", Local: []string{"dist/app.tar.gz"}, Remote: []string{"/srv/releases/"}}
-	d = &fakeDoor{status: hubapi.Status{HasVault: true}, servers: servers, pending: []hubapi.Request{reqN("r1", "build", "docker compose pull"), sudo, xfer}}
-	_, tt, _, _ = newApp(t, d)
-	tt.SetSize(1000, 640)
-	tt.flush()
-	save(tt, "ai-light.png")
+	for _, dark := range []bool{false, true} { // all three request kinds, the plain one's Allow enabled
+		d = &fakeDoor{status: hubapi.Status{HasVault: true}, servers: servers, pending: []hubapi.Request{reqN("r1", "build", "docker compose pull"), sudo, xfer}}
+		_, tt, c, _ := newApp(t, d)
+		tt.SetDark(dark)
+		tt.SetSize(1000, 1100)
+		tt.flush()
+		adv(tt, c, time.Second) // past the Allow delay
+		name := "light"
+		if dark {
+			name = "dark"
+		}
+		save(tt, "ai-"+name+".png")
+	}
 }

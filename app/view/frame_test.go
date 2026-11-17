@@ -120,7 +120,8 @@ func TestAIColumnReduceMotionShowsAtOnce(t *testing.T) {
 	}
 }
 
-// Hiding the sidebar does not remount the AI column.
+// Hiding the sidebar does not remount the AI column. A regression guard: it
+// passed without c.Key("ai") too.
 func TestAIColumnKeepsItsNodeWhenSidebarHides(t *testing.T) {
 	d := &fakeDoor{status: hubapi.Status{HasVault: true}, servers: []hubapi.Server{{Name: "box", User: "u", Host: "h", Port: 22}},
 		pending: []hubapi.Request{reqN("r1", "box", "ls")}}

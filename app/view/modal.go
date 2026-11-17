@@ -10,8 +10,11 @@ import (
 // raisedShadow) and a 160 ms fade and 0.98 to 1 scale entrance. Callers key c
 // as they would for ui.Modal.
 func modal(c *ui.Context, open *bool, fn func()) ui.Element {
+	// Esc or a backdrop click clears *open during Modal; that frame still
+	// draws the panel, so it keeps the app's look.
+	wasOpen := *open
 	panel := ui.Modal(c, open, fn)
-	if !*open {
+	if !wasOpen {
 		return panel
 	}
 	panel.Background(tok(c).Surface).Radius(radiusDialog)
