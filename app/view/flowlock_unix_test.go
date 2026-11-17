@@ -135,13 +135,13 @@ func TestFlowManualLock(t *testing.T) {
 	}
 }
 
-// TestFlowSoftLock: softlock.spec.ts, with the idle lock at 3 s (the e2e's
+// TestFlowSoftLock: softlock.spec.ts, with the idle lock at 6 s (the e2e's
 // 5 s; arming through the UI makes a hub call at least every second here).
 // The second host is not pinned: nothing the spec checks on it needs a pin,
 // and pinning would open a terminal (TestFlowHostsCreateTrustEditForgetDelete
 // covers that).
 func TestFlowSoftLock(t *testing.T) {
-	f := flow(t, "--idleLock=3s")
+	f := flow(t, "--idleLock=6s")
 	f.unlock()
 	f.tt.SetSize(1000, 900)
 	f.newHost("other", "u2", "x", true)

@@ -77,9 +77,11 @@ func (a *App) closeSheet() {
 // again. It reports × and Esc, which closes it only while the focus is
 // inside it, and not while busy.
 func (a *App) buildSheet(c *ui.Context, key, title, label, closeLabel, errText string, busy bool, body, footer func()) (closed bool) {
-	t := c.Theme()
-	sheet := ui.Column(c.Key(key+"-"+strconv.Itoa(a.sheetSeq))).Fill().Width(420).Background(t.Surface).BorderWidth(0, 0, 0, 1).BorderColor(t.Border).
+	t, p := c.Theme(), tok(c)
+	sheet := ui.Column(c.Key(key + "-" + strconv.Itoa(a.sheetSeq))).Fill().Width(420).Background(p.Surface).BorderStartWidth(1).BorderColor(p.Line).
 		Role(ui.RoleDialog).Label(label)
+	raisedShadow(c).On(sheet)
+	enter(c, sheet)
 	sheet.Children(func() {
 		ui.Row(c).Gap(8).Padding(12, 16).Children(func() {
 			ui.Text(c, title).Bold().FontSize(16).Grow(1)
@@ -193,7 +195,7 @@ func (a *App) buildEditor(c *ui.Context) {
 // buildEditorBody draws the form, top to bottom as Electron's; it reports
 // Enter in a text field, which saves.
 func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (submit bool) {
-	t := c.Theme()
+	t, p := c.Theme(), tok(c)
 	ed := a.editor
 	d := &ed.draft
 	in := model.ToInput(*d)
@@ -226,78 +228,85 @@ func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (
 		})
 	}
 
-	addr := text("host", "Address", &d.Host, func(input ui.Element) {
-		input.Placeholder("IP or hostname").Font("monospace")
-		if !ed.focusForget {
-			input.AutoFocus()
-		}
-	})
-	if s != nil && in.Host != s.Host {
-		addr.Description("· changed")
-	}
-	ph := in.Host
-	if ph == "" {
-		ph = "Defaults to the address"
-	}
-	label := text("name", "Label", &d.Name, func(input ui.Element) { input.Placeholder(ph) })
-	if h := model.LabelHint(*d); h != "" {
-		label.Description(h)
-	}
-	// One column for the port and its error, so the error coming and going
-	// does not shift (and re-mount) every unkeyed element below it.
-	ui.Column(c).Gap(14).Children(func() {
-		ui.Row(c).Gap(8).Children(func() {
-			ui.Text(c, "SSH on")
-			if ui.TextInput(c.Key("port"), &d.Port).Label("Port").Font("monospace").Width(90).Submitted() {
-				submit = true
-			}
-			ui.Text(c, "port")
-			if s != nil && in.Port != s.Port {
-				ui.Text(c, "· changed").TextColor(t.Warning)
+	group(c, func() {
+		addr := text("host", "Address", &d.Host, func(input ui.Element) {
+			input.Placeholder("IP or hostname").Font("monospace")
+			if !ed.focusForget {
+				input.AutoFocus()
 			}
 		})
-		if portErr != "" {
-			ui.Text(c, portErr).TextColor(t.Danger)
+		if s != nil && in.Host != s.Host {
+			addr.Description("· changed")
 		}
+		ph := in.Host
+		if ph == "" {
+			ph = "Defaults to the address"
+		}
+		label := text("name", "Label", &d.Name, func(input ui.Element) { input.Placeholder(ph) })
+		if h := model.LabelHint(*d); h != "" {
+			label.Description(h)
+		}
+		// One column for the port and its error, so the error coming and going
+		// does not shift (and re-mount) every unkeyed element below it.
+		ui.Column(c).Gap(14).Children(func() {
+			ui.Row(c).Gap(8).Children(func() {
+				ui.Text(c, "SSH on")
+				if ui.TextInput(c.Key("port"), &d.Port).Label("Port").Font("monospace").Width(90).Submitted() {
+					submit = true
+				}
+				ui.Text(c, "port")
+				if s != nil && in.Port != s.Port {
+					ui.Text(c, "· changed").TextColor(t.Warning)
+				}
+			})
+			if portErr != "" {
+				ui.Text(c, portErr).TextColor(t.Danger)
+			}
+		})
+
 	})
 
-	ui.Text(c, "Credentials").Bold()
-	for f := model.SecretPassword; f <= model.SecretKeyPassphrase; f++ {
-		if f.Saved(s) {
-			ui.Text(c, "Saved secrets are never shown. Leave a field empty to keep it.").TextColor(t.TextMuted)
-			break
-		}
-	}
-	text("user", "User", &d.User, func(input ui.Element) { input.Placeholder("Username").Font("monospace") })
-	if d.Auth == "password" || model.SecretPassword.Saved(s) {
-		secret(model.SecretPassword)
-	}
-	if !ed.showAuth {
-		if ui.Button(c, "+ Key or agent").Clicked() {
-			ed.showAuth = true
-		}
-	} else {
-		ui.Text(c, "Auth")
-		// Keyed: the Password field above comes and goes with the choice, and
-		// an unkeyed radio would lose the focus the arrows just gave it.
-		ui.RadioGroup(c.Key("auth"), func() { // one Tab stop; the arrows choose, and wrap
-			for _, v := range []string{"password", "key", "agent"} {
-				ui.Radio(c.Key("auth-"+v), &d.Auth, v, v)
+	section(c, "Credentials", func() {
+		for f := model.SecretPassword; f <= model.SecretKeyPassphrase; f++ {
+			if f.Saved(s) {
+				ui.Text(c, "Saved secrets are never shown. Leave a field empty to keep it.").TextColor(t.TextMuted)
+				break
 			}
-		}).Row().Label("Auth")
-		if d.Auth == "key" {
-			text("keypath", "Key path", &d.KeyPath, func(input ui.Element) { input.Placeholder("~/.ssh/id_ed25519").Font("monospace") })
-			secret(model.SecretKeyPassphrase)
 		}
-	}
+		text("user", "User", &d.User, func(input ui.Element) { input.Placeholder("Username").Font("monospace") })
+		if d.Auth == "password" || model.SecretPassword.Saved(s) {
+			secret(model.SecretPassword)
+		}
+		if !ed.showAuth {
+			if ui.Button(c, "+ Key or agent").Clicked() {
+				ed.showAuth = true
+			}
+		} else {
+			ui.Text(c, "Auth")
+			// Keyed: the Password field above comes and goes with the choice, and
+			// an unkeyed radio would lose the focus the arrows just gave it.
+			ui.RadioGroup(c.Key("auth"), func() { // one Tab stop; the arrows choose, and wrap
+				for _, v := range []string{"password", "key", "agent"} {
+					ui.Radio(c.Key("auth-"+v), &d.Auth, v, v)
+				}
+			}).Row().Label("Auth")
+			if d.Auth == "key" {
+				text("keypath", "Key path", &d.KeyPath, func(input ui.Element) { input.Placeholder("~/.ssh/id_ed25519").Font("monospace") })
+				secret(model.SecretKeyPassphrase)
+			}
+		}
+
+	})
 
 	esc := "Privilege escalation (su / sudo)"
 	if model.SecretSu.Saved(s) || model.SecretSudo.Saved(s) {
 		esc += " · saved"
 	}
 	ui.Collapsible(c.Key("fold-esc"), esc, &ed.escOpen, func() {
-		secret(model.SecretSu)
-		secret(model.SecretSudo)
+		group(c, func() {
+			secret(model.SecretSu)
+			secret(model.SecretSudo)
+		})
 	})
 	ai := "AI access · Off"
 	if d.AIVisible {
@@ -306,26 +315,29 @@ func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (
 	if d.AutoAllow != "off" {
 		ai += " · auto"
 	}
-	ui.Collapsible(c.Key("fold-ai"), ai, &ed.aiOpen, func() { a.buildAIAccess(c, s) })
+	ui.Collapsible(c.Key("fold-ai"), ai, &ed.aiOpen, func() { group(c, func() { a.buildAIAccess(c, s) }) })
 
 	if s != nil {
-		ui.Text(c, "Host key").Bold()
-		if s.HostKey != "" {
-			ui.Text(c, model.DisplayText(strings.TrimSpace(s.HostKeyAlgo+" "+s.HostKey))).Font("monospace").Selectable()
-			// Keyed: a re-mount would AutoFocus it again, and Enter would forget.
-			ui.Row(c.Key("forget")).Gap(8).Children(func() {
-				forget := ui.Button(c, "Forget host key").Disabled(ed.busy)
-				if ed.focusForget {
-					forget.AutoFocus()
-				}
-				if forget.Clicked() {
-					a.forgetKey()
-				}
-				ui.Text(c, "Takes effect immediately.").TextColor(t.TextMuted)
-			})
-		} else {
-			ui.Text(c, "Not pinned. You will be asked to confirm it on the next connect.").TextColor(t.TextMuted)
-		}
+		section(c, "Host key", func() {
+			if s.HostKey != "" {
+				ui.Column(c).Padding(6, 10).Radius(radiusControl).Background(p.TermBg).Children(func() {
+					ui.Text(c, model.DisplayText(strings.TrimSpace(s.HostKeyAlgo+" "+s.HostKey))).Font("monospace").Selectable().TextColor(p.TermFg)
+				})
+				// Keyed: a re-mount would AutoFocus it again, and Enter would forget.
+				ui.Row(c.Key("forget")).Gap(8).Children(func() {
+					forget := ui.Button(c, "Forget host key").Disabled(ed.busy)
+					if ed.focusForget {
+						forget.AutoFocus()
+					}
+					if forget.Clicked() {
+						a.forgetKey()
+					}
+					ui.Text(c, "Takes effect immediately.").TextColor(t.TextMuted)
+				})
+			} else {
+				ui.Text(c, "Not pinned. You will be asked to confirm it on the next connect.").TextColor(t.TextMuted)
+			}
+		})
 	}
 	if w := model.EditorWarnings(s, *d, a.tabs.OpenCount(ed.name), a.transfers(ed.name)); len(w) > 0 {
 		ui.Column(c).Gap(4).Padding(8, 12).Radius(6).Background(tok(c).WaitTint).Role(ui.RoleStatus).Children(func() {
@@ -335,6 +347,11 @@ func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (
 		})
 	}
 	return submit
+}
+
+// group is a Raised panel holding one cluster of the editor's fields.
+func group(c *ui.Context, fn func()) {
+	ui.Column(c).Gap(8).Padding(12).Radius(radiusCard).Background(tok(c).Raised).Children(fn)
 }
 
 // buildAIAccess is the AI access fold: Visible to AI, the Auto-allow select

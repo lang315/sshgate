@@ -19,19 +19,26 @@ func modal(c *ui.Context, open *bool, fn func()) ui.Element {
 	}
 	panel.Background(tok(c).Surface).Radius(radiusDialog)
 	raisedShadow(c).On(panel)
+	enter(c, panel)
+	return panel
+}
+
+// enter is the dialogs' and sheets' entrance: a 160 ms fade and 0.98 to 1
+// scale from the centre, nothing under Reduce Motion. Call it once per
+// opening on an element that is a new mount each time.
+func enter(c *ui.Context, e ui.Element) {
 	if c.Preferences().ReduceMotion {
-		return panel
+		return
 	}
 	// Two builds at the start pose, not one: a pose that follows a frame the
-	// panel did not pose in is taken at once, and the first build after the
-	// dialog opens is followed by such a frame (no animation otherwise).
-	entered := ui.Local(panel, "entered", func() int { return 0 })
+	// element did not pose in is taken at once, and the first build after it
+	// opens is followed by such a frame (no animation otherwise).
+	entered := ui.Local(e, "entered", func() int { return 0 })
 	p, a := ui.Pose{}, ui.Animation{Duration: 160 * time.Millisecond}
 	if *entered < 2 {
 		p = ui.Pose{Scale: 0.98, Fade: 1}
 		*entered++
 		c.Invalidate()
 	}
-	panel.TransformOrigin(0.5, 0.5).AnimatePose(p, a)
-	return panel
+	e.TransformOrigin(0.5, 0.5).AnimatePose(p, a)
 }
