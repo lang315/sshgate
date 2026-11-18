@@ -230,3 +230,23 @@ func TestLitAIButtonHover(t *testing.T) {
 		}
 	}
 }
+
+// The AI column fades in once; a column at rest does not animate.
+func TestAIColumnFadesThenRests(t *testing.T) {
+	d := &fakeDoor{status: hubapi.Status{HasVault: true}, servers: []hubapi.Server{{Name: "box", User: "u", Host: "h", Port: 22}},
+		pending: []hubapi.Request{reqN("r1", "box", "ls")}}
+	a, tt, _, _ := newApp(t, d)
+	tt.flush()
+	a.Update(func() { a.aiOpen = true })
+	tt.flushOnce()
+	if !a.aiFading {
+		t.Fatal("the column does not fade in")
+	}
+	tt.flush()
+	tt.Advance(time.Second)
+	tt.Frame()
+	tt.Frame()
+	if a.aiFading {
+		t.Fatal("the column is still fading at rest")
+	}
+}

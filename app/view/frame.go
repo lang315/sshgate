@@ -123,11 +123,22 @@ func (a *App) buildAIColumn(c *ui.Context) {
 	if !a.aiFaded {
 		a.aiFaded = true
 		if !c.Preferences().ReduceMotion { // Animate would otherwise show one transparent frame
-			target = 0
-			c.Invalidate() // one more frame, so the fade has a start and an end
+			a.aiFading, a.aiFadeStep = true, 0
 		}
 	}
-	col.Opacity(col.Animate("fade", target, 120*time.Millisecond))
+	if a.aiFading { // a column at rest does not animate
+		if a.aiFadeStep == 0 {
+			target = 0
+		}
+		a.aiFadeStep++
+		f := col.Animate("fade", target, 120*time.Millisecond)
+		col.Opacity(f)
+		if a.aiFadeStep > 1 && f >= 1 {
+			a.aiFading = false
+		} else {
+			c.Invalidate() // a frame at the start and one at the end
+		}
+	}
 	raisedShadow(c).On(col)
 	col.Children(func() { a.buildColumn(c) })
 }
