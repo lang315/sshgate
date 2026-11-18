@@ -277,7 +277,7 @@ func baseNames(paths []string) []string {
 func (a *App) buildTransfers(c *ui.Context, v *filesTab) {
 	th := c.Theme()
 	var click func()
-	ui.Column(c).Gap(6).Label("Transfers").Children(func() {
+	ui.Column(c).Gap(6).Padding(8, 12).Background(tok(c).Raised).BorderWidth(1, 0, 0, 0).BorderColor(tok(c).Line).Label("Transfers").Children(func() {
 		for _, j := range v.jobs {
 			title := j.title()
 			ui.Column(c.Key("job-" + j.id)).Gap(2).Children(func() {
@@ -320,7 +320,7 @@ func (a *App) buildTransfers(c *ui.Context, v *filesTab) {
 								}
 							}
 						}
-					} else if ui.Button(c, "×").Label("Dismiss " + title).Tooltip("Dismiss").Clicked() {
+					} else if ui.Button(c, "").Label("Dismiss " + title).Tooltip("Dismiss").Children(func() { ui.Icon(c, xIcon).TextColor(tok(c).Text) }).Clicked() {
 						click = func() { v.jobs = deleteJob(v.jobs, j) }
 					}
 				})
@@ -350,6 +350,11 @@ func deleteJob(js []*fileJob, j *fileJob) []*fileJob {
 	return out
 }
 
+// raisedList holds the names a confirm lists, on a Raised block.
+func raisedList(c *ui.Context, names func()) {
+	ui.Column(c).Gap(2).Padding(8, 10).Radius(radiusControl).Background(tok(c).Raised).Children(names)
+}
+
 // buildFileConfirm shows the oldest job of tab v waiting for the person,
 // unless a name dialog is open (it waits its turn): the conflict dialog for
 // an upload or download, the delete dialog for a delete. The decisive
@@ -376,15 +381,17 @@ func (a *App) buildFileConfirm(c *ui.Context, v *filesTab) {
 	if j.op == "delete" {
 		needs := model.DeleteNeedsTyping(j.hasFolder, len(j.names), p)
 		m = modal(c.Key("confirm-"+j.id), &open, func() {
-			ui.Column(c).Width(440).Gap(10).Padding(20).Children(func() {
+			ui.Column(c).Width(440).Gap(10).Children(func() {
 				ui.Text(c, "Delete for good?").Bold().FontSize(16).TextColor(th.Danger)
-				for i, n := range j.names {
-					if i == 10 {
-						ui.Text(c, fmt.Sprintf("and %d more", len(j.names)-10)).TextColor(th.TextMuted)
-						break
+				raisedList(c, func() {
+					for i, n := range j.names {
+						if i == 10 {
+							ui.Text(c, fmt.Sprintf("and %d more", len(j.names)-10)).TextColor(th.TextMuted)
+							break
+						}
+						ui.Text(c, model.DisplayText(n)).Font("monospace").SingleLine()
 					}
-					ui.Text(c, model.DisplayText(n)).Font("monospace").SingleLine()
-				}
+				})
 				ui.Text(c, model.DeleteSummary(p))
 				if needs {
 					var in ui.Element
@@ -394,10 +401,10 @@ func (a *App) buildFileConfirm(c *ui.Context, v *filesTab) {
 					}
 				}
 				ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-					if mouseButtonNamed(c, "Delete", "Delete for good", ok && (!needs || j.typed == model.DeleteWord)) {
+					if decisionButton(c, "Delete", "Delete for good", ok && (!needs || j.typed == model.DeleteWord), toneDangerFill) {
 						choice = "skip"
 					}
-					cancel := ui.Button(c, "Cancel")
+					cancel := ui.PrimaryButton(c, "Cancel")
 					if !needs {
 						cancel = cancel.AutoFocus()
 					}
@@ -410,27 +417,29 @@ func (a *App) buildFileConfirm(c *ui.Context, v *filesTab) {
 	} else {
 		n := p.Conflicts.Count
 		m = modal(c.Key("confirm-"+j.id), &open, func() {
-			ui.Column(c).Width(440).Gap(10).Padding(20).Children(func() {
+			ui.Column(c).Width(440).Gap(10).Children(func() {
 				ui.Text(c, model.ConflictTitle(n)).Bold().FontSize(16)
 				where := j.dest // a download's local folder
 				if j.op == "upload" {
 					where = v.server + ":" + j.dest
 				}
 				ui.Text(c, "in "+model.DisplayText(where)).Font("monospace").TextColor(th.TextMuted)
-				for _, s := range p.Conflicts.Sample {
-					ui.Text(c, model.DisplayText(s)).Font("monospace").SingleLine()
-				}
-				if more := n - len(p.Conflicts.Sample); more > 0 {
-					ui.Text(c, fmt.Sprintf("and %d more", more)).TextColor(th.TextMuted)
-				}
+				raisedList(c, func() {
+					for _, s := range p.Conflicts.Sample {
+						ui.Text(c, model.DisplayText(s)).Font("monospace").SingleLine()
+					}
+					if more := n - len(p.Conflicts.Sample); more > 0 {
+						ui.Text(c, fmt.Sprintf("and %d more", more)).TextColor(th.TextMuted)
+					}
+				})
 				ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-					if MouseButton(c, "Overwrite all", ok) {
+					if decisionButton(c, "Overwrite all", "Overwrite all", ok, toneDanger) {
 						choice = "overwrite"
 					}
-					if MouseButton(c, "Skip existing", ok) {
+					if decisionButton(c, "Skip existing", "Skip existing", ok, toneNeutral) {
 						choice = "skip"
 					}
-					if ui.Button(c, "Cancel").AutoFocus().Clicked() {
+					if ui.PrimaryButton(c, "Cancel").AutoFocus().Clicked() {
 						choice = "cancel"
 					}
 				})

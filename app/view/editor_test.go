@@ -444,3 +444,127 @@ func TestSaveErrorKeepsTheFocusOnSave(t *testing.T) {
 		t.Fatalf("Save lost the focus: %q", tt.Texts())
 	}
 }
+
+func sheetRect(t *testing.T, tt *tester, label string) ui.Rect {
+	t.Helper()
+	info, ok := tt.AccessByRole(ui.RoleDialog, label)
+	if !ok {
+		t.Fatalf("no %q sheet: %q", label, tt.Texts())
+	}
+	return info.Bounds
+}
+
+// sheetRight is the sheet's right half with a margin for the shadow: the
+// caret of the focused Address field blinks in the left half.
+func sheetRight(t *testing.T, tt *tester) ui.Rect {
+	r := grow(sheetRect(t, tt, "Host editor"), 20)
+	return ui.Rect{X: r.X + r.W/2, Y: r.Y, W: r.W / 2, H: r.H}
+}
+
+func TestSheetEntersWithoutMovingAIColumn(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	d := &fakeDoor{status: hubapi.Status{HasVault: true}, servers: []hubapi.Server{boxServer}, pending: []hubapi.Request{reqN("r1", "box", "ls")}}
+	_, tt, _, _ := newApp(t, d)
+	tt.SetSize(1000, 640)
+	tt.flush()
+	tt.Advance(time.Second)
+	tt.Frame()
+	before, ok := tt.Find("Allow")
+	if !ok {
+		t.Fatal("no Allow")
+	}
+	closeAI, ok := tt.Find("Close AI requests")
+	if !ok {
+		t.Fatal("no AI column")
+	}
+	col := ui.Rect{X: closeAI.X, Y: closeAI.Y, W: 1000 - closeAI.X, H: 640 - closeAI.Y} // the column, right of its close button
+	clickT(t, tt, "New host")
+	first := shot(tt)
+	tt.Advance(40 * time.Millisecond)
+	tt.Frame()
+	mid := shot(tt)
+	if r, _ := tt.Find("Allow"); r != before {
+		t.Fatalf("Allow moved during the entrance: %+v to %+v", before, r)
+	}
+	tt.Advance(time.Second)
+	tt.Frame()
+	if r, _ := tt.Find("Allow"); r != before {
+		t.Fatalf("Allow moved at rest: %+v to %+v", before, r)
+	}
+	rest, r := shot(tt), sheetRight(t, tt)
+	if !sameRegion(first, mid, col) || !sameRegion(first, rest, col) {
+		t.Fatal("the AI column's pixels changed during the sheet's entrance")
+	}
+	if sameRegion(first, rest, r) {
+		t.Fatal("the sheet did not change after its entrance")
+	}
+	if sameRegion(mid, first, r) || sameRegion(mid, rest, r) {
+		t.Fatal("no mid-fade frame: the entrance went instant")
+	}
+}
+
+func TestSheetReduceMotionAtRest(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	_, tt, _ := edReady(t, []hubapi.Server{boxServer})
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tt.flush()
+	clickT(t, tt, "New host")
+	r := sheetRight(t, tt)
+	first := shot(tt)
+	tt.Advance(time.Second)
+	tt.Frame()
+	if !sameRegion(first, shot(tt), r) {
+		t.Fatal("the sheet changed after its first frame")
+	}
+}
+
+func TestEditorGroupsOnRaised(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	_, tt, _ := editBox(t, boxServer)
+	tt.SetDark(true)
+	openAI(t, tt)
+	tt.Advance(time.Second)
+	tt.Frame()
+	p := palette(true)
+	img := shot(tt)
+	sh := sheetRect(t, tt, "Host editor")
+	if n := countNear(img, ui.Rect{X: sh.X + 4, Y: sh.Y + 60, W: 4, H: 4}, p.Surface, 2); n != 16 {
+		t.Fatalf("%d of 16 sheet pixels are Surface", n)
+	}
+	for _, s := range []string{"Saved secrets are never shown. Leave a field empty to keep it.", "AI clients can see this server and ask to run commands. Commands wait for your approval unless auto-allow is on."} {
+		r, ok := tt.Find(s)
+		if !ok {
+			t.Fatalf("no %q", s)
+		}
+		if n := countNear(img, ui.Rect{X: r.X - 10, Y: r.Y, W: 4, H: 4}, p.Raised, 2); n != 16 {
+			t.Fatalf("%q: %d of 16 pixels beside it are Raised", s, n)
+		}
+	}
+}
+
+// A posed element costs a layer every frame, so the sheet is posed only
+// while it enters. The Tester shows no pose, so this checks what it can:
+// frames come while it enters and stop at rest, and typing at rest (a build
+// after the entrance) starts no frames again. The cost itself is in the
+// report's measurements.
+func TestSheetStopsPosingAtRest(t *testing.T) {
+	_, tt, _ := edReady(t, []hubapi.Server{boxServer})
+	clickT(t, tt, "New host")
+	if !tt.FramePending() {
+		t.Fatal("no frame pending while the sheet enters")
+	}
+	tt.Advance(time.Second)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("frames still pending at rest")
+	}
+	fill(t, tt, "Label", "x")
+	tt.Advance(time.Second)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("a build at rest asked for frames")
+	}
+}

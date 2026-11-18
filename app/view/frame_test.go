@@ -151,3 +151,82 @@ func TestAIColumnKeepsItsNodeWhenSidebarHides(t *testing.T) {
 		t.Fatalf("node id %d became %d", before, after)
 	}
 }
+
+// The top-bar buttons wear the rail's pill, not the stock face (light: dark
+// grey on the teal rail).
+func TestTopBarButtonsStyledForRail(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	for _, dark := range []bool{false, true} {
+		p := palette(dark)
+		_, tt, _ := readyApp(t, []hubapi.Server{boxServer})
+		tt.SetDark(dark)
+		tt.Advance(time.Second)
+		tt.Frame()
+		r, ok := tt.Find("Lock")
+		if !ok {
+			t.Fatalf("no Lock in %q", tt.Texts())
+		}
+		strip := ui.Rect{X: r.X - 4, Y: r.Y, W: 2, H: r.H}
+		if n := countNear(shot(tt), strip, railButtonFill(p), 3); n < int(r.H)*2-2 {
+			t.Fatalf("dark=%v: Lock not on the rail-button fill (%d of %d)", dark, n, int(r.H)*2)
+		}
+	}
+}
+
+// Settings and the theme control are drawn icons in RailText, not glyphs.
+func TestRailIconsDrawn(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	for _, dark := range []bool{false, true} {
+		p := palette(dark)
+		d := &fakeDoor{status: hubapi.Status{HasVault: true, SoftLockLimit: "24h"}, servers: []hubapi.Server{boxServer}}
+		_, tt, _, _ := newApp(t, d)
+		tt.flush()
+		tt.SetDark(dark)
+		tt.Advance(time.Second)
+		tt.Frame()
+		for _, name := range []string{"Settings", "Dark", "Light"} {
+			r, ok := tt.Find(name)
+			if !ok {
+				t.Fatalf("dark=%v: no %q in %q", dark, name, tt.Texts())
+			}
+			if n := countNear(shot(tt), grow(r, 14), p.RailText, 30); n < 20 {
+				t.Fatalf("dark=%v: %s has %d RailText pixels, want >= 20", dark, name, n)
+			}
+		}
+	}
+}
+
+// The lit AI button takes a hover tint like the other top-bar buttons.
+func TestLitAIButtonHover(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	for _, dark := range []bool{false, true} {
+		p := palette(dark)
+		d := &fakeDoor{status: hubapi.Status{HasVault: true}, servers: []hubapi.Server{boxServer}, pending: []hubapi.Request{reqN("r1", "box", "ls")}}
+		_, tt, _, _ := newApp(t, d)
+		tt.SetDark(dark)
+		tt.SetSize(1000, 640)
+		tt.flush()
+		tt.Advance(time.Second)
+		tt.Frame()
+		clickT(t, tt, "Close AI requests") // closed with requests waiting: the button is lit
+		tt.Advance(time.Second)
+		tt.Frame()
+		r, ok := tt.Find("AI requests")
+		if !ok {
+			t.Fatalf("no AI button in %q", tt.Texts())
+		}
+		patch := ui.Rect{X: r.X + 3, Y: r.Y + r.H/2 - 1, W: 3, H: 3}
+		if n := countNear(shot(tt), patch, p.WaitFill, 2); n != 9 {
+			t.Fatalf("dark=%v at rest: %d of 9 pixels on WaitFill", dark, n)
+		}
+		tt.Move(r.X+r.W/2, r.Y+r.H/2)
+		tt.Advance(time.Second)
+		tt.Frame()
+		if n := countNear(shot(tt), patch, waitFillHover(p), 2); n != 9 {
+			t.Fatalf("dark=%v hovered: %d of 9 pixels on waitFillHover", dark, n)
+		}
+	}
+}

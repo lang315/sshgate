@@ -21,15 +21,14 @@ func (a *App) sidebarShown() bool {
 // buildTopBar is the full-width bar: Home, the tab strip, AI and Lock. It is
 // the same whatever the sidebar does, so the tabs never move.
 func (a *App) buildTopBar(c *ui.Context, autoN, liveAuto int) {
-	t := c.Theme()
-	rail := tok(c).Rail
-	ui.Row(c).Gap(8).Padding(8).AlignItems(ui.Center).Background(rail).Children(func() {
-		if ui.Button(c, "").Label("Home").Width(railWidth).Children(func() {
+	p := tok(c)
+	ui.Row(c).Gap(8).Padding(8).AlignItems(ui.Center).Background(p.Rail).Children(func() {
+		if railButton(ui.Button(c, "").Label("Home").Width(railWidth).Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Icon(c, shieldIcon)
 				ui.Text(c, "sshgate").Bold()
 			})
-		}).Clicked() {
+		}), p).Clicked() {
 			a.tabs.ShowHome()
 		}
 		a.buildTabStrip(c) // grows, so AI and Lock stay at the right
@@ -38,17 +37,21 @@ func (a *App) buildTopBar(c *ui.Context, autoN, liveAuto int) {
 			if autoN > 0 {
 				label += fmt.Sprintf(" · auto %d", autoN)
 			}
-			b := ui.Button(c, "").Label("AI requests").Children(func() {
-				txt := ui.Text(c, label)
-				if model.AIButtonWaiting(a.aiOpen, len(a.items)) {
-					txt.TextColor(t.Warning)
+			waiting := model.AIButtonWaiting(a.aiOpen, len(a.items))
+			b := ui.Button(c, "").Label("AI requests").Children(func() { ui.Text(c, label) })
+			if waiting {
+				b.TextColor(p.OnWaitFill).Background(p.WaitFill) // a lit button, not a pill
+				if b.Hovered() {
+					b.Background(waitFillHover(p))
 				}
-			})
+			} else {
+				railButton(b, p)
+			}
 			if b.Clicked() {
 				a.aiOpen = !a.aiOpen
 			}
 		}
-		lock := ui.Button(c, "Lock")
+		lock := railButton(ui.Button(c, "Lock"), p)
 		if tip := model.LockTitle(liveAuto); tip != "" {
 			lock.Tooltip(tip)
 		}
@@ -90,7 +93,7 @@ func (a *App) buildSidebar(c *ui.Context) {
 		}
 		ui.Row(c).Gap(8).Padding(8).AlignItems(ui.Center).Children(func() {
 			a.buildThemeControl(c)
-			if ui.Button(c, "⚙").Label("Settings").Tooltip("Settings").TextColor(p.RailText).Background(p.RailText.Alpha(railPillAlpha)).Disabled(a.status == nil || a.status.SoftLockLimit == "").Clicked() {
+			if ui.Button(c, "").Label("Settings").Tooltip("Settings").TextColor(p.RailText).Background(p.RailText.Alpha(railPillAlpha)).Children(func() { ui.Icon(c, gearIcon).TextColor(p.RailText) }).Disabled(a.status == nil || a.status.SoftLockLimit == "").Clicked() {
 				a.openSettings()
 			}
 		})

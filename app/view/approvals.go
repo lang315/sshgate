@@ -76,22 +76,19 @@ func segments(c *ui.Context, segs []model.Segment) {
 // codeBlock draws what the AI sent (a command, a path, stdin) on the
 // terminal's own background.
 func codeBlock(c *ui.Context, children func()) {
-	p := tok(c)
-	ui.Column(c).Gap(4).Padding(8, 10).Radius(radiusControl).Background(p.TermBg).TextColor(p.TermFg).Children(children)
+	termBlock(c, 8).Gap(4).Children(children)
 }
 
-// allowButton is MouseButton for Allow: enabled it is outlined and written
-// in Ok; disabled it looks like any disabled MouseButton.
+// termBlock is a column on the terminal's own background with a Line
+// outline, so it reads on a surface that shares TermBg (the light theme's).
+func termBlock(c *ui.Context, padV float32) ui.Element {
+	p := tok(c)
+	return ui.Column(c).Padding(padV, 10).Radius(radiusControl).Border(1, p.Line).Background(p.TermBg).TextColor(p.TermFg)
+}
+
+// allowButton is the Allow decision button: outlined in Ok once enabled.
 func allowButton(c *ui.Context, enabled bool) bool {
-	t := c.Theme()
-	b := ui.Row(c).Role(ui.RoleButton).Label("Allow").Padding(6, 12).Radius(radiusControl).Border(1, t.Border).Disabled(!enabled)
-	if enabled {
-		ok := tok(c).Ok
-		b.Border(1, ok).Children(func() { ui.Text(c, "Allow").TextColor(ok) })
-	} else {
-		b.Children(func() { ui.Text(c, "Allow") })
-	}
-	return enabled && b.Clicked()
+	return decisionButton(c, "Allow", "Allow", enabled, toneOk)
 }
 
 func (a *App) buildColumn(c *ui.Context) {
@@ -153,7 +150,7 @@ func (a *App) buildColumn(c *ui.Context) {
 			if ui.Button(c, "Deny all").Disabled(len(a.items) < 2).Clicked() {
 				a.denyAll()
 			}
-			if ui.Button(c, "×").Label("Close AI requests").Clicked() {
+			if ui.Button(c, "").Label("Close AI requests").Children(func() { ui.Icon(c, xIcon).TextColor(tok(c).Text) }).Clicked() {
 				a.aiOpen = false
 				a.focusActive()
 			}

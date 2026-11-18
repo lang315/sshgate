@@ -37,7 +37,7 @@ func TestPaletteContrast(t *testing.T) {
 		}{
 			{"text/bg", p.Text, p.Bg, 4.5}, {"text/surface", p.Text, p.Surface, 4.5}, {"text/raised", p.Text, p.Raised, 4.5},
 			{"muted/bg", p.Muted, p.Bg, 4.5}, {"muted/surface", p.Muted, p.Surface, 4.5}, {"muted/raised", p.Muted, p.Raised, 4.5},
-			{"label/surface", p.Label, p.Surface, 4.5},
+			{"label/surface", p.Label, p.Surface, 4.5}, {"label/raised", p.Label, p.Raised, 4.5},
 			{"accent/surface", p.Accent, p.Surface, 4.5}, {"accent/accentTint", p.Accent, p.AccentTint, 4.5},
 			{"accentText/accent", p.AccentText, p.Accent, 4.5},
 			{"danger/surface", p.Danger, p.Surface, 4.5}, {"danger/dangerTint", p.Danger, p.DangerTint, 4.5},
@@ -56,6 +56,14 @@ func TestPaletteContrast(t *testing.T) {
 			{"rail icon/pill", p.RailText, p.RailText.Alpha(railPillAlpha).Over(p.Rail), 3},
 			{"controlLine/bg", p.ControlLine, p.Bg, 3}, {"controlLine/surface", p.ControlLine, p.Surface, 3}, {"controlLine/raised", p.ControlLine, p.Raised, 3},
 			{"accent/bg (focus)", p.Accent, p.Bg, 3},
+			{"waitFill/rail", p.WaitFill, p.Rail, 3},
+			{"railText/railButton", p.RailText, railButtonFill(p), 4.5}, {"railText/railButton hover", p.RailText, railHover(p), 4.5},
+			{"railButtonBorder/rail", railButtonBorder(p), p.Rail, 3},
+			{"onWaitFill/waitFill", p.OnWaitFill, p.WaitFill, 4.5},
+			{"onWaitFill/waitFillHover", p.OnWaitFill, waitFillHover(p), 4.5}, {"waitFillHover/rail", waitFillHover(p), p.Rail, 3},
+			{"accent/waitTint (Resume)", p.Accent, p.WaitTint, 4.5},
+			{"ok/bg (allowed)", p.Ok, p.Bg, 4.5},
+			{"dangerFill/surface (Delete)", p.DangerFill, p.Surface, 3},
 		} {
 			if r := ratio(c.fg, c.bg); r < c.min {
 				t.Errorf("dark=%v %s: %.2f < %.1f", dark, c.name, r, c.min)

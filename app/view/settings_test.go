@@ -217,3 +217,21 @@ func TestSettingsSectionsAndButtonOrder(t *testing.T) {
 		t.Fatal("Cancel not focused")
 	}
 }
+
+// The title sits 16 above the first heading: the column's gap 10 and a margin of 6.
+func TestSettingsTitleGap(t *testing.T) {
+	_, tt, _, _ := settingsApp(t, "7d", nil)
+	head, ok2 := tt.Find("Auto-allow")
+	var title ui.Rect
+	for _, n := range tt.Nodes() { // the title is the last "Settings" above the heading
+		if n.Label == "Settings" && n.Bounds.Y < head.Y {
+			title = n.Bounds
+		}
+	}
+	if !ok2 || title.H == 0 {
+		t.Fatal(tt.Texts())
+	}
+	if gap := head.Y - (title.Y + title.H); gap < 15.5 || gap > 16.5 {
+		t.Fatalf("gap %v, want 16", gap)
+	}
+}

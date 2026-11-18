@@ -17,7 +17,7 @@ type tokens struct {
 	Bg, Surface, Raised, SurfaceHover, Line, ControlLine, Divider, Text, Muted, Label                          ui.Color
 	Accent, AccentHover, AccentPressed, AccentText, AccentTint                                                 ui.Color
 	Danger, DangerFill, DangerFillHover, DangerFillPressed, DangerText, DangerTint, Wait, WaitTint, Ok, OkTint ui.Color
-	TermBg, TermFg, Rail, RailText                                                                             ui.Color
+	TermBg, TermFg, Rail, RailText, WaitFill, OnWaitFill                                                       ui.Color
 }
 
 func palette(dark bool) tokens {
@@ -28,20 +28,20 @@ func palette(dark bool) tokens {
 		return ui.Hex(l)
 	}
 	return tokens{
-		Bg:                pick("#14171A", "#f5f6fa"),
-		Surface:           pick("#1A1E22", "#ffffff"),
-		Raised:            pick("#21262B", "#eef0f6"),
-		SurfaceHover:      pick("#282E34", "#e6e9f1"),
-		Line:              pick("#3A4148", "#dde0ea"),
-		ControlLine:       pick("#737B82", "#7C8196"),
-		Divider:           pick("#2B3137", "#e6e8ef"),
-		Text:              pick("#ECE8E0", "#1b1f2e"),
-		Muted:             pick("#8B908E", "#62698a"),
-		Label:             pick("#B3B5B1", "#474e6b"),
+		Bg:                pick("#161514", "#F6F4F0"),
+		Surface:           pick("#1C1A19", "#FFFDFB"),
+		Raised:            pick("#23211F", "#EEEBE5"),
+		SurfaceHover:      pick("#2B2927", "#E6E2DA"),
+		Line:              pick("#3D3A37", "#DFDAD2"),
+		ControlLine:       pick("#7A746D", "#857E73"),
+		Divider:           pick("#2E2B29", "#E6E2DB"),
+		Text:              pick("#ECE8E0", "#1F1C19"),
+		Muted:             pick("#9A948C", "#6B655D"),
+		Label:             pick("#B8B3AB", "#4A453F"),
 		Accent:            pick("#56BFB9", "#12766F"),
 		AccentHover:       pick("#6CCAC4", "#0F6A64"),
 		AccentPressed:     pick("#45A9A3", "#0C5A55"),
-		AccentText:        pick("#0E1012", "#ffffff"),
+		AccentText:        pick("#100F0E", "#FFFDFB"),
 		AccentTint:        pick("#16312F", "#dcf1ec"),
 		Danger:            pick("#F28B73", "#B5412F"),
 		DangerFill:        ui.Hex("#B5412F"),
@@ -53,10 +53,12 @@ func palette(dark bool) tokens {
 		WaitTint:          pick("#3A2C14", "#fcefdc"),
 		Ok:                pick("#6CC58F", "#3D7554"),
 		OkTint:            pick("#1A3324", "#e9f6ee"),
-		TermBg:            pick("#0E1012", "#ffffff"),
-		TermFg:            pick("#D8D4CC", "#1b1f2e"),
-		Rail:              pick("#0F2A29", "#0F5F59"),
+		TermBg:            pick("#100F0E", "#FFFDFB"),
+		TermFg:            pick("#D8D4CC", "#1F1C19"),
+		Rail:              pick("#134542", "#0F5F59"),
 		RailText:          ui.Hex(railTextHex),
+		WaitFill:          ui.Hex("#E9A23B"),
+		OnWaitFill:        ui.Hex("#0E1012"),
 	}
 }
 
@@ -72,6 +74,23 @@ func railTheme(c *ui.Context) *ui.Theme {
 }
 
 func railHover(p tokens) ui.Color { return p.RailText.Alpha(railHoverAlpha).Over(p.Rail) }
+
+// railButton styles a top-bar button for the rail: RailText on a pill, a
+// RailText outline, and the hover tint.
+func railButton(e ui.Element, p tokens) ui.Element {
+	e = e.TextColor(p.RailText).Background(railButtonFill(p)).Border(1, railButtonBorder(p))
+	if e.Hovered() {
+		e = e.Background(railHover(p))
+	}
+	return e
+}
+
+// waitFillHover is the lit AI button under the pointer: a little lighter, since
+// a darker amber would fall under 3:1 against the light rail.
+func waitFillHover(p tokens) ui.Color { return p.WaitFill.Mix(ui.Hex("#FFFFFF"), 0.12) }
+
+func railButtonFill(p tokens) ui.Color   { return p.RailText.Alpha(railPillAlpha).Over(p.Rail) }
+func railButtonBorder(p tokens) ui.Color { return p.RailText.Alpha(0.6).Over(p.Rail) }
 
 func tok(c *ui.Context) tokens { return palette(c.Theme().Dark) }
 
@@ -108,7 +127,7 @@ func shade(c *ui.Context, light, dark uint8) ui.Color {
 	if c.Theme().Dark {
 		return ui.Color{A: dark}
 	}
-	return ui.Color{R: 27, G: 31, B: 46, A: light}
+	return ui.Color{R: 31, G: 28, B: 25, A: light}
 }
 
 // cardShadow is the shadow of a card at rest.

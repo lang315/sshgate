@@ -170,7 +170,7 @@ func (a *App) endTabs() {
 // a close button. Clicks run after the loop: closing a tab while ranging
 // over the tabs would build one twice.
 func (a *App) buildTabStrip(c *ui.Context) {
-	th := c.Theme()
+	p := tok(c)
 	addr, auto := map[string]string{}, map[string]bool{}
 	for _, s := range a.servers {
 		addr[s.Name] = model.Addr(s)
@@ -196,17 +196,21 @@ func (a *App) buildTabStrip(c *ui.Context) {
 			case t.State == "exited":
 				label += " · exited"
 			}
-			ui.Row(c.Key("tab-" + id)).Gap(2).Children(func() {
+			ui.Row(c.Key("tab-" + id)).Gap(2).AlignItems(ui.Center).Children(func() {
 				if auto[server] {
-					ui.Text(c, "\u25cf").Label("auto-allow on").TextColor(th.Warning)
+					ui.Column(c).Width(8).Height(8).Radius(4).Background(p.WaitFill).Label("auto-allow on") // Electron's .autodot
 				}
-				if ui.Button(c, label).Selected(a.tabs.Active == id).Tooltip(tip).Clicked() {
+				lb := railButton(ui.Button(c, label).Selected(a.tabs.Active == id).Tooltip(tip), p)
+				if a.tabs.Active == id {
+					lb.Background(p.Bg).TextColor(p.Text) // the open tab reads as the page it shows
+				}
+				if lb.Clicked() {
 					click = func() { a.activate(id) }
 				}
-				if t.State == "exited" && ui.Button(c, "Reconnect").Clicked() {
+				if t.State == "exited" && railButton(ui.Button(c, "Reconnect"), p).Clicked() {
 					click = func() { a.closeTab(id); a.openTab(server) }
 				}
-				if ui.Button(c, "×").Label("Close tab").Tooltip("Close").Clicked() {
+				if railButton(ui.Button(c, "").Label("Close tab").Tooltip("Close").Children(func() { ui.Icon(c, xIcon).TextColor(p.RailText) }), p).Clicked() {
 					click = func() { a.closeTab(id) }
 				}
 			})

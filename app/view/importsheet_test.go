@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/hubapi"
@@ -222,5 +223,50 @@ func TestImportErrorLeavesTheFocusAlone(t *testing.T) {
 		if !tt.Focused("Import db") || tt.Focused("Close") {
 			t.Fatalf("err %q moved the focus", msg)
 		}
+	}
+}
+
+func TestImportRowsAreCards(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	_, tt, _ := importApp(t, scanRows)
+	tt.SetDark(true)
+	tt.Advance(time.Second)
+	tt.Frame()
+	p, img := palette(true), shot(tt)
+	for _, s := range []string{"Import web", "Import db"} {
+		r, ok := tt.Find(s)
+		if !ok {
+			t.Fatalf("no %q", s)
+		}
+		if n := countNear(img, ui.Rect{X: r.X - 8, Y: r.Y, W: 4, H: 4}, p.Raised, 2); n != 16 {
+			t.Fatalf("%q: %d of 16 pixels beside the row are Raised", s, n)
+		}
+	}
+	for _, c := range []struct {
+		word string
+		col  ui.Color
+	}{{"Ready", p.OkTint}, {"Skipped", p.WaitTint}, {"Already in vault", p.WaitTint}} {
+		r, ok := tt.Find(c.word)
+		if !ok {
+			t.Fatalf("no %q", c.word)
+		}
+		if n := countNear(img, grow(r, 8), c.col, 3); n == 0 {
+			t.Fatalf("%q: no chip pixels", c.word)
+		}
+	}
+
+	long := hubapi.ImportScan{Candidates: []hubapi.Candidate{
+		{Alias: strings.Repeat("a", 200), Host: "h", Port: 22, User: "u", Auth: "agent", Status: "ready"},
+		{Alias: "web", Host: "10.0.0.5", Port: 22, User: "u", Auth: "agent", Status: "ready"},
+	}}
+	_, tt, _ = importApp(t, long)
+	tt.SetSize(900, 500)
+	tt.flush()
+	tt.Advance(time.Second)
+	tt.Frame()
+	r, ok := tt.Find("Import 2 hosts")
+	if !ok || r.X < 0 || r.Y < 0 || r.X+r.W > 900 || r.Y+r.H > 500 {
+		t.Fatalf("Import 2 hosts at %+v (found %v)", r, ok)
 	}
 }

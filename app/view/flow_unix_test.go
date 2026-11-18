@@ -84,6 +84,9 @@ func flowOn(t *testing.T, store string, env []string, dir string, extraArgs ...s
 	c := &clock{t: time.Now()}
 	a := &App{Now: c.now}
 	tt := newTester(t, a) // sets a.Update before the hub can send a note
+	// Flows check behaviour, not motion: a posed sheet's frames are slow under
+	// -race, and the idle locks here run on the real clock.
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	mux := termconn.NewMux()
 	p, err := hubproc.Start(context.Background(), hubproc.Launch{Command: bin, Args: append([]string{"hub", "--store=" + store}, extraArgs...), Env: env},
 		func(m string, params json.RawMessage) {

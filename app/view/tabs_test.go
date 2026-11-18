@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/hubapi"
 	"github.com/lang315/sshgate/app/hubproc"
 	"github.com/lang315/sshgate/app/termconn"
@@ -330,5 +331,31 @@ func TestManyTabsKeepLockReachable(t *testing.T) {
 	tt.flush()
 	if got := d.callList(); !slices.Contains(got, "lock") {
 		t.Fatalf("Lock sent %v", got)
+	}
+}
+
+// The 8 px auto-allow dot sits on the tab label's centre line.
+func TestTabAutoDotCentred(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	a, tt, _, _, _ := tabApp(t)
+	clickT(t, tt, "Open box")
+	tabsUntil(t, tt, func() bool { return tabState(a, "t1") == "open" }, "t1 open")
+	a.Update(func() { a.servers[0].AutoAllow = &hubapi.AutoAllow{Forever: true} })
+	tt.flush()
+	tt.Advance(time.Second)
+	tt.Frame()
+	dot, _ := tt.Find("auto-allow on")
+	var lab ui.Rect
+	for _, n := range tt.Nodes() {
+		if n.Label == "box" && n.Role == ui.RoleButton {
+			lab = n.Bounds
+		}
+	}
+	if dot.W == 0 || lab.W == 0 {
+		t.Fatalf("dot %+v or tab %+v not found", dot, lab)
+	}
+	if d := (dot.Y + dot.H/2) - (lab.Y + lab.H/2); d < -1 || d > 1 {
+		t.Fatalf("dot centre %.1f px off the tab label's (dot %+v, tab %+v)", d, dot, lab)
 	}
 }

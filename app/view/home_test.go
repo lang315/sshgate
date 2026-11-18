@@ -248,3 +248,27 @@ func TestAIColumnStaysPutWithSheetOpen(t *testing.T) {
 		}
 	}
 }
+
+// The card's open button starts at the left, so the address has the card's
+// width and is not cut; New host is the screen's filled primary.
+func TestHostCardAddressWholeAndNewHostPrimary(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	for _, dark := range []bool{false, true} {
+		_, tt, _ := readyApp(t, []hubapi.Server{{Name: "staging", User: "deploy", Host: "10.0.0.6", Port: 22, HostKey: "k", AIVisible: true}})
+		tt.SetDark(dark)
+		tt.SetSize(1000, 640)
+		tt.Advance(time.Second)
+		tt.Frame()
+		if !tt.HasText("deploy@10.0.0.6:22") {
+			t.Fatalf("dark=%v: the address is cut: %q", dark, tt.Texts())
+		}
+		r, ok := tt.Find("New host")
+		if !ok {
+			t.Fatal(tt.Texts())
+		}
+		if n := countNear(shot(tt), ui.Rect{X: r.X - 4, Y: r.Y, W: 2, H: r.H}, palette(dark).Accent, 3); n < int(r.H)*2-2 {
+			t.Fatalf("dark=%v: New host is not the filled primary (%d of %d)", dark, n, int(r.H)*2)
+		}
+	}
+}

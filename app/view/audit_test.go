@@ -331,3 +331,64 @@ func TestAuditEscapesHiddenText(t *testing.T) {
 		t.Fatalf("texts %q", tt.Texts())
 	}
 }
+
+func TestAuditDetailInset(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	_, tt, _, _ := auditApp(t, execEntry(1, "systemctl restart app", "allowed"), execEntry(2, "df -h", "denied"))
+	tt.SetDark(true)
+	clickT(t, tt, "Audit")
+	tt.flush()
+	clickFold(t, tt, "df -h")
+	tt.flush()
+	tt.Advance(time.Second)
+	tt.Frame()
+	p := palette(true)
+	img := shot(tt)
+	d, ok := tt.Find("AI's description · unverified")
+	if !ok {
+		t.Fatal(tt.Texts())
+	}
+	if n := countNear(img, ui.Rect{X: d.X - 4, Y: d.Y + 2, W: 4, H: 4}, p.Raised, 2); n != 16 {
+		t.Fatalf("%d of 16 detail pixels are Raised", n)
+	}
+	if n := countNear(img, d, p.Wait, 20); n == 0 {
+		t.Fatal("the description line lost its Wait colour")
+	}
+	o, ok := tt.Find("denied")
+	if !ok {
+		t.Fatal(tt.Texts())
+	}
+	if n := countNear(img, ui.Rect{X: o.X, Y: o.Y - 4, W: 4, H: 2}, p.DangerTint, 3); n != 8 {
+		t.Fatalf("%d of 8 denied row pixels are DangerTint", n)
+	}
+	if n := countNear(img, o, p.Danger, 20); n == 0 {
+		t.Fatal("the outcome has no Danger pixels")
+	}
+}
+
+// An allowed run reads as a success (Ok), not as the AI's Accent.
+func TestAuditAllowedReadsGreen(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	for _, dark := range []bool{false, true} {
+		_, tt, _, _ := auditApp(t, execEntry(1, "systemctl restart app", "allowed"))
+		tt.SetDark(dark)
+		clickT(t, tt, "Audit")
+		tt.flush()
+		tt.Advance(time.Second)
+		tt.Frame()
+		p := palette(dark)
+		o, ok := tt.Find("allowed")
+		if !ok {
+			t.Fatal(tt.Texts())
+		}
+		img := shot(tt)
+		if n := countNear(img, o, p.Ok, 20); n == 0 {
+			t.Fatalf("dark=%v: the allowed outcome has no Ok pixels", dark)
+		}
+		if n := countNear(img, o, p.Accent, 20); n != 0 {
+			t.Fatalf("dark=%v: the allowed outcome has %d Accent pixels", dark, n)
+		}
+	}
+}

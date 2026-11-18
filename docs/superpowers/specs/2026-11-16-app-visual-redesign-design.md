@@ -80,17 +80,17 @@ decision in this spec when it is made.
 ### Tokens (`app/view/palette.go`, new)
 
 One function builds the light and dark `ui.Theme`, called once at startup with
-`ui.SetDefaultThemes`. Values are the 2026-09-25 table:
+`ui.SetDefaultThemes`. Values are the 2026-09-25 table; neutrals warmed 2026-11-17 at the author's request (bg, surface, raised, line, text, muted and the rest of the neutrals; accent and state colours unchanged):
 
 | Token | Dark | Light | `ui.Theme` field |
 |---|---|---|---|
-| bg | `#14171A` | `#f5f6fa` | `Background`, `Field` |
-| surface | `#1A1E22` | `#ffffff` | none: cards, columns and dialogs paint it themselves |
-| raised | `#21262B` | `#eef0f6` | `Surface` (the face of a button; so a button on a card is visible), `RowHover` |
-| line | `#3A4148` | `#dde0ea` | `Border` (card edges and dividers: decoration, exempt from 3:1) |
+| bg | `#161514` | `#F6F4F0` | `Background`, `Field` |
+| surface | `#1C1A19` | `#FFFDFB` | none: cards, columns and dialogs paint it themselves |
+| raised | `#23211F` | `#EEEBE5` | `Surface` (the face of a button; so a button on a card is visible), `RowHover` |
+| line | `#3D3A37` | `#DFDAD2` | `Border` (card edges and dividers: decoration, exempt from 3:1) |
 | controlLine | builder picks, 3:1 on `bg`, `surface` and `raised` | same | `ControlBorder`, `ButtonBorder` (mygo's 3:1 border, `ui/theme.go:36`) |
-| text | `#ECE8E0` | `#1b1f2e` | `Text` |
-| muted | `#8B908E` | `#62698a` | `TextMuted` |
+| text | `#ECE8E0` | `#1F1C19` | `Text` |
+| muted | `#9A948C` | `#6B655D` | `TextMuted` |
 | accent | `#56BFB9` | `#12766F` | `Accent`, `Focus` |
 | danger | `#F28B73` | `#B5412F` | `Danger` |
 | wait | `#E9A23B` | `#8B6123` | `Warning` |
@@ -117,10 +117,11 @@ Tokens with no `ui.Theme` field live in an app struct picked by `c.Theme().Dark`
 **Where colour is stronger than in the 2026-09-25 table** (the author asked
 for a bolder look, and that table alone is grey with one accent):
 
-- The shell is teal, not grey. `rail` is a deep teal (dark `#0F2A29`, light
+- The shell is teal, not grey. `rail` is a deep teal (dark `#134542`, light
   `#0F5F59`) under the sidebar and the top bar, with `railText` `#E6F2F0` in
   both themes: the frame of the window carries the brand colour, the work area
-  stays neutral.
+  stays neutral. (Dark rail value changed 2026-11-17 after the finish review:
+  the old value read as near-black (1.19:1 against bg).)
 - Host tiles are filled, not outlined: the letter sits on a solid tile, teal by
   default, green while that host has an open terminal.
 - Chips, banners and the request cards' edges use the tints at full strength

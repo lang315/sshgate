@@ -117,7 +117,7 @@ func (a *App) buildImport(c *ui.Context) {
 			ui.RichText(c,
 				ui.Span{Text: "Host keys come from your known_hosts. With "},
 				ui.Span{Text: "StrictHostKeyChecking accept-new", Font: "monospace"},
-				ui.Span{Text: ", OpenSSH accepted them without asking you; compare them with the server if unsure."}).TextColor(t.TextMuted)
+				ui.Span{Text: ", OpenSSH accepted them without asking you; compare them with the server if unsure."}).TextColor(t.Text)
 			switch {
 			case imp.scan == nil && imp.busy:
 				ui.Text(c, "Reading your SSH config…").TextColor(t.TextMuted)
@@ -157,10 +157,10 @@ func (a *App) buildImport(c *ui.Context) {
 // buildImportRow is one alias; only a ready one has a checkbox. Every text
 // here comes from ~/.ssh/config and known_hosts, so it is display text.
 func (a *App) buildImportRow(c *ui.Context, cand hubapi.Candidate) {
-	t := c.Theme()
+	t, p := c.Theme(), tok(c)
 	imp := a.imp
 	alias := model.DisplayText(cand.Alias)
-	ui.Column(c.Key("cand-"+cand.Alias)).Gap(4).Padding(8, 0).Children(func() {
+	ui.Column(c.Key("cand-" + cand.Alias)).Gap(4).Padding(10).Radius(radiusCard).Background(p.Raised).Children(func() {
 		ui.Row(c).Gap(8).Children(func() {
 			if cand.Status == "ready" {
 				on := imp.checked[cand.Alias]
@@ -172,11 +172,11 @@ func (a *App) buildImportRow(c *ui.Context, cand hubapi.Candidate) {
 			}
 			switch cand.Status {
 			case "ready":
-				ui.Text(c, "Ready").TextColor(t.Success)
+				chip(c, "Ready", p.Ok, p.OkTint, "")
 			case "exists":
-				ui.Text(c, "Already in vault").TextColor(t.Warning)
+				chip(c, "Already in vault", p.Wait, p.WaitTint, "")
 			default:
-				ui.Text(c, "Skipped").TextColor(t.Warning)
+				chip(c, "Skipped", p.Wait, p.WaitTint, "")
 			}
 		})
 		if cand.Status == "skipped" {

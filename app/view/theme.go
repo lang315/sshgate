@@ -8,11 +8,14 @@ import (
 )
 
 // themes is the theme control, in Electron's order (ThemeControl.tsx): each
-// segment is named and tipped with its name and shows its glyph.
-var themes = []struct{ pref, name, glyph string }{
-	{"dark", "Dark", "☾"},
-	{"light", "Light", "☀"},
-	{"auto", "Auto", "Auto"},
+// segment is named and tipped with its name and shows its icon (Auto its word).
+var themes = []struct {
+	pref, name string
+	icon       *ui.SVG
+}{
+	{"dark", "Dark", moonIcon},
+	{"light", "Light", sunIcon},
+	{"auto", "Auto", nil},
 }
 
 // parseTheme is Electron's parsePref: anything but dark or light is auto.
@@ -76,7 +79,13 @@ func (a *App) buildThemeControl(c *ui.Context) {
 			if i == sel {
 				seg.Background(tok(c).RailText.Alpha(railPillAlpha))
 			}
-			seg.Children(func() { ui.Text(c, th.glyph).TextColor(tok(c).RailText) })
+			seg.Children(func() {
+				if th.icon == nil {
+					ui.Text(c, th.name).TextColor(tok(c).RailText)
+					return
+				}
+				ui.Icon(c, th.icon).TextColor(tok(c).RailText)
+			})
 		}
 	})
 	if p.Track.Changed() {

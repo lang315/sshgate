@@ -451,3 +451,27 @@ func TestConflictEscCancels(t *testing.T) {
 		t.Fatalf("Esc: %v %v %q", d.callList(), d.sentList(), tt.Texts())
 	}
 }
+
+// The names a confirm lists sit on a Raised block, in both dialogs.
+func TestConfirmListsInBlocks(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	for _, dark := range []bool{false, true} {
+		a, tt, _, _, sh, _ := jobsApp(t)
+		tt.SetDark(dark)
+		clickT(t, tt, "proj")
+		sh.pick("/Users/me/dl")
+		clickT(t, tt, "Download")
+		tt.flush()
+		note(t, a, tt, "files.planned", plannedNote("f1", 2, 1, 1, "proj/b.txt"))
+		tt.Advance(time.Second)
+		tt.Frame()
+		r, ok := tt.Find("proj/b.txt")
+		if !ok {
+			t.Fatalf("dark=%v: %q", dark, tt.Texts())
+		}
+		if n := countNear(shot(tt), ui.Rect{X: r.X - 4, Y: r.Y, W: 2, H: r.H}, palette(dark).Raised, 3); n < int(r.H)*2-2 {
+			t.Fatalf("dark=%v: list not on Raised (%d of %d)", dark, n, int(r.H)*2)
+		}
+	}
+}

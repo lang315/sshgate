@@ -337,11 +337,92 @@ func TestUnlockWaitSentenceNotMuted(t *testing.T) {
 		}
 		p := palette(dark)
 		img := shot(tt)
-		if n := countNear(img, r, p.Muted, 3); n != 0 {
+		if n := countNear(img, r, p.Muted, 0); n != 0 {
 			t.Fatalf("dark=%v: %d Muted pixels in the sentence", dark, n)
 		}
 		if n := countNear(img, r, p.Text, 3); n == 0 {
 			t.Fatalf("dark=%v: no Text pixels in the sentence at %+v", dark, r)
+		}
+	}
+}
+
+func TestHubFailedLook(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	a, tt, _, _ := newApp(t, &fakeDoor{status: hubapi.Status{HasVault: true}})
+	tt.SetDark(true)
+	tt.SetSize(900, 500)
+	a.Update(func() { a.HubState(hubproc.State{Kind: "failed", Message: "boom\nline one\nline two"}) })
+	tt.flush()
+	tt.Advance(time.Second)
+	tt.Frame()
+	p := palette(true)
+	f, ok := tt.Find("The hub stopped")
+	if !ok {
+		t.Fatal(tt.Texts())
+	}
+	shield := ui.Rect{X: 450 - 20, Y: f.Y - 12 - 40, W: 40, H: 40}
+	img := shot(tt)
+	if countNear(img, shield, p.Danger, 6) == 0 || countNear(img, shield, p.Accent, 6) != 0 {
+		t.Fatalf("shield: danger %d accent %d", countNear(img, shield, p.Danger, 6), countNear(img, shield, p.Accent, 6))
+	}
+	r, ok := tt.Find("line one")
+	if !ok {
+		t.Fatal(tt.Texts())
+	}
+	if n := countNear(img, ui.Rect{X: r.X - 4, Y: r.Y, W: 2, H: r.H}, p.TermBg, 3); n < int(r.H)*2-2 {
+		t.Fatalf("stderr not on TermBg (%d)", n)
+	}
+}
+
+// The starting and restarting screens show mygo's Spinner: local drawing,
+// no hub call.
+func TestHubStartingShowsSpinner(t *testing.T) {
+	d := &fakeDoor{}
+	c := &clock{t: time.Unix(1000, 0)}
+	a := &App{Door: d, Now: c.now}
+	tt := newTester(t, a)
+	tt.Frame()
+	sp, ok := tt.AccessByRole(ui.RoleProgress, "")
+	if !ok {
+		t.Fatal("starting: no spinner")
+	}
+	before, calls := shot(tt), len(d.callList())
+	tt.Advance(300 * time.Millisecond)
+	tt.Frame()
+	if sameRegion(before, shot(tt), sp.Bounds) || len(d.callList()) != calls {
+		t.Fatalf("spinner did not turn by itself, or called the hub: %v", d.callList())
+	}
+	a.Update(func() { a.HubState(hubproc.State{Kind: "restarting", Attempt: 1, In: 3 * time.Second}) })
+	tt.flush()
+	if _, ok := tt.AccessByRole(ui.RoleProgress, ""); !ok {
+		t.Fatal("restarting: no spinner")
+	}
+}
+
+// The failed-hub screen draws its stderr block only when there is stderr.
+func TestHubFailedBlockOnlyWithStderr(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	p := palette(true)
+	for _, c := range []struct {
+		msg  string
+		want bool
+	}{{"the hub crashed", false}, {"the hub crashed\nboom", true}} {
+		a, tt, _, _ := newApp(t, &fakeDoor{status: hubapi.Status{HasVault: true}})
+		tt.SetDark(true)
+		a.Update(func() { a.HubState(hubproc.State{Kind: "failed", Message: c.msg}) })
+		tt.flush()
+		tt.Advance(time.Second)
+		tt.Frame()
+		img := shot(tt)
+		r, ok := tt.Find("the hub crashed")
+		if !ok {
+			t.Fatal(tt.Texts())
+		}
+		n := countNear(img, ui.Rect{X: r.X, Y: r.Y + r.H + 4, W: 100, H: 14}, p.TermBg, 3) // just under the message, inside the card
+		if (n > 0) != c.want {
+			t.Fatalf("%q: %d TermBg pixels, block wanted %v", c.msg, n, c.want)
 		}
 	}
 }

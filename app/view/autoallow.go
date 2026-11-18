@@ -69,7 +69,7 @@ func (a *App) buildConfirm(c *ui.Context) {
 	answer := 0 // 1 enable, 2 cancel
 	open := true
 	m := modal(c.Key(fmt.Sprintf("auto-%p", cf)), &open, func() { // keyed: Cancel takes the focus on each open
-		ui.Column(c).Width(460).Gap(10).Padding(20).Children(func() {
+		ui.Column(c).Width(460).Gap(10).Children(func() {
 			ui.Text(c, title).Bold().FontSize(16)
 			if cf.refused != "" {
 				ui.Text(c, "Auto-allow is not available here: "+model.DisplayText(cf.refused)).TextColor(t.Danger)
@@ -80,7 +80,7 @@ func (a *App) buildConfirm(c *ui.Context) {
 				ui.Text(c, model.DisplayText(cf.err)).TextColor(t.Danger)
 			}
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if MouseButton(c, "Enable", enabled(now)) && enabled(a.Now()) {
+				if decisionButton(c, "Enable", "Enable", enabled(now), toneDanger) && enabled(a.Now()) {
 					answer = 1
 				}
 				if ui.PrimaryButton(c, "Cancel").AutoFocus().Clicked() {
@@ -165,7 +165,7 @@ func (a *App) buildPaused(c *ui.Context, lc **model.ListChanges) {
 	}
 	ui.Row(c).Gap(8).Padding(8, 12).Radius(8).Background(tok(c).WaitTint).Role(ui.RoleStatus).Children(func() {
 		ui.Text(c, "Auto-allow is paused on "+strings.Join(names, ", ")+". Once resumed, the AI keeps running there while the app is locked.").Grow(1)
-		if MouseButton(c, "Resume", ok) && model.TrustEnabled((*lc).At, a.Now()) {
+		if decisionButton(c, "Resume", "Resume", ok, toneAccent) && model.TrustEnabled((*lc).At, a.Now()) {
 			a.setAuto(hosts, "forever", "resume")
 		}
 		if ui.Button(c, "Stop").Clicked() {

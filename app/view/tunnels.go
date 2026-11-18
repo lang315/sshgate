@@ -184,8 +184,8 @@ func (a *App) buildTunnels(c *ui.Context, t model.Tab) {
 		if len(mine) == 0 {
 			ui.Text(c, "No tunnels yet. Add one to reach a port on or through this host.").TextColor(th.TextMuted)
 		} else {
-			ui.Scroll(c).Grow(1).Gap(6).Children(func() {
-				ui.Row(c).Gap(8).Children(func() {
+			ui.Column(c).Grow(1).Background(tok(c).Surface).Radius(radiusCard).Clip().Children(func() {
+				ui.Row(c).Gap(8).Padding(8, 12).Background(tok(c).Raised).Children(func() {
 					// Named apart from the dialog's Label field: the Tester clicks the first match.
 					ui.Text(c, "Label").Label("Label column").Bold().Width(120)
 					ui.Text(c, "Forward").Bold().Grow(1)
@@ -193,14 +193,18 @@ func (a *App) buildTunnels(c *ui.Context, t model.Tab) {
 					ui.Text(c, "Connections").Bold().Width(90)
 					ui.Box(c).Width(tunnelActionsW)
 				})
-				for _, x := range mine {
-					if f := a.buildTunnelRow(c, id, v, x); f != nil {
-						act = f
+				ui.Scroll(c).Grow(1).Children(func() {
+					for _, x := range mine {
+						if f := a.buildTunnelRow(c, id, v, x); f != nil {
+							act = f
+						}
 					}
-				}
+				})
 			})
 		}
-		ui.Text(c, "While a tunnel runs, any program on this computer can use its local port, and any program on the server can use a remote tunnel’s port.").TextColor(th.TextMuted)
+		ui.Row(c).Padding(8, 12).Radius(radiusControl).Background(tok(c).WaitTint).Children(func() {
+			ui.Text(c, "While a tunnel runs, any program on this computer can use its local port, and any program on the server can use a remote tunnel’s port.")
+		})
 	})
 	if v.dlg != nil {
 		a.buildTunnelDialog(c, id, v)
@@ -234,13 +238,18 @@ func (a *App) buildTunnelRow(c *ui.Context, tab string, v *tunnelsTab, x hubapi.
 	if live {
 		tip = "Stop it first"
 	}
-	ui.Row(c.Key("tunnel-" + id)).Gap(8).Children(func() {
+	ui.Row(c.Key("tunnel-"+id)).Gap(8).Padding(8, 12).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(tok(c).Divider).Children(func() {
 		ui.Text(c, label).Width(120)
-		ui.Text(c, summary).Font("monospace").Grow(1)
-		st := ui.Text(c, status).Width(160)
-		if x.Status == "error" {
-			st.TextColor(th.Danger)
-		}
+		ui.Text(c, summary).Font("monospace").Grow(1).Basis(0).MinWidth(0)
+		ui.Row(c).Width(160).Children(func() {
+			st := ui.Text(c, status).TextColor(th.TextMuted)
+			switch x.Status {
+			case "running":
+				st.TextColor(tok(c).Ok).Background(tok(c).OkTint).Padding(2, 8).Radius(10)
+			case "error":
+				st.TextColor(th.Danger)
+			}
+		})
 		ui.Text(c, conns).Width(90)
 		ui.Row(c).Gap(6).Width(tunnelActionsW).Children(func() {
 			if live {
@@ -284,7 +293,7 @@ func (a *App) buildTunnelDialog(c *ui.Context, id string, v *tunnelsTab) {
 	}
 	open := true
 	m := modal(c.Key(fmt.Sprintf("tunnel-%p", dl)), &open, func() {
-		ui.Column(c).Width(440).Gap(10).Padding(20).Children(func() {
+		ui.Column(c).Width(440).Gap(10).Children(func() {
 			ui.Text(c, title).Bold().FontSize(16)
 			ui.Text(c, "On "+model.DisplayText(v.server)+". Listens on 127.0.0.1 only.").TextColor(th.TextMuted)
 			ui.Text(c, "Kind")
