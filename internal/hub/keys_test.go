@@ -130,6 +130,32 @@ func TestKeysCreateListDelete(t *testing.T) {
 	}
 }
 
+// The write stands even when the reload after it fails: the app must get the
+// key (a retry would find the name taken) and status reports storeError.
+func TestKeysCreateSurvivesReloadFailure(t *testing.T) {
+	h, _, _ := keyHub(t)
+	c, _ := startUI(t, h)
+	loadStore = func(string) (*config.File, error) { return nil, errors.New("boom") }
+	t.Cleanup(func() { loadStore = config.Load })
+	var made struct{ Name, PublicKey string }
+	if err := c.Call(context.Background(), "keys.create", map[string]any{"name": "k1"}, &made); err != nil {
+		t.Fatalf("create after a failed reload: %v", err)
+	}
+	if made.Name != "k1" || made.PublicKey == "" {
+		t.Fatalf("reply: %+v", made)
+	}
+	f, err := config.Load(h.o.StorePath)
+	if err != nil || len(f.Keys) != 1 {
+		t.Fatalf("key not on disk: %v", err)
+	}
+	h.mu.Lock()
+	got := h.storeErr
+	h.mu.Unlock()
+	if got == nil {
+		t.Fatal("storeErr not set")
+	}
+}
+
 func TestKeysStrictParams(t *testing.T) {
 	h, _, _ := keyHub(t)
 	c, _ := startUI(t, h)
@@ -220,16 +246,25 @@ func TestKeyBlobNeverLeaves(t *testing.T) {
 	}
 	call("term.close", map[string]any{"id": "t1"})
 	call("audit.read", map[string]any{})
-	time.Sleep(200 * time.Millisecond)
-drain:
-	for {
+	// keys.create writes its audit record before it replies, and the queue
+	// drains in order: the "end" record's notification is the last one. Read
+	// everything up to it.
+	call("keys.create", map[string]any{"name": "end"})
+	var gotEnd bool
+	for deadline := time.After(10 * time.Second); !gotEnd; {
 		select {
 		case n := <-notes:
 			seen.WriteString(n.method)
 			seen.Write(n.params)
-		default:
-			break drain
+			gotEnd = gotEnd || n.method == "audit.appended" && strings.Contains(string(n.params), `"key":"end"`)
+		case <-deadline:
+			t.Fatal("the last audit notification never arrived")
 		}
+	}
+	for len(notes) > 0 {
+		n := <-notes
+		seen.WriteString(n.method)
+		seen.Write(n.params)
 	}
 
 	// the blob, read back from the vault the way the hub does
