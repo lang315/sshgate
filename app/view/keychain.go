@@ -103,6 +103,9 @@ func (a *App) buildKeychain(c *ui.Context) {
 		})
 		if a.keys.err != "" {
 			ui.Text(c, model.DisplayText(a.keys.err)).TextColor(t.Danger)
+			if ui.Button(c, "Try again").Clicked() {
+				a.keysLoad() // a click only: never from a build, a timer or a redraw
+			}
 		}
 		if len(a.keys.list) == 0 && a.keys.loaded && a.keys.err == "" {
 			ui.Text(c, "No keys yet. Create one with New key.").TextColor(t.TextMuted)

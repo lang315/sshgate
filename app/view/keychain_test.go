@@ -283,3 +283,27 @@ func TestEnterDoesNotSaveKeychainHostWithoutKey(t *testing.T) {
 		t.Fatalf("calls %v", d.callList())
 	}
 }
+
+// A failed keys.list in the Keychain view offers Try again; it reads on the
+// click only, never on a redraw or a timer.
+func TestKeychainListErrorOffersRetry(t *testing.T) {
+	_, tt, _, d := keysApp(t, keyFree)
+	d.set(func() { d.errs = map[string]error{"keys.list": errors.New("boom list")} })
+	clickT(t, tt, "Keychain")
+	tt.flush()
+	if !tt.HasText("boom list") || !tt.HasText("Try again") {
+		t.Fatalf("no error and retry: %q", tt.Texts())
+	}
+	d.set(func() { d.errs = nil })
+	d.resetCalls()
+	tt.Advance(time.Minute)
+	tt.flush()
+	if n := countCalls(d, "keys.list"); n != 0 {
+		t.Fatalf("keys.list %d without a click", n)
+	}
+	clickT(t, tt, "Try again")
+	tt.flush()
+	if n := countCalls(d, "keys.list"); n != 1 || !tt.HasText(keyFree.PublicKey) || tt.HasText("boom list") {
+		t.Fatalf("retry: %d calls, %q", n, tt.Texts())
+	}
+}
