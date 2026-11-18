@@ -140,7 +140,15 @@ func railButton(e ui.Element, p tokens) ui.Element {
 	return e
 }
 
-func tok(c *ui.Context) tokens { return palette(c.Theme().Dark) }
+// The two palettes, built once: tok runs in every build, many times a frame.
+var darkTokens, lightTokens = palette(true), palette(false)
+
+func tok(c *ui.Context) tokens {
+	if c.Theme().Dark {
+		return darkTokens
+	}
+	return lightTokens
+}
 
 // Themes is the app's light and dark ui.Theme, for ui.SetDefaultThemes.
 func Themes() (light, dark *ui.Theme) {
