@@ -403,7 +403,7 @@ func TestEditorCountsTransfers(t *testing.T) {
 	a, tt, _, _, sh, _ := jobsApp(t)
 	tt.SetSize(1000, 900)
 	upload(t, tt, sh, "/l/proj")
-	clickT(t, tt, "Hosts")
+	clickT(t, tt, "Home")
 	clickT(t, tt, "Edit box")
 	fill(t, tt, "Port", "23")
 	if !tt.HasText("Saving will cancel 1 transfer.") {

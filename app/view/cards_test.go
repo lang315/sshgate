@@ -120,3 +120,85 @@ func TestCardActionsStayInTheCard(t *testing.T) {
 		t.Fatalf("the chipless card's actions end at %v, its neighbour's at %v", other.Y+other.H, stop.Y+stop.H)
 	}
 }
+
+// The dot is decoration with a label: it shows while a terminal is open.
+func TestCardConnectedTile(t *testing.T) {
+	needLib(t)
+	a, tt, _, _, _ := tabApp(t)
+	if _, ok := tt.Find("connected"); ok {
+		t.Fatal("connected dot with no terminal open")
+	}
+	clickT(t, tt, "Open box")
+	tabsUntil(t, tt, func() bool { return tabState(a, "t1") == "open" }, "t1 open")
+	a.Update(func() { a.tabs.ShowHome() })
+	tt.flush()
+	if _, ok := tt.Find("connected"); !ok {
+		t.Fatalf("no connected dot: %q", tt.Texts())
+	}
+	a.Update(func() { a.closeTab("t1") })
+	tt.flush()
+	if _, ok := tt.Find("connected"); ok {
+		t.Fatal("connected dot after the tab closed")
+	}
+}
+
+// At the window minimum the AI column leaves ~320 DIP for the cards.
+func TestCardFitsBesideAIColumn(t *testing.T) {
+	var servers []hubapi.Server
+	for _, n := range []string{"host1", "host2", "host3"} {
+		servers = append(servers, hubapi.Server{Name: n, User: "u", Host: n + ".example", Port: 22})
+	}
+	a, tt, _ := readyApp(t, servers)
+	tt.SetSize(900, 500)
+	a.Update(func() { a.aiOpen = true })
+	tt.flush()
+	r, ok := tt.Find("Open host1")
+	if !ok || r.X+r.W > 900-380 {
+		t.Fatalf("card at %+v (%v), AI column starts at %d", r, ok, 900-380)
+	}
+}
+
+func TestStopAutoAllowStillOnCard(t *testing.T) {
+	s := autoBox()
+	s.AutoAllow = &hubapi.AutoAllow{Forever: true, Paused: true}
+	_, tt, _ := readyApp(t, []hubapi.Server{s})
+	tt.SetSize(900, 500)
+	tt.flush()
+	if _, ok := tt.Find("Stop auto-allow box"); !ok {
+		t.Fatal(tt.Texts())
+	}
+}
+
+// Every hover fades the shadow in and out, not only the first.
+func TestHoverCardFadesEveryTime(t *testing.T) {
+	servers := []hubapi.Server{{Name: "hostA", User: "u", Host: "a.example", Port: 22}, {Name: "hostB", User: "u", Host: "b.example", Port: 22}}
+	a, tt, _ := readyApp(t, servers)
+	tt.SetSize(900, 500)
+	tt.flush()
+	over := func(name string) {
+		r, ok := tt.Find("Open " + name)
+		if !ok {
+			t.Fatalf("no card %s", name)
+		}
+		tt.Move(r.X+r.W/2, r.Y+r.H/2)
+		tt.Frame()
+	}
+	over("hostA")
+	tt.Advance(200 * time.Millisecond)
+	if got := a.lift["hostA"]; got != 1 {
+		t.Fatalf("after 200 ms hover lift %v", got)
+	}
+	over("hostB")
+	tt.Advance(200 * time.Millisecond)
+	if _, still := a.lift["hostA"]; still {
+		t.Fatalf("A kept animating after it faded out: %v", a.lift)
+	}
+	over("hostA")
+	tt.Advance(40 * time.Millisecond)
+	if got := a.lift["hostA"]; got <= 0 || got >= 1 {
+		t.Fatalf("second hover jumped: lift %v", got)
+	}
+	if !tt.FramePending() {
+		t.Fatal("no frame pending during the fade")
+	}
+}

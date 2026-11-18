@@ -52,7 +52,7 @@ func (f *flowT) trust(user string) {
 
 func (f *flowT) editBox() {
 	f.t.Helper()
-	f.click("Hosts")
+	f.click("Home")
 	f.click("Edit box")
 	f.until(func() bool { return f.a.editor != nil }, "the host editor")
 }
@@ -105,7 +105,7 @@ func TestFlowHostsCreateTrustEditForgetDelete(t *testing.T) {
 	f.fill("Port", strconv.Itoa(f.port))
 	f.saveEditor()
 	f.until(func() bool { s := f.a.Servers(); return len(s) == 1 && s[0].Port == f.port && s[0].HostKey == "" }, "box back on its port, unpinned")
-	f.click("Hosts")
+	f.click("Home")
 	f.click("Open box")
 	f.trust("test")
 	f.configRecords("box", "save", 3)
@@ -118,7 +118,7 @@ func TestFlowHostsCreateTrustEditForgetDelete(t *testing.T) {
 	f.until(func() bool { return f.tt.HasText("Not pinned") }, "the editor to show the key forgotten")
 	f.configRecords("box", "forgetHostKey", 1)
 	f.click("Close")
-	f.click("Hosts")
+	f.click("Home")
 	f.click("Open box")
 	last := f.a.tabs.Active
 	f.until(func() bool { return f.tt.HasText("Trust this host key?") }, "the prompt again")
@@ -126,7 +126,7 @@ func TestFlowHostsCreateTrustEditForgetDelete(t *testing.T) {
 	f.until(func() bool { return !f.tt.HasText("Trust this host key?") && tabState(f.a, last) == "exited" }, "the cancelled tab")
 
 	// Delete waits half a second, then removes the host.
-	f.click("Hosts")
+	f.click("Home")
 	f.click("Delete box")
 	f.pass()
 	f.click("Delete host")

@@ -166,7 +166,7 @@ func TestFlowSoftLock(t *testing.T) {
 	if f.tt.HasText("Auto-allow is paused") {
 		t.Fatal("the grant paused across a soft lock")
 	}
-	f.click("Hosts")
+	f.click("Home")
 	f.chip("box", "Auto ∞")
 	f.ran(f.aiExec("box", "echo soft-2"), "echo soft-2")
 	f.auto("echo soft-2")

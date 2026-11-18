@@ -32,7 +32,7 @@ func autoLabel(mode string) string {
 func (f *flowT) editAuto(server, mode string, on ...string) {
 	f.t.Helper()
 	f.tt.SetSize(1000, 1200) // the whole editor in view: the Tester clicks where an element is
-	f.click("Hosts")
+	f.click("Home")
 	f.click("Edit " + server)
 	f.until(func() bool { return f.a.editor != nil }, "the host editor")
 	openAI(f.t, f.tt)
@@ -93,7 +93,7 @@ func (f *flowT) denyWaiting(ch <-chan hubtest.ExecResult, cmd string) {
 // newHost adds a host on sshtestd through the editor.
 func (f *flowT) newHost(label, user, password string, visible bool) {
 	f.t.Helper()
-	f.click("Hosts")
+	f.click("Home")
 	f.click("New host")
 	f.fill("Label", label)
 	f.fill("Address", "127.0.0.1")
@@ -241,7 +241,7 @@ func TestFlowAutoAllowMCP(t *testing.T) {
 	f.until(func() bool { return count(f.tt.Texts(), "sudo") == 1 }, "the feed's sudo tag") // the tag, not the command's text
 
 	// Stop on the card ends the grant.
-	f.click("Hosts")
+	f.click("Home")
 	f.click("Stop auto-allow box")
 	f.chip("box", "")
 	if off := f.lastConfig("box", "autoAllowOff"); off.Reason != "turned off" {

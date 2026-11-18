@@ -34,7 +34,7 @@ func tunnelsApp(t *testing.T, list ...hubapi.TunnelView) (*App, *tester, *fakeDo
 func openTunnelsTab(t *testing.T, a *App, tt *tester) string {
 	t.Helper()
 	if a.tabs.Active != "" {
-		clickT(t, tt, "Hosts")
+		clickT(t, tt, "Home")
 	}
 	clickT(t, tt, "Tunnels box")
 	tt.flush()
@@ -66,7 +66,7 @@ func TestTunnelsTabFromTheCard(t *testing.T) {
 	if len(d.callList()) != 0 {
 		t.Fatalf("opening the tab called %v", d.callList())
 	}
-	clickT(t, tt, "Hosts")
+	clickT(t, tt, "Home")
 	clickT(t, tt, "Tunnels box")
 	if a.tabs.Active != id || len(a.tabs.Tabs) != 1 {
 		t.Fatalf("a second tab: active %q, %d tabs", a.tabs.Active, len(a.tabs.Tabs))
@@ -86,7 +86,7 @@ func TestTunnelsTabFromTheCard(t *testing.T) {
 	if !tt.HasText("Start pg") || tt.HasText("Stop pg") {
 		t.Fatalf("after stopped: %q", tt.Texts())
 	}
-	clickT(t, tt, "Hosts")
+	clickT(t, tt, "Home")
 	if tt.HasText("1 ⇄") {
 		t.Fatal("the badge outlived the tunnel")
 	}
@@ -340,7 +340,7 @@ func TestEditorWarningIgnoresTunnelsTabs(t *testing.T) {
 	a, tt, _, _ := tunnelsApp(t)
 	tt.SetSize(800, 1200)
 	openTunnelsTab(t, a, tt)
-	clickT(t, tt, "Hosts")
+	clickT(t, tt, "Home")
 	clickT(t, tt, "Edit box")
 	fill(t, tt, "Port", "2222")
 	if !tt.HasText("Changing host or port forgets the host key and saved passwords unless you re-enter them.") || tt.HasText("Saving will") {

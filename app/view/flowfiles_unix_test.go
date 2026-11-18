@@ -35,7 +35,7 @@ func (f *flowT) openFiles() (string, *filesTab) {
 func (f *flowT) openFilesOn(server string, limit time.Duration) (string, *filesTab) {
 	f.t.Helper()
 	if f.a.tabs.Active != "" {
-		f.click("Hosts")
+		f.click("Home")
 	}
 	f.click("Files " + model.DisplayText(server))
 	id := f.a.tabs.Active

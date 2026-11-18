@@ -122,12 +122,12 @@ func TestTabsOpenSwitchAndClose(t *testing.T) {
 	if tt.HasText("Search hosts") {
 		t.Fatal("the host list shows behind the terminal")
 	}
-	if err := tt.Click("Hosts"); err != nil {
+	if err := tt.Click("Home"); err != nil {
 		t.Fatal(err)
 	}
 	tt.flush()
 	if !tt.HasText("Search hosts") || a.tabs.Active != "" {
-		t.Fatal("Hosts did not show the home tab")
+		t.Fatal("Home did not show the home tab")
 	}
 	if err := tt.Click("Open box"); err != nil {
 		t.Fatal(err)
@@ -307,7 +307,7 @@ func TestManyTabsKeepLockReachable(t *testing.T) {
 	if r, ok := tt.Find(last); !ok || r.X+r.W <= 800 {
 		t.Fatalf("the last tab should start out of view: %+v %v", r, ok)
 	}
-	hosts, _ := tt.Find("Hosts")
+	hosts, _ := tt.Find("Home")
 	tt.Scroll(400, hosts.Y+hosts.H/2, 20000, 0)
 	tt.Frame()
 	if r, ok := tt.Find(last); !ok || r.X < 0 || r.X+r.W > 800 {

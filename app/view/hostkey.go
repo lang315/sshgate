@@ -120,7 +120,7 @@ func (a *App) buildMismatch(c *ui.Context, k hubapi.HostKey) {
 				ui.Text(c, model.DisplayText(k.Server)).Bold()
 				ui.Text(c, model.DisplayText(keyAddr(k))).Font("monospace").TextColor(t.TextMuted)
 			})
-			ui.Row(c).Padding(8, 12).Radius(6).Background(t.Danger.Alpha(0.15)).Children(func() {
+			ui.Row(c).Padding(8, 12).Radius(6).Background(tok(c).DangerTint).Children(func() {
 				ui.Text(c, "This server presented a different host key than the one pinned. The connection may be intercepted. Nothing was sent.")
 			})
 			ui.Text(c, "Pinned").TextColor(t.TextMuted)
