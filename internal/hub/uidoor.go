@@ -23,7 +23,6 @@ type uiServer struct {
 	Auth             string       `json:"auth"`
 	KeyPath          string       `json:"keyPath"`
 	KeyName          string       `json:"keyName,omitempty"`
-	KeyPublicKey     string       `json:"keyPublicKey,omitempty"`
 	HostKey          string       `json:"hostKey"`
 	HostKeyAlgo      string       `json:"hostKeyAlgo"`
 	AIVisible        bool         `json:"aiVisible"`
@@ -63,14 +62,8 @@ func (h *Hub) serversForUI() []uiServer {
 	}
 	now := time.Now()
 	for _, s := range h.deps.File.Servers {
-		var keyPub string
-		for _, k := range h.deps.File.Keys {
-			if s.Auth == "keychain" && k.Name == s.KeyName {
-				keyPub = k.PublicKey
-			}
-		}
 		out = append(out, uiServer{
-			Name: s.Name, Host: s.Host, Port: s.Port, User: s.User, Auth: s.Auth, KeyPath: s.KeyPath, KeyName: s.KeyName, KeyPublicKey: keyPub,
+			Name: s.Name, Host: s.Host, Port: s.Port, User: s.User, Auth: s.Auth, KeyPath: s.KeyPath, KeyName: s.KeyName,
 			HostKey: s.HostKey, HostKeyAlgo: s.HostKeyAlgo, AIVisible: s.AIVisible, Locked: h.deps.IsLocked(s.Name),
 			HasPassword: s.EncPassword != "", HasSuPassword: s.EncSuPassword != "",
 			HasSudoPassword: s.EncSudoPassword != "", HasKeyPassphrase: s.EncKeyPassphrase != "",

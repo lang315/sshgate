@@ -181,7 +181,7 @@ func TestKeychainEmptyState(t *testing.T) {
 
 func TestEditorKeychainHostLoadsOnce(t *testing.T) {
 	s := boxServer
-	s.Auth, s.KeyName, s.KeyPublicKey = "keychain", "spare", keyFree.PublicKey
+	s.Auth, s.KeyName = "keychain", "spare"
 	_, tt, d := edReady(t, []hubapi.Server{s})
 	d.set(func() { d.keys = []hubapi.Key{keyFree} })
 	d.resetCalls()
@@ -247,7 +247,7 @@ func TestUnlockOnKeychainTabMakesNoCall(t *testing.T) {
 
 func TestEditorKeychainListErrorOffersRetry(t *testing.T) {
 	s := boxServer
-	s.Auth, s.KeyName, s.KeyPublicKey = "keychain", "spare", keyFree.PublicKey
+	s.Auth, s.KeyName = "keychain", "spare"
 	_, tt, d := edReady(t, []hubapi.Server{s})
 	d.set(func() {
 		d.keys = []hubapi.Key{keyFree}

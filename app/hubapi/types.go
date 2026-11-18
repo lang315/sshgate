@@ -38,7 +38,6 @@ type Server struct {
 	Auth             string     `json:"auth"`
 	KeyPath          string     `json:"keyPath"`
 	KeyName          string     `json:"keyName,omitempty"`
-	KeyPublicKey     string     `json:"keyPublicKey,omitempty"`
 	HostKey          string     `json:"hostKey"`
 	HostKeyAlgo      string     `json:"hostKeyAlgo"`
 	AIVisible        bool       `json:"aiVisible"`

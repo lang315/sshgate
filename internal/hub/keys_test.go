@@ -102,8 +102,8 @@ func TestKeysCreateListDelete(t *testing.T) {
 	if err := c.Call(ctx, "keys.list", map[string]any{}, &keys); err != nil || len(keys[0].UsedBy) != 1 || keys[0].UsedBy[0] != "fk" {
 		t.Fatalf("list after save: %v %+v", err, keys)
 	}
-	var servers []struct{ Name, KeyName, KeyPublicKey string }
-	if err := c.Call(ctx, "servers", map[string]any{}, &servers); err != nil || servers[0].KeyName != "k1" || servers[0].KeyPublicKey != made.PublicKey {
+	var servers []struct{ Name, KeyName string }
+	if err := c.Call(ctx, "servers", map[string]any{}, &servers); err != nil || servers[0].KeyName != "k1" {
 		t.Fatalf("servers: %v %+v", err, servers)
 	}
 	if err := c.Call(ctx, "keys.delete", map[string]any{"name": "k1"}, nil); err == nil || !strings.Contains(err.Error(), config.ErrKeyInUse.Error()) {
