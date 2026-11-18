@@ -200,7 +200,7 @@ func TestSettingsSectionsAndButtonOrder(t *testing.T) {
 		if !ok {
 			t.Fatalf("no heading %q in %q", h, tt.Texts())
 		}
-		patch := ui.Rect{X: r.X + 12, Y: r.Y + r.H + 10 + 12, W: 4, H: 4} // inside the section's padding
+		patch := ui.Rect{X: r.X + 4, Y: r.Y + r.H + 10 + 12, W: 4, H: 4} // the left padding (12 px), clear of the first row's text and of the corner
 		if n := countNear(shot(tt), patch, palette(true).Raised, 2); n != 16 {
 			t.Fatalf("%s: %d of 16 pixels on Raised", h, n)
 		}
