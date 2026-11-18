@@ -70,6 +70,11 @@ func (a *App) buildReady(c *ui.Context) {
 					a.buildTab(c, t)
 					return
 				}
+				if a.tabs.Active == model.KeychainTab {
+					a.pausedHome = nil
+					a.fadeView(c, "keychain", a.buildKeychain)
+					return
+				}
 				if a.tabs.Active == model.AuditTab {
 					a.pausedHome = nil
 					a.fadeView(c, "audit", a.buildAudit)
@@ -90,6 +95,7 @@ func (a *App) buildReady(c *ui.Context) {
 	})
 	a.buildHostKeyDialogs(c)
 	a.buildDeleteConfirm(c)
+	a.buildKeyDialogs(c)
 	a.buildSettings(c)
 }
 

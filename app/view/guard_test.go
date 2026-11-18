@@ -70,6 +70,43 @@ func TestMouseButtonWaitsAndNeverTakesKeys(t *testing.T) {
 	}
 }
 
+// keyView shows one enabled toned decision button beside a field.
+type keyView struct {
+	t       tone
+	clicked int
+}
+
+func (v *keyView) build(c *ui.Context) {
+	if decisionButton(c, "Go", "Go", true, v.t) {
+		v.clicked++
+	}
+	ui.TextInput(c, new(string)).Label("Reason").AutoFocus()
+}
+
+// An enabled toned button is drawn by its own branch, not mouseButtonNamed:
+// it must stay mouse-only too, or Enter could approve.
+func TestDecisionButtonTonedNeverTakesKeys(t *testing.T) {
+	for _, tn := range []tone{toneOk, toneAccent, toneDanger, toneDangerFill} {
+		v := &keyView{t: tn}
+		tt := ui.NewTester(v.build, 400, 200)
+		tt.Frame()
+		for range 4 {
+			tt.Key(0, ui.KeyTab)
+			if tt.Focused("Go") {
+				t.Fatalf("tone %d took the focus", tn)
+			}
+		}
+		tt.Key(0, ui.KeyEnter)
+		tt.Key(0, ui.KeySpace)
+		if v.clicked != 0 {
+			t.Fatalf("tone %d: a key pressed it", tn)
+		}
+		if err := tt.Click("Go"); err != nil || v.clicked != 1 {
+			t.Fatalf("tone %d: click %v, clicked %d", tn, err, v.clicked)
+		}
+	}
+}
+
 // toneView shows one decision button of one tone, enabled or not.
 type toneView struct {
 	t       tone

@@ -114,6 +114,7 @@ func TestAuditRowViewConfig(t *testing.T) {
 		`{"kind":"config","action":"save","changed":["host: a → 10.0.0.2","password"]}`:                                     "host: a → 10.0.0.2, password",
 		`{"kind":"config","action":"autoAllowOff","reason":"locked"}`:                                                       "locked",
 		`{"kind":"config","action":"delete"}`:                                                                               "",
+		`{"kind":"config","action":"keyCreate","key":"laptop"}`:                                                             "laptop",
 	} {
 		if got := main(js); got != want {
 			t.Errorf("%s: %q, want %q", js, got, want)

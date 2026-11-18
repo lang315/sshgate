@@ -48,6 +48,9 @@ func (a *App) openEditor(name string, focusForget bool) {
 	a.sheetSeq++
 	a.imp = nil
 	a.editor = &editorState{name: name, draft: model.DraftFrom(s), showAuth: s != nil && s.Auth != "password", focusForget: focusForget}
+	if s != nil && s.Auth == "keychain" {
+		a.keysEnsure()
+	}
 }
 
 // dropDialogs closes the host dialogs when the ready screen goes (lock, hub
@@ -148,6 +151,7 @@ func (a *App) saveHost() {
 				a.alert = "Saved, but auto-allow was not turned on: " + strings.TrimPrefix(err.Error(), savedBut)
 			}
 			a.reloadServers()
+			a.keysChanged()
 			a.reloadTunnels() // a renamed host's tunnels, or ended ones
 			if a.editor == ed {
 				a.closeSheet()
@@ -175,7 +179,7 @@ func (a *App) buildEditor(c *ui.Context) {
 		if ui.Button(c.Key("close"), "Close").Clicked() {
 			closed = true
 		}
-		if ui.PrimaryButton(c.Key("save"), "Save").Disabled(ed.busy || portErr != "").Clicked() {
+		if ui.PrimaryButton(c.Key("save"), "Save").Disabled(ed.busy || portErr != "" || ed.draft.Auth == "keychain" && ed.draft.KeyName == "").Clicked() {
 			submit = true
 		}
 	}) {
@@ -285,13 +289,22 @@ func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (
 			// Keyed: the Password field above comes and goes with the choice, and
 			// an unkeyed radio would lose the focus the arrows just gave it.
 			ui.RadioGroup(c.Key("auth"), func() { // one Tab stop; the arrows choose, and wrap
-				for _, v := range []string{"password", "key", "agent"} {
-					ui.Radio(c.Key("auth-"+v), &d.Auth, v, v)
+				for _, v := range []string{"password", "key", "keychain", "agent"} {
+					label := v
+					if v == "keychain" {
+						label = "Keychain"
+					}
+					if ui.Radio(c.Key("auth-"+v), &d.Auth, v, label).Changed() && v == "keychain" {
+						a.keysEnsure() // the person's choice, not a redraw
+					}
 				}
 			}).Row().Label("Auth")
 			if d.Auth == "key" {
 				text("keypath", "Key path", &d.KeyPath, func(input ui.Element) { input.Placeholder("~/.ssh/id_ed25519").Font("monospace") })
 				secret(model.SecretKeyPassphrase)
+			}
+			if d.Auth == "keychain" {
+				a.buildKeychainAuth(c, d)
 			}
 		}
 	})
@@ -489,6 +502,7 @@ func (a *App) deleteHost(name string) {
 				a.alert = err.Error()
 			}
 			a.reloadServers()
+			a.keysChanged()
 			a.reloadTunnels()
 		})
 	}()

@@ -8,6 +8,9 @@ import (
 // AuditTab is TabSet.Active while the fixed Audit tab shows (slice 6).
 const AuditTab = "audit"
 
+// KeychainTab is TabSet.Active while the fixed Keychain view shows.
+const KeychainTab = "keychain"
+
 // FilesKind and TunnelsKind are Tab.Kind of a Files and a Tunnels tab; a
 // terminal tab's Kind is "".
 const (
@@ -113,8 +116,9 @@ func (s *TabSet) Activate(id string) {
 	s.order = append(slices.DeleteFunc(s.order, func(o string) bool { return o == id }), id)
 }
 
-func (s *TabSet) ShowHome()  { s.Active = "" }
-func (s *TabSet) ShowAudit() { s.Active = AuditTab }
+func (s *TabSet) ShowHome()     { s.Active = "" }
+func (s *TabSet) ShowAudit()    { s.Active = AuditTab }
+func (s *TabSet) ShowKeychain() { s.Active = KeychainTab }
 
 // Close removes a tab. Only when it was the active one does the previous
 // tab in activation order (or the Hosts home) become active.

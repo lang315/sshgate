@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -37,6 +38,7 @@ type fakeDoor struct {
 	sent     []string                                                           // notifications, as "method params"
 	tunnels  []hubapi.TunnelView                                                // tunnels.list
 	audit    func(q hubapi.AuditQuery) hubapi.AuditPage                         // audit.read; nil answers an empty page
+	keys     []hubapi.Key                                                       // keys.list; keys.create and keys.delete change it
 }
 
 func (d *fakeDoor) Notify(method string, params any) error {
@@ -127,6 +129,24 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 		out = l
 	case "tunnels.list":
 		out = tunnels
+	case "keys.list":
+		d.mu.Lock()
+		out = append([]hubapi.Key{}, d.keys...)
+		d.mu.Unlock()
+	case "keys.create":
+		var p struct{ Name string }
+		json.Unmarshal(b, &p)
+		k := hubapi.Key{Name: p.Name, Type: "se-p256", PublicKey: "ecdsa-sha2-nistp256 AAAANEW " + p.Name, Created: "2026-11-17T09:00:00Z", UsedBy: []string{}}
+		d.mu.Lock()
+		d.keys = append(d.keys, k)
+		d.mu.Unlock()
+		out = k
+	case "keys.delete":
+		var p struct{ Name string }
+		json.Unmarshal(b, &p)
+		d.mu.Lock()
+		d.keys = slices.DeleteFunc(d.keys, func(k hubapi.Key) bool { return k.Name == p.Name })
+		d.mu.Unlock()
 	case "audit.read":
 		var q hubapi.AuditQuery
 		json.Unmarshal(b, &q)

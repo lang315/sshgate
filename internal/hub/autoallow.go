@@ -38,10 +38,10 @@ type grant struct {
 }
 
 // grantSnap is what an auto run must still match; any difference ends the grant.
-type grantSnap struct{ target, hostKey, hostKeyAlgo, auth string }
+type grantSnap struct{ target, hostKey, hostKeyAlgo, auth, publicKey string }
 
 func snapOf(dc sshx.DialConfig) grantSnap {
-	return grantSnap{target: target(dc), hostKey: dc.HostKey, hostKeyAlgo: dc.HostKeyAlgo, auth: dc.Auth}
+	return grantSnap{target: target(dc), hostKey: dc.HostKey, hostKeyAlgo: dc.HostKeyAlgo, auth: dc.Auth, publicKey: dc.PublicKey}
 }
 
 // autoRefusal says why s can never be on auto-allow, or "". A root login, or a

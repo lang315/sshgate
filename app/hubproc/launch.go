@@ -19,7 +19,7 @@ type Launch struct {
 // environment, because whoever sets the environment of the installed app
 // could otherwise swap the hub (which receives the master password),
 // point it at another vault, or stretch the idle lock.
-func LaunchFor(env []string, packaged bool, resources, repoRoot, goos string, exists func(string) bool) Launch {
+func LaunchFor(env []string, packaged bool, resources, repoRoot, goos, keyHelper string, exists func(string) bool) Launch {
 	knobs := map[string]string{}
 	out := []string{} // never nil: a nil Cmd.Env inherits the full environment
 	for _, kv := range env {
@@ -49,6 +49,9 @@ func LaunchFor(env []string, packaged bool, resources, repoRoot, goos string, ex
 	}
 	if v := knobs["SSHGATE_IDLE_LOCK"]; v != "" {
 		args = append(args, "--idleLock="+v)
+	}
+	if keyHelper != "" {
+		args = append(args, "--keyHelper="+keyHelper)
 	}
 	cmd := knobs["SSHGATE_BIN"]
 	if cmd == "" {

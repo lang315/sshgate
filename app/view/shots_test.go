@@ -151,6 +151,31 @@ func TestShots(t *testing.T) {
 		clickT(t, tt, "New host")
 		return tt
 	})
+	each("keychain", 1000, 760, func(bool) *tester {
+		_, tt, _, _ := keysApp(t, keyUsed, keyFree)
+		clickT(t, tt, "Keychain")
+		return tt
+	})
+	each("keychain-empty", 1000, 400, func(bool) *tester {
+		_, tt, _, _ := keysApp(t)
+		clickT(t, tt, "Keychain")
+		return tt
+	})
+	each("keychain-new", 1000, 640, func(bool) *tester {
+		_, tt, _, _ := keysApp(t, keyUsed)
+		clickT(t, tt, "Keychain")
+		tt.flush()
+		clickT(t, tt, "New key")
+		return tt
+	})
+	each("editor-keychain", 1000, 900, func(bool) *tester {
+		_, tt, d := edReady(t, []hubapi.Server{boxServer})
+		d.set(func() { d.keys = []hubapi.Key{keyUsed, keyFree} })
+		clickT(t, tt, "Edit box")
+		clickT(t, tt, "+ Key or agent")
+		clickT(t, tt, "Keychain")
+		return tt
+	})
 	each("import", 1000, 900, func(bool) *tester {
 		_, tt, _ := importApp(t, scanRows)
 		return tt

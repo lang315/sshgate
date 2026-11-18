@@ -3,15 +3,20 @@ package sshx
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/lang315/sshgate/internal/sekey"
+	"github.com/lang315/sshgate/internal/sekey/sekeytest"
+	"github.com/lang315/sshgate/internal/sshx/sshtest"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"golang.org/x/crypto/ssh"
@@ -307,5 +312,60 @@ func TestExecStdinAgainstOpenSSH(t *testing.T) {
 	}
 	if res.Stdout != "one\ntwo\n" || res.ExitCode != 0 {
 		t.Fatalf("got %+v", res)
+	}
+}
+
+// keychainMgr is a Manager that signs through the fake Secure Enclave helper
+// against an in-process server (which accepts any key).
+func keychainMgr(t *testing.T, helper string, mutate func(*DialConfig)) (*Manager, []byte) {
+	t.Helper()
+	srv := sshtest.Start(t)
+	close(srv.Release) // execs answer at once
+	blob, pub, err := sekey.Create(context.Background(), helper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := DialConfig{Host: srv.Host, Port: srv.Port, User: "u", Auth: "keychain", Insecure: true, TimeoutMs: 10000,
+		SEKeyBlob: blob, PublicKey: sekey.AuthorizedKey(pub, ""), KeyHelper: helper}
+	if mutate != nil {
+		mutate(&cfg)
+	}
+	m := NewManager(cfg)
+	t.Cleanup(m.Close)
+	return m, blob
+}
+
+func TestKeychainDial(t *testing.T) {
+	m, _ := keychainMgr(t, sekeytest.Build(t), nil)
+	res, err := m.Exec(context.Background(), "echo ok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Stdout, "echo ok") {
+		t.Fatalf("got %+v", res)
+	}
+}
+
+func TestKeychainDialWrongMac(t *testing.T) {
+	m, blob := keychainMgr(t, sekeytest.Build(t), nil)
+	t.Setenv("FAKE_EXIT", "3") // after the key is made
+	_, err := m.Exec(context.Background(), "echo ok")
+	if !errors.Is(err, ErrSEKeyWrongMac) {
+		t.Fatalf("got %v", err)
+	}
+	if strings.Contains(err.Error(), base64.StdEncoding.EncodeToString(blob)) {
+		t.Fatal("error carries the blob")
+	}
+}
+
+func TestKeychainNoHelper(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "ran")
+	m, _ := keychainMgr(t, sekeytest.Build(t), func(c *DialConfig) { c.KeyHelper = "" })
+	t.Setenv("FAKE_MARKER", marker) // after the key is made
+	if _, err := m.Exec(context.Background(), "echo ok"); !errors.Is(err, ErrSEKeyNoHelper) {
+		t.Fatalf("got %v", err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("a helper was run")
 	}
 }

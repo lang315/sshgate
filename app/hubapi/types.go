@@ -1,4 +1,4 @@
-// Package hubapi is the typed side of sshgate hub's UI door (protocol 13)
+// Package hubapi is the typed side of sshgate hub's UI door (protocol 14)
 // that the desktop app's screens use.
 package hubapi
 
@@ -37,6 +37,8 @@ type Server struct {
 	User             string     `json:"user"`
 	Auth             string     `json:"auth"`
 	KeyPath          string     `json:"keyPath"`
+	KeyName          string     `json:"keyName,omitempty"`
+	KeyPublicKey     string     `json:"keyPublicKey,omitempty"`
 	HostKey          string     `json:"hostKey"`
 	HostKeyAlgo      string     `json:"hostKeyAlgo"`
 	AIVisible        bool       `json:"aiVisible"`
@@ -135,6 +137,7 @@ type ServerInput struct {
 	User          string  `json:"user"`
 	Auth          string  `json:"auth"`
 	KeyPath       string  `json:"keyPath"`
+	KeyName       string  `json:"keyName,omitempty"`
 	AIVisible     bool    `json:"aiVisible"`
 	AutoAllowRoot bool    `json:"autoAllowRoot"`
 	AutoAllowSudo bool    `json:"autoAllowSudo"`
@@ -311,4 +314,15 @@ type AuditPage struct {
 	Next    int          `json:"next,omitempty"`
 	Skipped int          `json:"skipped"`
 	Path    string       `json:"path"`
+}
+
+// Key is a Keychain key (keys.list, keys.create): the public half only.
+// The hub never sends the Secure Enclave blob. UsedBy lists the servers
+// that sign with it; keys.create does not fill it.
+type Key struct {
+	Name      string   `json:"name"`
+	Type      string   `json:"type"`
+	PublicKey string   `json:"publicKey"`
+	Created   string   `json:"created"`
+	UsedBy    []string `json:"usedBy"`
 }

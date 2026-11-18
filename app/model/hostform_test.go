@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/lang315/sshgate/app/hubapi"
@@ -151,6 +152,13 @@ func TestClosesTabsOnlyForConnectionChanges(t *testing.T) {
 	if ClosesTabs(&box, vis) || !ClosesTabs(&box, user) || !ClosesTabs(&box, sudo) || ClosesTabs(nil, user) {
 		t.Fatal("closesTabs rows")
 	}
+	kc := box
+	kc.Auth, kc.KeyName = "keychain", "a"
+	other := DraftFrom(&kc)
+	other.KeyName = "b"
+	if ClosesTabs(&kc, DraftFrom(&kc)) || !ClosesTabs(&kc, other) {
+		t.Fatal("a Keychain key change must warn: the hub redials")
+	}
 	if got := EditorWarnings(&box, vis, 2, 0); len(got) != 0 {
 		t.Fatalf("Visible to AI alone warns: %q", got)
 	}
@@ -178,5 +186,22 @@ func TestNextChecked(t *testing.T) {
 	}
 	if got := NextChecked(cs, map[string]bool{"db": true, "jump": true, "gone": true}); !reflect.DeepEqual(got, map[string]bool{"db": true}) {
 		t.Fatal(got)
+	}
+}
+
+func TestKeychainInputAndKeyName(t *testing.T) {
+	d := DraftFrom(nil)
+	d.Host, d.Auth, d.KeyName = "h", "keychain", "laptop"
+	if in := ToInput(d); in.Auth != "keychain" || in.KeyName != "laptop" {
+		t.Fatalf("%+v", in)
+	}
+	d.Auth = "password"
+	if in := ToInput(d); in.KeyName != "" {
+		t.Fatalf("keyName sent with %q auth", in.Auth)
+	}
+	for name, bad := range map[string]bool{"laptop": false, "a.b_c-1": false, "": true, "a b": true, strings.Repeat("a", 65): true} {
+		if (KeyNameError(name) != "") != bad {
+			t.Errorf("KeyNameError(%q) = %q", name, KeyNameError(name))
+		}
 	}
 }

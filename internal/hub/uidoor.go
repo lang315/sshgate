@@ -22,6 +22,8 @@ type uiServer struct {
 	User             string       `json:"user"`
 	Auth             string       `json:"auth"`
 	KeyPath          string       `json:"keyPath"`
+	KeyName          string       `json:"keyName,omitempty"`
+	KeyPublicKey     string       `json:"keyPublicKey,omitempty"`
 	HostKey          string       `json:"hostKey"`
 	HostKeyAlgo      string       `json:"hostKeyAlgo"`
 	AIVisible        bool         `json:"aiVisible"`
@@ -61,8 +63,14 @@ func (h *Hub) serversForUI() []uiServer {
 	}
 	now := time.Now()
 	for _, s := range h.deps.File.Servers {
+		var keyPub string
+		for _, k := range h.deps.File.Keys {
+			if s.Auth == "keychain" && k.Name == s.KeyName {
+				keyPub = k.PublicKey
+			}
+		}
 		out = append(out, uiServer{
-			Name: s.Name, Host: s.Host, Port: s.Port, User: s.User, Auth: s.Auth, KeyPath: s.KeyPath,
+			Name: s.Name, Host: s.Host, Port: s.Port, User: s.User, Auth: s.Auth, KeyPath: s.KeyPath, KeyName: s.KeyName, KeyPublicKey: keyPub,
 			HostKey: s.HostKey, HostKeyAlgo: s.HostKeyAlgo, AIVisible: s.AIVisible, Locked: h.deps.IsLocked(s.Name),
 			HasPassword: s.EncPassword != "", HasSuPassword: s.EncSuPassword != "",
 			HasSudoPassword: s.EncSudoPassword != "", HasKeyPassphrase: s.EncKeyPassphrase != "",
@@ -285,6 +293,30 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 			return nil, err
 		}
 		return h.AutoAllowCheck(ctx, p.Server)
+	})
+	req("keys.list", func(_ context.Context, raw json.RawMessage) (any, error) {
+		if err := strictParams(raw, &struct{}{}); err != nil {
+			return nil, err
+		}
+		return h.ListKeys()
+	})
+	req("keys.create", func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			Name string `json:"name"`
+		}
+		if err := strictParams(raw, &p, "name"); err != nil {
+			return nil, err
+		}
+		return h.CreateKey(ctx, p.Name)
+	})
+	req("keys.delete", func(_ context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			Name string `json:"name"`
+		}
+		if err := strictParams(raw, &p, "name"); err != nil {
+			return nil, err
+		}
+		return empty, h.DeleteKey(p.Name)
 	})
 	req("settings.setSoftLockLimit", func(_ context.Context, raw json.RawMessage) (any, error) {
 		var p struct {

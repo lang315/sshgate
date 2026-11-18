@@ -98,6 +98,7 @@ type App struct {
 	searchH                ui.Handle // the host search: the focus after a sheet closes on Hosts
 	theme                  string    // "dark", "light" or "auto"
 	audit                  auditState
+	keys                   keysState
 	touch                  *model.TouchStatus // nil until read, when the unlock screen shows and before Settings opens
 	touchAsked, touchBusy  bool               // asked in this locked episode (a cancel counts); a helper is up
 	everReady, focused     bool               // the ready screen was shown once; the window has the focus
@@ -108,6 +109,8 @@ type dialogs struct {
 	editor   *editorState
 	imp      *importState
 	del      *deleteState
+	newKey   *newKeyState
+	keyDel   *keyDelState
 	settings *settingsState
 }
 
@@ -235,12 +238,16 @@ func (a *App) setScreen() {
 	}
 	if prev == model.ScreenReady || next == model.ScreenReady {
 		a.auditReset()
+		a.keysReset()
 	}
 	if next == model.ScreenLocked {
 		a.loadTouch()
 	}
 	switch next {
 	case model.ScreenReady:
+		if a.tabs.Active == model.KeychainTab {
+			a.tabs.ShowHome() // the list is read only by a click, so an unlock never lands on an unread view
+		}
 		a.everReady, a.touchAsked = true, false // an unlock ends the episode
 		a.reloadServers()
 		a.reloadTunnels()

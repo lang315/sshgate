@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -37,11 +38,11 @@ type SecretEdit struct {
 // HostDraft is the host editor's form. Port stays text until it is saved;
 // Secrets is indexed by Secret and never holds a stored value.
 type HostDraft struct {
-	Name, Host, Port, User, Auth, KeyPath string
-	AIVisible                             bool
-	AutoAllow                             string // "forever" for a forever host, paused too; else "off"
-	AutoAllowRoot, AutoAllowSudo          bool
-	Secrets                               [4]SecretEdit
+	Name, Host, Port, User, Auth, KeyPath, KeyName string
+	AIVisible                                      bool
+	AutoAllow                                      string // "forever" for a forever host, paused too; else "off"
+	AutoAllowRoot, AutoAllowSudo                   bool
+	Secrets                                        [4]SecretEdit
 }
 
 // DraftFrom is the form for s, or for a new host when s is nil.
@@ -53,7 +54,7 @@ func DraftFrom(s *hubapi.Server) HostDraft {
 	if s.AutoAllow != nil && s.AutoAllow.Forever {
 		mode = "forever"
 	}
-	return HostDraft{Name: s.Name, Host: s.Host, Port: strconv.Itoa(s.Port), User: s.User, Auth: s.Auth, KeyPath: s.KeyPath,
+	return HostDraft{Name: s.Name, Host: s.Host, Port: strconv.Itoa(s.Port), User: s.User, Auth: s.Auth, KeyPath: s.KeyPath, KeyName: s.KeyName,
 		AIVisible: s.AIVisible, AutoAllow: mode, AutoAllowRoot: s.AutoAllowRoot, AutoAllowSudo: s.AutoAllowSudo}
 }
 
@@ -86,6 +87,9 @@ func ToInput(d HostDraft) hubapi.ServerInput {
 	}
 	if d.Auth == "key" {
 		in.KeyPath = strings.TrimSpace(d.KeyPath)
+	}
+	if d.Auth == "keychain" {
+		in.KeyName = d.KeyName
 	}
 	out := [...]**string{&in.Password, &in.SuPassword, &in.SudoPassword, &in.KeyPassphrase}
 	for i, e := range d.Secrets {
@@ -138,7 +142,7 @@ func ClosesTabs(s *hubapi.Server, d HostDraft) bool {
 		return false
 	}
 	in := ToInput(d)
-	return in.Name != s.Name || in.Host != s.Host || in.Port != s.Port || in.User != s.User || in.Auth != s.Auth || in.KeyPath != s.KeyPath ||
+	return in.Name != s.Name || in.Host != s.Host || in.Port != s.Port || in.User != s.User || in.Auth != s.Auth || in.KeyPath != s.KeyPath || in.KeyName != s.KeyName ||
 		in.Password != nil || in.SuPassword != nil || in.SudoPassword != nil || in.KeyPassphrase != nil
 }
 
@@ -177,4 +181,15 @@ func NextChecked(cs []hubapi.Candidate, prev map[string]bool) map[string]bool {
 		}
 	}
 	return out
+}
+
+var keyNameRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+
+// KeyNameError is the New key dialog's message, the hub's rule
+// (config.ValidKeyName), "" for a name that can be created.
+func KeyNameError(name string) string {
+	if !keyNameRe.MatchString(name) {
+		return "Use 1-64 characters of A-Z a-z 0-9 . _ -"
+	}
+	return ""
 }

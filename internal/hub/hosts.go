@@ -46,6 +46,9 @@ func (h *Hub) CreateVault(pw string) error {
 	defer h.mu.Unlock()
 	var kept []string
 	err = config.Update(h.o.StorePath, mk, func(f *config.File) error {
+		if len(f.Keys) > 0 { // a planted key's public key would be shown as "yours"
+			return errors.New("the store has encrypted fields but no master password; it is corrupt or was tampered with")
+		}
 		for i := range f.Servers {
 			s := &f.Servers[i]
 			if s.EncPassword != "" || s.EncSuPassword != "" || s.EncSudoPassword != "" || s.EncKeyPassphrase != "" {
@@ -94,7 +97,7 @@ func changes(a, b config.Server, in config.ServerInput) []string {
 		x, y any
 	}{
 		{"name", a.Name, b.Name}, {"host", a.Host, b.Host}, {"port", a.Port, b.Port}, {"user", a.User, b.User},
-		{"auth", a.Auth, b.Auth}, {"keyPath", a.KeyPath, b.KeyPath}, {"aiVisible", a.AIVisible, b.AIVisible},
+		{"auth", a.Auth, b.Auth}, {"keyPath", a.KeyPath, b.KeyPath}, {"keyName", a.KeyName, b.KeyName}, {"aiVisible", a.AIVisible, b.AIVisible},
 		{"autoAllow", a.AutoAllow, b.AutoAllow}, {"autoAllowRoot", a.AutoAllowRoot, b.AutoAllowRoot},
 		{"autoAllowSudo", a.AutoAllowSudo, b.AutoAllowSudo}, {"hostKey", a.HostKey, b.HostKey},
 	} {

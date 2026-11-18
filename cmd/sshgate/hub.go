@@ -49,7 +49,12 @@ func runHub(args []string) error {
 		sshConfig = *p
 	}
 
-	h, err := hub.New(hub.Options{StorePath: store, Audit: audit, IdleLock: idle, SSHConfigPath: sshConfig})
+	var keyHelper string
+	if p := m["keyHelper"]; p != nil {
+		keyHelper = *p
+	}
+
+	h, err := hub.New(hub.Options{StorePath: store, Audit: audit, IdleLock: idle, SSHConfigPath: sshConfig, KeyHelper: keyHelper})
 	if err != nil {
 		return err
 	}

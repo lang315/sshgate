@@ -19,6 +19,7 @@ type Server struct {
 	User             string   `json:"user"`
 	Auth             string   `json:"auth"`
 	KeyPath          string   `json:"keyPath,omitempty"`
+	KeyName          string   `json:"keyName,omitempty"` // auth "keychain": a name in File.Keys
 	HostKey          string   `json:"hostKey,omitempty"`
 	HostKeyAlgo      string   `json:"hostKeyAlgo,omitempty"` // pinned key's type, e.g. ssh-ed25519
 	AIVisible        bool     `json:"aiVisible,omitempty"`
@@ -38,6 +39,7 @@ type File struct {
 	KDF           *KDF     `json:"kdf,omitempty"`
 	MAC           string   `json:"mac,omitempty"`
 	Servers       []Server `json:"servers"`
+	Keys          []Key    `json:"keys,omitempty"`
 	SoftLockLimit string   `json:"softLockLimit,omitempty"` // "" (24h), "3d", "7d" or "none"; see hub/softlock.go
 }
 

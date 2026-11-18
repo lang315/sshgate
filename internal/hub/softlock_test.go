@@ -15,6 +15,8 @@ import (
 	"github.com/lang315/sshgate/internal/broker"
 	"github.com/lang315/sshgate/internal/config"
 	"github.com/lang315/sshgate/internal/rpc"
+	"github.com/lang315/sshgate/internal/sekey"
+	"github.com/lang315/sshgate/internal/sekey/sekeytest"
 )
 
 // softLockForTest puts h in soft lock without waiting for the idle rule. The
@@ -1157,5 +1159,66 @@ func TestLockAfterLockKeepAutoIsHard(t *testing.T) {
 	_, recs := readAudit(t, path)
 	if !hasAutoAllowOff(recs, "locked") {
 		t.Fatalf("no autoAllowOff/locked: %v", recs)
+	}
+}
+
+// A keychain host whose key is swapped in the file on disk must lose its grant:
+// the same host, auth and pin, so only the key's public half tells.
+func TestGrantEndsWhenKeyChangesOnDisk(t *testing.T) {
+	h, path := newHub(t, &fakeExec{})
+	helper := sekeytest.Build(t)
+	if err := config.Update(path, testMK, func(f *config.File) error {
+		for _, name := range []string{"k1", "k2"} {
+			blob, pub, err := sekey.Create(context.Background(), helper)
+			if err != nil {
+				return err
+			}
+			if err := config.AddKey(f, testMK, name, sekey.AuthorizedKey(pub, ""), blob, time.Now()); err != nil {
+				return err
+			}
+		}
+		f.Servers = append(f.Servers, config.Server{Name: "kc", Host: "h", Port: 22, User: "u", Auth: "keychain", KeyName: "k1", HostKey: "SHA256:abc", AIVisible: true})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	h.deps.KeyHelper = helper
+	if err := h.SetAutoAllow("kc", "forever"); err != nil {
+		t.Fatal(err)
+	}
+	idleNow(h)
+	h.sweepGrants(time.Now()) // the first sweep of a soft lock checks every grant once
+	if got := stateOf(h); got != (lockState{soft: true, key: true, grants: 1}) {
+		t.Fatalf("state after a clean sweep = %+v", got)
+	}
+	h.mu.Lock()
+	dc, err := h.resolveAutoLocked("kc") // the soft-lock deps copy still carries the helper
+	h.mu.Unlock()
+	if err != nil || dc.KeyHelper != helper || len(dc.SEKeyBlob) == 0 {
+		t.Fatalf("resolve under soft lock: %v %q", err, dc.KeyHelper)
+	}
+	if err := config.Update(path, testMK, func(f *config.File) error {
+		for i := range f.Servers {
+			if f.Servers[i].Name == "kc" {
+				f.Servers[i].KeyName = "k2"
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	h.sweepGrants(time.Now())
+	if got := stateOf(h); got != (lockState{}) {
+		t.Fatalf("state = %+v, want hard lock", got)
+	}
+	_, recs := readAudit(t, path)
+	if !hasAutoAllowOff(recs, "server changed") {
+		t.Fatalf("no autoAllowOff/server changed: %v", recs)
 	}
 }
