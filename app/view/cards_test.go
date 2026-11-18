@@ -290,3 +290,14 @@ func TestCardAddressNotTruncated(t *testing.T) {
 		t.Fatalf("address ends at %v, past the header at %v", addr.X+addr.W, open.X+open.W)
 	}
 }
+
+// A tab still opening (Trust prompt, dead host) is not a connection.
+func TestCardNotConnectedWhileOpening(t *testing.T) {
+	needLib(t)
+	a, tt, _, _, _ := tabApp(t)
+	a.Update(func() { a.tabs.Open("box"); a.tabs.ShowHome() })
+	tt.flush()
+	if _, ok := tt.Find("connected"); ok {
+		t.Fatal("connected dot for an opening tab")
+	}
+}

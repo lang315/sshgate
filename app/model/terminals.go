@@ -154,3 +154,15 @@ func (s *TabSet) OpenCount(server string) int {
 	}
 	return n
 }
+
+// LiveCount is how many of the server's terminal tabs have a live session
+// (not opening, not exited).
+func (s *TabSet) LiveCount(server string) int {
+	n := 0
+	for _, t := range s.Tabs {
+		if t.Server == server && t.Kind == "" && t.State == "open" {
+			n++
+		}
+	}
+	return n
+}

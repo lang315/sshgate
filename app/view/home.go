@@ -259,10 +259,10 @@ func (a *App) buildHosts(c *ui.Context) {
 }
 
 // buildTile is the host's 36 px letter tile: Ok with a "connected" dot while a
-// terminal is open, else the hue its name picks.
+// terminal session is live, else the hue its name picks.
 func (a *App) buildTile(c *ui.Context, p tokens, s hubapi.Server, shownName string) {
 	bg, fg := p.TileHues[tileHueIndex(s.Name)], p.TileText
-	connected := a.tabs.OpenCount(s.Name) > 0
+	connected := a.tabs.LiveCount(s.Name) > 0
 	if connected {
 		bg, fg = p.Ok, p.AccentText
 	}

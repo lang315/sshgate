@@ -282,8 +282,8 @@ func TestShots(t *testing.T) {
 		_, tt, _, _ := newApp(t, d)
 		return tt
 	})
-	// A real tab open on the fake hub: OpenCount counts every tab of the
-	// server that has not exited, so the card's tile turns green.
+	// A real tab open on the fake hub: LiveCount counts the tabs of the
+	// server with a live session, so the tile turns green.
 	each("hosts-connected", 1000, 900, func(bool) *tester {
 		a, tt, _, _, _ := tabApp(t)
 		tt.SetSize(1000, 900)
