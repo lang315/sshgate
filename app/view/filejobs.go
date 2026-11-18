@@ -375,7 +375,7 @@ func (a *App) buildFileConfirm(c *ui.Context, v *filesTab) {
 	var m ui.Element
 	if j.op == "delete" {
 		needs := model.DeleteNeedsTyping(j.hasFolder, len(j.names), p)
-		m = ui.Modal(c.Key("confirm-"+j.id), &open, func() {
+		m = modal(c.Key("confirm-"+j.id), &open, func() {
 			ui.Column(c).Width(440).Gap(10).Padding(20).Children(func() {
 				ui.Text(c, "Delete for good?").Bold().FontSize(16).TextColor(th.Danger)
 				for i, n := range j.names {
@@ -409,7 +409,7 @@ func (a *App) buildFileConfirm(c *ui.Context, v *filesTab) {
 		}).Label("Delete files")
 	} else {
 		n := p.Conflicts.Count
-		m = ui.Modal(c.Key("confirm-"+j.id), &open, func() {
+		m = modal(c.Key("confirm-"+j.id), &open, func() {
 			ui.Column(c).Width(440).Gap(10).Padding(20).Children(func() {
 				ui.Text(c, model.ConflictTitle(n)).Bold().FontSize(16)
 				where := j.dest // a download's local folder

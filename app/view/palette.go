@@ -14,10 +14,10 @@ const railTextHex = "#E6F2F0"
 // tokens are the colours with no ui.Theme field, plus the ones that do, so
 // a view reads every colour from one place.
 type tokens struct {
-	Bg, Surface, Raised, SurfaceHover, Line, ControlLine, Divider, Text, Muted, Label ui.Color
-	Accent, AccentHover, AccentPressed, AccentText, AccentTint                        ui.Color
-	Danger, DangerFill, DangerTint, Wait, WaitTint, Ok, OkTint                        ui.Color
-	TermBg, TermFg, Rail, RailText                                                    ui.Color
+	Bg, Surface, Raised, SurfaceHover, Line, ControlLine, Divider, Text, Muted, Label                          ui.Color
+	Accent, AccentHover, AccentPressed, AccentText, AccentTint                                                 ui.Color
+	Danger, DangerFill, DangerFillHover, DangerFillPressed, DangerText, DangerTint, Wait, WaitTint, Ok, OkTint ui.Color
+	TermBg, TermFg, Rail, RailText                                                                             ui.Color
 }
 
 func palette(dark bool) tokens {
@@ -28,32 +28,35 @@ func palette(dark bool) tokens {
 		return ui.Hex(l)
 	}
 	return tokens{
-		Bg:            pick("#14171A", "#f5f6fa"),
-		Surface:       pick("#1A1E22", "#ffffff"),
-		Raised:        pick("#21262B", "#eef0f6"),
-		SurfaceHover:  pick("#282E34", "#e6e9f1"),
-		Line:          pick("#3A4148", "#dde0ea"),
-		ControlLine:   pick("#737B82", "#7C8196"),
-		Divider:       pick("#2B3137", "#e6e8ef"),
-		Text:          pick("#ECE8E0", "#1b1f2e"),
-		Muted:         pick("#8B908E", "#62698a"),
-		Label:         pick("#B3B5B1", "#474e6b"),
-		Accent:        pick("#56BFB9", "#12766F"),
-		AccentHover:   pick("#6CCAC4", "#0F6A64"),
-		AccentPressed: pick("#45A9A3", "#0C5A55"),
-		AccentText:    pick("#0E1012", "#ffffff"),
-		AccentTint:    pick("#16312F", "#dcf1ec"),
-		Danger:        pick("#F28B73", "#B5412F"),
-		DangerFill:    ui.Hex("#B5412F"),
-		DangerTint:    pick("#3D1D18", "#fbe2dc"),
-		Wait:          pick("#E9A23B", "#8B6123"),
-		WaitTint:      pick("#3A2C14", "#fcefdc"),
-		Ok:            pick("#6CC58F", "#3F7A57"),
-		OkTint:        pick("#1A3324", "#e9f6ee"),
-		TermBg:        pick("#0E1012", "#ffffff"),
-		TermFg:        pick("#D8D4CC", "#1b1f2e"),
-		Rail:          pick("#0F2A29", "#0F5F59"),
-		RailText:      ui.Hex(railTextHex),
+		Bg:                pick("#14171A", "#f5f6fa"),
+		Surface:           pick("#1A1E22", "#ffffff"),
+		Raised:            pick("#21262B", "#eef0f6"),
+		SurfaceHover:      pick("#282E34", "#e6e9f1"),
+		Line:              pick("#3A4148", "#dde0ea"),
+		ControlLine:       pick("#737B82", "#7C8196"),
+		Divider:           pick("#2B3137", "#e6e8ef"),
+		Text:              pick("#ECE8E0", "#1b1f2e"),
+		Muted:             pick("#8B908E", "#62698a"),
+		Label:             pick("#B3B5B1", "#474e6b"),
+		Accent:            pick("#56BFB9", "#12766F"),
+		AccentHover:       pick("#6CCAC4", "#0F6A64"),
+		AccentPressed:     pick("#45A9A3", "#0C5A55"),
+		AccentText:        pick("#0E1012", "#ffffff"),
+		AccentTint:        pick("#16312F", "#dcf1ec"),
+		Danger:            pick("#F28B73", "#B5412F"),
+		DangerFill:        ui.Hex("#B5412F"),
+		DangerFillHover:   ui.Hex("#A23A2A"),
+		DangerFillPressed: ui.Hex("#8F3325"),
+		DangerText:        ui.Hex("#ffffff"),
+		DangerTint:        pick("#3D1D18", "#fbe2dc"),
+		Wait:              pick("#E9A23B", "#8B6123"),
+		WaitTint:          pick("#3A2C14", "#fcefdc"),
+		Ok:                pick("#6CC58F", "#3D7554"),
+		OkTint:            pick("#1A3324", "#e9f6ee"),
+		TermBg:            pick("#0E1012", "#ffffff"),
+		TermFg:            pick("#D8D4CC", "#1b1f2e"),
+		Rail:              pick("#0F2A29", "#0F5F59"),
+		RailText:          ui.Hex(railTextHex),
 	}
 }
 

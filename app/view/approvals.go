@@ -22,6 +22,8 @@ type colState struct {
 	reasons map[string]*string
 	reasonH map[string]*ui.Handle // each reason field's focus, for Cmd+Shift+A
 	mounted bool
+	seen    map[string]bool // requests the column has shown; one not in it is arriving
+	fading  map[string]int  // arriving requests: frames into their fade
 }
 
 // approvalsChord is the shortcut from a terminal to the AI requests:
@@ -59,16 +61,37 @@ func (a *App) reasonHandle(id string) *ui.Handle {
 // marked run goes through DisplayText so a bidi or zero-width character
 // shows as its \uXXXX escape, never raw.
 func segments(c *ui.Context, segs []model.Segment) {
-	t := c.Theme()
+	p := tok(c)
 	spans := make([]ui.Span, 0, len(segs))
 	for _, s := range segs {
 		sp := ui.Span{Text: s.Text}
 		if s.NonASCII {
-			sp.Text, sp.Color, sp.Underline = model.DisplayText(s.Text), t.Danger, true
+			sp.Text, sp.Color, sp.Underline = model.DisplayText(s.Text), p.Danger, true
 		}
 		spans = append(spans, sp)
 	}
 	ui.RichText(c, spans...).Font("monospace").Selectable()
+}
+
+// codeBlock draws what the AI sent (a command, a path, stdin) on the
+// terminal's own background.
+func codeBlock(c *ui.Context, children func()) {
+	p := tok(c)
+	ui.Column(c).Gap(4).Padding(8, 10).Radius(radiusControl).Background(p.TermBg).TextColor(p.TermFg).Children(children)
+}
+
+// allowButton is MouseButton for Allow: enabled it is outlined and written
+// in Ok; disabled it looks like any disabled MouseButton.
+func allowButton(c *ui.Context, enabled bool) bool {
+	t := c.Theme()
+	b := ui.Row(c).Role(ui.RoleButton).Label("Allow").Padding(6, 12).Radius(radiusControl).Border(1, t.Border).Disabled(!enabled)
+	if enabled {
+		ok := tok(c).Ok
+		b.Border(1, ok).Children(func() { ui.Text(c, "Allow").TextColor(ok) })
+	} else {
+		b.Children(func() { ui.Text(c, "Allow") })
+	}
+	return enabled && b.Clicked()
 }
 
 func (a *App) buildColumn(c *ui.Context) {
@@ -82,6 +105,26 @@ func (a *App) buildColumn(c *ui.Context) {
 	col := &a.col
 	if !col.mounted || col.lc == nil {
 		col.lc, col.mounted, col.lastY = model.NewListChanges(key, now), true, col.scroll.Y
+		col.seen, col.fading = map[string]bool{}, map[string]int{}
+		for _, id := range ids {
+			col.seen[id] = true
+		}
+	}
+	live := map[string]bool{}
+	for _, id := range ids {
+		live[id] = true
+		if !col.seen[id] {
+			col.seen[id] = true
+			if !c.Preferences().ReduceMotion {
+				col.fading[id] = 0
+			}
+		}
+	}
+	for id := range col.seen {
+		if !live[id] {
+			delete(col.seen, id)
+			delete(col.fading, id)
+		}
 	}
 	if col.reasons == nil {
 		col.reasons = map[string]*string{}
@@ -100,7 +143,7 @@ func (a *App) buildColumn(c *ui.Context) {
 		c.After(wait)
 	}
 
-	ui.Column(c).Fill().Gap(8).Padding(12).Background(t.Surface).Children(func() {
+	ui.Column(c).Fill().Gap(8).Padding(12).Background(tok(c).Surface).Children(func() {
 		ui.Row(c).Gap(8).Children(func() {
 			title := "AI requests"
 			if n := len(a.items); n > 0 {
@@ -139,6 +182,7 @@ func (a *App) buildColumn(c *ui.Context) {
 
 func (a *App) buildItem(c *ui.Context, it model.PendingItem, now time.Time) {
 	t := c.Theme()
+	p := tok(c)
 	r := it.Request
 	id := r.ID
 	if a.col.reasons[id] == nil {
@@ -146,15 +190,29 @@ func (a *App) buildItem(c *ui.Context, it model.PendingItem, now time.Time) {
 	}
 	reason := a.col.reasons[id]
 	busy := a.itemBusy[id]
-	border := t.Border
+	card := ui.Column(c.Key(id)).Gap(6).Padding(12).Radius(radiusCard).Background(p.Raised).Border(1, p.Line)
 	if r.Sudo {
-		border = t.Danger
+		card.Border(1, p.Danger).BorderStartWidth(4) // the red left edge
 	}
-	ui.Column(c.Key(id)).Gap(6).Padding(10).Radius(8).Border(1, border).Children(func() {
+	if step, arriving := a.col.fading[id]; arriving {
+		target := float32(0) // the first frame is transparent; the fade runs from the second
+		if step > 0 {
+			target = 1
+		}
+		a.col.fading[id] = step + 1
+		v := card.Animate("arrive", target, 120*time.Millisecond)
+		card.Opacity(v)
+		if step > 0 && v >= 1 {
+			delete(a.col.fading, id)
+		} else {
+			c.Invalidate()
+		}
+	}
+	card.Children(func() {
 		ui.Row(c).Gap(6).Children(func() {
 			ui.Text(c, model.DisplayText(r.Server)).Bold()
 			if r.Sudo {
-				ui.Text(c, "SUDO").TextColor(t.Danger).Bold()
+				ui.Text(c, "SUDO").Bold().Padding(2, 8).Radius(radiusControl).Background(p.DangerTint).TextColor(p.Danger)
 			}
 			ui.Spacer(c)
 			if !r.ReceivedAt.IsZero() {
@@ -169,9 +227,11 @@ func (a *App) buildItem(c *ui.Context, it model.PendingItem, now time.Time) {
 			}
 			ui.Text(c, strings.ToUpper(model.DisplayText(tr.Op))).Bold()
 			ui.Text(c, model.DisplayText(from)).Font("monospace").TextColor(t.TextMuted)
-			for _, s := range src {
-				segments(c, model.HighlightNonASCII(s, ""))
-			}
+			codeBlock(c, func() {
+				for _, s := range src {
+					segments(c, model.HighlightNonASCII(s, ""))
+				}
+			})
 			to := "to "
 			if len(dst) > 0 {
 				to += dst[0]
@@ -184,14 +244,14 @@ func (a *App) buildItem(c *ui.Context, it model.PendingItem, now time.Time) {
 				ui.Text(c, "overwrites existing files").TextColor(t.Warning)
 			}
 		} else {
-			segments(c, model.HighlightNonASCII(r.Command, ""))
+			codeBlock(c, func() { segments(c, model.HighlightNonASCII(r.Command, "")) })
 			if s := model.NonASCIISummary(r.Command, ""); s != "" {
 				ui.Text(c, s).TextColor(t.Warning)
 			}
 		}
 		if r.Stdin != "" {
 			ui.Text(c, "stdin · "+model.StdinMeta(r.Stdin)).TextColor(t.TextMuted)
-			segments(c, model.StdinView(r.Stdin))
+			codeBlock(c, func() { segments(c, model.StdinView(r.Stdin)) })
 			if s := model.NonASCIISummary(r.Stdin, "\n\t"); s != "" {
 				ui.Text(c, s).TextColor(t.Warning)
 			}
@@ -209,7 +269,15 @@ func (a *App) buildItem(c *ui.Context, it model.PendingItem, now time.Time) {
 			a.focusActive() // back to the active tab's terminal; none: stay here
 		}
 		ui.Row(c).Gap(8).Children(func() {
-			if ui.Button(c, "Deny").Disabled(busy).Clicked() {
+			deny := ui.Button(c, "Deny").Disabled(busy).TextColor(p.DangerText)
+			// Own background, so mygo's hover and press tint no longer apply.
+			fill := p.DangerFill
+			if deny.Pressed() {
+				fill = p.DangerFillPressed
+			} else if deny.Hovered() {
+				fill = p.DangerFillHover
+			}
+			if deny.Background(fill).Clicked() {
 				a.decide(id, hubapi.Denied, *reason)
 			}
 			sendOK := r.Stdin == "" && r.Transfer == nil && model.ClickAllowed(it, now, a.col.lc.At, busy)
@@ -224,7 +292,7 @@ func (a *App) buildItem(c *ui.Context, it model.PendingItem, now time.Time) {
 				send()
 			}
 			enabled := model.ClickAllowed(it, now, a.col.lc.At, busy)
-			if MouseButton(c, "Allow", enabled) && model.ClickAllowed(it, a.Now(), a.col.lc.At, a.itemBusy[id]) {
+			if allowButton(c, enabled) && model.ClickAllowed(it, a.Now(), a.col.lc.At, a.itemBusy[id]) {
 				a.decide(id, hubapi.Allowed, "")
 			}
 		})

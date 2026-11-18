@@ -3,6 +3,7 @@ package view
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/hubapi"
@@ -182,5 +183,37 @@ func TestLateSaveReplyLeavesANewSettingsAlone(t *testing.T) {
 	tt.flush()
 	if st == nil || a.settings != st {
 		t.Fatal("the old Save's reply closed the Settings opened since")
+	}
+}
+
+func TestSettingsSectionsAndButtonOrder(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	_, tt, _, _ := touchSettings(t, &fakeToucher{status: model.TouchStatus{Supported: true, Available: true}})
+	tt.SetDark(true)
+	tt.SetSize(900, 700)
+	tt.flush()
+	tt.Advance(time.Second)
+	tt.Frame()
+	for _, h := range []string{"Unlock", "Auto-allow"} {
+		r, ok := tt.Find(h)
+		if !ok {
+			t.Fatalf("no heading %q in %q", h, tt.Texts())
+		}
+		patch := ui.Rect{X: r.X + 12, Y: r.Y + r.H + 10 + 12, W: 4, H: 4} // inside the section's padding
+		if n := countNear(shot(tt), patch, palette(true).Raised, 2); n != 16 {
+			t.Fatalf("%s: %d of 16 pixels on Raised", h, n)
+		}
+	}
+	save, ok1 := tt.Find("Save")
+	cancel, ok2 := tt.Find("Cancel")
+	if !ok1 || !ok2 {
+		t.Fatal(tt.Texts())
+	}
+	if save.X+save.W/2 >= cancel.X+cancel.W/2 || save.Y+save.H/2-(cancel.Y+cancel.H/2) > 1 || cancel.Y+cancel.H/2-(save.Y+save.H/2) > 1 {
+		t.Fatalf("Save %+v, Cancel %+v", save, cancel)
+	}
+	if !tt.Focused("Cancel") {
+		t.Fatal("Cancel not focused")
 	}
 }

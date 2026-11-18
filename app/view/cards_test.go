@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/hubapi"
 )
 
@@ -200,5 +201,99 @@ func TestHoverCardFadesEveryTime(t *testing.T) {
 	}
 	if !tt.FramePending() {
 		t.Fatal("no frame pending during the fade")
+	}
+}
+
+// The grant ring starts at twelve o'clock and runs clockwise: a quarter
+// left paints the top-right quadrant of the tile only.
+func TestGrantRingStartsAtTwelve(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	d := &fakeDoor{status: hubapi.Status{HasVault: true}, servers: []hubapi.Server{{Name: "build", User: "ci", Host: "h", Port: 22, HostKey: "k", HostKeyAlgo: "ssh-ed25519", AIVisible: true}}}
+	a, tt, _, _ := newApp(t, d)
+	a.Update(func() { a.servers[0].AutoAllow = &hubapi.AutoAllow{Until: a.Now().Add(time.Hour).Format(time.RFC3339)} })
+	tt.flush()
+	tt.Advance(time.Second)
+	tt.Frame()
+	tile, ok := tt.Find("Auto 1h") // the ring's 44 px box carries the chip label; the chip below it is a later match
+	if !ok {
+		t.Fatal(tt.Texts())
+	}
+	cx, cy := tile.X+tile.W/2, tile.Y+tile.H/2
+	img := shot(tt)
+	wait := palette(false).Wait
+	h := tile.W/2 + 6
+	// the 2 px stroke and its end cap spill a pixel or two over the axes: leave 3 px out
+	quad := func(x, y float32) int { return countNear(img, ui.Rect{X: x, Y: y, W: h, H: h}, wait, 40) }
+	if tr, tl, bl, br := quad(cx+3, cy-h-3), quad(cx-h-3, cy-h-3), quad(cx-h-3, cy+3), quad(cx+3, cy+3); tr == 0 || tl != 0 || bl != 0 || br != 0 {
+		t.Fatalf("ring pixels: top-right %d, top-left %d, bottom-left %d, bottom-right %d", tr, tl, bl, br)
+	}
+}
+
+// A focused Open button shows the Accent ring and an unfocused one none.
+func TestOpenButtonShowsFocusRing(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	_, tt, _ := readyApp(t, []hubapi.Server{{Name: "build", User: "u", Host: "h", Port: 22}})
+	tt.Advance(time.Second)
+	tt.Frame()
+	var id uint64
+	var box ui.Rect
+	for _, n := range tt.Nodes() {
+		if n.Label == "Open build" {
+			id, box = n.ID, grow(n.Bounds, 4)
+		}
+	}
+	if id == 0 {
+		t.Fatal("no Open build node")
+	}
+	acc := palette(false).Accent
+	// the tile inside the button is Accent: count the band outside the button only
+	band := func() int {
+		img := shot(tt)
+		return countNear(img, box, acc, 30) - countNear(img, grow(box, -4), acc, 30)
+	}
+	if n := band(); n != 0 {
+		t.Fatalf("%d accent pixels before focus", n)
+	}
+	tt.FocusNode(id)
+	tt.Frame()
+	focused := false
+	for _, n := range tt.Nodes() {
+		focused = focused || n.ID == id && n.Focused
+	}
+	if !focused {
+		t.Fatal("the node is not focused")
+	}
+	if band() == 0 {
+		t.Fatal("no focus ring")
+	}
+}
+
+// A host that leaves the list stops animating: its lift entry goes with it.
+func TestLiftForgetsRemovedHost(t *testing.T) {
+	servers := []hubapi.Server{{Name: "hostA", User: "u", Host: "a.example", Port: 22}, {Name: "hostB", User: "u", Host: "b.example", Port: 22}}
+	a, tt, _ := readyApp(t, servers)
+	tt.SetSize(900, 500)
+	tt.flush()
+	r, ok := tt.Find("Open hostA")
+	if !ok {
+		t.Fatal("no card hostA")
+	}
+	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Frame()
+	tt.Advance(40 * time.Millisecond)
+	if a.lift["hostA"] <= 0 {
+		t.Fatalf("lift %v", a.lift)
+	}
+	a.Update(func() { a.servers = a.servers[1:] })
+	tt.flushOnce()
+	tt.Frame()
+	if _, still := a.lift["hostA"]; still {
+		t.Fatalf("lift kept the removed host: %v", a.lift)
+	}
+	tt.Advance(time.Second)
+	if tt.FramePending() {
+		t.Fatal("a frame is still pending")
 	}
 }

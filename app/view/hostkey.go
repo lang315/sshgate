@@ -45,7 +45,7 @@ func (a *App) buildHostKeyDialogs(c *ui.Context) {
 	k := p.Key
 	answer := 0 // 1 trust, 2 cancel
 	open := true
-	m := ui.Modal(c.Key("hk-"+key), &open, func() { // keyed: Cancel takes the focus again for the next prompt
+	m := modal(c.Key("hk-"+key), &open, func() { // keyed: Cancel takes the focus again for the next prompt
 		ui.Column(c).Width(460).Gap(10).Padding(20).Children(func() {
 			ui.Text(c, "Trust this host key?").Bold().FontSize(16)
 			ui.Row(c).Gap(8).Children(func() {
@@ -113,7 +113,7 @@ func (a *App) buildMismatch(c *ui.Context, k hubapi.HostKey) {
 	t := c.Theme()
 	closed, edit := false, false
 	open := true
-	m := ui.Modal(c, &open, func() {
+	m := modal(c, &open, func() {
 		ui.Column(c).Width(460).Gap(10).Padding(20).Children(func() {
 			ui.Text(c, "Host key changed").Bold().FontSize(16).TextColor(t.Danger)
 			ui.Row(c).Gap(8).Children(func() {

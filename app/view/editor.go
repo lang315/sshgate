@@ -433,7 +433,7 @@ func (a *App) buildDeleteConfirm(c *ui.Context) {
 	}
 	answer := 0 // 1 delete, 2 cancel
 	open := true
-	m := ui.Modal(c.Key("del-"+del.name), &open, func() {
+	m := modal(c.Key("del-"+del.name), &open, func() {
 		ui.Column(c).Width(420).Gap(12).Padding(20).Children(func() {
 			ui.Text(c, "Delete "+model.DisplayText(del.name)+"? Its saved passwords and host key are removed and its open tabs close.")
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {

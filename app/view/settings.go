@@ -26,6 +26,14 @@ type settingsState struct {
 	lc            *model.ListChanges
 }
 
+// section is a heading above a raised card holding the section's fields.
+func section(c *ui.Context, title string, fn func()) {
+	ui.Column(c.Key("section-" + title)).Gap(10).Children(func() {
+		ui.Text(c, title).Bold().FontSize(12).TextColor(tok(c).Label)
+		ui.Column(c).Gap(8).Padding(12).Radius(radiusCard).Background(tok(c).Raised).Children(fn)
+	})
+}
+
 // buildSettings is the dialog: Cancel has the focus, so Enter and Esc
 // cancel (not while saving); Save is mouse-only, enabled once the choice
 // differs and AllowDelay has passed since the dialog opened or its notice
@@ -52,61 +60,63 @@ func (a *App) buildSettings(c *ui.Context) {
 		}
 	}
 	open := true
-	m := ui.Modal(c.Key(fmt.Sprintf("settings-%p", st)), &open, func() { // keyed: Cancel takes the focus on each open
+	m := modal(c.Key(fmt.Sprintf("settings-%p", st)), &open, func() { // keyed: Cancel takes the focus on each open
 		ui.Column(c).Width(460).Gap(10).Padding(20).Children(func() {
 			ui.Text(c, "Settings").Bold().FontSize(16)
 			if st.touch.Supported {
-				ui.Text(c, "Unlock").Bold()
-				var sw ui.Element
-				ui.Field(c, "Unlock with Touch ID", func() {
-					sw = ui.Switch(c.Key("touch"), &st.touchOn).Disabled(st.busy || (!st.touch.Available && !st.touchOn))
-				})
-				if sw.Changed() {
-					st.password = ""
-				}
-				if !st.touch.Available {
-					ui.Text(c, "Touch ID is not available on this Mac right now.").TextColor(t.TextMuted)
-				}
-				if touch == "on" {
-					pw := ui.TextInput(c.Key("touch-pw"), &st.password).Password().Label("Master password").Placeholder("Master password").Disabled(st.busy).Bind(&st.pwH)
-					if !st.pwShown { // AutoFocus only works as a dialog opens
-						st.pwShown = true
-						st.pwH.Focus()
+				section(c, "Unlock", func() {
+					var sw ui.Element
+					ui.Field(c, "Unlock with Touch ID", func() {
+						sw = ui.Switch(c.Key("touch"), &st.touchOn).Disabled(st.busy || (!st.touch.Available && !st.touchOn))
+					})
+					if sw.Changed() {
+						st.password = ""
 					}
-					if pw.Submitted() {
-						answer = 2 // Enter means Cancel here too: Save is mouse-only
+					if !st.touch.Available {
+						ui.Text(c, "Touch ID is not available on this Mac right now.").TextColor(t.TextMuted)
 					}
-				} else {
-					st.pwShown = false
-				}
-			}
-			ui.Text(c, "Auto-allow").Bold()
-			var sel ui.Element
-			ui.Field(c, "Keep running while locked", func() { sel = ui.Select(c.Key("limit"), &cur, labels) })
-			if sel.Changed() {
-				for _, l := range model.Limits {
-					if l.Label == cur {
-						st.chosen = l.Value
-					}
-				}
-			}
-			ui.Text(c, model.LimitHelp(st.chosen)).TextColor(t.TextMuted)
-			if change == "higher" || change == "none" {
-				bg := tok(c).WaitTint
-				if change == "none" {
-					bg = tok(c).DangerTint
-				}
-				ui.Column(c).Gap(4).Padding(8, 12).Radius(6).Background(bg).Role(ui.RoleStatus).Children(func() {
-					if len(hosts) == 0 {
-						ui.Text(c, model.LimitNotice(st.chosen)+" No host is on auto-allow now. The limit applies from the next grant.")
-						return
-					}
-					ui.Text(c, model.LimitNotice(st.chosen)+" On auto-allow now:")
-					for _, h := range hosts {
-						ui.Text(c, model.DisplayText(h)).Font("monospace")
+					if touch == "on" {
+						pw := ui.TextInput(c.Key("touch-pw"), &st.password).Password().Label("Master password").Placeholder("Master password").Disabled(st.busy).Bind(&st.pwH)
+						if !st.pwShown { // AutoFocus only works as a dialog opens
+							st.pwShown = true
+							st.pwH.Focus()
+						}
+						if pw.Submitted() {
+							answer = 2 // Enter means Cancel here too: Save is mouse-only
+						}
+					} else {
+						st.pwShown = false
 					}
 				})
 			}
+			section(c, "Auto-allow", func() {
+				var sel ui.Element
+				ui.Field(c, "Keep running while locked", func() { sel = ui.Select(c.Key("limit"), &cur, labels) })
+				if sel.Changed() {
+					for _, l := range model.Limits {
+						if l.Label == cur {
+							st.chosen = l.Value
+						}
+					}
+				}
+				ui.Text(c, model.LimitHelp(st.chosen)).TextColor(t.TextMuted)
+				if change == "higher" || change == "none" {
+					bg := tok(c).WaitTint
+					if change == "none" {
+						bg = tok(c).DangerTint
+					}
+					ui.Column(c).Gap(4).Padding(8, 12).Radius(6).Background(bg).Role(ui.RoleStatus).Children(func() {
+						if len(hosts) == 0 {
+							ui.Text(c, model.LimitNotice(st.chosen)+" No host is on auto-allow now. The limit applies from the next grant.")
+							return
+						}
+						ui.Text(c, model.LimitNotice(st.chosen)+" On auto-allow now:")
+						for _, h := range hosts {
+							ui.Text(c, model.DisplayText(h)).Font("monospace")
+						}
+					})
+				}
+			})
 			if st.err != "" {
 				ui.Text(c, model.DisplayText(st.err)).TextColor(t.Danger)
 			}

@@ -1,12 +1,15 @@
 package view
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/hubapi"
 	"github.com/lang315/sshgate/app/hubproc"
+	"github.com/lang315/sshgate/app/model"
 )
 
 func TestHubScreens(t *testing.T) {
@@ -152,6 +155,193 @@ func TestClickKeepsPasswordFieldFocused(t *testing.T) {
 		tt2.Frame()
 		if f.get() != "abc" {
 			t.Fatalf("%s: typed text landed in %q", f.label, f.get())
+		}
+	}
+}
+
+func TestUnlockCardCentred(t *testing.T) {
+	d := &fakeDoor{status: hubapi.Status{HasVault: true, Locked: true}}
+	_, tt, _, _ := newApp(t, d)
+	tt.SetSize(900, 500)
+	tt.flush()
+	f, ok := tt.Find("Master password")
+	if !ok {
+		t.Fatal(tt.Texts())
+	}
+	if cx := f.X + f.W/2; cx < 449 || cx > 451 || f.W > 312 {
+		t.Fatalf("field %+v: centre %v, width %v", f, cx, f.W)
+	}
+}
+
+func TestCreateVaultErrorUnderFields(t *testing.T) {
+	d := &fakeDoor{status: hubapi.Status{HasVault: false}, servers: []hubapi.Server{{Name: "old", User: "u", Host: "h", Port: 22}}}
+	a, tt, _, _ := newApp(t, d)
+	a.Update(func() { a.createErr = "disk full" })
+	tt.flush()
+	match, ok1 := tt.Find("Both passwords match (not yet)")
+	msg, ok2 := tt.Find("disk full")
+	btn, ok3 := tt.Find("Create vault")
+	if !ok1 || !ok2 || !ok3 {
+		t.Fatal(tt.Texts())
+	}
+	warn, ok4 := tt.Find("old  u@h:22") // the kept-servers list sits below the error
+	if !ok4 {
+		t.Fatal(tt.Texts())
+	}
+	if msg.Y < match.Y+match.H || msg.Y+msg.H > btn.Y || msg.Y+msg.H > warn.Y {
+		t.Fatalf("error %+v not directly under checks %+v (server row %+v, button %+v)", msg, match, warn, btn)
+	}
+}
+
+func TestCardOnSurface(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	for _, dark := range []bool{false, true} {
+		d := &fakeDoor{status: hubapi.Status{HasVault: true, Locked: true}}
+		_, tt, _, _ := newApp(t, d)
+		tt.SetDark(dark)
+		tt.SetSize(900, 500)
+		tt.flush()
+		tt.Advance(time.Second)
+		tt.Frame()
+		f, ok := tt.Find("Master password")
+		title, ok2 := tt.Find("Unlock vault")
+		if !ok || !ok2 {
+			t.Fatal(tt.Texts())
+		}
+		card := grow(f, 24)
+		// 8 px inside the card's left edge, level with the title (the card's top is above it)
+		patch := ui.Rect{X: card.X + 8, Y: title.Y, W: 4, H: 4}
+		if n := countNear(shot(tt), patch, palette(dark).Surface, 2); n != 16 {
+			t.Fatalf("dark=%v: %d of 16 pixels on Surface", dark, n)
+		}
+	}
+}
+
+// The tallest unlock card (auto-allow box, Touch ID, an error) in the
+// smallest window: password field and both buttons stay on screen, or the
+// card scrolls and clicking Unlock still works.
+func TestUnlockFitsAtMinimumWindow(t *testing.T) {
+	ft := &fakeToucher{status: touchOn}
+	d := lockedDoor(ft)
+	d.status.AutoHosts = []string{"box", "db"}
+	a, tt, _ := touchApp(t, ft, d, false)
+	tt.SetSize(900, 500)
+	a.Update(func() { a.unlockErr = "wrong master password" })
+	tt.flush()
+	inside := func(label string) {
+		t.Helper()
+		r, ok := tt.Find(label)
+		if !ok {
+			t.Fatalf("%q missing: %q", label, tt.Texts())
+		}
+		if r.X < 0 || r.Y < 0 || r.X+r.W > 900 || r.Y+r.H > 500 {
+			t.Fatalf("%q at %+v lies outside the 900x500 window", label, r)
+		}
+	}
+	for _, l := range []string{"Master password", "Unlock", "Stop auto-allow and lock"} {
+		inside(l)
+	}
+	tt.Type("pw")
+	clickT(t, tt, "Unlock")
+	tt.flush()
+	if a.Screen() != model.ScreenReady {
+		t.Fatal("Unlock did not unlock")
+	}
+}
+
+// Four kept servers make the create-vault card taller than the minimum
+// window: the fields and the button must be reachable, scrolling if need be.
+func TestCreateVaultFitsAtMinimumWindow(t *testing.T) {
+	var kept []hubapi.Server
+	for _, n := range []string{"a", "b", "c", "d"} {
+		kept = append(kept, hubapi.Server{Name: n, User: "u", Host: n + ".h", Port: 22})
+	}
+	d := &fakeDoor{status: hubapi.Status{HasVault: false}, servers: kept}
+	a, tt, _, _ := newApp(t, d)
+	tt.SetSize(900, 500)
+	tt.flush()
+	reach(t, tt, "Create vault", 900, 500)
+	reach(t, tt, "New master password", 900, 500)
+	tt.Type("password1")
+	reach(t, tt, "Confirm master password", 900, 500)
+	tt.Key(0, ui.KeyTab)
+	tt.Type("password1")
+	tt.Frame()
+	d.mu.Lock()
+	d.status = hubapi.Status{HasVault: true}
+	d.mu.Unlock()
+	reach(t, tt, "Create vault", 900, 500)
+	if err := tt.Click("Create vault"); err != nil {
+		t.Fatal(err)
+	}
+	tt.flush()
+	if d.params["vault.create"] != `{"password":"password1"}` || a.Screen() != "ready" {
+		t.Fatal(d.params["vault.create"], a.Screen())
+	}
+}
+
+func TestHubFailedFitsAtMinimumWindow(t *testing.T) {
+	a, tt, _, _ := newApp(t, &fakeDoor{status: hubapi.Status{HasVault: true}})
+	tt.SetSize(900, 500)
+	var lines []string
+	for i := 1; i <= 40; i++ {
+		lines = append(lines, fmt.Sprintf("stderr line %d", i))
+	}
+	a.Update(func() { a.HubState(hubproc.State{Kind: "failed", Message: "boom\n" + strings.Join(lines, "\n")}) })
+	tt.flush()
+	reach(t, tt, "stderr line 40", 900, 500)
+}
+
+// reach scrolls the element labelled label into view and fails when it still
+// lies outside a w x h window.
+func reach(t *testing.T, tt *tester, label string, w, h float32) {
+	t.Helper()
+	for _, n := range tt.Nodes() {
+		if n.Label == label {
+			tt.ScrollIntoView(n.ID)
+			break
+		}
+	}
+	r, ok := tt.Find(label)
+	if !ok {
+		t.Fatalf("%q missing: %q", label, tt.Texts())
+	}
+	if r.Y+r.H > h || r.H == 0 { // a disabled control takes no scroll-into-view
+		tt.Move(w/2, h/2)
+		tt.Scroll(w/2, h/2, 0, 20000)
+		tt.Frame()
+		r, _ = tt.Find(label)
+	}
+	if r.X < 0 || r.Y < 0 || r.X+r.W > w || r.Y+r.H > h || r.W == 0 || r.H == 0 {
+		t.Fatalf("%q at %+v not reachable in %vx%v", label, r, w, h)
+	}
+}
+
+// Muted text on WaitTint is 4.18:1 in dark, so the auto-allow sentence on the
+// unlock screen uses Text: none of its pixels is Muted, some are Text.
+func TestUnlockWaitSentenceNotMuted(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	for _, dark := range []bool{false, true} {
+		d := &fakeDoor{status: hubapi.Status{HasVault: true, Locked: true, AutoHosts: []string{"box"}}}
+		_, tt, _, _ := newApp(t, d)
+		tt.SetDark(dark)
+		tt.SetSize(900, 700)
+		tt.flush()
+		tt.Advance(time.Second)
+		tt.Frame()
+		r, ok := tt.Find("AI commands on these hosts run without asking while the vault is locked.")
+		if !ok {
+			t.Fatal(tt.Texts())
+		}
+		p := palette(dark)
+		img := shot(tt)
+		if n := countNear(img, r, p.Muted, 3); n != 0 {
+			t.Fatalf("dark=%v: %d Muted pixels in the sentence", dark, n)
+		}
+		if n := countNear(img, r, p.Text, 3); n == 0 {
+			t.Fatalf("dark=%v: no Text pixels in the sentence at %+v", dark, r)
 		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/hubapi"
 	"github.com/lang315/sshgate/app/model"
 )
@@ -93,5 +94,60 @@ func TestLockReachableWithSidebarHidden(t *testing.T) {
 	r, ok := tt.Find("Lock")
 	if !ok || r.W <= 0 || r.X+r.W > 800 {
 		t.Fatalf("Lock at %+v (%v) in an 800-wide window", r, ok)
+	}
+}
+
+// Under Reduce Motion the column shows at once: its first frame is its last.
+func TestAIColumnReduceMotionShowsAtOnce(t *testing.T) {
+	d := &fakeDoor{status: hubapi.Status{HasVault: true}, servers: []hubapi.Server{{Name: "box", User: "u", Host: "h", Port: 22}},
+		pending: []hubapi.Request{reqN("r1", "box", "ls")}}
+	a, tt, _, _ := newApp(t, d)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tt.flush()
+	tt.Advance(time.Second)
+	a.Update(func() { a.aiOpen = true })
+	tt.flushOnce()
+	r, ok := tt.Find("Deny all")
+	if !ok {
+		t.Fatalf("no column: %q", tt.Texts())
+	}
+	col := ui.Rect{X: r.X - 100, Y: 0, W: 380, H: 500}
+	first := shot(tt)
+	tt.Advance(time.Second)
+	tt.Frame()
+	if !sameRegion(first, shot(tt), col) {
+		t.Fatal("the column changed after its first frame")
+	}
+}
+
+// Hiding the sidebar does not remount the AI column. A regression guard: it
+// passed without c.Key("ai") too.
+func TestAIColumnKeepsItsNodeWhenSidebarHides(t *testing.T) {
+	d := &fakeDoor{status: hubapi.Status{HasVault: true}, servers: []hubapi.Server{{Name: "box", User: "u", Host: "h", Port: 22}},
+		pending: []hubapi.Request{reqN("r1", "box", "ls")}}
+	a, tt, _, _ := newApp(t, d)
+	tt.flush()
+	a.Update(func() { a.aiOpen = true })
+	tt.flush()
+	tt.Advance(time.Second)
+	tt.Frame()
+	closeID := func() uint64 {
+		for _, n := range tt.Nodes() {
+			if n.Label == "Close AI requests" {
+				return n.ID
+			}
+		}
+		return 0
+	}
+	before := closeID()
+	if before == 0 {
+		t.Fatal("no close button")
+	}
+	clickT(t, tt, "New host")
+	if _, ok := tt.Find("Audit"); ok {
+		t.Fatal("the sidebar did not hide")
+	}
+	if after := closeID(); after != before {
+		t.Fatalf("node id %d became %d", before, after)
 	}
 }

@@ -399,3 +399,245 @@ func TestTransferRequestShowsPathsAndDisablesSendToTab(t *testing.T) {
 		t.Fatal("Send to tab must stay disabled for a transfer")
 	}
 }
+
+// allowNodes are the Allow buttons of the last frame, top to bottom.
+func allowNodes(tt *tester) []ui.TestNode {
+	var out []ui.TestNode
+	for _, n := range tt.Nodes() {
+		if n.Label == "Allow" {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// adv moves the app's clock (the Allow delay) and the Tester's (the fades) together.
+func adv(tt *tester, c *clock, d time.Duration) { c.add(d); tt.Advance(d) }
+
+func pendingList(d *fakeDoor, rs ...hubapi.Request) { d.set(func() { d.pending = rs }) }
+
+func TestArrivingRequestFadesWithoutMovingOthers(t *testing.T) {
+	a, tt, c, d := colApp(t)
+	tt.SetSize(800, 1200) // both cards on screen
+	note(t, a, tt, "pending", map[string]any{"request": reqN("r1", "box", "echo one")})
+	adv(tt, c, time.Second)
+	tt.Frame()
+	first := allowNodes(tt)
+	if len(first) != 1 || first[0].Disabled {
+		t.Fatalf("r1 Allow %+v", first)
+	}
+	r1 := first[0].Bounds
+	pendingList(d, reqN("r1", "box", "echo one"), reqN("r2", "box", "echo two"))
+	note(t, a, tt, "pending", map[string]any{"request": reqN("r2", "box", "echo two")})
+	adv(tt, c, 40*time.Millisecond)
+	now := allowNodes(tt)
+	if len(now) != 2 || now[0].Bounds != r1 || !now[1].Disabled || !tt.FramePending() {
+		t.Fatalf("at +40 ms: %+v pending %v", now, tt.FramePending())
+	}
+	cmd, ok := tt.Find("echo two")
+	if !ok {
+		t.Fatal(tt.Texts())
+	}
+	card := grow(cmd, 20) // Allow-free: only the fade can change it
+	if _, fading := a.col.fading["r2"]; !fading {
+		t.Fatal("r2 is not in fading at +40 ms")
+	}
+	mid := shot(tt)
+	adv(tt, c, 459*time.Millisecond) // +499 ms
+	tt.Frame()
+	if n := allowNodes(tt); !n[1].Disabled {
+		t.Fatal("r2 Allow enabled at +499 ms")
+	}
+	adv(tt, c, 2*time.Millisecond) // +501 ms
+	tt.Frame()
+	if n := allowNodes(tt); n[1].Disabled {
+		t.Fatal("r2 Allow still disabled at +501 ms")
+	}
+	adv(tt, c, time.Second)
+	tt.Frame()
+	if sameRegion(mid, shot(tt), card) {
+		t.Fatal("r2's command block looks the same mid-fade and at rest")
+	}
+	if len(a.col.fading) != 0 || tt.FramePending() {
+		t.Fatalf("fading %v pending %v", a.col.fading, tt.FramePending())
+	}
+}
+
+func TestRequestsPresentAtOpenDoNotFade(t *testing.T) {
+	d := &fakeDoor{status: hubapi.Status{HasVault: true}, pending: []hubapi.Request{reqN("r1", "box", "ls"), reqN("r2", "box", "pwd")}}
+	a, tt, _, _ := newApp(t, d)
+	tt.flush()
+	_, ok1 := tt.Find("ls")
+	_, ok2 := tt.Find("pwd")
+	if !a.aiOpen || !ok1 || !ok2 || len(a.Items()) != 2 || len(a.col.fading) != 0 {
+		t.Fatalf("open %v ls %v pwd %v items %d fading %v", a.aiOpen, ok1, ok2, len(a.Items()), a.col.fading)
+	}
+}
+
+func TestRequestGoneMidFadeLeavesNoFade(t *testing.T) {
+	a, tt, c, d := colApp(t)
+	tt.SetSize(800, 1200) // both cards on screen
+	note(t, a, tt, "pending", map[string]any{"request": reqN("r1", "box", "echo one")})
+	adv(tt, c, time.Second)
+	pendingList(d, reqN("r1", "box", "echo one"), reqN("r2", "box", "echo two"))
+	note(t, a, tt, "pending", map[string]any{"request": reqN("r2", "box", "echo two")})
+	adv(tt, c, 40*time.Millisecond)
+	if _, ok := a.col.fading["r2"]; !ok {
+		t.Fatal("r2 is not fading")
+	}
+	pendingList(d, reqN("r1", "box", "echo one"))
+	note(t, a, tt, "decided", map[string]any{"request": reqN("r2", "box", "echo two"), "decision": map[string]string{"outcome": "denied"}})
+	tt.Frame()
+	if _, ok := a.col.fading["r2"]; ok {
+		t.Fatal("r2 still fading after it was withdrawn")
+	}
+	tt.Advance(time.Second)
+	if tt.FramePending() {
+		t.Fatal("frames still pending")
+	}
+}
+
+func TestReduceMotionNoArrivalFade(t *testing.T) {
+	a, tt, c, _ := colApp(t)
+	tt.SetSize(800, 1200) // both cards on screen
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	note(t, a, tt, "pending", map[string]any{"request": reqN("r1", "box", "echo one")})
+	adv(tt, c, time.Second)
+	note(t, a, tt, "pending", map[string]any{"request": reqN("r2", "box", "echo two")})
+	n := allowNodes(tt)
+	if len(a.col.fading) != 0 || len(n) != 2 {
+		t.Fatalf("fading %v allows %d", a.col.fading, len(n))
+	}
+	cmd, ok := tt.Find("echo two")
+	if !ok {
+		t.Fatal(tt.Texts())
+	}
+	card := grow(cmd, 20) // the command block: r1's Allow turns green meanwhile, so not the whole card
+	first := shot(tt)
+	adv(tt, c, time.Second)
+	tt.Frame()
+	if !sameRegion(first, shot(tt), card) {
+		t.Fatal("r2's card changed after its first frame")
+	}
+}
+
+func TestAllowTurnsGreenWhenEnabled(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	a, tt, c, _ := colApp(t)
+	note(t, a, tt, "pending", map[string]any{"request": reqN("r1", "box", "echo one")})
+	tt.Advance(time.Second) // past the fade, not the delay (the app's clock has not moved)
+	tt.Frame()
+	n := allowNodes(tt)
+	if len(n) != 1 || !n[0].Disabled {
+		t.Fatalf("allow %+v", n)
+	}
+	box, ok := grow(n[0].Bounds, 1), palette(false).Ok
+	if got := countNear(shot(tt), box, ok, 20); got != 0 {
+		t.Fatalf("%d green pixels while disabled", got)
+	}
+	adv(tt, c, time.Second)
+	tt.Frame()
+	if got := countNear(shot(tt), box, ok, 20); got <= 10 {
+		t.Fatalf("%d green pixels when enabled", got)
+	}
+}
+
+// A disabled Allow looks like a disabled Send to tab: the same box, border
+// and corners (their texts differ, so only the left edge strip is compared).
+func TestDisabledAllowLooksLikeMouseButton(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	a, tt, _, _ := colApp(t)
+	note(t, a, tt, "pending", map[string]any{"request": reqN("r1", "box", "echo one")})
+	tt.Advance(time.Second) // the app's clock has not moved: both stay disabled
+	tt.Frame()
+	var al, st ui.Rect
+	for _, n := range tt.Nodes() {
+		switch n.Label {
+		case "Allow":
+			al = n.Bounds
+		case "Send to tab":
+			st = n.Bounds
+		}
+	}
+	if al.H == 0 || al.H != st.H {
+		t.Fatalf("allow %+v send %+v", al, st)
+	}
+	img := shot(tt)
+	strip := func(r ui.Rect) ui.Rect { return ui.Rect{X: r.X - 1, Y: r.Y - 1, W: 8, H: r.H + 2} }
+	if string(region(img, strip(al))) != string(region(img, strip(st))) {
+		t.Fatal("a disabled Allow's edge differs from a disabled Send to tab's")
+	}
+}
+
+// The safety cue for sudo: a 4 px red left edge and a SUDO chip on DangerTint,
+// neither on a plain card.
+func TestSudoCardHasRedEdgeAndChip(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	for _, dark := range []bool{false, true} {
+		a, tt, c, _ := colApp(t)
+		tt.SetDark(dark)
+		tt.SetSize(1000, 900)
+		sudo := reqN("s1", "sudobox", "echo sudo")
+		sudo.Sudo = true
+		note(t, a, tt, "pending", map[string]any{"request": sudo})
+		note(t, a, tt, "pending", map[string]any{"request": reqN("p1", "plainbox", "echo plain")})
+		adv(tt, c, time.Second)
+		tt.Frame()
+		img, p := shot(tt), palette(dark)
+		edge := func(server string) int {
+			r, ok := tt.Find(server)
+			if !ok {
+				t.Fatal(tt.Texts())
+			}
+			// the card's left edge is its padding (12) and a border (4 on sudo, 1 on plain) to the left of the name
+			return countNear(img, ui.Rect{X: r.X - 16, Y: r.Y, W: 4, H: r.H}, p.Danger, 30)
+		}
+		if n := edge("sudobox"); n < 3*10 {
+			t.Fatalf("dark=%v: sudo card's left strip has %d Danger pixels", dark, n)
+		}
+		if n := edge("plainbox"); n != 0 {
+			t.Fatalf("dark=%v: plain card's left strip has %d Danger pixels", dark, n)
+		}
+		chip, ok := tt.Find("SUDO")
+		if !ok {
+			t.Fatal(tt.Texts())
+		}
+		if n := countNear(img, grow(chip, 4), p.DangerTint, 3); n == 0 {
+			t.Fatalf("dark=%v: no DangerTint pixels around the SUDO chip", dark)
+		}
+	}
+}
+
+// Deny sets its own background, so it paints its own hover colour.
+func TestDenyHoverColour(t *testing.T) {
+	ui.SetDefaultThemes(Themes())
+	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
+	a, tt, c, _ := colApp(t)
+	tt.SetSize(1000, 900)
+	note(t, a, tt, "pending", map[string]any{"request": reqN("r1", "box", "echo one")})
+	adv(tt, c, time.Second)
+	tt.Frame()
+	var r ui.Rect
+	for _, n := range tt.Nodes() {
+		if n.Label == "Deny" && n.Role == ui.RoleButton {
+			r = n.Bounds
+		}
+	}
+	if r.W == 0 {
+		t.Fatal("no Deny button")
+	}
+	patch := ui.Rect{X: r.X + 5, Y: r.Y + r.H/2 - 1, W: 3, H: 3} // inside the button, left of its label
+	p := palette(false)
+	if n := countNear(shot(tt), patch, p.DangerFill, 3); n != 9 {
+		t.Fatalf("at rest: %d of 9 pixels on DangerFill", n)
+	}
+	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Advance(time.Second)
+	tt.Frame()
+	if n := countNear(shot(tt), patch, p.DangerFillHover, 3); n != 9 {
+		t.Fatalf("hovered: %d of 9 pixels on DangerFillHover", n)
+	}
+}

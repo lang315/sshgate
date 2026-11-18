@@ -9,6 +9,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/hubapi"
+	"github.com/lang315/sshgate/app/model"
 )
 
 // TestShots writes the redesign's screenshots to $SSHGATE_SHOTS; skipped
@@ -36,9 +37,8 @@ func TestShots(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	until := time.Date(2026, 10, 15, 12, 25, 0, 0, time.UTC).Format(time.RFC3339)
 	servers := []hubapi.Server{
-		{Name: "build", User: "ci", Host: "10.0.0.5", Port: 22, HostKey: "k", HostKeyAlgo: "ssh-ed25519", AIVisible: true, AutoAllow: &hubapi.AutoAllow{Until: until}},
+		{Name: "build", User: "ci", Host: "10.0.0.5", Port: 22, HostKey: "k", HostKeyAlgo: "ssh-ed25519", AIVisible: true},
 		{Name: "staging", User: "deploy", Host: "10.0.0.6", Port: 22, HostKey: "k", HostKeyAlgo: "ssh-ed25519", AIVisible: true, AutoAllow: &hubapi.AutoAllow{Forever: true, Paused: true}},
 		{Name: "new-box", User: "root", Host: "10.0.0.7", Port: 22},
 		{Name: "db", User: "pg", Host: "10.0.0.8", Port: 22, HostKey: "k", HostKeyAlgo: "ssh-ed25519"},
@@ -52,7 +52,11 @@ func TestShots(t *testing.T) {
 		a.Dial = (&dialRec{err: os.ErrClosed}).dial
 		tt.SetDark(dark)
 		tt.SetSize(1000, 640)
-		a.Update(func() { a.openTab("db"); a.tabs.ShowHome() })
+		a.Update(func() {
+			a.servers[0].AutoAllow = &hubapi.AutoAllow{Until: a.Now().Add(25 * time.Minute).Format(time.RFC3339)}
+			a.openTab("db")
+			a.tabs.ShowHome()
+		})
 		tt.flush()
 		name := "light"
 		if dark {
@@ -68,5 +72,49 @@ func TestShots(t *testing.T) {
 		a.Update(func() { a.tabs.Active = a.tabs.Tabs[0].ID })
 		tt.flush()
 		save(tt, "terminal-dark.png")
+	}
+	for _, dark := range []bool{false, true} { // locked, one host on auto-allow
+		d := &fakeDoor{status: hubapi.Status{HasVault: true, Locked: true, StorePath: "/v/servers.json", AutoHosts: []string{"staging"}}}
+		a, tt, _, _ := newApp(t, d)
+		tt.SetDark(dark)
+		tt.SetSize(1000, 640)
+		a.Update(func() { a.lockReason = "manual" })
+		tt.flush()
+		name := "light"
+		if dark {
+			name = "dark"
+		}
+		save(tt, "unlock-"+name+".png")
+	}
+	d := &fakeDoor{status: hubapi.Status{HasVault: true, SoftLockLimit: "24h"}, servers: servers}
+	a, tt, _, _ := newApp(t, d)
+	ft := &fakeToucher{status: model.TouchStatus{Supported: true, Available: true}}
+	a.Touch = ft
+	tt.SetDark(true)
+	tt.SetSize(1000, 640)
+	tt.flush()
+	clickT(t, tt, "Settings")
+	tt.flush()
+	a.Update(func() { a.settings.chosen = "none" })
+	tt.flush()
+	save(tt, "settings-dark.png")
+
+	sudo := reqN("r2", "staging", "apt-get upgrade -y")
+	sudo.Sudo = true
+	xfer := reqN("r3", "build", "")
+	xfer.Command = ""
+	xfer.Transfer = &hubapi.Transfer{Op: "upload", Root: "/Users/me/proj", Local: []string{"dist/app.tar.gz"}, Remote: []string{"/srv/releases/"}}
+	for _, dark := range []bool{false, true} { // all three request kinds, the plain one's Allow enabled
+		d = &fakeDoor{status: hubapi.Status{HasVault: true}, servers: servers, pending: []hubapi.Request{reqN("r1", "build", "docker compose pull"), sudo, xfer}}
+		_, tt, c, _ := newApp(t, d)
+		tt.SetDark(dark)
+		tt.SetSize(1000, 1100)
+		tt.flush()
+		adv(tt, c, time.Second) // past the Allow delay
+		name := "light"
+		if dark {
+			name = "dark"
+		}
+		save(tt, "ai-"+name+".png")
 	}
 }

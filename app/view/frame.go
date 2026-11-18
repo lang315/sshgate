@@ -99,7 +99,7 @@ func (a *App) buildSidebar(c *ui.Context) {
 
 // buildAIColumn snaps into place; only its content fades in, over 120 ms.
 func (a *App) buildAIColumn(c *ui.Context) {
-	col := ui.Column(c).Fill().Width(380).Shrink(0) // never narrows: its buttons stay whole
+	col := ui.Column(c.Key("ai")).Fill().Width(380).Shrink(0) // never narrows: its buttons stay whole
 	target := float32(1)
 	if !a.aiFaded {
 		a.aiFaded = true

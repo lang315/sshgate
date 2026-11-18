@@ -68,7 +68,7 @@ func (a *App) buildConfirm(c *ui.Context) {
 	title := "Auto-allow AI commands on " + name
 	answer := 0 // 1 enable, 2 cancel
 	open := true
-	m := ui.Modal(c.Key(fmt.Sprintf("auto-%p", cf)), &open, func() { // keyed: Cancel takes the focus on each open
+	m := modal(c.Key(fmt.Sprintf("auto-%p", cf)), &open, func() { // keyed: Cancel takes the focus on each open
 		ui.Column(c).Width(460).Gap(10).Padding(20).Children(func() {
 			ui.Text(c, title).Bold().FontSize(16)
 			if cf.refused != "" {
