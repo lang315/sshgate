@@ -250,3 +250,28 @@ func TestAIColumnFadesThenRests(t *testing.T) {
 		t.Fatal("the column is still fading at rest")
 	}
 }
+
+// Settings and the theme switch live in the top bar, so a terminal tab,
+// which hides the sidebar, still has them.
+func TestSettingsAndThemeReachableOnATab(t *testing.T) {
+	needLib(t)
+	a, tt, d, _, _ := tabApp(t)
+	d.set(func() { d.status.SoftLockLimit = "24h" })
+	a.Update(func() { a.refresh() })
+	tt.flush()
+	clickT(t, tt, "Open box")
+	tabsUntil(t, tt, func() bool { return tabState(a, "t1") == "open" }, "t1 open")
+	if a.sidebarShown() {
+		t.Fatal("the sidebar shows on a terminal tab")
+	}
+	for _, name := range []string{"Settings", "Dark", "Light"} {
+		if _, ok := tt.Find(name); !ok {
+			t.Fatalf("no %q on a terminal tab: %q", name, tt.Texts())
+		}
+	}
+	clickT(t, tt, "Settings")
+	tt.flush()
+	if a.settings == nil {
+		t.Fatal("Settings did not open from a terminal tab")
+	}
+}

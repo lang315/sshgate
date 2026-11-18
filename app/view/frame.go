@@ -18,8 +18,9 @@ func (a *App) sidebarShown() bool {
 	return (a.tabs.Active == "" || a.tabs.Active == model.AuditTab || a.tabs.Active == model.KeychainTab) && a.editor == nil && a.imp == nil
 }
 
-// buildTopBar is the full-width bar: Home, the tab strip, AI and Lock. It is
-// the same whatever the sidebar does, so the tabs never move.
+// buildTopBar is the full-width bar: Home, the tab strip, AI, the theme
+// switch, Settings and Lock. It is the same whatever the sidebar does, so the
+// tabs never move.
 func (a *App) buildTopBar(c *ui.Context, autoN, liveAuto int) {
 	p := tok(c)
 	ui.Row(c).Gap(8).Padding(8).AlignItems(ui.Center).Background(p.Rail).BorderWidth(0, 0, 1, 0).BorderColor(p.Divider).Children(func() {
@@ -56,6 +57,12 @@ func (a *App) buildTopBar(c *ui.Context, autoN, liveAuto int) {
 				a.aiOpen = !a.aiOpen
 			}
 		}
+		// Theme and Settings sit here, not in the sidebar, which a terminal,
+		// Files or Tunnels tab hides: they are reachable on every view.
+		a.buildThemeControl(c)
+		if ui.Button(c, "").Label("Settings").Tooltip("Settings").TextColor(p.RailText).Background(p.RailButton).Children(func() { ui.Icon(c, gearIcon).Size(16, 16).TextColor(p.RailText) }).Disabled(a.status == nil || a.status.SoftLockLimit == "").Clicked() {
+			a.openSettings()
+		}
 		lock := railButton(ui.Button(c, "Lock"), p)
 		if tip := model.LockTitle(liveAuto); tip != "" {
 			lock.Tooltip(tip)
@@ -66,8 +73,7 @@ func (a *App) buildTopBar(c *ui.Context, autoN, liveAuto int) {
 	})
 }
 
-// buildSidebar is the left rail: Hosts, Audit and Keychain, then the theme switch and
-// Settings. It draws nothing while a tab is active, and the page snaps.
+// buildSidebar is the left rail: Hosts, Audit and Keychain. It draws nothing while a tab is active, and the page snaps.
 func (a *App) buildSidebar(c *ui.Context) {
 	if !a.sidebarShown() {
 		return
@@ -107,12 +113,6 @@ func (a *App) buildSidebar(c *ui.Context) {
 				a.tabs.ShowHome()
 			}
 		}
-		ui.Row(c).Gap(8).Padding(8).AlignItems(ui.Center).Children(func() {
-			a.buildThemeControl(c)
-			if ui.Button(c, "").Label("Settings").Tooltip("Settings").TextColor(p.RailText).Background(p.RailButton).Children(func() { ui.Icon(c, gearIcon).Size(16, 16).TextColor(p.RailText) }).Disabled(a.status == nil || a.status.SoftLockLimit == "").Clicked() {
-				a.openSettings()
-			}
-		})
 	})
 }
 
