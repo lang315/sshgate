@@ -104,11 +104,17 @@ func (a *App) buildSheet(c *ui.Context, key, title, label, closeLabel, errText s
 	return closed || esc && !busy
 }
 
+// cannotSave is what disables Save and what Enter checks: a save in flight, a
+// bad port, or Keychain auth with no key chosen.
+func (ed *editorState) cannotSave() bool {
+	return ed.busy || model.PortError(ed.draft.Port) != "" || ed.draft.Auth == "keychain" && ed.draft.KeyName == ""
+}
+
 // submitHost is Save and Enter: a draft that arms a grant asks first
 // (Electron's saveConfirm), anything else saves.
 func (a *App) submitHost(s *hubapi.Server) {
 	ed := a.editor
-	if ed.busy || model.PortError(ed.draft.Port) != "" {
+	if ed.cannotSave() {
 		return
 	}
 	if model.SaveConfirm(s, ed.draft).Needed {
@@ -126,7 +132,7 @@ func (a *App) submitHost(s *hubapi.Server) {
 // the Auto-allow dialog that sent it while that is still open.
 func (a *App) saveHost() {
 	ed := a.editor
-	if ed == nil || ed.busy || model.PortError(ed.draft.Port) != "" {
+	if ed == nil || ed.cannotSave() {
 		return
 	}
 	in, mode, cf, name := model.ToInput(ed.draft), ed.draft.AutoAllow, ed.confirm, ed.name
@@ -179,7 +185,7 @@ func (a *App) buildEditor(c *ui.Context) {
 		if ui.Button(c.Key("close"), "Close").Clicked() {
 			closed = true
 		}
-		if ui.PrimaryButton(c.Key("save"), "Save").Disabled(ed.busy || portErr != "" || ed.draft.Auth == "keychain" && ed.draft.KeyName == "").Clicked() {
+		if ui.PrimaryButton(c.Key("save"), "Save").Disabled(ed.cannotSave()).Clicked() {
 			submit = true
 		}
 	}) {
@@ -371,7 +377,7 @@ func group(c *ui.Context, fn func()) {
 func (a *App) buildAIAccess(c *ui.Context, s *hubapi.Server) {
 	t := c.Theme()
 	d := &a.editor.draft
-	ui.Field(c, "Visible to AI", func() { ui.Switch(c, &d.AIVisible) })
+	ui.Field(c, "Visible to AI", func() { onSwitch(c, &d.AIVisible) })
 	ui.Text(c, "AI clients can see this server and ask to run commands. Commands wait for your approval unless auto-allow is on.").TextColor(t.TextMuted)
 	if s == nil || s.HostKey == "" {
 		ui.Text(c, "Needs a pinned host key.").TextColor(t.TextMuted)

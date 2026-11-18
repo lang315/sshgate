@@ -1,62 +1,72 @@
 ---
 name: sshgate
-description: A native macOS gate between an AI agent and real servers; a calm warm-neutral work area inside a deep-teal shell, where every command waits for a human.
+description: A native macOS gate between an AI agent and real servers; a calm carbon-grey app with colour reserved for meaning, where every command waits for a human.
 colors:
-  bg-light: "#F6F4F0"
-  surface-light: "#FFFDFB"
-  raised-light: "#EEEBE5"
-  surface-hover-light: "#E6E2DA"
-  line-light: "#DFDAD2"
-  control-line-light: "#857E73"
-  divider-light: "#E6E2DB"
-  text-light: "#1F1C19"
-  muted-light: "#6B655D"
-  label-light: "#4A453F"
-  accent-light: "#12766F"
-  accent-hover-light: "#0F6A64"
-  accent-pressed-light: "#0C5A55"
-  accent-text-light: "#ffffff"
-  accent-tint-light: "#dcf1ec"
-  danger-light: "#B5412F"
-  danger-tint-light: "#fbe2dc"
-  wait-light: "#8B6123"
-  wait-tint-light: "#fcefdc"
-  ok-light: "#3D7554"
-  ok-tint-light: "#e9f6ee"
-  term-bg-light: "#FFFDFB"
-  term-fg-light: "#1F1C19"
-  rail-light: "#0F5F59"
-  bg-dark: "#161514"
-  surface-dark: "#1C1A19"
-  raised-dark: "#23211F"
-  surface-hover-dark: "#2B2927"
-  line-dark: "#3D3A37"
-  control-line-dark: "#7A746D"
-  divider-dark: "#2E2B29"
-  text-dark: "#ECE8E0"
-  muted-dark: "#9A948C"
-  label-dark: "#B8B3AB"
-  accent-dark: "#56BFB9"
-  accent-hover-dark: "#6CCAC4"
-  accent-pressed-dark: "#45A9A3"
-  accent-text-dark: "#0E1012"
-  accent-tint-dark: "#16312F"
-  danger-dark: "#F28B73"
-  danger-tint-dark: "#3D1D18"
-  wait-dark: "#E9A23B"
-  wait-tint-dark: "#3A2C14"
-  ok-dark: "#6CC58F"
-  ok-tint-dark: "#1A3324"
-  term-bg-dark: "#100F0E"
-  term-fg-dark: "#D8D4CC"
-  rail-dark: "#134542"
-  rail-text: "#E6F2F0"
-  danger-fill: "#B5412F"
-  danger-fill-hover: "#A23A2A"
-  danger-fill-pressed: "#8F3325"
+  bg-light: "#F5F5F5"
+  surface-light: "#FFFFFF"
+  raised-light: "#ECECEC"
+  surface-hover-light: "#E2E2E2"
+  line-light: "#DADADA"
+  control-line-light: "#838383"
+  divider-light: "#E4E4E4"
+  text-light: "#1D1D1F"
+  muted-light: "#636363"
+  label-light: "#404040"
+  accent-light: "#1D1D1F"
+  accent-hover-light: "#3D3D3E"
+  accent-pressed-light: "#18181A"
+  accent-text-light: "#FFFFFF"
+  accent-tint-light: "#DADADA"
+  danger-light: "#AA3D2C"
+  danger-tint-light: "#FBE3DE"
+  wait-light: "#805B1D"
+  wait-tint-light: "#FBEFDC"
+  ok-light: "#386D4E"
+  ok-tint-light: "#E3F2EA"
+  term-bg-light: "#FFFFFF"
+  term-fg-light: "#1D1D1F"
+  rail-light: "#E9E9E9"
+  rail-text-light: "#404040"
+  rail-button-light: "#FFFFFF"
+  wait-fill-light: "#9A5800"
+  wait-fill-hover-light: "#864C00"
+  on-wait-fill-light: "#FFFFFF"
+  bg-dark: "#1E1E1E"
+  surface-dark: "#262626"
+  raised-dark: "#2D2D2D"
+  surface-hover-dark: "#363636"
+  line-dark: "#3C3C3C"
+  control-line-dark: "#797979"
+  divider-dark: "#313131"
+  text-dark: "#EDEDED"
+  muted-dark: "#A0A0A0"
+  label-dark: "#C6C6C6"
+  accent-dark: "#EDEDED"
+  accent-hover-dark: "#F0F0F0"
+  accent-pressed-dark: "#C7C7C7"
+  accent-text-dark: "#141414"
+  accent-tint-dark: "#343434"
+  danger-dark: "#EE8A74"
+  danger-tint-dark: "#41302D"
+  wait-dark: "#E0A048"
+  wait-tint-dark: "#3F3425"
+  ok-dark: "#6CC08F"
+  ok-tint-dark: "#2B3A31"
+  term-bg-dark: "#141414"
+  term-fg-dark: "#DADADA"
+  rail-dark: "#181818"
+  rail-text-dark: "#C6C6C6"
+  rail-button-dark: "#2E2E2E"
+  wait-fill-dark: "#E9A23B"
+  wait-fill-hover-dark: "#ECAF59"
+  on-wait-fill-dark: "#0E1012"
+  danger-fill: "#B9432F"
+  danger-fill-hover: "#A63B2A"
+  danger-fill-pressed: "#923425"
   danger-text: "#ffffff"
-  wait-fill: "#E9A23B"
-  on-wait-fill: "#0E1012"
+  tile-hues: "#7E4F86 #3D67A8 #2F7D78 #A44C68 #8A6230 #56657A"
+  switch-on-light: "#386D4E"
+  switch-on-dark: "#2F8F5B"
 typography:
   title:
     fontFamily: "system"
@@ -92,8 +102,8 @@ spacing:
   xl: "24px"
 components:
   rail-button:
-    backgroundColor: "#276F6A" # light; dark #2A5855: 11 % Rail Mist over the rail (railButtonFill)
-    textColor: "{colors.rail-text}"
+    backgroundColor: "{colors.rail-button-light}" # dark {colors.rail-button-dark}; 1 px Control Line border
+    textColor: "{colors.rail-text-light}"
     rounded: "{rounded.control}"
   button-primary-light:
     backgroundColor: "{colors.accent-light}"
@@ -119,8 +129,8 @@ components:
     padding: "12px"
     width: "240px"
   host-tile:
-    backgroundColor: "{colors.accent-light}"
-    textColor: "{colors.accent-text-light}"
+    backgroundColor: "#3D67A8" # one of colors.tile-hues, by host name; Go Green while connected
+    textColor: "#ffffff"
     rounded: "{rounded.tile}"
     size: "36px"
   request-card:
@@ -153,59 +163,62 @@ components:
 
 # Design System: sshgate
 
-Recorded from the shipped app in `app/view/` (palette.go, guard.go, modal.go, approvals.go, home.go, frame.go, screens.go, section.go, icons.go, tabs.go, audit.go, files.go, tunnels.go) and the screenshots of every screen in both themes. A native macOS app on the mygo `ui` toolkit, not web. Hex values are normative in the frontmatter; the code names them as `tokens` fields in palette.go and no view writes a raw colour (a few raw radii exist, see Don'ts). Light and dark values are separate keys (`-light`, `-dark`); `rail-text`, the `danger-fill` family, `wait-fill` and `on-wait-fill` are the same in both themes.
+Recorded from the shipped app in `app/view/` (palette.go, guard.go, modal.go, approvals.go, home.go, frame.go, screens.go, section.go, icons.go, tabs.go, audit.go, files.go, tunnels.go) and the screenshots of every screen in both themes. A native macOS app on the mygo `ui` toolkit, not web. Hex values are normative in the frontmatter; the code names them as `tokens` fields in palette.go and no view writes a raw colour (a few raw radii exist, see Don'ts). Light and dark values are separate keys (`-light`, `-dark`); the `danger-fill` family, `danger-text` and `tile-hues` are the same in both themes.
 
 ## Overview
 
-**Creative North Star: "The Teal Gatehouse"**
+**Creative North Star: "The Quiet Gatehouse"**
 
-A calm warm-neutral work area held inside a deep-teal shell. The shell is the gate: a full-width top bar and a left sidebar in one teal, with pale text on it. Inside it the work is quiet, so the few things that ask for a decision stand out: an amber ring around a host the AI may run on without a click, a filled red Deny, a red edge on a SUDO request.
+A calm carbon-grey app with no decorative hue (carbon, 2026-11-18). The shell (a full-width top bar and a left sidebar) is one neutral step off the work area and a 1 px Divider, not a colour block. Everything is quiet grey, so the few things that ask for a decision stand out: an amber Auto chip on a host the AI may run on without a click, a filled red Deny, a red edge on a SUDO request.
 
-It is an Operate surface for one person who keeps it open all day, so it is dense and flat, with system type and no decoration. Colour carries state, not mood: teal is identity and action, green is connected or allowed, amber is waiting or a live grant, red is refusal and risk. Tints are used at full strength for chips and banners, never faded.
+It is an Operate surface for one person who keeps it open all day, so it is dense and flat, with system type and no decoration. Colour carries state, not mood: the accent is neutral, green is connected or allowed, amber is waiting or a live grant, red is refusal and risk. Tints are used at full strength for chips and banners, never faded.
 
-The ground is warm neutral in both themes (hue about 30-40 degrees, low chroma). Neutrals warmed 2026-11-17 at the author's request.
+The ground is true neutral grey in both themes (no hue): `#F5F5F5` in light, the macOS dark-window grey `#1E1E1E` in dark.
 
 **Key Characteristics:**
-- Teal shell (rail) around a neutral work area; the terminal and Files yield the sidebar.
+- A neutral shell (rail) one step off the work area; the accent is near-white in dark and near-black in light. The terminal and Files yield the sidebar.
 - Three surface steps, two shadows, three radii.
-- Filled letter tiles; a state ring is the one signature move.
+- Filled letter tiles, one hue per host (never green); the grant shows as the Auto chip (ring removed 2026-11-17 at the author's request; the chip carries the grant).
 - System font; monospace only for what is literal.
 - Decisions are slow on purpose: Allow is outline and mouse-only, Cancel is the filled default.
 
 ## Colors
 
-A teal shell, warm neutrals, and four state hues each with a tint. Every text and UI pair is checked in `palette_test.go` (see Accessibility).
+True neutral greys, a near-white (dark) or near-black (light) accent, and state hues each with a tint. Colour is for meaning: amber waits, red is danger, green is ok or connected, and the six host tile hues; nothing else is coloured. Every text and UI pair is checked in `palette_test.go` (see Accessibility).
 
 ### Primary
-- **Deep Teal** (light `#12766F`, dark `#56BFB9`): action and identity. Primary buttons, the AI chip, tunnel chips, focus, host tiles, selected rows. Hover `#0F6A64` / `#6CCAC4`, pressed `#0C5A55` / `#45A9A3`. Text on it: white in light, `#0E1012` in dark. Tint `#dcf1ec` / `#16312F` for chip and selection fills.
-- **Rail Teal** (light `#0F5F59`, dark `#134542`): the shell. The top bar and sidebar background only. Text, icons, outlines on it are **Rail Mist** (`#E6F2F0`, both themes). Never used in the work area.
+- **Accent** (light `#1D1D1F`, dark `#EDEDED`): the one accent, a near-black or near-white, not a hue. Primary buttons, focus rings, the chosen sidebar item, links, selected rows. Hover `#3D3D3E` / `#F0F0F0`, pressed `#18181A` / `#C7C7C7`. Text on it: `#FFFFFF` in light, `#141414` in dark. Tint `#DADADA` / `#343434` for selection fills.
+- **Rail** (light `#E9E9E9`, dark `#181818`): the shell, a neutral step off the work area (darker than Bg in light, lighter in dark, as macOS sidebars are), with a 1 px Divider under the top bar and beside the sidebar. Text and icons on it are **Rail Text** (`#404040` / `#C6C6C6`). Never used in the work area.
 
 ### Secondary (state hues)
-- **Go Green** (light `#3D7554`, dark `#6CC58F`): connected tile and its dot, the Allow outline and label, success text, "Ready" chip. Tint `#e9f6ee` / `#1a3324`.
-- **Wait Amber** (light `#8B6123`, dark `#E9A23B`): pending or live-grant state. Chip text, the grant ring, warnings, amber banners. Tint `#fcefdc` / `#3a2c14`.
-- **Wait Fill** (`#E9A23B`, both themes, text `#0E1012`): the lit AI button when requests wait (hover: 12 % lighter). A fill, not a pill. The grant ring is Wait Amber, not Wait Fill.
-- **Stop Red** (light `#B5412F`, dark `#F28B73`): text and outline red. Errors, the Delete and Enable tones, SUDO label, the red edge. Tint `#fbe2dc` / `#3d1d18`.
-- **Deny Fill** (`#B5412F`, both themes; hover `#A23A2A`, pressed `#8F3325`, text white): the filled Deny and Delete-for-good buttons.
+- **Go Green** (light `#3B7352`, dark `#6CC08F`): connected tile and its dot, the Allow outline and label, success text, "Ready" chip. Tint `#E3F2EA` / `#2B3A31`.
+- **Wait Amber** (light `#87601F`, dark `#E0A048`): pending or live-grant state. Chip text, warnings, amber banners. Tint `#FBEFDC` / `#3F3425`.
+- **Wait Fill** (light `#9A5800` with white text, hover `#864C00`; dark `#E9A23B` with `#0E1012` text, hover `#ECAF59`): the lit AI button when requests wait, and the auto-allow dot on a tab. Light is a deep amber because a pale amber cannot reach 3:1 on the light rail. A fill, not a pill.
+- **Stop Red** (light `#B5412F`, dark `#EE8A74`): text and outline red. Errors, the Delete and Enable tones, SUDO label, the red edge. Tint `#FBE3DE` / `#41302D`.
+- **Deny Fill** (`#B9432F`, both themes; hover `#A63B2A`, pressed `#923425`, text white): the filled Deny and Delete-for-good buttons.
 
 ### Neutral
-- **Bg** (light `#F6F4F0`, dark `#161514`): window ground and text-field fill.
-- **Surface** (light `#FFFDFB`, dark `#1C1A19`): host cards, the AI column, dialogs, sheets, the unlock card.
-- **Raised** (light `#EEEBE5`, dark `#23211F`): request cards, section groups, table headers, row hover. `c.Theme().Surface` maps to this step.
-- **Surface Hover** (`#E6E2DA` / `#2B2927`) and **Line** (`#DFDAD2` / `#3D3A37`, also the pressed fill): hover on flat items, card and divider outlines.
-- **Divider** (`#E6E2DB` / `#2E2B29`): hairlines.
-- **Control Line** (`#857E73` / `#7A746D`): the border of buttons and inputs; the only line that must reach 3:1.
-- **Ink** (`#1F1C19` / `#ECE8E0`), **Label** (`#4A453F` / `#B8B3AB`), **Muted** (`#6B655D` / `#9A948C`): primary text, section titles, secondary text and addresses.
-- **Terminal** (bg `#FFFDFB` / `#100F0E`, text `#1F1C19` / `#D8D4CC`): the terminal and every block that shows what the AI sent. Always outlined with Line so it reads on a surface that shares its colour.
+- **Bg** (light `#F4F5F7`, dark `#16181B`): window ground and text-field fill.
+- **Surface** (light `#FCFCFD`, dark `#1C1F23`): host cards, the AI column, dialogs, sheets, the unlock card.
+- **Raised** (light `#EDEFF2`, dark `#23272C`): request cards, section groups, table headers, row hover. `c.Theme().Surface` maps to this step.
+- **Surface Hover** (`#E4E7EB` / `#2B2F35`) and **Line** (`#DADEE3` / `#363B42`, also the pressed fill): hover on flat items, card and divider outlines.
+- **Divider** (`#E3E6EA` / `#2A2E34`): hairlines, and the rail's edge.
+- **Control Line** (`#7D8590` / `#737B86`): the border of buttons and inputs, rail buttons included; the only line that must reach 3:1.
+- **Ink** (`#1A1E23` / `#E5E8EC`), **Label** (`#3F4650` / `#B3B9C2`), **Muted** (`#5D6570` / `#959CA7`): primary text, section titles, secondary text and addresses.
+- **Terminal** (bg `#FCFCFD` / `#0F1114`, text `#1A1E23` / `#D4D8DE`): the terminal and every block that shows what the AI sent. Always outlined with Line so it reads on a surface that shares its colour.
 
 ### Named Rules
-**The State-Not-Style Rule.** Teal, green, amber and red each mean one thing and are never used for decoration. Green is a human-confirmed or connected state; amber is waiting or a live grant; red is refusal or risk.
+**The State-Not-Style Rule.** Colour is for meaning. Green, amber and red each mean one thing and are never used for decoration. Green is a human-confirmed or connected state; amber is waiting or a live grant; red is refusal or risk.
 
-**The Shell Stays Shell Rule.** Rail Teal and Rail Mist appear only on the top bar and sidebar. The work area never borrows them.
+**The Shell Stays Shell Rule.** Rail and Rail Text appear only on the top bar and sidebar. The work area never borrows them, and the shell never takes a hue: it is told apart by a neutral step and a 1 px Divider.
 
-**The Full-Strength Tint Rule.** Chips and banners use the tint colour at full strength with the matching hue as text. No translucent washes except the rail's own overlays (8 % hover, 11 % pill, 60 % outline of Rail Mist).
+**The Full-Strength Tint Rule.** Chips and banners use the tint colour at full strength with the matching hue as text. No translucent washes except the rail's own 8 % Rail Text hover.
 
-### Decision: warm neutrals
-The author chose warm neutrals; neutrals warmed 2026-11-17 at the author's request (hue about 30-40 degrees, red >= green >= blue, same lightness roles as the slate they replace). Accent, rail and state colours did not change. Light Surface and terminal background are a warm white `#FFFDFB`, not pure white.
+### Decision: carbon, colour is for meaning (2026-11-18)
+On 2026-11-18 the author chose the "carbon" palette after seeing real screenshots; it replaced the cool-neutral-plus-teal look of 2026-11-17 (below, kept as history). Greys are true neutral (dark `#1E1E1E`, light `#F5F5F5`); the accent is near-white in dark and near-black in light; teal is gone from the chrome, the AI and tunnel chips included. Colour is reserved for meaning: amber (waiting, auto-allow), red (danger), green (ok, connected), and the six host tile hues (teal `#2F7D78` is now one of them). A switch is on in green (**Switch On**, light `#386D4E`, dark `#2F8F5B`, a scoped theme in `palette.go`; the white knob is at least 3:1 on it), since a near-white track under a white knob hid the state. The app icon (a teal shield on a near-black square) is the home mark and the card mark.
+
+### Decision: cool neutrals, teal as the accent only (2026-11-17, superseded 2026-11-18)
+On 2026-11-17 the author asked for a slightly cool neutral that is not as heavy as the deep-teal shell; the cool neutral replaced the warm-neutral-plus-teal-shell look of the same day. Neutrals are cool grey (blue a few points above red, low chroma) with the same lightness roles; the rail is a neutral step, not Rail Teal; teal is the accent only; the tile hues and state colours were muted a little to sit on grey. Light Surface and terminal background are `#FCFCFD`, not pure white.
 
 ## Typography
 
@@ -247,23 +260,23 @@ Tonal layering plus two shadows. Depth is mostly steps of colour: Bg (the ground
 
 ## Shapes
 
-Three radii and one tile exception. **Control 6 px** (buttons, inputs, the terminal block, the SUDO label, filter toggles); **Card 10 px** (host cards, request cards, section groups, table containers, status chips); **Dialog 14 px** (modals, the auth card). Letter tiles are 36 px squares with an 8 px radius inside a 44 px ring box; the connected dot is a 10 px circle with a 2 px Surface border. Outlines are 1 px; a SUDO request adds a 4 px red left edge (`BorderStartWidth(4)`). Icons are 24 px viewBox, 2 px round-cap strokes in the current colour, drawn as SVG.
+Three radii and one tile exception. **Control 6 px** (buttons, inputs, the terminal block, the SUDO label, filter toggles); **Card 10 px** (host cards, request cards, section groups, table containers, status chips); **Dialog 14 px** (modals, the auth card). Letter tiles are 36 px squares with an 8 px radius; the connected dot is a 10 px circle with a 2 px Surface border. Outlines are 1 px; a SUDO request adds a 4 px red left edge (`BorderStartWidth(4)`). Icons are 24 px viewBox, 2 px round-cap strokes in the current colour, drawn as SVG.
 
 ## Components
 
 ### Rail top bar and buttons
-The full-width Rail Teal bar, padding 8, gap 8: the Home button ("sshgate" with the shield, 200 px wide to line up with the sidebar), the tab strip (grows), the AI button, Lock. A tab is a rail button; the open one is a Bg-filled button with Text colour, so it reads as the page it shows. A host with a live or paused auto-allow grant puts an 8 px Wait Fill dot, vertically centred, before its tab. Rail buttons are Rail Mist text on an 11 % Rail Mist pill with a 60 % Rail Mist outline, hover 8 %; the same style on every top-bar button. The AI button appears while the column is open, requests wait or a grant is on; label `AI n` (plus ` · auto n`). When requests are waiting it is a lit Wait Fill button with dark text, not a pill.
+The full-width Rail bar with a 1 px Divider below it, padding 8, gap 8: the home mark (the 22 px app icon and "sshgate" in bold Ink, left-aligned in 200 px to line up with the sidebar; a button underneath for focus and clicks, but with no face at rest, hovered, pressed or while Home shows), the tab strip (grows), the AI button, the Moon / Sun / Auto theme control (chosen segment on Rail Button) and a Settings gear (16 px), both Rail Text, then Lock; the theme control and Settings sit here so a terminal, Files or Tunnels tab, which hides the sidebar, still has them. A tab is one rounded piece (34 px tall, 14 pt label, at least 140 wide, the × inside); an inactive one is Rail Text with an 8 % hover, the open one is filled Bg (Terminal for a terminal) with bold Ink and a 2 px Accent bar inside its bottom edge (inset 8), so it reads as the page it shows. A host with a live or paused auto-allow grant puts an 8 px Wait Fill dot, vertically centred, before its tab. Rail buttons are Rail Text on **Rail Button** (`#FCFCFD` light, a white face as on a macOS toolbar, since a grey pill there reads as disabled; `#2F3237` dark) with a 1 px Control Line outline, hover 8 % Rail Text over the rail; the same style on every top-bar button. The AI button appears while the column is open, requests wait or a grant is on; label `AI n` (plus ` · auto n`). When requests are waiting it is a lit Wait Fill button with On Wait Fill text, not a pill.
 
 ### Sidebar
-Rail Teal, 200 px, Hosts, Audit and Keychain with 24 px stroke icons. Selected item is an 11 % Rail Mist pill; hover is 8 %. It is theme-scoped so icons and focus are Rail Mist. At the foot: the Moon / Sun / Auto theme control and a Settings gear.
+Rail, 200 px, a 1 px Divider at its right edge, Hosts, Audit and Keychain with 24 px stroke icons. Items are Rail Text (icon and label); the chosen one is the Accent Tint row with its icon and label in Accent, label semibold (`accentTheme`); hover is 8 % Rail Text. Focus rings stay Accent.
 
 ### Host card
 Surface, Line border, card shadow, 240 px, radius 10, padding 12. Top row is a flat "Open" button (no face at rest, Surface Hover on hover) holding the tile, the bold name and the monospace Muted address. Below: chips at left (`AI` teal, `New key` amber, the timed-grant label amber, `n ⇄` running tunnels teal), and the actions at right (Stop auto-allow while a grant is on or paused, Files, Tunnels, Edit, Delete as icon buttons, Muted until the card is hovered, then ink). Hover lifts the shadow to Raised.
-- **Tile**: 36 px, Accent with the host's letter in Accent Text; Go Green with a 10 px "connected" dot while a terminal tab is open.
-- **Grant ring**: a 2 px Wait Amber arc around the tile (44 px box), a clock of time left on a fixed 4 h scale; a forever grant is a full ring, a paused one is dashed. It is the system's one signature mark.
+- **Tile**: 36 px, the host's letter-tile hue (below) with a white letter; Go Green with a 10 px "connected" dot while a terminal tab is open.
+- **Letter tile**: a 36 px square, white letter on one of six muted hues, the same in both themes (plum `#7E4F86`, blue `#3D67A8`, teal `#2F7D78`, rose `#A44C68`, amber-brown `#8A6230`, slate `#56657A`; each at least 4.8:1 with white) picked by FNV-1a of the host name; green is only the connected tile. The grant is shown by the Auto chip (ring removed 2026-11-17 at the author's request; the chip carries the grant).
 
 ### Key card
-The Keychain tab's card (`buildKeyCard`): Surface, Line border, card shadow, radius 10, padding 12, gap 10. Top row: a 36 px Accent tile holding the key icon, the bold key name, "ECDSA P-256 · Secure Enclave" and "Created <date>" in Muted, and a chip at right ("Not used" Muted on Raised; "Used by N host(s)" Accent on Accent tint, the host names in its tooltip). Below, the OpenSSH public key in a **termBlock** (selectable). At the foot, right-aligned: "Copy public key" and Delete. Delete is disabled while a host uses the key (tooltip names the hosts); its confirm is a dialog with Cancel as the filled primary with focus and Delete as a delayed `toneDangerFill` decision button. The tab header is the bold 16 px "Keychain" with New key as the primary button.
+The Keychain tab's card (`buildKeyCard`): Surface, Line border, card shadow, radius 10, padding 12, gap 10. Top row: a 36 px Accent Tint tile holding the key icon in Accent, the bold key name, "ECDSA P-256 · Secure Enclave" and "Created <date>" in Muted, and a chip at right ("Not used" Muted on Raised; "Used by N host(s)" Accent on Accent tint, the host names in its tooltip). Below, the OpenSSH public key in a **termBlock** (selectable). At the foot, right-aligned: "Copy public key" and Delete. Delete is disabled while a host uses the key (tooltip names the hosts); its confirm is a dialog with Cancel as the filled primary with focus and Delete as a delayed `toneDangerFill` decision button. The tab header is the bold 16 px "Keychain" with New key as the primary button.
 
 ### AI request card
 Raised, Line border, radius 10, padding 12, gap 6. Header: bold server name, a SUDO label (Stop Red on Stop Red tint) when sudo, time in monospace Muted. Then the target (`user@host:port`, monospace Muted), then the command in a **termBlock** (Terminal colours, 1 px Line border, radius 6, padding 8 × 10, monospace, non-ASCII runs shown as `\uXXXX` in Stop Red and underlined). A sudo request has a red outline with a 4 px red left edge. Stdin and transfers use the same block; transfer lines are `UPLOAD` / `DOWNLOAD` bold, paths in monospace. The AI's description is labelled "unverified". A "Reason (optional)" field sits above the buttons. Buttons, left to right: **Deny** (filled Deny Fill, white text, the default and keyboard-reachable), **Send to tab** (plain, disabled for stdin and transfers with a tooltip), **Allow** (outline and label in Go Green once enabled, mouse-only).
@@ -272,19 +285,19 @@ Raised, Line border, radius 10, padding 12, gap 6. Header: bold server name, a S
 `MouseButton` and `decisionButton` are a row that never takes focus: 1 px Line border (`t.Border`; the tone colour once enabled), padding 6 × 12, radius 6. While disabled (the 500 ms delay, or busy) every tone looks neutral. Once enabled the tone shows: Ok (Allow), Accent (Trust and connect, Resume), Danger (Enable, Overwrite all: red outline and label), DangerFill (Delete host, Delete for good, Deny: filled). Skip existing stays neutral.
 
 ### Dialogs and sheets
-Dialogs use Surface, radius 14, Raised shadow, a bold 16 px title. **Cancel is the filled primary button and takes focus** (the safe default); the risky action beside it is a delayed decision button and neutral until its delay ends. Destructive titles are Stop Red. Sheets (host editor, import) are 420 px columns on Surface with a 1 px Line left edge and Raised shadow: title row with an × (padding 12 × 16), a scrolling body, a footer row with the error at left and buttons at right; Save is the primary button. Both enter with the 160 ms fade and 0.98 to 1 scale.
+Dialogs use Surface, radius 14, a 1 px Line border (dark loses the shadow), Raised shadow, a bold 16 px title. **Cancel is the filled primary button and takes focus** (the safe default); the risky action beside it is a delayed decision button and neutral until its delay ends. Destructive titles are Stop Red. Sheets (host editor, import) are 420 px columns on Surface with a 1 px Line left edge and Raised shadow: title row with an × (padding 12 × 16), a scrolling body, a footer row with the error at left and buttons at right; Save is the primary button. Both enter with the 160 ms fade and 0.98 to 1 scale.
 
 ### Section groups
 A bold 12 px Label-colour heading above a Raised card (radius 10, padding 12, gap 8) that holds the fields. Used in the editor and settings.
 
 ### Status chips and banners
-Chip (one `chip()` helper in home.go, also the import and tunnel status chips): tinted pill, padding 2 × 8, a fixed radius of 10 (the Card step), text in the hue (AI teal, New key and timed grant amber, Ready green, Already in vault and Skipped amber). Banners are full-width rows with padding 8 × 12 on a tint: Stop Red tint for store errors, Wait tint for paused or ran-while-locked and tunnel warnings, each with a Dismiss button where the user may clear it.
+Chip (one `chip()` helper in home.go, also the import and tunnel status chips): tinted pill, padding 2 × 8, a fixed radius of 10 (the Card step), text in the hue (AI neutral, New key and timed grant amber, Ready green, Already in vault and Skipped amber). Banners are full-width rows with padding 8 × 12 on a tint: Stop Red tint for store errors, Wait tint for paused or ran-while-locked and tunnel warnings, each with a Dismiss button where the user may clear it.
 
 ### Tables and lists
 Raised header row (padding 8 × 12, bold) over Surface rows inside a Surface, radius-10, clipped container (tunnels, files). The audit list is a header-less list with Surface date headings (bold, padding 6 × 12), monospace times and commands, filter toggles in a toggle group, and a search field; its table scrolls sideways inside the work column so the AI column is never pushed.
 
 ### Auth and status card
-The 360 px Surface card, Line border, radius 14, Raised shadow, padding 24, gap 12, a 32 px shield in Accent (Stop Red when the hub failed), centred and scrolling when short. Used for create vault, unlock, and hub starting, restarting and failed.
+The 360 px Surface card, Line border, radius 14, Raised shadow, padding 24, gap 12, the 52 px app icon, centred and scrolling when short. Used for create vault, unlock, and hub starting, restarting and failed.
 
 ## Motion
 
@@ -299,9 +312,8 @@ Only these animate; all app-driven motion is skipped under Reduce Motion and the
 | View change (Hosts, Audit) | cross-fade | 120 ms |
 | Dialogs and sheets | fade and scale 0.98 to 1 from centre | 160 ms |
 | Sidebar hide and show | none; it snaps | 0 |
-| Grant ring | steps on the app's 15 s clock | none between steps |
 
-No animation calls the hub; clocks and ring steps redraw from the app's own time. No animation changes the size of a mounted terminal or moves an element near a decision button; a dialog's 0.98 to 1 entrance does move its buttons for 160 ms, which is safe because decision buttons are disabled for their first 500 ms, so no click can land on one in motion.
+No animation calls the hub; clocks redraw from the app's own time. No animation changes the size of a mounted terminal or moves an element near a decision button; a dialog's 0.98 to 1 entrance does move its buttons for 160 ms, which is safe because decision buttons are disabled for their first 500 ms, so no click can land on one in motion.
 
 ## Do's and Don'ts
 
@@ -311,14 +323,14 @@ No animation calls the hub; clocks and ring steps redraw from the app's own time
 - **Do** make Cancel the filled primary with AutoFocus in any dialog that has a risky action.
 - **Do** show a request's command, stdin, paths and addresses in monospace on the Terminal colours with a Line outline.
 - **Do** put banners in the work column, not in the AI column.
-- **Do** keep a tile and ring as the way a host shows its state: teal default, green connected, amber ring grant.
+- **Do** keep the tile as the way a host shows its state: its own hue by default, green connected; the Auto chip shows a grant.
 - **Do** use 6 / 10 / 14 radii, the two shadows, and the Bg / Surface / Raised steps.
 - **Do** keep terminal-resizing layout changes instant (snap), never animated.
 
 ### Don't:
 - **Don't** animate the sidebar or AI column width, or anything that moves a decision button or resizes a terminal.
 - **Don't** call the hub from an animation, timer or `autoAllow` notification; the app polls only `status`.
-- **Don't** use Rail Teal or Rail Mist outside the top bar and sidebar.
+- **Don't** use Rail or Rail Text outside the top bar and sidebar, or give the shell a hue.
 - **Don't** put a monospace face on labels, buttons or prose.
 - **Don't** write a raw colour or add a third shadow.
 - **Don't** make Allow, Trust, Enable, Resume, Overwrite all, Skip existing or Delete easier than their safe counterpart: they are never the default, never focus-takers, and are neutral until their delay ends.

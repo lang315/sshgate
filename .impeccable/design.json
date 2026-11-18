@@ -4,14 +4,15 @@
   "title": "Design System: sshgate",
   "extensions": {
     "colorMeta": {
-      "accent-light": { "role": "primary", "displayName": "Deep Teal (light)", "canonical": "#12766F", "tonalRamp": ["#052321", "#093B38", "#0D534E", "#106A64", "#308882", "#6DABA7", "#AACECC", "#E7F1F1"] },
-      "accent-dark": { "role": "primary", "displayName": "Deep Teal (dark)", "canonical": "#56BFB9", "tonalRamp": ["#1A3938", "#2B605C", "#3C8682", "#4DACA6", "#6CC7C2", "#97D8D4", "#C3E8E6", "#EEF9F8"] },
-      "rail-light": { "role": "primary", "displayName": "Rail Teal", "canonical": "#0F5F59", "tonalRamp": ["#041C1B", "#08302C", "#0A423E", "#0D5550", "#2E746E", "#6C9D99", "#A9C6C4", "#E7EFEE"] },
-      "danger-light": { "role": "secondary", "displayName": "Stop Red", "canonical": "#B5412F", "tonalRamp": ["#36140E", "#5A2018", "#7F2E21", "#A33A2A", "#BF594A", "#D28A7F", "#E5BBB5", "#F8ECEA"] },
-      "wait-dark": { "role": "secondary", "displayName": "Wait Amber", "canonical": "#E9A23B", "tonalRamp": ["#463112", "#74511E", "#A37129", "#D29235", "#ECAE54", "#F1C687", "#F7DEB9", "#FDF6EB"] },
-      "ok-light": { "role": "secondary", "displayName": "Go Green", "canonical": "#3D7554", "tonalRamp": ["#122319", "#1E3A2A", "#2B523B", "#37694C", "#56876A", "#88AA96", "#BACEC2", "#ECF1EE"] },
-      "bg-light": { "role": "neutral", "displayName": "Warm Ground (light)", "canonical": "#F6F4F0", "tonalRamp": ["#1F1C19", "#4A453F", "#6B655D", "#857E73", "#DFDAD2", "#E6E2DA", "#EEEBE5", "#F6F4F0"] },
-      "bg-dark": { "role": "neutral", "displayName": "Warm Ground (dark)", "canonical": "#161514", "tonalRamp": ["#100F0E", "#161514", "#1C1A19", "#23211F", "#2B2927", "#3D3A37", "#7A746D", "#ECE8E0"] }
+      "accent-light": { "role": "primary", "displayName": "Carbon Ink (light)", "canonical": "#1D1D1F", "tonalRamp": ["#052321", "#093B38", "#0A5754", "#0C6662", "#0F726D", "#6DABA7", "#AACECC", "#DCEFEC"] },
+      "accent-dark": { "role": "primary", "displayName": "Carbon Ink (dark)", "canonical": "#EDEDED", "tonalRamp": ["#172E2E", "#2B605C", "#3C8682", "#45A29D", "#55B8B2", "#6BC4BF", "#C3E8E6", "#EEF9F8"] },
+      "rail-light": { "role": "neutral", "displayName": "Rail (light)", "canonical": "#EBEDF0", "tonalRamp": ["#3F4650", "#7D8590", "#DADEE3", "#DDE0E3", "#D8DBDE", "#E3E6EA", "#EBEDF0", "#F4F5F7"] },
+      "rail-dark": { "role": "neutral", "displayName": "Rail (dark)", "canonical": "#1D2024", "tonalRamp": ["#16181B", "#1D2024", "#2A2D32", "#2F3237", "#363B42", "#737B86", "#BFC5CD", "#E5E8EC"] },
+      "danger-light": { "role": "secondary", "displayName": "Stop Red", "canonical": "#B5412F", "tonalRamp": ["#36140E", "#5A2018", "#7F2E21", "#A33A2A", "#BF594A", "#D28A7F", "#E5BBB5", "#FBE3DE"] },
+      "wait-dark": { "role": "secondary", "displayName": "Wait Amber", "canonical": "#E9A23B", "tonalRamp": ["#30281A", "#74511E", "#9A5800", "#D29235", "#E9A23B", "#ECAF59", "#F7DEB9", "#FBEFDC"] },
+      "ok-light": { "role": "secondary", "displayName": "Go Green", "canonical": "#3B7352", "tonalRamp": ["#122319", "#1B2D24", "#2B523B", "#37694C", "#3B7352", "#6CC08F", "#BACEC2", "#E6F4EC"] },
+      "bg-light": { "role": "neutral", "displayName": "Cool Ground (light)", "canonical": "#F4F5F7", "tonalRamp": ["#1A1E23", "#3F4650", "#5D6570", "#7D8590", "#DADEE3", "#E4E7EB", "#EDEFF2", "#F4F5F7"] },
+      "bg-dark": { "role": "neutral", "displayName": "Cool Charcoal (dark)", "canonical": "#16181B", "tonalRamp": ["#0F1114", "#16181B", "#1C1F23", "#23272C", "#2B2F35", "#363B42", "#737B86", "#E5E8EC"] }
     },
     "typographyMeta": {
       "title": { "displayName": "Title", "purpose": "Unlock and create-vault cards." },
@@ -21,14 +22,13 @@
       "mono": { "displayName": "Mono", "purpose": "Addresses, commands, stdin, paths, fingerprints, timestamps only." }
     },
     "shadows": [
-      { "name": "card", "value": "0 1px 3px 0 rgba(31,28,25,0.078) light / rgba(0,0,0,0.35) dark", "purpose": "Host cards at rest." },
-      { "name": "raised", "value": "0 6px 18px 0 rgba(31,28,25,0.149) light / rgba(0,0,0,0.59) dark", "purpose": "Hovered host card, dialogs, sheets, AI column edge, auth card." }
+      { "name": "card", "value": "0 1px 3px 0 rgba(26,30,35,0.078) light / rgba(0,0,0,0.35) dark", "purpose": "Host cards at rest." },
+      { "name": "raised", "value": "0 6px 18px 0 rgba(26,30,35,0.149) light / rgba(0,0,0,0.59) dark", "purpose": "Hovered host card, dialogs, sheets, AI column edge, auth card." }
     ],
     "motion": [
       { "name": "fade-120", "value": "120ms", "purpose": "Hover and press colour, card shadow lift, AI column content, new request card opacity, view cross-fade." },
       { "name": "enter-160", "value": "160ms, opacity + scale 0.98 to 1 from centre", "purpose": "Dialog and sheet entrance." },
-      { "name": "snap", "value": "0ms", "purpose": "Sidebar hide/show and AI column position; never animated." },
-      { "name": "grant-ring-step", "value": "15s clock, no tween", "purpose": "Grant ring arc redraw." }
+      { "name": "snap", "value": "0ms", "purpose": "Sidebar hide/show and AI column position; never animated." }
     ],
     "breakpoints": []
   },
@@ -37,9 +37,9 @@
       "name": "Rail Button",
       "kind": "button",
       "refersTo": "rail-button",
-      "description": "Top-bar button: Rail Mist on an 11% pill with a 60% outline.",
-      "html": "<div style=\"background:#0F5F59;padding:12px\"><button class=\"ds-rail-btn\">Lock</button></div>",
-      "css": ".ds-rail-btn{color:#E6F2F0;background:rgba(230,242,240,0.11);border:1px solid rgba(230,242,240,0.6);border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer}.ds-rail-btn:hover{background:rgba(230,242,240,0.08)}.ds-rail-btn:focus-visible{outline:2px solid #E6F2F0;outline-offset:2px}"
+      "description": "Top-bar button: Rail Text on Rail Button (white in light, #2F3237 in dark) with a 1 px Control Line outline.",
+      "html": "<div style=\"background:#EBEDF0;padding:12px\"><button class=\"ds-rail-btn\">Lock</button></div>",
+      "css": ".ds-rail-btn{color:#3F4650;background:#FCFCFD;border:1px solid #7D8590;border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer}.ds-rail-btn:hover{background:#DDE0E3}.ds-rail-btn:focus-visible{outline:2px solid #0F726D;outline-offset:2px}"
     },
     {
       "name": "Primary Button",
@@ -47,7 +47,7 @@
       "refersTo": "button-primary-light",
       "description": "New host, Save, Create vault, and the filled Cancel in dialogs.",
       "html": "<button class=\"ds-btn-primary\">New host</button>",
-      "css": ".ds-btn-primary{background:#12766F;color:#fff;border:0;border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer}.ds-btn-primary:hover{background:#0F6A64}.ds-btn-primary:active{background:#0C5A55}.ds-btn-primary:focus-visible{outline:2px solid #12766F;outline-offset:2px}"
+      "css": ".ds-btn-primary{background:#0F726D;color:#fff;border:0;border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer}.ds-btn-primary:hover{background:#0C6662}.ds-btn-primary:active{background:#0A5754}.ds-btn-primary:focus-visible{outline:2px solid #0F726D;outline-offset:2px}"
     },
     {
       "name": "Deny Button",
@@ -55,7 +55,7 @@
       "refersTo": "button-deny",
       "description": "Filled red Deny; the default, keyboard-reachable decision.",
       "html": "<button class=\"ds-deny\">Deny</button>",
-      "css": ".ds-deny{background:#B5412F;color:#fff;border:1px solid #B5412F;border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer}.ds-deny:hover{background:#A23A2A}.ds-deny:active{background:#8F3325}.ds-deny:focus-visible{outline:2px solid #12766F;outline-offset:2px}"
+      "css": ".ds-deny{background:#B9432F;color:#fff;border:1px solid #B9432F;border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer}.ds-deny:hover{background:#A63B2A}.ds-deny:active{background:#923425}.ds-deny:focus-visible{outline:2px solid #0F726D;outline-offset:2px}"
     },
     {
       "name": "Allow Button",
@@ -63,7 +63,7 @@
       "refersTo": "button-allow",
       "description": "Outline in Go Green once its delay ends; neutral while waiting; mouse-only.",
       "html": "<button class=\"ds-allow\">Allow</button>",
-      "css": ".ds-allow{background:transparent;color:#3D7554;border:1px solid #3D7554;border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer}"
+      "css": ".ds-allow{background:transparent;color:#3B7352;border:1px solid #3B7352;border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer}"
     },
     {
       "name": "Host Card",
@@ -71,7 +71,7 @@
       "refersTo": "host-card",
       "description": "Letter tile, name, monospace address, chips; hover lifts the shadow.",
       "html": "<div class=\"ds-host\"><div class=\"ds-row\"><div class=\"ds-tile\">B</div><div><b>build</b><div class=\"ds-addr\">ci@10.0.0.5:22</div></div></div><span class=\"ds-chip\">AI</span></div>",
-      "css": ".ds-host{width:240px;box-sizing:border-box;padding:12px;background:#FFFDFB;color:#1F1C19;border:1px solid #DFDAD2;border-radius:10px;box-shadow:0 1px 3px rgba(31,28,25,.078);display:flex;flex-direction:column;gap:8px;transition:box-shadow 120ms}.ds-host:hover{box-shadow:0 6px 18px rgba(31,28,25,.149)}.ds-row{display:flex;gap:10px;align-items:center}.ds-tile{width:36px;height:36px;border-radius:8px;background:#12766F;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center}.ds-addr{font-family:monospace;color:#6B655D}.ds-chip{align-self:flex-start;background:#dcf1ec;color:#12766F;border-radius:10px;padding:2px 8px}"
+      "css": ".ds-host{width:240px;box-sizing:border-box;padding:12px;background:#FCFCFD;color:#1A1E23;border:1px solid #DADEE3;border-radius:10px;box-shadow:0 1px 3px rgba(26,30,35,.078);display:flex;flex-direction:column;gap:8px;transition:box-shadow 120ms}.ds-host:hover{box-shadow:0 6px 18px rgba(26,30,35,.149)}.ds-row{display:flex;gap:10px;align-items:center}.ds-tile{width:36px;height:36px;border-radius:8px;background:#0F726D;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center}.ds-addr{font-family:monospace;color:#6B655D}.ds-chip{align-self:flex-start;background:#dcf1ec;color:#0F726D;border-radius:10px;padding:2px 8px}"
     },
     {
       "name": "AI Request Card (SUDO)",
@@ -79,7 +79,7 @@
       "refersTo": "request-card",
       "description": "Raised card with a termBlock command and a 4px red left edge for sudo.",
       "html": "<div class=\"ds-req\"><div><b>staging</b> <span class=\"ds-sudo\">SUDO</span></div><div class=\"ds-term\">apt-get upgrade -y</div></div>",
-      "css": ".ds-req{background:#EEEBE5;color:#1F1C19;border:1px solid #B5412F;border-left-width:4px;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px;width:320px}.ds-sudo{background:#fbe2dc;color:#B5412F;border-radius:6px;padding:2px 8px;font-weight:700}.ds-term{background:#FFFDFB;color:#1F1C19;border:1px solid #DFDAD2;border-radius:6px;padding:8px 10px;font-family:monospace}"
+      "css": ".ds-req{background:#EDEFF2;color:#1A1E23;border:1px solid #B5412F;border-left-width:4px;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px;width:320px}.ds-sudo{background:#FBE3DE;color:#B5412F;border-radius:6px;padding:2px 8px;font-weight:700}.ds-term{background:#FCFCFD;color:#1A1E23;border:1px solid #DADEE3;border-radius:6px;padding:8px 10px;font-family:monospace}"
     },
     {
       "name": "Status Chip",
@@ -87,22 +87,22 @@
       "refersTo": "chip-wait",
       "description": "Tinted pill, full-strength tint with the hue as text.",
       "html": "<span class=\"ds-chip-wait\">New key</span>",
-      "css": ".ds-chip-wait{background:#fcefdc;color:#8B6123;border-radius:10px;padding:2px 8px}"
+      "css": ".ds-chip-wait{background:#FBEFDC;color:#87601F;border-radius:10px;padding:2px 8px}"
     }
   ],
   "narrative": {
-    "northStar": "The Teal Gatehouse",
-    "overview": "A calm warm-neutral work area held inside a deep-teal shell. The shell is the gate: a full-width top bar and a left sidebar in one teal, with pale text on it. Inside it the work is quiet, so the few things that ask for a decision stand out: an amber ring around a host the AI may run on without a click, a filled red Deny, a red edge on a SUDO request. Open question: the neutrals ship cool slate although the brief says warm; undecided.",
+    "northStar": "The Quiet Gatehouse",
+    "overview": "Carbon (2026-11-18, replaced the cool-neutral-plus-teal look): true neutral greys, a near-white (dark) or near-black (light) accent, colour only for meaning: amber waits, red is danger, green is ok or connected, plus the host tile hues. A calm cool-neutral app with one teal accent (history). The shell (a full-width top bar and a left sidebar) is one neutral step off the work area and a 1 px Divider, not a colour block. Everything is quiet grey, so the few things that ask for a decision stand out: an amber Auto chip on a host the AI may run on without a click, a filled red Deny, a red edge on a SUDO request. The cool neutral replaced the warm-neutral-plus-teal-shell look on 2026-11-17 at the author's request.",
     "keyCharacteristics": [
-      "Teal shell (rail) around a neutral work area; the terminal and Files yield the sidebar.",
+      "A neutral shell (rail) one step off the work area; the accent is neutral (carbon, 2026-11-18). The terminal and Files yield the sidebar.",
       "Three surface steps, two shadows, three radii.",
-      "Filled letter tiles; a state ring is the one signature move.",
+      "Filled letter tiles, each host its own hue (never green, which is the connected tile). Grant ring removed 2026-11-17 at the author's request; the chip carries the grant.",
       "System font; monospace only for what is literal.",
       "Decisions are slow on purpose: Allow is outline and mouse-only, Cancel is the filled default."
     ],
     "rules": [
-      { "name": "The State-Not-Style Rule", "body": "Teal, green, amber and red each mean one thing and are never used for decoration.", "section": "colors" },
-      { "name": "The Shell Stays Shell Rule", "body": "Rail Teal and Rail Mist appear only on the top bar and sidebar.", "section": "colors" },
+      { "name": "The State-Not-Style Rule", "body": "Colour is for meaning (carbon, 2026-11-18). Green, amber and red each mean one thing and are never used for decoration.", "section": "colors" },
+      { "name": "The Shell Stays Shell Rule", "body": "Rail and Rail Text appear only on the top bar and sidebar; the shell never takes a hue.", "section": "colors" },
       { "name": "The Full-Strength Tint Rule", "body": "Chips and banners use the tint colour at full strength with the matching hue as text.", "section": "colors" },
       { "name": "The Literal-Only Rule", "body": "Monospace marks text the user may have to copy or compare exactly.", "section": "typography" },
       { "name": "The Weight-Not-Size Rule", "body": "Emphasis is bold or Muted. There is no display size.", "section": "typography" },
@@ -121,7 +121,7 @@
     "donts": [
       "Don't animate the sidebar or AI column width, or anything that moves a decision button or resizes a terminal.",
       "Don't call the hub from an animation, timer or autoAllow notification; the app polls only status.",
-      "Don't use Rail Teal or Rail Mist outside the top bar and sidebar.",
+      "Don't use Rail or Rail Text outside the top bar and sidebar, or give the shell a hue.",
       "Don't put a monospace face on labels, buttons or prose.",
       "Don't write a raw colour or add a third shadow.",
       "Don't make Allow, Trust, Enable, Resume, Overwrite all, Skip existing or Delete easier than their safe counterpart.",

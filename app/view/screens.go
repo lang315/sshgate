@@ -10,16 +10,14 @@ import (
 	"github.com/lang315/sshgate/app/model"
 )
 
-func card(c *ui.Context, body func()) { cardShield(c, tok(c).Accent, body) }
-
-// cardShield is card with the shield in col.
-func cardShield(c *ui.Context, col ui.Color, body func()) {
+// card is a centred dialog under the app icon.
+func card(c *ui.Context, body func()) {
 	// Centred while it fits, scrolls when the window is too short for it.
 	ui.Scroll(c).Fill().FillViewport().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
 		p := ui.Column(c).Width(360).Gap(12).Padding(24).Radius(radiusDialog).Border(1, tok(c).Line).Background(tok(c).Surface)
 		raisedShadow(c).On(p)
 		p.Children(func() {
-			ui.Icon(c, shieldIcon).FontSize(32).TextColor(col).AlignSelf(ui.Center)
+			ui.Image(c, appMark).Size(52, 52).AlignSelf(ui.Center)
 			body()
 		})
 	})
@@ -27,11 +25,7 @@ func cardShield(c *ui.Context, col ui.Color, body func()) {
 
 func (a *App) buildHub(c *ui.Context) {
 	t := c.Theme()
-	col := tok(c).Accent
-	if a.hubState.Kind == "failed" {
-		col = tok(c).Danger
-	}
-	cardShield(c, col, func() {
+	card(c, func() {
 		switch a.hubState.Kind {
 		case "restarting":
 			ui.Spinner(c).AlignSelf(ui.Center)
@@ -149,7 +143,7 @@ func (a *App) buildUnlock(c *ui.Context) {
 			ui.Text(c, model.DisplayText(a.unlockErr)).TextColor(t.Danger)
 		}
 		unlock := ui.PrimaryButton
-		if touch {
+		if touch || a.busy || a.password == "" { // disabled, it is neutral like every other disabled button, not a dimmed teal
 			unlock = ui.Button
 		}
 		if (unlock(c, "Unlock").Disabled(a.busy || a.password == "").Clicked() || in.Submitted()) && a.password != "" {

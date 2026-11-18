@@ -152,8 +152,8 @@ func TestAIColumnKeepsItsNodeWhenSidebarHides(t *testing.T) {
 	}
 }
 
-// The top-bar buttons wear the rail's pill, not the stock face (light: dark
-// grey on the teal rail).
+// The top-bar buttons wear RailButton, not the stock face (light: dark
+// grey on the grey rail).
 func TestTopBarButtonsStyledForRail(t *testing.T) {
 	ui.SetDefaultThemes(Themes())
 	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
@@ -168,8 +168,8 @@ func TestTopBarButtonsStyledForRail(t *testing.T) {
 			t.Fatalf("no Lock in %q", tt.Texts())
 		}
 		strip := ui.Rect{X: r.X - 4, Y: r.Y, W: 2, H: r.H}
-		if n := countNear(shot(tt), strip, railButtonFill(p), 3); n < int(r.H)*2-2 {
-			t.Fatalf("dark=%v: Lock not on the rail-button fill (%d of %d)", dark, n, int(r.H)*2)
+		if n := countNear(shot(tt), strip, p.RailButton, 3); n < int(r.H)*2-2 {
+			t.Fatalf("dark=%v: Lock not on RailButton (%d of %d)", dark, n, int(r.H)*2)
 		}
 	}
 }
@@ -225,8 +225,53 @@ func TestLitAIButtonHover(t *testing.T) {
 		tt.Move(r.X+r.W/2, r.Y+r.H/2)
 		tt.Advance(time.Second)
 		tt.Frame()
-		if n := countNear(shot(tt), patch, waitFillHover(p), 2); n != 9 {
+		if n := countNear(shot(tt), patch, p.WaitFillHover, 2); n != 9 {
 			t.Fatalf("dark=%v hovered: %d of 9 pixels on waitFillHover", dark, n)
 		}
+	}
+}
+
+// The AI column fades in once; a column at rest does not animate.
+func TestAIColumnFadesThenRests(t *testing.T) {
+	d := &fakeDoor{status: hubapi.Status{HasVault: true}, servers: []hubapi.Server{{Name: "box", User: "u", Host: "h", Port: 22}},
+		pending: []hubapi.Request{reqN("r1", "box", "ls")}}
+	a, tt, _, _ := newApp(t, d)
+	tt.flush()
+	a.Update(func() { a.aiOpen = true })
+	tt.flushOnce()
+	if !a.aiFading {
+		t.Fatal("the column does not fade in")
+	}
+	tt.flush()
+	tt.Advance(time.Second)
+	tt.Frame()
+	tt.Frame()
+	if a.aiFading {
+		t.Fatal("the column is still fading at rest")
+	}
+}
+
+// Settings and the theme switch live in the top bar, so a terminal tab,
+// which hides the sidebar, still has them.
+func TestSettingsAndThemeReachableOnATab(t *testing.T) {
+	needLib(t)
+	a, tt, d, _, _ := tabApp(t)
+	d.set(func() { d.status.SoftLockLimit = "24h" })
+	a.Update(func() { a.refresh() })
+	tt.flush()
+	clickT(t, tt, "Open box")
+	tabsUntil(t, tt, func() bool { return tabState(a, "t1") == "open" }, "t1 open")
+	if a.sidebarShown() {
+		t.Fatal("the sidebar shows on a terminal tab")
+	}
+	for _, name := range []string{"Settings", "Dark", "Light"} {
+		if _, ok := tt.Find(name); !ok {
+			t.Fatalf("no %q on a terminal tab: %q", name, tt.Texts())
+		}
+	}
+	clickT(t, tt, "Settings")
+	tt.flush()
+	if a.settings == nil {
+		t.Fatal("Settings did not open from a terminal tab")
 	}
 }

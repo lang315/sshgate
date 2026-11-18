@@ -17,7 +17,7 @@ func modal(c *ui.Context, open *bool, fn func()) ui.Element {
 	if !wasOpen {
 		return panel
 	}
-	panel.Background(tok(c).Surface).Radius(radiusDialog)
+	panel.Background(tok(c).Surface).Radius(radiusDialog).Border(1, tok(c).Line) // the edge, since dark loses the shadow
 	raisedShadow(c).On(panel)
 	enter(c, panel)
 	return panel

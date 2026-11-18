@@ -58,6 +58,8 @@ type App struct {
 	seedErr      string
 	aiOpen       bool
 	aiFaded      bool // the AI column has built once since it opened
+	aiFading     bool // ... and is fading in
+	aiFadeStep   int  // frames of that fade
 	itemBusy     map[string]bool
 	itemErr      map[string]string
 	denyAllErr   string

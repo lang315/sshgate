@@ -196,21 +196,50 @@ func (a *App) buildTabStrip(c *ui.Context) {
 			case t.State == "exited":
 				label += " · exited"
 			}
-			ui.Row(c.Key("tab-" + id)).Gap(2).AlignItems(ui.Center).Children(func() {
+			active := a.tabs.Active == id
+			bg, fg, closeCol := ui.Color{}, p.RailText, p.RailText
+			if active { // the open tab reads as the page it shows
+				bg, fg, closeCol = p.Bg, p.Text, p.Muted
+				if t.Kind == "" {
+					bg = p.TermBg
+				}
+			}
+			row := ui.Row(c.Key("tab-"+id)).Gap(4).Padding(0, 6, 0, 14).Height(34).MinWidth(140).MaxWidth(240).AlignItems(ui.Center).Radius(radiusControl).Background(bg)
+			if !active && row.Hovered() {
+				row.Background(railHover(p))
+			}
+			if active { // the accent indicator: a 2 px bar inside the bottom edge
+				row.DrawOver(func(pt *ui.Painter, r ui.Rect) {
+					pt.Fill(ui.Rect{X: r.X + 8, Y: r.Y + r.H - 2, W: r.W - 16, H: 2}, p.Accent, 1)
+				})
+			}
+			// A tab is one container: the dot, the label (activates) and the
+			// close icon (closes) are separate controls inside it.
+			row.Children(func() {
 				if auto[server] {
 					ui.Column(c).Width(8).Height(8).Radius(4).Background(p.WaitFill).Label("auto-allow on") // Electron's .autodot
 				}
-				lb := railButton(ui.Button(c, label).Selected(a.tabs.Active == id).Tooltip(tip), p)
-				if a.tabs.Active == id {
-					lb.Background(p.Bg).TextColor(p.Text) // the open tab reads as the page it shows
+				lb := ui.Button(c, label).Selected(active).Tooltip(tip).TextColor(fg).Background(ui.Color{}).Border(0, ui.Color{}).FontSize(14).Padding(6, 0).Grow(1).MinWidth(0).Justify(ui.Start).Clip().SingleLine()
+				if active {
+					lb.FontWeight(600)
 				}
 				if lb.Clicked() {
 					click = func() { a.activate(id) }
 				}
-				if t.State == "exited" && railButton(ui.Button(c, "Reconnect"), p).Clicked() {
-					click = func() { a.closeTab(id); a.openTab(server) }
+				if t.State == "exited" {
+					rc := ui.Button(c, "Reconnect").Padding(2, 6).TextColor(fg).Background(ui.Color{}).Border(0, ui.Color{})
+					if rc.Hovered() {
+						rc.Background(fg.Alpha(0.12).Over(bgOr(bg, p.Rail)))
+					}
+					if rc.Clicked() {
+						click = func() { a.closeTab(id); a.openTab(server) }
+					}
 				}
-				if railButton(ui.Button(c, "").Label("Close tab").Tooltip("Close").Children(func() { ui.Icon(c, xIcon).TextColor(p.RailText) }), p).Clicked() {
+				x := ui.Button(c, "").Label("Close tab").Tooltip("Close").Size(22, 22).Radius(11).Center().Background(ui.Color{}).Border(0, ui.Color{})
+				if x.Hovered() {
+					x.Background(fg.Alpha(0.14).Over(bgOr(bg, p.Rail)))
+				}
+				if x.Children(func() { ui.Icon(c, xIcon).Size(14, 14).TextColor(closeCol) }).Clicked() {
 					click = func() { a.closeTab(id) }
 				}
 			})
@@ -249,4 +278,12 @@ func (a *App) buildTab(c *ui.Context, t model.Tab) {
 	if box.Shortcut(approvalsChord(runtime.GOOS), ui.KeyA) {
 		a.focusApprovals()
 	}
+}
+
+// bgOr is bg, or fallback when bg is transparent (an inactive tab sits on the rail).
+func bgOr(bg, fallback ui.Color) ui.Color {
+	if bg.A == 0 {
+		return fallback
+	}
+	return bg
 }

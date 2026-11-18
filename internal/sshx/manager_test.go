@@ -358,6 +358,24 @@ func TestKeychainDialWrongMac(t *testing.T) {
 	}
 }
 
+func TestKeychainDialNoSecureEnclave(t *testing.T) {
+	m, _ := keychainMgr(t, sekeytest.Build(t), nil)
+	t.Setenv("FAKE_EXIT", "5")
+	if _, err := m.Exec(context.Background(), "echo ok"); !errors.Is(err, ErrSEKeyNoSE) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// A signature that fails (helper exit 1) is not a key that cannot load.
+func TestKeychainDialSignFailureIsNotWrongMac(t *testing.T) {
+	m, _ := keychainMgr(t, sekeytest.Build(t), nil)
+	t.Setenv("FAKE_EXIT", "1")
+	_, err := m.Exec(context.Background(), "echo ok")
+	if err == nil || errors.Is(err, ErrSEKeyWrongMac) || errors.Is(err, ErrSEKeyNoSE) {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestKeychainNoHelper(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "ran")
 	m, _ := keychainMgr(t, sekeytest.Build(t), func(c *DialConfig) { c.KeyHelper = "" })

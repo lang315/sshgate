@@ -1,15 +1,20 @@
 package view
 
-import "github.com/egoist/mygo/ui"
+import (
+	"hash/fnv"
 
-// Warm neutrals with a teal shell; the table lives in the 2026-11-16 visual
-// redesign spec.
+	"github.com/egoist/mygo/ui"
+)
+
+// Carbon: true neutral greys (dark #1E1E1E, light #F5F5F5) and no decorative
+// hue. The accent is near-white in dark and near-black in light. Colour is
+// for meaning only: amber waits and auto-allow, red is danger, green is ok or
+// connected, plus the host tile hues. The rail (top bar and sidebar) is one
+// neutral step off the work area. The table lives in the 2026-11-16 visual
+// redesign spec (palette replaced 2026-11-18).
 const radiusControl, radiusCard, radiusDialog = 6, 10, 14
 
-// railTextHex is RailText in both themes.
-const railHoverAlpha, railPillAlpha = 0.08, 0.11
-
-const railTextHex = "#E6F2F0"
+const railHoverAlpha = 0.08
 
 // tokens are the colours with no ui.Theme field, plus the ones that do, so
 // a view reads every colour from one place.
@@ -17,7 +22,16 @@ type tokens struct {
 	Bg, Surface, Raised, SurfaceHover, Line, ControlLine, Divider, Text, Muted, Label                          ui.Color
 	Accent, AccentHover, AccentPressed, AccentText, AccentTint                                                 ui.Color
 	Danger, DangerFill, DangerFillHover, DangerFillPressed, DangerText, DangerTint, Wait, WaitTint, Ok, OkTint ui.Color
-	TermBg, TermFg, Rail, RailText, WaitFill, OnWaitFill                                                       ui.Color
+	TermBg, TermFg, Rail, RailText, RailButton, WaitFill, WaitFillHover, OnWaitFill, TileText, SwitchOn        ui.Color
+	TileHues                                                                                                   [6]ui.Color
+}
+
+// tileHueIndex picks a host's tile hue from its name: FNV-1a 32 bit, modulo
+// the number of hues, so a host keeps its colour across runs and renames only.
+func tileHueIndex(name string) int {
+	h := fnv.New32a()
+	h.Write([]byte(name))
+	return int(h.Sum32() % uint32(len(tokens{}.TileHues)))
 }
 
 func palette(dark bool) tokens {
@@ -28,71 +42,113 @@ func palette(dark bool) tokens {
 		return ui.Hex(l)
 	}
 	return tokens{
-		Bg:                pick("#161514", "#F6F4F0"),
-		Surface:           pick("#1C1A19", "#FFFDFB"),
-		Raised:            pick("#23211F", "#EEEBE5"),
-		SurfaceHover:      pick("#2B2927", "#E6E2DA"),
-		Line:              pick("#3D3A37", "#DFDAD2"),
-		ControlLine:       pick("#7A746D", "#857E73"),
-		Divider:           pick("#2E2B29", "#E6E2DB"),
-		Text:              pick("#ECE8E0", "#1F1C19"),
-		Muted:             pick("#9A948C", "#6B655D"),
-		Label:             pick("#B8B3AB", "#4A453F"),
-		Accent:            pick("#56BFB9", "#12766F"),
-		AccentHover:       pick("#6CCAC4", "#0F6A64"),
-		AccentPressed:     pick("#45A9A3", "#0C5A55"),
-		AccentText:        pick("#100F0E", "#FFFDFB"),
-		AccentTint:        pick("#16312F", "#dcf1ec"),
-		Danger:            pick("#F28B73", "#B5412F"),
-		DangerFill:        ui.Hex("#B5412F"),
-		DangerFillHover:   ui.Hex("#A23A2A"),
-		DangerFillPressed: ui.Hex("#8F3325"),
-		DangerText:        ui.Hex("#ffffff"),
-		DangerTint:        pick("#3D1D18", "#fbe2dc"),
-		Wait:              pick("#E9A23B", "#8B6123"),
-		WaitTint:          pick("#3A2C14", "#fcefdc"),
-		Ok:                pick("#6CC58F", "#3D7554"),
-		OkTint:            pick("#1A3324", "#e9f6ee"),
-		TermBg:            pick("#100F0E", "#FFFDFB"),
-		TermFg:            pick("#D8D4CC", "#1F1C19"),
-		Rail:              pick("#134542", "#0F5F59"),
-		RailText:          ui.Hex(railTextHex),
-		WaitFill:          ui.Hex("#E9A23B"),
-		OnWaitFill:        ui.Hex("#0E1012"),
+		Bg:                pick("#1E1E1E", "#F5F5F5"),
+		Surface:           pick("#262626", "#FFFFFF"),
+		Raised:            pick("#2D2D2D", "#ECECEC"),
+		SurfaceHover:      pick("#363636", "#E2E2E2"),
+		Line:              pick("#3C3C3C", "#DADADA"),
+		ControlLine:       pick("#797979", "#838383"),
+		Divider:           pick("#313131", "#E4E4E4"),
+		Text:              pick("#EDEDED", "#1D1D1F"),
+		Muted:             pick("#A0A0A0", "#636363"),
+		Label:             pick("#C6C6C6", "#404040"),
+		Accent:            pick("#EDEDED", "#1D1D1F"),
+		AccentHover:       pick("#F0F0F0", "#3D3D3E"),
+		AccentPressed:     pick("#C7C7C7", "#18181A"),
+		AccentText:        pick("#141414", "#FFFFFF"),
+		AccentTint:        pick("#343434", "#DADADA"),
+		Danger:            pick("#EE8A74", "#AA3D2C"),
+		DangerFill:        pick("#CC4B35", "#B9432F"),
+		DangerFillHover:   pick("#BE432E", "#A63B2A"),
+		DangerFillPressed: pick("#AD3B28", "#923425"),
+		DangerText:        pick("#ffffff", "#ffffff"),
+		DangerTint:        pick("#41302D", "#FBE3DE"),
+		Wait:              pick("#E0A048", "#805B1D"),
+		WaitTint:          pick("#3F3425", "#FBEFDC"),
+		Ok:                pick("#6CC08F", "#386D4E"),
+		OkTint:            pick("#2B3A31", "#E3F2EA"),
+		TermBg:            pick("#141414", "#FFFFFF"),
+		TermFg:            pick("#DADADA", "#1D1D1F"),
+		Rail:              pick("#181818", "#E9E9E9"),
+		RailText:          pick("#C6C6C6", "#404040"),
+		// The face of a rail button and a chosen theme segment: white on the
+		// light rail (a grey pill there reads as disabled), a lighter step on
+		// the dark one.
+		RailButton: pick("#2E2E2E", "#FFFFFF"),
+		// Light: deep amber with white text, since a pale amber cannot reach
+		// 3:1 on the light rail; its hover darkens for the same reason.
+		WaitFill:      pick("#E9A23B", "#9A5800"),
+		WaitFillHover: pick("#ECAF59", "#864C00"),
+		OnWaitFill:    pick("#0E1012", "#FFFFFF"),
+		// A switch track when on: green, since the near-white accent would sit
+		// under the white knob. White on it is at least 3:1 in both themes.
+		SwitchOn: pick("#2F8F5B", "#386D4E"),
+		TileText: ui.Hex("#ffffff"),
+		// Plum, blue, teal, rose, amber-brown, slate, muted to sit on the grey;
+		// no green, which is the connected tile's. White text on each is at
+		// least 4.5:1.
+		TileHues: [6]ui.Color{
+			ui.Hex("#7E4F86"), ui.Hex("#3D67A8"), ui.Hex("#2F7D78"), ui.Hex("#A44C68"), ui.Hex("#8A6230"), ui.Hex("#56657A"),
+		},
 	}
 }
 
-// railTheme scopes the rail: SidebarItem paints its icon in Accent and an
-// unselected item's hover in SurfaceHover, which on the rail must be RailText
-// and a RailText tint (the light rail swallows the stock pair).
+// railTheme scopes the rail: SidebarItem paints every item's icon in Accent,
+// which on the rail is the neutral RailText (accentTheme gives the chosen one
+// back its teal), and an unselected item's hover in SurfaceHover, a RailText
+// tint here. Focus keeps the accent.
 func railTheme(c *ui.Context) *ui.Theme {
 	p := tok(c)
 	t := *c.Theme()
-	t.Accent, t.InactiveAccent, t.Focus = p.RailText, p.RailText, p.RailText
+	t.Accent, t.InactiveAccent = p.RailText, p.RailText
 	t.SurfaceHover = railHover(p)
 	return &t
 }
 
+// accentTheme is railTheme with the accent back, for the chosen sidebar item:
+// its icon in Accent on the theme's AccentTint row.
+func accentTheme(c *ui.Context) *ui.Theme {
+	p := tok(c)
+	t := *railTheme(c)
+	t.Accent, t.InactiveAccent = p.Accent, p.Accent
+	return &t
+}
+
+// switchTheme scopes a switch so its on track is green, not the accent.
+func switchTheme(c *ui.Context) *ui.Theme {
+	t := *c.Theme()
+	t.Accent, t.InactiveAccent = tok(c).SwitchOn, tok(c).SwitchOn
+	return &t
+}
+
+// onSwitch is ui.Switch with a green on state.
+func onSwitch(c *ui.Context, on *bool) ui.Element {
+	var sw ui.Element
+	ui.Themed(c, switchTheme(c)).Background(ui.Color{}).Children(func() { sw = ui.Switch(c, on) })
+	return sw
+}
+
 func railHover(p tokens) ui.Color { return p.RailText.Alpha(railHoverAlpha).Over(p.Rail) }
 
-// railButton styles a top-bar button for the rail: RailText on a pill, a
-// RailText outline, and the hover tint.
+// railButton styles a top-bar button for the rail: RailText on RailButton, the
+// control outline, and the hover tint.
 func railButton(e ui.Element, p tokens) ui.Element {
-	e = e.TextColor(p.RailText).Background(railButtonFill(p)).Border(1, railButtonBorder(p))
+	e = e.TextColor(p.RailText).Background(p.RailButton).Border(1, p.ControlLine)
 	if e.Hovered() {
 		e = e.Background(railHover(p))
 	}
 	return e
 }
 
-// waitFillHover is the lit AI button under the pointer: a little lighter, since
-// a darker amber would fall under 3:1 against the light rail.
-func waitFillHover(p tokens) ui.Color { return p.WaitFill.Mix(ui.Hex("#FFFFFF"), 0.12) }
+// The two palettes, built once: tok runs in every build, many times a frame.
+var darkTokens, lightTokens = palette(true), palette(false)
 
-func railButtonFill(p tokens) ui.Color   { return p.RailText.Alpha(railPillAlpha).Over(p.Rail) }
-func railButtonBorder(p tokens) ui.Color { return p.RailText.Alpha(0.6).Over(p.Rail) }
-
-func tok(c *ui.Context) tokens { return palette(c.Theme().Dark) }
+func tok(c *ui.Context) tokens {
+	if c.Theme().Dark {
+		return darkTokens
+	}
+	return lightTokens
+}
 
 // Themes is the app's light and dark ui.Theme, for ui.SetDefaultThemes.
 func Themes() (light, dark *ui.Theme) {
@@ -127,7 +183,7 @@ func shade(c *ui.Context, light, dark uint8) ui.Color {
 	if c.Theme().Dark {
 		return ui.Color{A: dark}
 	}
-	return ui.Color{R: 31, G: 28, B: 25, A: light}
+	return ui.Color{R: 29, G: 29, B: 31, A: light}
 }
 
 // cardShadow is the shadow of a card at rest.

@@ -23,7 +23,7 @@ func capFirst(s string) string {
 
 func (a *App) buildReady(c *ui.Context) {
 	if !a.aiOpen {
-		a.col.mounted, a.col.seen, a.col.fading, a.pausedCol, a.aiFaded = false, nil, nil, nil, false
+		a.col.mounted, a.col.seen, a.col.fading, a.pausedCol, a.aiFaded, a.aiFading = false, nil, nil, nil, false, false
 	}
 	now := a.Now()
 	autoN := len(model.AutoHostNames(a.servers, now))
@@ -200,7 +200,7 @@ func (a *App) buildHosts(c *ui.Context) {
 					}
 					if open.Children(func() {
 						ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-							a.buildTile(c, p, s, shownName, now)
+							a.buildTile(c, p, s, shownName)
 							ui.Column(c).Children(func() {
 								ui.Text(c, shownName).Bold().SingleLine()
 								ui.Text(c, model.DisplayText(model.Addr(s))).Font("monospace").TextColor(p.Muted).SingleLine()
@@ -229,7 +229,7 @@ func (a *App) buildHosts(c *ui.Context) {
 						ui.Row(c).Gap(6).Children(func() {
 							// Always shown while a grant is on or paused: it must be stoppable at a glance.
 							if model.OnOrPaused(s.AutoAllow, now) {
-								if ui.Button(c, "\u25a0").Label("Stop auto-allow "+shownName).Tooltip("Stop auto-allow").Padding(6, cardButtonPadX).Clicked() {
+								if iconButton(c, "Stop auto-allow", shownName, stopIcon, p.Wait) {
 									a.setAuto([]string{name}, "off", "stop")
 								}
 							}
@@ -259,31 +259,17 @@ func (a *App) buildHosts(c *ui.Context) {
 }
 
 // buildTile is the host's 36 px letter tile: Ok with a "connected" dot while a
-// terminal is open, Accent otherwise, inside the grant ring.
-func (a *App) buildTile(c *ui.Context, p tokens, s hubapi.Server, shownName string, now time.Time) {
-	ring := model.GrantRing(s.AutoAllow, now)
-	wrap := ui.Box(c).Size(44, 44).Center()
-	if ring.Show {
-		wrap.Label(model.ChipLabel(s.AutoAllow, now))
-		wrap.Draw(func(pt *ui.Painter, r ui.Rect) {
-			path := clockCircle(r.X+r.W/2, r.Y+r.H/2, r.W/2-1.5)
-			if ring.Dashed {
-				path.Dash(0, 4, 3)
-			}
-			pt.StrokePath(path.Trim(0, float32(ring.Frac)), 2, p.Wait)
-		})
+// terminal session is live, else the hue its name picks.
+func (a *App) buildTile(c *ui.Context, p tokens, s hubapi.Server, shownName string) {
+	bg, fg := p.TileHues[tileHueIndex(s.Name)], p.TileText
+	connected := a.tabs.LiveCount(s.Name) > 0
+	if connected {
+		bg, fg = p.Ok, p.AccentText
 	}
-	wrap.Children(func() {
-		bg := p.Accent
-		connected := a.tabs.OpenCount(s.Name) > 0
+	ui.Box(c).Size(36, 36).Radius(8).Background(bg).Center().Children(func() {
+		ui.Text(c, model.Tile(shownName)).Bold().TextColor(fg)
 		if connected {
-			bg = p.Ok
-		}
-		ui.Box(c).Size(36, 36).Radius(8).Background(bg).Center().Children(func() {
-			ui.Text(c, model.Tile(shownName)).Bold().TextColor(p.AccentText)
-		})
-		if connected {
-			ui.Box(c).Absolute().Right(2).Bottom(2).Size(10, 10).Radius(5).Background(p.Ok).Border(2, p.Surface).Label("connected")
+			ui.Box(c).Absolute().Right(-3).Bottom(-3).Size(10, 10).Radius(5).Background(p.Ok).Border(2, p.Surface).Label("connected")
 		}
 	})
 }
@@ -304,16 +290,4 @@ func lerpShadow(from, to shadowSpec, f float32) shadowSpec {
 	mc := func(a, b uint8) uint8 { return uint8(m(float32(a), float32(b))) }
 	return shadowSpec{m(from.X, to.X), m(from.Y, to.Y), m(from.Blur, to.Blur), m(from.Spread, to.Spread),
 		ui.Color{R: mc(from.Color.R, to.Color.R), G: mc(from.Color.G, to.Color.G), B: mc(from.Color.B, to.Color.B), A: mc(from.Color.A, to.Color.A)}}
-}
-
-// clockCircle is a circle that starts at 12 o'clock and runs clockwise, so a
-// Trim of it reads as time left (ui.Path.Circle starts at 3).
-func clockCircle(cx, cy, r float32) *ui.Path {
-	const k = 0.5522847498
-	return (&ui.Path{}).MoveTo(cx, cy-r).
-		CubeTo(cx+r*k, cy-r, cx+r, cy-r*k, cx+r, cy).
-		CubeTo(cx+r, cy+r*k, cx+r*k, cy+r, cx, cy+r).
-		CubeTo(cx-r*k, cy+r, cx-r, cy+r*k, cx-r, cy).
-		CubeTo(cx-r, cy-r*k, cx-r*k, cy-r, cx, cy-r).
-		Close()
 }

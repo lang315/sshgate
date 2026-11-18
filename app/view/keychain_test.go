@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/lang315/sshgate/app/hubapi"
 )
 
@@ -180,7 +181,7 @@ func TestKeychainEmptyState(t *testing.T) {
 
 func TestEditorKeychainHostLoadsOnce(t *testing.T) {
 	s := boxServer
-	s.Auth, s.KeyName, s.KeyPublicKey = "keychain", "spare", keyFree.PublicKey
+	s.Auth, s.KeyName = "keychain", "spare"
 	_, tt, d := edReady(t, []hubapi.Server{s})
 	d.set(func() { d.keys = []hubapi.Key{keyFree} })
 	d.resetCalls()
@@ -246,7 +247,7 @@ func TestUnlockOnKeychainTabMakesNoCall(t *testing.T) {
 
 func TestEditorKeychainListErrorOffersRetry(t *testing.T) {
 	s := boxServer
-	s.Auth, s.KeyName, s.KeyPublicKey = "keychain", "spare", keyFree.PublicKey
+	s.Auth, s.KeyName = "keychain", "spare"
 	_, tt, d := edReady(t, []hubapi.Server{s})
 	d.set(func() {
 		d.keys = []hubapi.Key{keyFree}
@@ -262,6 +263,47 @@ func TestEditorKeychainListErrorOffersRetry(t *testing.T) {
 	clickT(t, tt, "Try again")
 	tt.flush()
 	if n := countCalls(d, "keys.list"); n != 1 || !tt.HasText(keyFree.PublicKey) {
+		t.Fatalf("retry: %d calls, %q", n, tt.Texts())
+	}
+}
+
+// Enter in a field must not save a Keychain host whose key is not chosen:
+// Save is disabled then, and Enter agrees.
+func TestEnterDoesNotSaveKeychainHostWithoutKey(t *testing.T) {
+	a, tt, d := edReady(t, []hubapi.Server{boxServer})
+	d.set(func() { d.keys = []hubapi.Key{keyFree, keyUsed} })
+	clickT(t, tt, "Edit box")
+	clickT(t, tt, "+ Key or agent")
+	clickT(t, tt, "Keychain")
+	tt.flush()
+	clickT(t, tt, "User")
+	tt.Key(0, ui.KeyEnter)
+	tt.flush()
+	if hasCall(d, "servers.save") || a.editor == nil {
+		t.Fatalf("calls %v", d.callList())
+	}
+}
+
+// A failed keys.list in the Keychain view offers Try again; it reads on the
+// click only, never on a redraw or a timer.
+func TestKeychainListErrorOffersRetry(t *testing.T) {
+	_, tt, _, d := keysApp(t, keyFree)
+	d.set(func() { d.errs = map[string]error{"keys.list": errors.New("boom list")} })
+	clickT(t, tt, "Keychain")
+	tt.flush()
+	if !tt.HasText("boom list") || !tt.HasText("Try again") {
+		t.Fatalf("no error and retry: %q", tt.Texts())
+	}
+	d.set(func() { d.errs = nil })
+	d.resetCalls()
+	tt.Advance(time.Minute)
+	tt.flush()
+	if n := countCalls(d, "keys.list"); n != 0 {
+		t.Fatalf("keys.list %d without a click", n)
+	}
+	clickT(t, tt, "Try again")
+	tt.flush()
+	if n := countCalls(d, "keys.list"); n != 1 || !tt.HasText(keyFree.PublicKey) || tt.HasText("boom list") {
 		t.Fatalf("retry: %d calls, %q", n, tt.Texts())
 	}
 }

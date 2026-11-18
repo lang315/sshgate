@@ -103,6 +103,9 @@ func (a *App) buildKeychain(c *ui.Context) {
 		})
 		if a.keys.err != "" {
 			ui.Text(c, model.DisplayText(a.keys.err)).TextColor(t.Danger)
+			if ui.Button(c, "Try again").Clicked() {
+				a.keysLoad() // a click only: never from a build, a timer or a redraw
+			}
 		}
 		if len(a.keys.list) == 0 && a.keys.loaded && a.keys.err == "" {
 			ui.Text(c, "No keys yet. Create one with New key.").TextColor(t.TextMuted)
@@ -119,8 +122,8 @@ func (a *App) buildKeyCard(c *ui.Context, p tokens, k hubapi.Key) {
 	cardShadow(c).On(card)
 	card.Children(func() {
 		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-			ui.Box(c).Size(36, 36).Radius(8).Background(p.Accent).Center().Children(func() {
-				ui.Icon(c, keyIcon).TextColor(p.AccentText)
+			ui.Box(c).Size(36, 36).Radius(8).Background(p.AccentTint).Center().Children(func() {
+				ui.Icon(c, keyIcon).TextColor(p.Accent)
 			})
 			ui.Column(c).Grow(1).Children(func() {
 				ui.Text(c, name).Bold().SingleLine()

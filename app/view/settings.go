@@ -59,7 +59,9 @@ func (a *App) buildSettings(c *ui.Context) {
 				section(c, "Unlock", func() {
 					var sw ui.Element
 					ui.Field(c, "Unlock with Touch ID", func() {
-						sw = ui.Switch(c.Key("touch"), &st.touchOn).Disabled(st.busy || (!st.touch.Available && !st.touchOn))
+						ui.Themed(c, switchTheme(c)).Background(ui.Color{}).Children(func() {
+							sw = ui.Switch(c.Key("touch"), &st.touchOn).Disabled(st.busy || (!st.touch.Available && !st.touchOn))
+						})
 					})
 					if sw.Changed() {
 						st.password = ""

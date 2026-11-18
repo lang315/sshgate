@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -182,6 +183,9 @@ func TestScrollRestartsTheDelay(t *testing.T) {
 
 func TestStdinRequestDisablesSendToTabOnly(t *testing.T) {
 	a, tt, c, d := colApp(t)
+	// The card with a stdin block is as tall as the 500 px window's scroll area
+	// on macOS fonts and taller on others; a button scrolled out has no area.
+	tt.SetSize(800, 800)
 	r := reqN("st", "box", "cat")
 	r.Stdin = "a\r\nb\n"
 	note(t, a, tt, "pending", map[string]any{"request": r})
@@ -565,7 +569,11 @@ func TestDisabledAllowLooksLikeMouseButton(t *testing.T) {
 		t.Fatalf("allow %+v send %+v", al, st)
 	}
 	img := shot(tt)
-	strip := func(r ui.Rect) ui.Rect { return ui.Rect{X: r.X - 1, Y: r.Y - 1, W: 8, H: r.H + 2} }
+	// Snap to the drawn pixel the way the renderer does: a truncated fractional
+	// X shifts one button's border inside its strip and not the other's.
+	strip := func(r ui.Rect) ui.Rect {
+		return ui.Rect{X: float32(math.Round(float64(r.X))) - 1, Y: float32(math.Round(float64(r.Y))) - 1, W: 8, H: float32(math.Round(float64(r.H))) + 2}
+	}
 	if string(region(img, strip(al))) != string(region(img, strip(st))) {
 		t.Fatal("a disabled Allow's edge differs from a disabled Send to tab's")
 	}

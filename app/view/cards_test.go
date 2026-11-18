@@ -204,32 +204,6 @@ func TestHoverCardFadesEveryTime(t *testing.T) {
 	}
 }
 
-// The grant ring starts at twelve o'clock and runs clockwise: a quarter
-// left paints the top-right quadrant of the tile only.
-func TestGrantRingStartsAtTwelve(t *testing.T) {
-	ui.SetDefaultThemes(Themes())
-	t.Cleanup(func() { ui.SetDefaultThemes(nil, nil) })
-	d := &fakeDoor{status: hubapi.Status{HasVault: true}, servers: []hubapi.Server{{Name: "build", User: "ci", Host: "h", Port: 22, HostKey: "k", HostKeyAlgo: "ssh-ed25519", AIVisible: true}}}
-	a, tt, _, _ := newApp(t, d)
-	a.Update(func() { a.servers[0].AutoAllow = &hubapi.AutoAllow{Until: a.Now().Add(time.Hour).Format(time.RFC3339)} })
-	tt.flush()
-	tt.Advance(time.Second)
-	tt.Frame()
-	tile, ok := tt.Find("Auto 1h") // the ring's 44 px box carries the chip label; the chip below it is a later match
-	if !ok {
-		t.Fatal(tt.Texts())
-	}
-	cx, cy := tile.X+tile.W/2, tile.Y+tile.H/2
-	img := shot(tt)
-	wait := palette(false).Wait
-	h := tile.W/2 + 6
-	// the 2 px stroke and its end cap spill a pixel or two over the axes: leave 3 px out
-	quad := func(x, y float32) int { return countNear(img, ui.Rect{X: x, Y: y, W: h, H: h}, wait, 40) }
-	if tr, tl, bl, br := quad(cx+3, cy-h-3), quad(cx-h-3, cy-h-3), quad(cx-h-3, cy+3), quad(cx+3, cy+3); tr == 0 || tl != 0 || bl != 0 || br != 0 {
-		t.Fatalf("ring pixels: top-right %d, top-left %d, bottom-left %d, bottom-right %d", tr, tl, bl, br)
-	}
-}
-
 // A focused Open button shows the Accent ring and an unfocused one none.
 func TestOpenButtonShowsFocusRing(t *testing.T) {
 	ui.SetDefaultThemes(Themes())
@@ -295,5 +269,35 @@ func TestLiftForgetsRemovedHost(t *testing.T) {
 	tt.Advance(time.Second)
 	if tt.FramePending() {
 		t.Fatal("a frame is still pending")
+	}
+}
+
+// The address in the card header is cut with an ellipsis only when it does
+// not fit: root@80.78.27.250:22 fits a card beside no AI column.
+func TestCardAddressNotTruncated(t *testing.T) {
+	a, tt, _ := readyApp(t, []hubapi.Server{{Name: "fviainboxes-server", User: "root", Host: "80.78.27.250", Port: 22}})
+	tt.SetSize(1000, 640)
+	a.Update(func() { a.aiOpen = false })
+	tt.flush()
+	addr, ok := tt.Find("root@80.78.27.250:22")
+	if !ok {
+		t.Fatalf("address text missing or cut: %q", tt.Texts())
+	}
+	t.Logf("addr %+v", addr)
+	open, _ := tt.Find("Open fviainboxes-server")
+	t.Logf("open %+v", open)
+	if addr.X+addr.W > open.X+open.W+0.5 {
+		t.Fatalf("address ends at %v, past the header at %v", addr.X+addr.W, open.X+open.W)
+	}
+}
+
+// A tab still opening (Trust prompt, dead host) is not a connection.
+func TestCardNotConnectedWhileOpening(t *testing.T) {
+	needLib(t)
+	a, tt, _, _, _ := tabApp(t)
+	a.Update(func() { a.tabs.Open("box"); a.tabs.ShowHome() })
+	tt.flush()
+	if _, ok := tt.Find("connected"); ok {
+		t.Fatal("connected dot for an opening tab")
 	}
 }

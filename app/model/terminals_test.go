@@ -157,3 +157,19 @@ func TestTunnelsTabOnePerHost(t *testing.T) {
 		t.Fatal("a closed tab's id came back")
 	}
 }
+
+func TestTabSetLiveCountSkipsOpening(t *testing.T) {
+	var s TabSet
+	a := s.Open("box")
+	if s.LiveCount("box") != 0 || s.OpenCount("box") != 1 {
+		t.Fatal(s.LiveCount("box"), s.OpenCount("box"))
+	}
+	s.Opened(a)
+	if s.LiveCount("box") != 1 {
+		t.Fatal(s.LiveCount("box"))
+	}
+	s.Exited(a, "bye")
+	if s.LiveCount("box") != 0 {
+		t.Fatal(s.LiveCount("box"))
+	}
+}

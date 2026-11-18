@@ -73,6 +73,7 @@ func (m *Manager) currentConfig() DialConfig {
 
 var (
 	ErrSEKeyWrongMac  = errors.New("this Secure Enclave key does not work on this Mac")
+	ErrSEKeyNoSE      = errors.New("this Mac has no Secure Enclave for the key")
 	ErrSEKeyNoHelper  = errors.New("Secure Enclave keys need the sshgate app on macOS")
 	errSEKeyBadPublic = errors.New("the Secure Enclave key's public key is invalid")
 )
@@ -82,12 +83,16 @@ var (
 type wrongMacSigner struct {
 	ssh.Signer
 	wrongMac atomic.Bool
+	noSE     atomic.Bool
 }
 
 func (w *wrongMacSigner) Sign(r io.Reader, data []byte) (*ssh.Signature, error) {
 	sig, err := w.Signer.Sign(r, data)
 	if errors.Is(err, sekey.ErrWrongMac) {
 		w.wrongMac.Store(true)
+	}
+	if errors.Is(err, sekey.ErrUnavailable) {
+		w.noSE.Store(true)
 	}
 	return sig, err
 }
@@ -155,6 +160,9 @@ func (m *Manager) ensure() error {
 	if err != nil {
 		if seSigner != nil && seSigner.wrongMac.Load() {
 			return ErrSEKeyWrongMac
+		}
+		if seSigner != nil && seSigner.noSE.Load() {
+			return ErrSEKeyNoSE
 		}
 		return err
 	}

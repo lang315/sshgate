@@ -282,8 +282,8 @@ func TestShots(t *testing.T) {
 		_, tt, _, _ := newApp(t, d)
 		return tt
 	})
-	// A real tab open on the fake hub: OpenCount counts every tab of the
-	// server that has not exited, so the card's tile turns green.
+	// A real tab open on the fake hub: LiveCount counts the tabs of the
+	// server with a live session, so the tile turns green.
 	each("hosts-connected", 1000, 900, func(bool) *tester {
 		a, tt, _, _, _ := tabApp(t)
 		tt.SetSize(1000, 900)
@@ -307,6 +307,17 @@ func TestShots(t *testing.T) {
 		clickT(t, tt, "Open box")
 		tabsUntil(t, tt, func() bool { return tabState(a, "t1") == "open" }, "t1 open")
 		a.Update(func() { a.servers[0].AutoAllow = &hubapi.AutoAllow{Forever: true} })
+		return tt
+	})
+	// Two tabs, the first active and the second inactive.
+	each("tabs-two", 1000, 640, func(bool) *tester {
+		a, tt, _, _, _ := tabApp(t)
+		clickT(t, tt, "Open box")
+		tabsUntil(t, tt, func() bool { return tabState(a, "t1") == "open" }, "t1 open")
+		clickT(t, tt, "Home")
+		clickT(t, tt, "Open box")
+		tabsUntil(t, tt, func() bool { return tabState(a, "t2") == "open" }, "t2 open")
+		a.Update(func() { a.activate("t1") })
 		return tt
 	})
 	if os.Getenv("MYGO_GHOSTTY_VT") == "" { // the other shots need no terminal library

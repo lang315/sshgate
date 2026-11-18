@@ -77,7 +77,7 @@ func (a *App) buildThemeControl(c *ui.Context) {
 		for i, th := range themes {
 			seg := p.Segment(i).Label(th.name).Tooltip(th.name).Padding(4, 8).Radius(6)
 			if i == sel {
-				seg.Background(tok(c).RailText.Alpha(railPillAlpha))
+				seg.Background(tok(c).RailButton)
 			}
 			seg.Children(func() {
 				if th.icon == nil {

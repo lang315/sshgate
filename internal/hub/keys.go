@@ -94,9 +94,9 @@ func (h *Hub) CreateKey(ctx context.Context, name string) (createdKey, error) {
 	if err != nil {
 		return createdKey{}, err
 	}
-	reloadErr := h.reloadLocked()
+	_ = h.reloadLocked() // the write stands: a failed reload only sets storeError (status), and a retry would find the name taken
 	h.auditConfig(broker.ConfigRecord{Action: "keyCreate", Key: name})
-	return createdKey{Name: name, Type: "se-p256", PublicKey: pubLine, Created: now.UTC().Format(time.RFC3339)}, reloadErr
+	return createdKey{Name: name, Type: "se-p256", PublicKey: pubLine, Created: now.UTC().Format(time.RFC3339)}, nil
 }
 
 // DeleteKey refuses a key a server still uses.
