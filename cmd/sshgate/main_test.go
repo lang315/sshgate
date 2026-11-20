@@ -18,6 +18,7 @@ func TestRoute(t *testing.T) {
 		{[]string{"web", "--port", "9000"}, "web"},
 		{[]string{"hub", "--cli"}, "hub"},
 		{[]string{"hub"}, "hub"},
+		{[]string{"inbound", "iphone"}, "inbound"},
 		{[]string{"--version"}, "version"},
 		{[]string{"version"}, "version"},
 		{[]string{"--host=1.2.3.4", "--user=root"}, "mcp"},

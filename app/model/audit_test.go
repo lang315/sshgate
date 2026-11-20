@@ -390,3 +390,31 @@ func TestAuditRowAITransfer(t *testing.T) {
 		t.Fatalf("view %+v", v)
 	}
 }
+
+func TestAuditRowViewLogin(t *testing.T) {
+	v := AuditRowView(rec(t, `{"time":"2026-10-15T12:00:00Z","kind":"login","device":"iphone","from":"100.64.0.5:51234","session":"shell","tty":true}`), auditNow)
+	if v.Kind != "login" || v.Main != "iphone from 100.64.0.5" || !reflect.DeepEqual(v.Badges, []Badge{{"shell", "plain"}}) || !reflect.DeepEqual(v.Side, []string{"tty"}) || v.Alert {
+		t.Fatalf("%+v", v)
+	}
+	v = AuditRowView(rec(t, `{"kind":"login","device":"ipad","from":"[2001:db8::1]:22","session":"sftp","tty":false}`), auditNow)
+	if v.Main != "ipad from 2001:db8::1" || !reflect.DeepEqual(v.Side, []string{"no tty"}) {
+		t.Fatalf("%+v", v)
+	}
+	if got := AuditQueryFor(AuditFilters{Chips: []string{"logins"}}); !reflect.DeepEqual(got, hubapi.AuditQuery{Kinds: []string{"login"}}) {
+		t.Fatalf("%+v", got)
+	}
+	if !AuditMatches(rec(t, `{"kind":"login","device":"x"}`), hubapi.AuditQuery{Kinds: []string{"login"}}) {
+		t.Fatal("login record does not match its chip")
+	}
+}
+
+func TestInboundErrors(t *testing.T) {
+	for ip, bad := range map[string]bool{"100.64.0.5": false, "192.168.1.0/24": false, "2001:db8::1": false, "": true, "999.1.1.1": true, "host": true} {
+		if (InboundIPError(ip) != "") != bad {
+			t.Errorf("%q", ip)
+		}
+	}
+	if InboundAddError("", "k", "1.2.3.4") == "" || InboundAddError("n", "", "1.2.3.4") == "" || InboundAddError("n", "k", "x") == "" || InboundAddError("n", "k", "1.2.3.4") != "" {
+		t.Error("add errors")
+	}
+}

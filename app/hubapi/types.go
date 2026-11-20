@@ -1,4 +1,4 @@
-// Package hubapi is the typed side of sshgate hub's UI door (protocol 14)
+// Package hubapi is the typed side of sshgate hub's UI door (protocol 15)
 // that the desktop app's screens use.
 package hubapi
 
@@ -325,3 +325,29 @@ type Key struct {
 	Created   string   `json:"created"`
 	UsedBy    []string `json:"usedBy"`
 }
+
+// InboundDevice is a device allowed to log in over SSH (inbound.list). Allowed
+// and Blocked are never nil. PublicKey is "<type> <base64>"; Fingerprint is its SHA256.
+type InboundDevice struct {
+	Name        string   `json:"name"`
+	PublicKey   string   `json:"publicKey"`
+	Fingerprint string   `json:"fingerprint"`
+	Allowed     []string `json:"allowed"`
+	Blocked     []string `json:"blocked"`
+	Created     string   `json:"created"`
+}
+
+// InboundList is the inbound.list reply. FileError is set when the last
+// authorized_keys write failed, so the file does not match Devices.
+type InboundList struct {
+	Devices        []InboundDevice `json:"devices"`
+	AuthorizedKeys string          `json:"authorizedKeys"`
+	FileError      string          `json:"fileError,omitempty"`
+}
+
+// The inbound.setIP states.
+const (
+	InboundAllowed = "allowed"
+	InboundBlocked = "blocked"
+	InboundRemoved = "removed"
+)

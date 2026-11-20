@@ -34,13 +34,14 @@ type Server struct {
 }
 
 type File struct {
-	Version       int      `json:"version"`
-	Revision      int      `json:"revision"`
-	KDF           *KDF     `json:"kdf,omitempty"`
-	MAC           string   `json:"mac,omitempty"`
-	Servers       []Server `json:"servers"`
-	Keys          []Key    `json:"keys,omitempty"`
-	SoftLockLimit string   `json:"softLockLimit,omitempty"` // "" (24h), "3d", "7d" or "none"; see hub/softlock.go
+	Version       int             `json:"version"`
+	Revision      int             `json:"revision"`
+	KDF           *KDF            `json:"kdf,omitempty"`
+	MAC           string          `json:"mac,omitempty"`
+	Servers       []Server        `json:"servers"`
+	Keys          []Key           `json:"keys,omitempty"`
+	Inbound       []InboundDevice `json:"inbound,omitempty"`       // devices that may log in over SSH; see inbound.go and hub/inbound.go
+	SoftLockLimit string          `json:"softLockLimit,omitempty"` // "" (24h), "3d", "7d" or "none"; see hub/softlock.go
 }
 
 func aadFor(f *File, s Server, field string) string {

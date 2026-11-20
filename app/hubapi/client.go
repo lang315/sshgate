@@ -245,3 +245,30 @@ func (h *Client) KeysCreate(ctx context.Context, name string) (Key, error) {
 func (h *Client) KeysDelete(ctx context.Context, name string) error {
 	return h.c.Call(ctx, "keys.delete", map[string]string{"name": name}, nil)
 }
+
+// InboundList calls inbound.list: only from a person's action, like KeysList.
+func (h *Client) InboundList(ctx context.Context) (InboundList, error) {
+	var l InboundList
+	if err := h.c.Call(ctx, "inbound.list", struct{}{}, &l); err != nil {
+		return InboundList{}, err
+	}
+	if l.Devices == nil {
+		l.Devices = []InboundDevice{}
+	}
+	return l, nil
+}
+
+// InboundAdd adds a device with one allowed IP. An error that starts
+// "saved, but authorized_keys was not updated: " means the list changed and the file did not.
+func (h *Client) InboundAdd(ctx context.Context, name, publicKey, ip string) error {
+	return h.c.Call(ctx, "inbound.add", map[string]string{"name": name, "publicKey": publicKey, "ip": ip}, nil)
+}
+
+func (h *Client) InboundDelete(ctx context.Context, name string) error {
+	return h.c.Call(ctx, "inbound.delete", map[string]string{"name": name}, nil)
+}
+
+// InboundSetIP puts ip in state InboundAllowed or InboundBlocked, or forgets it (InboundRemoved).
+func (h *Client) InboundSetIP(ctx context.Context, name, ip, state string) error {
+	return h.c.Call(ctx, "inbound.setIP", map[string]string{"name": name, "ip": ip, "state": state}, nil)
+}

@@ -38,7 +38,7 @@ type AuditRecord struct {
 type ConfigRecord struct {
 	Time           time.Time `json:"time"`
 	Kind           string    `json:"kind"`   // always "config"; exec records have none
-	Action         string    `json:"action"` // trust, forgetHostKey, delete, vaultCreate, save, import, autoAllowOn, autoAllowResume, autoAllowOff, autoAllowCheck, softLock, softLockLimit, keyCreate, keyDelete
+	Action         string    `json:"action"` // trust, forgetHostKey, delete, vaultCreate, save, import, autoAllowOn, autoAllowResume, autoAllowOff, autoAllowCheck, softLock, softLockLimit, keyCreate, keyDelete, inboundAdd, inboundDelete, inboundAllow, inboundBlock, inboundForget
 	Server         string    `json:"server,omitempty"`
 	Key            string    `json:"key,omitempty"` // keyCreate, keyDelete: the key's name, never the blob
 	Host           string    `json:"host,omitempty"`
@@ -52,6 +52,8 @@ type ConfigRecord struct {
 	Until          string    `json:"until,omitempty"`   // autoAllowOn: RFC 3339 deadline of a timed grant
 	Forever        bool      `json:"forever,omitempty"` // autoAllowOn: a forever grant
 	Reason         string    `json:"reason,omitempty"`  // autoAllowOff: why it ended; autoAllowCheck: the result
+	Device         string    `json:"device,omitempty"`  // inbound*: the device name; never its key
+	IP             string    `json:"ip,omitempty"`      // inbound*: the canonical IP or prefix
 	Limit          string    `json:"limit,omitempty"`   // softLockLimit: the new limit, 24h, 3d, 7d or none
 }
 
@@ -224,12 +226,17 @@ func (a *Audit) append(v any) error {
 		return err
 	}
 	a.mu.Lock()
-	// The file can change under us (a hand edit, a second hub): seq must stay
-	// the line number Read reports, so recount when its size is not ours.
-	if st, serr := a.f.Stat(); serr != nil {
-		err = serr
-	} else if st.Size() != a.size {
-		err = a.recountLocked()
+	// The file lock covers the size check and the write against another
+	// process appending (`sshgate inbound`), so seq stays the line number.
+	var unlock func()
+	if unlock, err = lockFile(a.f); err == nil {
+		// The file can change under us (a hand edit, a second hub): seq must stay
+		// the line number Read reports, so recount when its size is not ours.
+		if st, serr := a.f.Stat(); serr != nil {
+			err = serr
+		} else if st.Size() != a.size {
+			err = a.recountLocked()
+		}
 	}
 	if err == nil {
 		// On a failed write size stays put, so a partial line is seen as a
@@ -240,6 +247,9 @@ func (a *Audit) append(v any) error {
 		}
 	}
 	seq, fn := a.n, a.onAppend
+	if unlock != nil {
+		unlock()
+	}
 	a.mu.Unlock()
 	if err == nil && fn != nil {
 		fn(seq, stripLocal(line))

@@ -83,6 +83,12 @@ func TestCallShapes(t *testing.T) {
 			}},
 		{"tunnel delete", "tunnels.delete", `{"id":"a1","server":"box"}`, func(c *Client) error { return c.TunnelsDelete(ctx, "box", "a1") }},
 		{"tunnel start", "tunnels.start", `{"id":"a1","server":"box"}`, func(c *Client) error { return c.TunnelsStart(ctx, "box", "a1") }},
+		{"inbound list", "inbound.list", `{}`, func(c *Client) error { _, err := c.InboundList(ctx); return err }},
+		{"inbound add", "inbound.add", `{"ip":"100.64.0.5","name":"iphone","publicKey":"ssh-ed25519 AAAA"}`,
+			func(c *Client) error { return c.InboundAdd(ctx, "iphone", "ssh-ed25519 AAAA", "100.64.0.5") }},
+		{"inbound delete", "inbound.delete", `{"name":"iphone"}`, func(c *Client) error { return c.InboundDelete(ctx, "iphone") }},
+		{"inbound block", "inbound.setIP", `{"ip":"100.64.0.5","name":"iphone","state":"blocked"}`,
+			func(c *Client) error { return c.InboundSetIP(ctx, "iphone", "100.64.0.5", InboundBlocked) }},
 	} {
 		r := &rec{}
 		if err := tc.call(New(r)); err != nil {
@@ -185,5 +191,13 @@ func TestAuditReadDecodes(t *testing.T) {
 	p, err = New(&rec{result: `{"records":[{"seq":9,"record":{"kind":"config","action":"save"}},{"seq":8,"record":{"command":"ls"}}],"next":8,"skipped":2,"path":"/p"}`}).AuditRead(context.Background(), AuditQuery{})
 	if err != nil || len(p.Records) != 2 || p.Records[0].Seq != 9 || string(p.Records[1].Record) != `{"command":"ls"}` || p.Next != 8 || p.Skipped != 2 {
 		t.Fatalf("%+v %v", p, err)
+	}
+}
+
+func TestInboundListNeverNil(t *testing.T) {
+	r := &rec{result: `{"devices":null,"authorizedKeys":"/h/.ssh/authorized_keys"}`}
+	l, err := New(r).InboundList(context.Background())
+	if err != nil || l.Devices == nil || l.AuthorizedKeys == "" {
+		t.Fatalf("%+v %v", l, err)
 	}
 }

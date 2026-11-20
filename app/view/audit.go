@@ -250,7 +250,7 @@ const (
 	auditTableMin = 760 // the columns plus a command column of about 130
 )
 
-var auditKind = map[string]string{"exec": "Exec", "config": "Config", "file": "File", "tunnel": "Tunnel"}
+var auditKind = map[string]string{"exec": "Exec", "config": "Config", "file": "File", "tunnel": "Tunnel", "login": "Login"}
 
 func (a *App) buildAuditHead(c *ui.Context) {
 	t := c.Theme()

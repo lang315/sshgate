@@ -60,7 +60,8 @@ func TestMCPDoorRejectsUIOnlyMethods(t *testing.T) {
 	c := startDoor(t, h)
 	for _, m := range []string{"unlock", "lock", "decide", "denyAll", "pending", "term.open", "servers",
 		"vault.create", "servers.save", "servers.delete", "servers.forgetHostKey", "import.scan", "import.apply",
-		"files.list", "files.mkdir", "files.rename", "files.plan", "files.run", "files.cancelAll"} {
+		"files.list", "files.mkdir", "files.rename", "files.plan", "files.run", "files.cancelAll",
+		"inbound.list", "inbound.add", "inbound.delete", "inbound.setIP"} {
 		err := c.Call(context.Background(), m, map[string]any{"password": "x"}, nil)
 		if err == nil || !strings.Contains(err.Error(), "method not found") {
 			t.Fatalf("%s: want method not found, got %v", m, err)

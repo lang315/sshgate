@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"net/netip"
 	"regexp"
 	"strconv"
 	"strings"
@@ -184,6 +185,30 @@ func NextChecked(cs []hubapi.Candidate, prev map[string]bool) map[string]bool {
 }
 
 var keyNameRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+
+// InboundIPError is the Inbound view's message for an IP field the hub would
+// refuse for its form (netip.ParseAddr and ParsePrefix both reject it), "" otherwise.
+// The hub validates again: this is only the fast answer.
+func InboundIPError(ip string) string {
+	if _, err := netip.ParseAddr(ip); err == nil {
+		return ""
+	}
+	if _, err := netip.ParsePrefix(ip); err == nil {
+		return ""
+	}
+	return "Enter an IP address such as 100.64.0.5, or a range such as 192.168.1.0/24."
+}
+
+// InboundAddError is the New device dialog's message, "" when the call can be made.
+func InboundAddError(name, key, ip string) string {
+	switch {
+	case name == "":
+		return "Enter a device name."
+	case key == "":
+		return "Paste the device's public key."
+	}
+	return InboundIPError(ip)
+}
 
 // KeyNameError is the New key dialog's message, the hub's rule
 // (config.ValidKeyName), "" for a name that can be created.

@@ -71,15 +71,17 @@ type Executor interface {
 }
 
 type Options struct {
-	StorePath      string
-	Audit          *broker.Audit
-	ApprovalExpiry time.Duration // <= 0 means the broker default, 5 minutes
-	OnEvent        func(broker.Event)
-	Dialer         func(sshx.DialConfig) Executor // test seam; nil = real Registry
-	IdleLock       time.Duration                  // 0 means 15 minutes; < 0 disables auto-lock
-	KnownHostsPath string                         // "" means ~/.ssh/known_hosts; only a hint in the Trust prompt
-	KeyHelper      string                         // sshgate-touchid, which makes and signs with Keychain keys; "" where there is none
-	SSHConfigPath  string                         // "" means ~/.ssh/config, read by ssh -G without -F; hub --sshConfig
+	StorePath          string
+	Audit              *broker.Audit
+	ApprovalExpiry     time.Duration // <= 0 means the broker default, 5 minutes
+	OnEvent            func(broker.Event)
+	Dialer             func(sshx.DialConfig) Executor // test seam; nil = real Registry
+	IdleLock           time.Duration                  // 0 means 15 minutes; < 0 disables auto-lock
+	KnownHostsPath     string                         // "" means ~/.ssh/known_hosts; only a hint in the Trust prompt
+	KeyHelper          string                         // sshgate-touchid, which makes and signs with Keychain keys; "" where there is none
+	AuthorizedKeysPath string                         // "" means ~/.ssh/authorized_keys; hub --authorizedKeys
+	InboundBinary      string                         // "" means os.Executable(); the program a rendered line runs
+	SSHConfigPath      string                         // "" means ~/.ssh/config, read by ssh -G without -F; hub --sshConfig
 }
 
 type ServerInfo struct {
@@ -113,7 +115,8 @@ type Hub struct {
 	files   *jobSet    // every file job; see filejobs.go
 	tunnels *tunnelSet // every running tunnel; see tunnels.go
 
-	storeErr     error // the last reload's error; guarded by h.mu
+	inboundErr   string // the last authorized_keys render error, "" when it succeeded; guarded by h.mu
+	storeErr     error  // the last reload's error; guarded by h.mu
 	lockSink     func(reason string, gen uint64)
 	lockGen      atomic.Uint64 // bumped, under h.mu, at every lock-state change; a lock note for an older one is stale
 	lockSinkGen  uint64
@@ -268,6 +271,7 @@ func (h *Hub) Unlock(pw string) error {
 	h.lockGen.Add(1)
 	h.unlocked.Store(true)
 	h.lastActivity = time.Now().Round(0)
+	_ = h.renderInboundLocked(f.Inbound) // reconcile the file with the vault; a failure shows as fileError, not as a failed unlock
 	return nil
 }
 

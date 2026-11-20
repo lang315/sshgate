@@ -61,6 +61,7 @@ func (h *Hub) CreateVault(pw string) error {
 			kept = append(kept, s.Name)
 		}
 		f.KDF = &k
+		f.Inbound = nil      // a KDF-less file was never MAC'd: planted devices must not survive
 		f.SoftLockLimit = "" // a KDF-less file was never MAC'd: a planted limit must not survive
 		return nil
 	})
@@ -76,6 +77,7 @@ func (h *Hub) CreateVault(pw string) error {
 	h.lockGen.Add(1)
 	h.unlocked.Store(true)
 	h.lastActivity = time.Now().Round(0)
+	_ = h.renderInboundLocked(nil) // drops a block left by a vault that is gone; a no-op with none
 	h.auditConfig(broker.ConfigRecord{Action: "vaultCreate", KeptServers: kept})
 	return nil
 }
