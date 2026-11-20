@@ -89,7 +89,7 @@ Routed in `cmd/sshgate/main.go`. It never reads the vault.
 
 1. Read `SSH_CONNECTION` (client IP and port) and `SSH_ORIGINAL_COMMAND`. With no `SSH_CONNECTION` it exits 1: it was not started by sshd.
 2. Append one line to `audit.jsonl` next to the default store (`SSHGATE_STORE` honoured as elsewhere), opened `O_APPEND|O_WRONLY|O_CREATE` 0600, one `Write` call:
-   `{"ts", "kind": "login", "device": <name>, "from": "<ip>:<port>", "session": "shell"|"command"|"sftp", "tty": bool}`.
+   `{"time", "kind": "login", "device": <name>, "from": "<ip>:<port>", "session": "shell"|"command"|"sftp", "tty": bool}`.
    `session` is `shell` with no original command, `sftp` when the original command's base name is `sftp-server` or `internal-sftp`, else `command`. The command text is not recorded (my call: it can hold secrets; the person can ask for it later).
 3. If the write fails, print `sshgate: could not record this login` to stderr and exit 1. No session runs.
 4. Otherwise replace the process (`syscall.Exec`) with the user's login shell: `$SHELL -l` for a shell session, `$SHELL -c "$SSH_ORIGINAL_COMMAND"` otherwise. `SHELL` falls back to `/bin/sh`.
