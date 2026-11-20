@@ -271,6 +271,7 @@ func (h *Hub) Unlock(pw string) error {
 	h.lockGen.Add(1)
 	h.unlocked.Store(true)
 	h.lastActivity = time.Now().Round(0)
+	_ = h.renderInboundLocked(f.Inbound) // reconcile the file with the vault; a failure shows as fileError, not as a failed unlock
 	return nil
 }
 

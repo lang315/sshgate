@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/lang315/sshgate/internal/broker"
 	"github.com/lang315/sshgate/internal/config"
+	"golang.org/x/crypto/ssh"
 )
 
 // Inbound SSH (spec 2026-11-20-inbound-ssh-design.md): the vault holds the
@@ -62,10 +64,7 @@ func (h *Hub) inboundCommand() (string, error) {
 	if strings.ContainsAny(p, "\"\\'$`") || strings.ContainsFunc(p, func(r rune) bool { return r < ' ' || r == 0x7f }) {
 		return "", errors.New("the sshgate binary path has a character that cannot go in an authorized_keys line")
 	}
-	if strings.ContainsRune(p, ' ') {
-		p = "'" + p + "'"
-	}
-	return p, nil
+	return "'" + p + "'", nil
 }
 
 func inboundLines(devs []config.InboundDevice, command string) []string {
@@ -74,10 +73,56 @@ func inboundLines(devs []config.InboundDevice, command string) []string {
 		if len(d.Allowed) == 0 {
 			continue // no allowed IP, no line: the device cannot log in
 		}
+		from := slices.Clone(d.Allowed)
+		for _, b := range d.Blocked {
+			from = append(from, "!"+b) // sshd: a negated match wins over any positive one
+		}
 		out = append(out, fmt.Sprintf(`restrict,pty,from="%s",command="%s inbound %s" %s`,
-			strings.Join(d.Allowed, ","), command, d.Name, d.PublicKey))
+			strings.Join(from, ","), command, d.Name, d.PublicKey))
 	}
 	return out
+}
+
+// ourLineRE matches what the hub writes inside the block.
+var ourLineRE = regexp.MustCompile(`^restrict,pty,from="[^"]*",command="[^"]* inbound [^ "]+" `)
+
+func ourLine(l string) bool {
+	t := strings.TrimSpace(l)
+	return t == "" || strings.HasPrefix(t, "#") || ourLineRE.MatchString(t)
+}
+
+// outsideKeyConflicts names the devices whose key is on a line outside the block.
+func outsideKeyConflicts(data []byte, devs []config.InboundDevice) error {
+	keys := map[string]string{}
+	for _, d := range devs {
+		if k, _, _, _, err := ssh.ParseAuthorizedKey([]byte(d.PublicKey)); err == nil {
+			keys[string(k.Marshal())] = d.Name
+		}
+	}
+	var names []string
+	in := false
+	for _, l := range strings.Split(string(data), "\n") {
+		switch t := strings.TrimSpace(l); {
+		case t == inboundBegin:
+			in = true
+		case t == inboundEnd:
+			in = false
+		case !in:
+			if k, _, _, _, err := ssh.ParseAuthorizedKey([]byte(l)); err == nil {
+				if n, ok := keys[string(k.Marshal())]; ok && !slices.Contains(names, n) {
+					names = append(names, n)
+				}
+			}
+		}
+	}
+	var msgs []string
+	for _, n := range names {
+		msgs = append(msgs, fmt.Sprintf("the key of %s is also on a line outside sshgate's block; remove that line", n))
+	}
+	if len(msgs) == 0 {
+		return nil
+	}
+	return errors.New(strings.Join(msgs, "; "))
 }
 
 // spliceInbound replaces the marked block in existing with lines, or appends
@@ -99,6 +144,8 @@ func spliceInbound(existing []byte, lines []string) ([]byte, error) {
 			next = off + nl + 1
 		}
 		switch line := strings.TrimRight(string(existing[off:next]), "\r\n"); {
+		case begin >= 0 && end < 0 && line != inboundEnd && !ourLine(line):
+			return nil, errors.New("authorized_keys has a line of yours inside sshgate's block; move it out of the block")
 		case line == inboundBegin:
 			if begin >= 0 {
 				return nil, errors.New("authorized_keys has two sshgate begin markers")
@@ -130,7 +177,9 @@ func spliceInbound(existing []byte, lines []string) ([]byte, error) {
 
 // writeAuthorizedKeys renders lines into path atomically (0600 temp file in
 // the same folder, then rename). A link or a file of another user is refused.
-func writeAuthorizedKeys(path string, lines []string) error {
+// A device key found on a line outside the block is reported after the block
+// is written; that line is never touched.
+func writeAuthorizedKeys(path string, lines []string, devs []config.InboundDevice) error {
 	var existing []byte
 	fi, err := os.Lstat(path)
 	switch {
@@ -151,8 +200,9 @@ func writeAuthorizedKeys(path string, lines []string) error {
 	if err != nil {
 		return err
 	}
+	conflict := outsideKeyConflicts(existing, devs)
 	if fi != nil && bytes.Equal(out, existing) || fi == nil && len(lines) == 0 {
-		return nil
+		return conflict
 	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -178,7 +228,10 @@ func writeAuthorizedKeys(path string, lines []string) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), path)
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return err
+	}
+	return conflict
 }
 
 // renderInboundLocked rewrites the file from devs and remembers the outcome
@@ -192,7 +245,7 @@ func (h *Hub) renderInboundLocked(devs []config.InboundDevice) error {
 		h.inboundErr = err.Error()
 		return err
 	}
-	if err = writeAuthorizedKeys(h.authorizedKeysPath(), lines); err != nil {
+	if err = writeAuthorizedKeys(h.authorizedKeysPath(), lines, devs); err != nil {
 		h.inboundErr = err.Error()
 		return err
 	}
@@ -209,6 +262,7 @@ func (h *Hub) ListInbound() (inboundList, error) {
 		return inboundList{}, err
 	}
 	clear(k)
+	_ = h.renderInboundLocked(h.deps.File.Inbound) // reconcile; a failure shows as fileError
 	out := inboundList{Devices: []uiInbound{}, AuthorizedKeys: h.authorizedKeysPath(), FileError: h.inboundErr}
 	for _, d := range h.deps.File.Inbound {
 		out.Devices = append(out.Devices, uiInbound{d.Name, d.PublicKey, config.InboundFingerprint(d.PublicKey),

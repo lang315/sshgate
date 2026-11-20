@@ -226,12 +226,17 @@ func (a *Audit) append(v any) error {
 		return err
 	}
 	a.mu.Lock()
-	// The file can change under us (a hand edit, a second hub): seq must stay
-	// the line number Read reports, so recount when its size is not ours.
-	if st, serr := a.f.Stat(); serr != nil {
-		err = serr
-	} else if st.Size() != a.size {
-		err = a.recountLocked()
+	// The file lock covers the size check and the write against another
+	// process appending (`sshgate inbound`), so seq stays the line number.
+	var unlock func()
+	if unlock, err = lockFile(a.f); err == nil {
+		// The file can change under us (a hand edit, a second hub): seq must stay
+		// the line number Read reports, so recount when its size is not ours.
+		if st, serr := a.f.Stat(); serr != nil {
+			err = serr
+		} else if st.Size() != a.size {
+			err = a.recountLocked()
+		}
 	}
 	if err == nil {
 		// On a failed write size stays put, so a partial line is seen as a
@@ -242,6 +247,9 @@ func (a *Audit) append(v any) error {
 		}
 	}
 	seq, fn := a.n, a.onAppend
+	if unlock != nil {
+		unlock()
+	}
 	a.mu.Unlock()
 	if err == nil && fn != nil {
 		fn(seq, stripLocal(line))

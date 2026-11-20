@@ -51,23 +51,18 @@ func inbound(device string, getenv func(string) string, environ []string, exec f
 	}
 	orig := getenv("SSH_ORIGINAL_COMMAND")
 	session := "command"
-	switch base := path.Base(strings.Fields(orig + " x")[0]); {
+	words := strings.Fields(orig)
+	switch {
 	case orig == "":
 		session = "shell"
-	case base == "sftp-server" || base == "internal-sftp":
+	case len(words) == 1 && (path.Base(words[0]) == "sftp-server" || path.Base(words[0]) == "internal-sftp"):
 		session = "sftp"
 	}
 	rec, _ := json.Marshal(map[string]any{
 		"time": time.Now().UTC().Format(time.RFC3339Nano), "kind": "login", "device": device,
 		"from": net.JoinHostPort(conn[0], conn[1]), "session": session, "tty": getenv("SSH_TTY") != "",
 	})
-	f, err := os.OpenFile(inboundAuditPath(getenv), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
-	if err == nil {
-		_, err = f.Write(append(rec, '\n')) // one Write, so a concurrent hub append cannot interleave
-		if cerr := f.Close(); err == nil {
-			err = cerr
-		}
-	}
+	err := appendAudit(inboundAuditPath(getenv), append(rec, '\n'))
 	if err != nil {
 		return errors.New("could not record this login")
 	}
@@ -81,4 +76,31 @@ func inbound(device string, getenv func(string) string, environ []string, exec f
 		argv = []string{shell, "-c", orig}
 	}
 	return exec(shell, argv, environ)
+}
+
+// appendAudit writes line under the audit file's flock, the same lock the hub's
+// append takes. A last byte that is not a newline (a torn write) is ended first,
+// so the cut-off line stays one bad line and the record parses.
+func appendAudit(path string, line []byte) error {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := lockAudit(f); err != nil {
+		return err
+	}
+	if st, err := f.Stat(); err != nil {
+		return err
+	} else if st.Size() > 0 {
+		var last [1]byte
+		if _, err := f.ReadAt(last[:], st.Size()-1); err != nil {
+			return err
+		}
+		if last[0] != '\n' {
+			line = append([]byte{'\n'}, line...)
+		}
+	}
+	_, err = f.Write(line)
+	return err
 }

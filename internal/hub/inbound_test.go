@@ -84,7 +84,7 @@ func TestInboundDoorFlow(t *testing.T) {
 	if err := call("inbound.add", map[string]any{"name": "iphone", "publicKey": key + " me@phone", "ip": "100.64.0.5"}); err != nil {
 		t.Fatal(err)
 	}
-	wantLine := `restrict,pty,from="100.64.0.5",command="` + testBin + ` inbound iphone" ` + key
+	wantLine := `restrict,pty,from="100.64.0.5",command="'` + testBin + `' inbound iphone" ` + key
 	want := "# sshgate inbound begin\n" + wantLine + "\n# sshgate inbound end\n"
 	if got := readFile(t, ak); got != want {
 		t.Fatalf("file:\n%s\nwant:\n%s", got, want)
@@ -251,7 +251,7 @@ func TestInboundFileKeepsForeignLines(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = readFile(t, ak)
-	if strings.Count(got, "inbound begin") != 1 || strings.Count(got, `command="`+testBin+` inbound `) != 2 ||
+	if strings.Count(got, "inbound begin") != 1 || strings.Count(got, `command="'`+testBin+`' inbound `) != 2 ||
 		!strings.HasPrefix(got, before+"# sshgate inbound begin\n") || !strings.HasSuffix(got, "# sshgate inbound end\n"+after+"\n") {
 		t.Fatalf("block not replaced in place:\n%q", got)
 	}
@@ -315,6 +315,10 @@ func TestInboundBinaryPathRefused(t *testing.T) {
 	if got, err := h.inboundCommand(); err != nil || got != "'/Applications/my app/sshgate'" {
 		t.Fatalf("%q %v", got, err)
 	}
+	h = &Hub{o: Options{InboundBinary: "/opt/a;b/sshgate"}}
+	if got, err := h.inboundCommand(); err != nil || got != "'/opt/a;b/sshgate'" {
+		t.Fatalf("shell character unquoted: %q %v", got, err)
+	}
 }
 
 func TestCreateVaultClearsInboundAndBlock(t *testing.T) {
@@ -322,7 +326,7 @@ func TestCreateVaultClearsInboundAndBlock(t *testing.T) {
 	path := filepath.Join(dir, "servers.json")
 	ak := filepath.Join(dir, "authorized_keys")
 	foreign := "ssh-ed25519 AAAAhand me\n"
-	if err := os.WriteFile(ak, []byte(foreign+"# sshgate inbound begin\nrestrict ssh-ed25519 AAAAold\n# sshgate inbound end\n"), 0o600); err != nil {
+	if err := os.WriteFile(ak, []byte(foreign+"# sshgate inbound begin\nrestrict,pty,from=\"1.2.3.4\",command=\"/old/sshgate inbound x\" ssh-ed25519 AAAAold\n# sshgate inbound end\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	f := &config.File{Version: 1, Inbound: []config.InboundDevice{{Name: "x", PublicKey: "ssh-ed25519 AAAAplant", Allowed: []string{"1.2.3.4"}}}}
@@ -341,5 +345,80 @@ func TestCreateVaultClearsInboundAndBlock(t *testing.T) {
 	}
 	if got := readFile(t, ak); got != foreign+"# sshgate inbound begin\n# sshgate inbound end\n" {
 		t.Fatalf("block not emptied:\n%q", got)
+	}
+}
+
+func TestInboundLinesNegateBlocked(t *testing.T) {
+	d := config.InboundDevice{Name: "a", PublicKey: "ssh-ed25519 AAAA", Allowed: []string{"100.64.0.0/10"}, Blocked: []string{"100.100.1.2", "fd00::/8"}}
+	got := inboundLines([]config.InboundDevice{d, {Name: "b", PublicKey: "ssh-ed25519 BBBB", Blocked: []string{"1.2.3.4"}}}, "'/x'")
+	if len(got) != 1 || !strings.Contains(got[0], `from="100.64.0.0/10,!100.100.1.2,!fd00::/8",`) {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestInboundReconcileOnUnlockAndList(t *testing.T) {
+	h, ak, _ := inboundHub(t)
+	if err := h.AddInbound("a", inboundPub(t), "1.2.3.4"); err != nil {
+		t.Fatal(err)
+	}
+	good := readFile(t, ak)
+	if err := os.WriteFile(ak, []byte("# gone\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.ListInbound(); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, ak); got != "# gone\n"+good {
+		t.Fatalf("list did not reconcile:\n%q", got)
+	}
+	os.WriteFile(ak, []byte(strings.ReplaceAll(good, testBin, "/stale/sshgate")), 0o600)
+	h.Lock()
+	if err := h.Unlock("pw"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, ak); got != good {
+		t.Fatalf("unlock did not repair the stale path:\n%q", got)
+	}
+}
+
+func TestInboundReconcileWritesNothingWithNoDevices(t *testing.T) {
+	h, ak, _ := inboundHub(t)
+	if _, err := h.ListInbound(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(ak); !os.IsNotExist(err) {
+		t.Fatalf("authorized_keys created: %v", err)
+	}
+}
+
+func TestInboundRefusesForeignLineInBlock(t *testing.T) {
+	h, ak, _ := inboundHub(t)
+	os.MkdirAll(filepath.Dir(ak), 0o700)
+	in := "# sshgate inbound begin\nssh-ed25519 AAAAlaptop me@laptop\n# sshgate inbound end\n"
+	os.WriteFile(ak, []byte(in), 0o600)
+	err := h.AddInbound("a", inboundPub(t), "1.2.3.4")
+	if err == nil || !strings.Contains(err.Error(), "inside sshgate's block") {
+		t.Fatalf("got %v", err)
+	}
+	if readFile(t, ak) != in {
+		t.Fatal("the foreign line was deleted")
+	}
+}
+
+func TestInboundReportsKeyOutsideBlock(t *testing.T) {
+	h, ak, _ := inboundHub(t)
+	os.MkdirAll(filepath.Dir(ak), 0o700)
+	pub := inboundPub(t)
+	os.WriteFile(ak, []byte(pub+" me@laptop\n"), 0o600)
+	err := h.AddInbound("a", pub, "1.2.3.4")
+	if err == nil || !strings.Contains(err.Error(), "the key of a is also on a line outside sshgate's block; remove that line") {
+		t.Fatalf("got %v", err)
+	}
+	got := readFile(t, ak)
+	if !strings.HasPrefix(got, pub+" me@laptop\n") || !strings.Contains(got, `from="1.2.3.4"`) {
+		t.Fatalf("foreign line edited or block missing:\n%q", got)
+	}
+	if l, _ := h.ListInbound(); !strings.Contains(l.FileError, "the key of a") {
+		t.Fatalf("fileError %q", l.FileError)
 	}
 }
