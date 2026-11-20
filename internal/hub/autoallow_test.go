@@ -1655,7 +1655,7 @@ func TestAutoExecCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
-		go h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
+		goExec(t, context.Background(), h, ExecRequest{Server: "vis", Command: "ls"})
 	}
 	waitInflight(t, h, "vis", 2)
 

@@ -41,6 +41,7 @@ func TestHubScreens(t *testing.T) {
 func TestCreateVault(t *testing.T) {
 	d := &fakeDoor{status: hubapi.Status{HasVault: false}, servers: []hubapi.Server{{Name: "old", User: "u", Host: "h", Port: 22}}}
 	a, tt, _, _ := newApp(t, d)
+	tt.SetSize(800, 900) // the whole card in view: the Tester clicks where an element is; scrolling is TestCreateVaultFitsAtMinimumWindow
 	tt.flush()
 	for _, s := range []string{"Create your vault", "The master password encrypts saved passwords and protects the host list.",
 		"At least 8 characters (not yet)", "Both passwords match (not yet)", "The master password cannot be recovered.", "you'll confirm each key on the next connect.", "u@h:22"} {
@@ -70,6 +71,7 @@ func TestCreateVault(t *testing.T) {
 func TestUnlockScreen(t *testing.T) {
 	d := &fakeDoor{status: hubapi.Status{HasVault: true, Locked: true, StorePath: "/v/servers.json", AutoHosts: []string{"box", "db"}}, pw: "pw"}
 	a, tt, _, _ := newApp(t, d)
+	tt.SetSize(800, 900) // the whole card in view
 	a.Update(func() { a.lockReason = "idle" })
 	tt.flush()
 	for _, s := range []string{"Unlock vault", "Locked after inactivity.", "AI auto-allow is still running on: box, db", "Stop auto-allow and lock", "Vault file /v/servers.json"} {

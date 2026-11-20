@@ -2,13 +2,21 @@ package view
 
 import (
 	"image"
+	"math"
 
 	"github.com/egoist/mygo/ui"
 )
 
 // region copies the pixels inside r, clipped to the image (1 DIP = 1 px).
+// pixelRect snaps r to whole pixels by rounding, as the renderer does; a
+// truncated fractional edge can land a pixel off, and font metrics decide the fraction.
+func pixelRect(r ui.Rect) image.Rectangle {
+	rd := func(v float32) int { return int(math.Round(float64(v))) }
+	return image.Rect(rd(r.X), rd(r.Y), rd(r.X+r.W), rd(r.Y+r.H))
+}
+
 func region(img *image.RGBA, r ui.Rect) []byte {
-	b := image.Rect(int(r.X), int(r.Y), int(r.X+r.W), int(r.Y+r.H)).Intersect(img.Bounds())
+	b := pixelRect(r).Intersect(img.Bounds())
 	var out []byte
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		o := img.PixOffset(b.Min.X, y)
@@ -23,7 +31,7 @@ func sameRegion(a, b *image.RGBA, r ui.Rect) bool {
 
 // countNear counts the pixels of r whose R, G and B are each within tol of col.
 func countNear(img *image.RGBA, r ui.Rect, col ui.Color, tol uint8) int {
-	b := image.Rect(int(r.X), int(r.Y), int(r.X+r.W), int(r.Y+r.H)).Intersect(img.Bounds())
+	b := pixelRect(r).Intersect(img.Bounds())
 	near := func(got, want uint8) bool {
 		if got < want {
 			got, want = want, got
