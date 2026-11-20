@@ -16,6 +16,17 @@ const inboundNote = "These devices can log in only when Remote Login is on. The 
 // partialPrefix starts the error of a write that changed the list but not authorized_keys.
 const partialPrefix = "saved, but authorized_keys was not updated: "
 
+// fileErrText is what a failed or doubtful authorized_keys render means for the
+// person: usually the file is stale, so a blocked or deleted device may still
+// log in; a key also on a line outside the block is written but cannot be reached.
+func fileErrText(err string) string {
+	err = strings.TrimPrefix(err, partialPrefix)
+	if strings.Contains(err, "outside sshgate's block") {
+		return "authorized_keys holds the new list, but a device key is also on a line outside sshgate's block, which blocking and deleting do not reach. " + err
+	}
+	return "authorized_keys still holds the old list: a blocked or deleted device may still log in. " + err
+}
+
 // inboundState is the Inbound view's device list. inbound.list is called when
 // the view is entered, after a write, and by Try again: never from a timer
 // or a redraw (the idle lock).
@@ -78,6 +89,7 @@ func (a *App) inboundWrite(call func(h *hubapi.Client) error, done func()) {
 			}
 			a.inbound.writeErr = err.Error()
 			if strings.HasPrefix(err.Error(), partialPrefix) {
+				a.inbound.writeErr = fileErrText(err.Error())
 				a.inboundLoad()
 			}
 		})
@@ -143,7 +155,7 @@ func (a *App) buildInbound(c *ui.Context) {
 		})
 		ui.Text(c, inboundNote).TextColor(t.TextMuted)
 		if a.inbound.fileErr != "" {
-			a.inboundBanner(c, p, "authorized_keys was not updated: "+a.inbound.fileErr)
+			a.inboundBanner(c, p, fileErrText(a.inbound.fileErr))
 		}
 		if a.inbound.writeErr != "" {
 			a.inboundBanner(c, p, a.inbound.writeErr)
@@ -327,7 +339,7 @@ func (a *App) addDevice(nd *newDeviceState) {
 			if err != nil {
 				nd.err = err.Error()
 				if strings.HasPrefix(err.Error(), partialPrefix) { // the device is on the list: close, show the error there
-					a.inbound.writeErr, a.newDev = err.Error(), nil
+					a.inbound.writeErr, a.newDev = fileErrText(err.Error()), nil
 				}
 				return
 			}
@@ -366,6 +378,9 @@ func (a *App) buildDeviceDelete(c *ui.Context) {
 	}
 	if answer == 0 {
 		return
+	}
+	if answer == 1 && a.inbound.busy {
+		return // a write is in flight; the dialog stays
 	}
 	a.devDel = nil
 	if answer == 1 {

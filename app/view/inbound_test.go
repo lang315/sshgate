@@ -80,7 +80,16 @@ func TestInboundFileErrorBanner(t *testing.T) {
 	_, tt, _, d := inboundApp(t, devIPad)
 	d.set(func() { d.fileErr = "permission denied" })
 	enterInbound(t, tt)
-	if !tt.HasText("authorized_keys was not updated: permission denied") {
+	if !tt.HasText("authorized_keys still holds the old list: a blocked or deleted device may still log in. permission denied") {
+		t.Fatalf("%q", tt.Texts())
+	}
+}
+
+func TestInboundFileErrorOutsideBlockWording(t *testing.T) {
+	_, tt, _, d := inboundApp(t, devIPad)
+	d.set(func() { d.fileErr = "the key of ipad is also on a line outside sshgate's block; remove that line" })
+	enterInbound(t, tt)
+	if !tt.HasText("authorized_keys holds the new list, but a device key is also on a line outside sshgate's block, which blocking and deleting do not reach. the key of ipad is also on a line outside sshgate's block; remove that line") || tt.HasText("still holds the old list") {
 		t.Fatalf("%q", tt.Texts())
 	}
 }
@@ -209,6 +218,24 @@ func TestInboundBadIPMakesNoCall(t *testing.T) {
 	}
 }
 
+// A delete confirmed while another write is in flight is not sent; the dialog stays.
+func TestInboundDeleteIgnoredWhileBusy(t *testing.T) {
+	_, tt, c, d := inboundApp(t, devIPad)
+	gate := make(chan struct{})
+	d.set(func() { d.gates = map[string]chan struct{}{"inbound.setIP": gate} })
+	enterInbound(t, tt)
+	clickT(t, tt, "Block 100.64.0.6 on ipad")
+	clickT(t, tt, "Delete device ipad")
+	adv(tt, c, 600*time.Millisecond)
+	tt.Frame()
+	clickT(t, tt, "Delete device")
+	if hasCall(d, "inbound.delete") || !tt.HasText("it can no longer log in") {
+		t.Fatalf("calls %v, %q", d.callList(), tt.Texts())
+	}
+	close(gate)
+	tt.flush()
+}
+
 func TestInboundDeleteGuarded(t *testing.T) {
 	_, tt, c, d := inboundApp(t, devIPad, devPhone)
 	enterInbound(t, tt)
@@ -274,7 +301,7 @@ func TestInboundPartialFailureShowsErrorAndReloads(t *testing.T) {
 	d.resetCalls()
 	clickT(t, tt, "Block 100.64.0.6 on ipad")
 	tt.flush()
-	if n := countCalls(d, "inbound.list"); n != 1 || !tt.HasText(msg) || !tt.HasText("Blocked") {
+	if n := countCalls(d, "inbound.list"); n != 1 || !tt.HasText("authorized_keys still holds the old list: a blocked or deleted device may still log in. permission denied") || !tt.HasText("Blocked") {
 		t.Fatalf("%d lists, %q", n, tt.Texts())
 	}
 }
