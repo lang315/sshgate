@@ -22,6 +22,8 @@ func route(args []string) (string, []string) {
 			return "web", args[1:]
 		case "hub":
 			return "hub", args[1:]
+		case "inbound":
+			return "inbound", args[1:]
 		case "version", "--version":
 			return "version", nil
 		}
@@ -82,6 +84,11 @@ func main() {
 		err = fmt.Errorf("sshgate web was removed; manage hosts in the desktop app")
 	case "hub":
 		err = runHub(rest)
+	case "inbound":
+		if err := runInbound(rest); err != nil { // not "fatal:": sshd shows this to the person logging in
+			fmt.Fprintln(os.Stderr, "sshgate:", err)
+			os.Exit(1)
+		}
 	case "version":
 		fmt.Println("sshgate", mcpserver.Version)
 	default:
