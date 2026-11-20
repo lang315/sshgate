@@ -311,6 +311,46 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		}
 		return empty, h.DeleteKey(p.Name)
 	})
+	req("inbound.list", func(_ context.Context, raw json.RawMessage) (any, error) {
+		if err := strictParams(raw, &struct{}{}); err != nil {
+			return nil, err
+		}
+		return h.ListInbound()
+	})
+	req("inbound.add", func(_ context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			Name      string `json:"name"`
+			PublicKey string `json:"publicKey"`
+			IP        string `json:"ip"`
+		}
+		if err := strictParams(raw, &p, "name", "publicKey", "ip"); err != nil {
+			return nil, err
+		}
+		return empty, h.AddInbound(p.Name, p.PublicKey, p.IP)
+	})
+	req("inbound.delete", func(_ context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			Name string `json:"name"`
+		}
+		if err := strictParams(raw, &p, "name"); err != nil {
+			return nil, err
+		}
+		return empty, h.DeleteInbound(p.Name)
+	})
+	req("inbound.setIP", func(_ context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			Name  string `json:"name"`
+			IP    string `json:"ip"`
+			State string `json:"state"`
+		}
+		if err := strictParams(raw, &p, "name", "ip", "state"); err != nil {
+			return nil, err
+		}
+		if _, ok := inboundActions[p.State]; !ok {
+			return nil, &rpc.Error{Code: -32602, Message: "state must be allowed, blocked, or removed"}
+		}
+		return empty, h.SetInboundIP(p.Name, p.IP, p.State)
+	})
 	req("settings.setSoftLockLimit", func(_ context.Context, raw json.RawMessage) (any, error) {
 		var p struct {
 			Limit string `json:"limit"`

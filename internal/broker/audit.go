@@ -38,7 +38,7 @@ type AuditRecord struct {
 type ConfigRecord struct {
 	Time           time.Time `json:"time"`
 	Kind           string    `json:"kind"`   // always "config"; exec records have none
-	Action         string    `json:"action"` // trust, forgetHostKey, delete, vaultCreate, save, import, autoAllowOn, autoAllowResume, autoAllowOff, autoAllowCheck, softLock, softLockLimit, keyCreate, keyDelete
+	Action         string    `json:"action"` // trust, forgetHostKey, delete, vaultCreate, save, import, autoAllowOn, autoAllowResume, autoAllowOff, autoAllowCheck, softLock, softLockLimit, keyCreate, keyDelete, inboundAdd, inboundDelete, inboundAllow, inboundBlock, inboundForget
 	Server         string    `json:"server,omitempty"`
 	Key            string    `json:"key,omitempty"` // keyCreate, keyDelete: the key's name, never the blob
 	Host           string    `json:"host,omitempty"`
@@ -52,6 +52,8 @@ type ConfigRecord struct {
 	Until          string    `json:"until,omitempty"`   // autoAllowOn: RFC 3339 deadline of a timed grant
 	Forever        bool      `json:"forever,omitempty"` // autoAllowOn: a forever grant
 	Reason         string    `json:"reason,omitempty"`  // autoAllowOff: why it ended; autoAllowCheck: the result
+	Device         string    `json:"device,omitempty"`  // inbound*: the device name; never its key
+	IP             string    `json:"ip,omitempty"`      // inbound*: the canonical IP or prefix
 	Limit          string    `json:"limit,omitempty"`   // softLockLimit: the new limit, 24h, 3d, 7d or none
 }
 

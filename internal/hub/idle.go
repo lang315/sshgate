@@ -2,7 +2,7 @@ package hub
 
 import "time"
 
-const ProtocolVersion = 14
+const ProtocolVersion = 15
 
 const defaultIdleLock = 15 * time.Minute
 

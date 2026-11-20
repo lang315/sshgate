@@ -36,6 +36,10 @@ var doorParams = map[string]string{
 	"keys.list":                 `{}`,
 	"keys.create":               `{"name":"k1"}`,
 	"keys.delete":               `{"name":"k1"}`,
+	"inbound.list":              `{}`,
+	"inbound.add":               `{"name":"n","publicKey":"ssh-ed25519 AAAA","ip":"1.2.3.4"}`,
+	"inbound.delete":            `{"name":"n"}`,
+	"inbound.setIP":             `{"name":"n","ip":"1.2.3.4","state":"allowed"}`,
 	"term.open":                 `{"id":"t1","server":"vis","rows":24,"cols":80}`,
 	"term.close":                `{"id":"t1"}`,
 	"term.closeAll":             `{}`,
@@ -63,7 +67,7 @@ var doorSkipped = map[string]bool{
 var doorMustRefuse = []string{
 	"servers.save", "servers.delete", "servers.forgetHostKey", "servers.setAutoAllow", "servers.autoAllowCheck",
 	"import.scan", "import.apply", "audit.read", "term.open", "files.list", "files.mkdir", "files.rename",
-	"keys.list", "keys.create", "keys.delete", "files.plan", "files.run", "tunnels.save", "tunnels.start", "tunnels.delete", "decide",
+	"keys.list", "keys.create", "keys.delete", "inbound.list", "inbound.add", "inbound.delete", "inbound.setIP", "files.plan", "files.run", "tunnels.save", "tunnels.start", "tunnels.delete", "decide",
 }
 
 // These must fail under both locks, but not as "locked": vault.create refuses
