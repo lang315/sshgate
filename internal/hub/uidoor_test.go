@@ -84,7 +84,7 @@ func TestUIDoorDenyAll(t *testing.T) {
 	h, _ := newHub(t, &fakeExec{})
 	c, _ := startUI(t, h)
 	for range 3 {
-		go h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "ls"})
+		goExec(t, context.Background(), h, ExecRequest{Server: "vis", Command: "ls"})
 	}
 	waitPending(t, h.Broker(), 3)
 	if err := c.Call(context.Background(), "denyAll", map[string]string{"reason": "x"}, nil); err != nil {

@@ -250,7 +250,7 @@ func TestCLIApproverStaleIDDecidesNothing(t *testing.T) {
 	<-errc1
 	waitOut(t, out, "withdrawn")
 
-	go h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "rm -rf /tmp/x"})
+	goExec(t, context.Background(), h, ExecRequest{Server: "vis", Command: "rm -rf /tmp/x"})
 	waitPending(t, h.Broker(), 1)
 	for _, cmd := range []string{"a", "s", "d"} {
 		pw.Write([]byte(cmd + " " + staleID + "\n"))

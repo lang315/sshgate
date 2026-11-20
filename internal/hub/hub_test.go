@@ -133,6 +133,15 @@ func waitPending(t *testing.T, b *broker.Broker, n int) {
 	}
 }
 
+// goExec runs h.Exec on its own goroutine and, at cleanup, denies what is
+// still pending and waits for it to return: an Exec that outlives the test
+// writes its audit record after the test closed the audit file (a data race).
+func goExec(t *testing.T, ctx context.Context, h *Hub, req ExecRequest) {
+	done := make(chan struct{})
+	go func() { defer close(done); h.Exec(ctx, req) }()
+	t.Cleanup(func() { h.Broker().DenyAll("test over"); <-done })
+}
+
 // decideFirst runs on its own goroutine, so it only reports via waitFor.
 func decideFirst(t *testing.T, b *broker.Broker, d broker.Decision) {
 	if waitFor(t, "a pending request", func() bool { return len(b.Pending()) > 0 }) {

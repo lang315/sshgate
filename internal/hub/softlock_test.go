@@ -172,7 +172,7 @@ func TestPendingRequestHoldsOffSoftLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	// sudo without the opt-in goes to approval and stays pending.
-	go h.Exec(context.Background(), ExecRequest{Server: "vis", Command: "id", Sudo: true})
+	goExec(t, context.Background(), h, ExecRequest{Server: "vis", Command: "id", Sudo: true})
 	waitPending(t, h.Broker(), 1)
 	idleNow(h)
 	if got := stateOf(h); got.soft || !got.key {

@@ -85,7 +85,7 @@ func TestIdleLockHeldOffByPendingRequest(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go h.Exec(ctx, ExecRequest{Server: "vis", Command: "ls"})
+	goExec(t, ctx, h, ExecRequest{Server: "vis", Command: "ls"})
 	waitPending(t, h.Broker(), 1)
 	time.Sleep(600 * time.Millisecond)
 	if h.Locked() {
