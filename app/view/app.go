@@ -101,6 +101,7 @@ type App struct {
 	theme                  string    // "dark", "light" or "auto"
 	audit                  auditState
 	keys                   keysState
+	inbound                inboundState
 	touch                  *model.TouchStatus // nil until read, when the unlock screen shows and before Settings opens
 	touchAsked, touchBusy  bool               // asked in this locked episode (a cancel counts); a helper is up
 	everReady, focused     bool               // the ready screen was shown once; the window has the focus
@@ -113,6 +114,8 @@ type dialogs struct {
 	del      *deleteState
 	newKey   *newKeyState
 	keyDel   *keyDelState
+	newDev   *newDeviceState
+	devDel   *deviceDelState
 	settings *settingsState
 }
 
@@ -241,13 +244,14 @@ func (a *App) setScreen() {
 	if prev == model.ScreenReady || next == model.ScreenReady {
 		a.auditReset()
 		a.keysReset()
+		a.inboundReset()
 	}
 	if next == model.ScreenLocked {
 		a.loadTouch()
 	}
 	switch next {
 	case model.ScreenReady:
-		if a.tabs.Active == model.KeychainTab {
+		if a.tabs.Active == model.KeychainTab || a.tabs.Active == model.InboundTab {
 			a.tabs.ShowHome() // the list is read only by a click, so an unlock never lands on an unread view
 		}
 		a.everReady, a.touchAsked = true, false // an unlock ends the episode

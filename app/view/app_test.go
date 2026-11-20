@@ -39,6 +39,9 @@ type fakeDoor struct {
 	tunnels  []hubapi.TunnelView                                                // tunnels.list
 	audit    func(q hubapi.AuditQuery) hubapi.AuditPage                         // audit.read; nil answers an empty page
 	keys     []hubapi.Key                                                       // keys.list; keys.create and keys.delete change it
+	inbound  []hubapi.InboundDevice                                             // inbound.list; the inbound writes change it
+	fileErr  string                                                             // inbound.list's fileError
+	afterErr map[string]error                                                   // an inbound write that changes the list, then fails with this
 }
 
 func (d *fakeDoor) Notify(method string, params any) error {
@@ -147,6 +150,38 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 		d.mu.Lock()
 		d.keys = slices.DeleteFunc(d.keys, func(k hubapi.Key) bool { return k.Name == p.Name })
 		d.mu.Unlock()
+	case "inbound.list":
+		d.mu.Lock()
+		out = hubapi.InboundList{Devices: append([]hubapi.InboundDevice{}, d.inbound...), AuthorizedKeys: "/home/u/.ssh/authorized_keys", FileError: d.fileErr}
+		d.mu.Unlock()
+	case "inbound.add", "inbound.delete", "inbound.setIP":
+		var p struct{ Name, PublicKey, IP, State string }
+		json.Unmarshal(b, &p)
+		d.mu.Lock()
+		switch method {
+		case "inbound.add":
+			d.inbound = append(d.inbound, hubapi.InboundDevice{Name: p.Name, PublicKey: p.PublicKey, Fingerprint: "SHA256:fp" + p.Name, Allowed: []string{p.IP}, Blocked: []string{}, Created: "2026-11-20T09:00:00Z"})
+		case "inbound.delete":
+			d.inbound = slices.DeleteFunc(d.inbound, func(x hubapi.InboundDevice) bool { return x.Name == p.Name })
+		default:
+			for i := range d.inbound {
+				if x := &d.inbound[i]; x.Name == p.Name {
+					x.Allowed = slices.DeleteFunc(slices.Clone(x.Allowed), func(s string) bool { return s == p.IP })
+					x.Blocked = slices.DeleteFunc(slices.Clone(x.Blocked), func(s string) bool { return s == p.IP })
+					switch p.State {
+					case hubapi.InboundAllowed:
+						x.Allowed = append(x.Allowed, p.IP)
+					case hubapi.InboundBlocked:
+						x.Blocked = append(x.Blocked, p.IP)
+					}
+				}
+			}
+		}
+		after := d.afterErr[method]
+		d.mu.Unlock()
+		if after != nil {
+			return after
+		}
 	case "audit.read":
 		var q hubapi.AuditQuery
 		json.Unmarshal(b, &q)

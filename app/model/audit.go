@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net"
 	"regexp"
 	"slices"
 	"sort"
@@ -30,6 +31,7 @@ var AuditChips = []AuditChip{
 	{ID: "config", Label: "Config", Kind: "config"},
 	{ID: "files", Label: "Files", Kind: "file"},
 	{ID: "tunnels", Label: "Tunnels", Kind: "tunnel"},
+	{ID: "logins", Label: "Logins", Kind: "login"},
 }
 
 // AuditFilters are the toolbar's choices: a host ("" all), the chips on
@@ -319,7 +321,7 @@ var camel = regexp.MustCompile(`([a-z])([A-Z])`)
 // AuditRowView is r's row.
 func AuditRowView(r AuditRecord, now time.Time) RowView {
 	kind := r.str("kind")
-	if kind != "config" && kind != "file" && kind != "tunnel" {
+	if kind != "config" && kind != "file" && kind != "tunnel" && kind != "login" {
 		kind = "exec"
 	}
 	v := RowView{Time: AuditTime(r.str("time"), now), Day: DayLabel(r.str("time"), now), Host: r.str("server"), Kind: kind, Side: []string{}}
@@ -373,6 +375,20 @@ func AuditRowView(r AuditRecord, now time.Time) RowView {
 		}
 		if truthy(r["phase"]) {
 			v.Side = []string{r.str("phase")}
+		}
+		return v
+	case "login":
+		// from is "<ip>:<port>"; the port is dropped, an IPv6 one included.
+		from := r.str("from")
+		if h, _, err := net.SplitHostPort(from); err == nil {
+			from = h
+		}
+		v.Main = r.str("device") + " from " + from
+		v.Badges = []Badge{{r.str("session"), "plain"}}
+		if truthy(r["tty"]) {
+			v.Side = []string{"tty"}
+		} else {
+			v.Side = []string{"no tty"}
 		}
 		return v
 	case "tunnel":

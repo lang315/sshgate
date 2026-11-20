@@ -73,6 +73,36 @@ func TestShots(t *testing.T) {
 		tt.flush()
 		save(tt, "terminal-"+name+".png")
 	}
+	for _, dark := range []bool{false, true} { // Inbound: two devices, one with a blocked IP; empty; New device
+		name := "light"
+		if dark {
+			name = "dark"
+		}
+		phone := hubapi.InboundDevice{Name: "iphone", PublicKey: "ssh-ed25519 AAAAPHONE", Fingerprint: "SHA256:k3J0xvQz1b8m2Yw5nT7uHq9LdR4sEaPcXo6fGi1VtZ0", Allowed: []string{"100.64.0.5", "192.168.1.0/24"}, Blocked: []string{"203.0.113.9"}, Created: "2026-11-18T10:00:00Z"}
+		pad := hubapi.InboundDevice{Name: "ipad", PublicKey: "ssh-ed25519 AAAAPAD", Fingerprint: "SHA256:Qm4cV8nLw2Ts6YbH1xRz9JdE0aUoPfGi3KtX5vNyB7M", Allowed: []string{"100.64.0.6"}, Blocked: []string{}, Created: "2026-11-19T10:00:00Z"}
+		for _, devs := range [][]hubapi.InboundDevice{{phone, pad}, nil} {
+			d := &fakeDoor{status: hubapi.Status{HasVault: true, StorePath: "/v/servers.json"}, servers: servers, inbound: devs}
+			_, tt, _, _ := newApp(t, d)
+			tt.SetDark(dark)
+			tt.SetSize(1000, 640)
+			tt.flush()
+			clickT(t, tt, "Inbound")
+			tt.flush()
+			file := "inbound-" + name + ".png"
+			if devs == nil {
+				file = "inbound-empty-" + name + ".png"
+			}
+			save(tt, file)
+			if devs == nil {
+				clickT(t, tt, "New device")
+				tt.flush()
+				fill(t, tt, "Device name", "iphone")
+				fill(t, tt, "Public key", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPhone0123456789abcdefghijklmnopqrstuv")
+				fill(t, tt, "First IP address", "100.64.0.5")
+				save(tt, "inbound-new-device-"+name+".png")
+			}
+		}
+	}
 	for _, dark := range []bool{false, true} { // locked, one host on auto-allow
 		d := &fakeDoor{status: hubapi.Status{HasVault: true, Locked: true, StorePath: "/v/servers.json", AutoHosts: []string{"staging"}}}
 		a, tt, _, _ := newApp(t, d)

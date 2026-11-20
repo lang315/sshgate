@@ -15,7 +15,7 @@ const railWidth = 200
 // A sheet beside the AI column leaves no room for it (200 + 420 + 380 > 900),
 // and the column must neither clip nor move, so the sidebar steps aside, at once.
 func (a *App) sidebarShown() bool {
-	return (a.tabs.Active == "" || a.tabs.Active == model.AuditTab || a.tabs.Active == model.KeychainTab) && a.editor == nil && a.imp == nil
+	return (a.tabs.Active == "" || a.tabs.Active == model.AuditTab || a.tabs.Active == model.KeychainTab || a.tabs.Active == model.InboundTab) && a.editor == nil && a.imp == nil
 }
 
 // buildTopBar is the full-width bar: Home, the tab strip, AI, the theme
@@ -73,7 +73,7 @@ func (a *App) buildTopBar(c *ui.Context, autoN, liveAuto int) {
 	})
 }
 
-// buildSidebar is the left rail: Hosts, Audit and Keychain. It draws nothing while a tab is active, and the page snaps.
+// buildSidebar is the left rail: Hosts, Audit, Keychain and Inbound. It draws nothing while a tab is active, and the page snaps.
 func (a *App) buildSidebar(c *ui.Context) {
 	if !a.sidebarShown() {
 		return
@@ -85,13 +85,15 @@ func (a *App) buildSidebar(c *ui.Context) {
 		sel = "audit"
 	case model.KeychainTab:
 		sel = "keychain"
+	case model.InboundTab:
+		sel = "inbound"
 	}
 	ui.Themed(c, railTheme(c)).Width(railWidth).Shrink(0).HeightPercent(100).Background(p.Rail).BorderEndWidth(1).BorderColor(p.Divider).Children(func() {
 		sb := ui.Sidebar(c, &sel, func() {
 			for _, it := range []struct {
 				id, label string
 				icon      *ui.SVG
-			}{{"hosts", "Hosts", hostsIcon}, {"audit", "Audit", auditIcon}, {"keychain", "Keychain", keyIcon}} {
+			}{{"hosts", "Hosts", hostsIcon}, {"audit", "Audit", auditIcon}, {"keychain", "Keychain", keyIcon}, {"inbound", "Inbound", inboundIcon}} {
 				if sel != it.id {
 					ui.SidebarItem(c, it.id, it.icon, it.label).TextColor(p.RailText)
 					continue
@@ -109,6 +111,9 @@ func (a *App) buildSidebar(c *ui.Context) {
 			case "keychain":
 				a.tabs.ShowKeychain()
 				a.keysLoad() // on entering the view, by the click
+			case "inbound":
+				a.tabs.ShowInbound()
+				a.inboundLoad() // on entering the view, by the click
 			default:
 				a.tabs.ShowHome()
 			}
