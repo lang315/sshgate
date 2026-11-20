@@ -58,13 +58,15 @@ The vault is the source of truth; `authorized_keys` is rendered from it. An IP i
 
 ### The rendered file
 
-On every inbound write, and on `vault.create`, the hub rewrites `~/.ssh/authorized_keys`:
+On every inbound write, on `vault.create`, after a successful `Unlock` and at the start of `inbound.list`, the hub rewrites `~/.ssh/authorized_keys`:
 
 - The hub writes its lines between two marker comments, `# sshgate inbound begin` and `# sshgate inbound end`, and replaces only that block. Everything outside the block is kept byte for byte. (My call: markers, since matching on a line prefix can misfire on a hand-written line.)
-- One line per device that has at least one allowed IP: `restrict,pty,from="<Allowed joined by ,>",command="<abs path of the running sshgate binary> inbound <name>" <PublicKey>`. A device with no allowed IP gets no line, so it cannot log in.
+- One line per device that has at least one allowed IP: `restrict,pty,from="<Allowed joined by ,>,!<each Blocked>",command="'<abs path of the running sshgate binary>' inbound <name>" <PublicKey>`. A negated `from=` entry wins over a matching prefix in OpenSSH (checked against the system sshd for an IPv4 and an IPv6 prefix), so a blocked address inside an allowed prefix is refused. The path is always single-quoted. A device with no allowed IP gets no line, so it cannot log in.
+- Reconcile: a rewrite that finds the file already matching writes nothing, and with no devices and no block writes nothing, so unlock and list repair a failed render, a stale binary path or a hand edit of the block without touching a clean file. A failed reconcile only sets `fileError`; it never fails the unlock.
+- A line inside the block that the hub did not write (not `restrict,pty,from="…",command="… inbound <name>" `, not blank, not a comment) is refused with an error, never deleted. A device key that also sits on a line outside the block is reported as `the key of <name> is also on a line outside sshgate's block; remove that line`: the block is still written, the foreign line is left alone, and the error shows as `fileError`.
 - The file is written atomically (temp file in `~/.ssh`, rename), mode 0600; `~/.ssh` is created 0700 when missing. A file that is a symlink, or not owned by the user, is refused.
 - The path is `Options.AuthorizedKeysPath` (hub flag `--authorizedKeys`, default `~/.ssh/authorized_keys`), so tests never touch the real file.
-- The binary path comes from `os.Executable()`, overridable for tests. A path with a `"`, a `\` or a newline is refused.
+- The binary path comes from `os.Executable()`, overridable for tests. A path with a `"`, a `\`, a `'`, a `$`, a backtick or a control character is refused.
 
 ### Validation (trust boundary)
 
@@ -88,13 +90,13 @@ If the vault write succeeds and the file render fails, the call returns an error
 Routed in `cmd/sshgate/main.go`. It never reads the vault.
 
 1. Read `SSH_CONNECTION` (client IP and port) and `SSH_ORIGINAL_COMMAND`. With no `SSH_CONNECTION` it exits 1: it was not started by sshd.
-2. Append one line to `audit.jsonl` next to the default store (`SSHGATE_STORE` honoured as elsewhere), opened `O_APPEND|O_WRONLY|O_CREATE` 0600, one `Write` call:
+2. Append one line to `audit.jsonl` next to the default store (`SSHGATE_STORE` honoured as elsewhere), opened `O_APPEND|O_RDWR|O_CREATE` 0600, under an exclusive `flock` (unix) that the hub's append takes too, one `Write` call, preceded by a newline when the file's last byte is not one (a torn write):
    `{"time", "kind": "login", "device": <name>, "from": "<ip>:<port>", "session": "shell"|"command"|"sftp", "tty": bool}`.
-   `session` is `shell` with no original command, `sftp` when the original command's base name is `sftp-server` or `internal-sftp`, else `command`. The command text is not recorded (my call: it can hold secrets; the person can ask for it later).
+   `session` is `shell` with no original command, `sftp` when the original command is exactly one word whose base name is `sftp-server` or `internal-sftp`, else `command`. The command text is not recorded (my call: it can hold secrets; the person can ask for it later).
 3. If the write fails, print `sshgate: could not record this login` to stderr and exit 1. No session runs.
 4. Otherwise replace the process (`syscall.Exec`) with the user's login shell: `$SHELL -l` for a shell session, `$SHELL -c "$SSH_ORIGINAL_COMMAND"` otherwise. `SHELL` falls back to `/bin/sh`.
 
-The hub tolerates the outside append (it recounts when the file size changed, `TestAuditSeqSurvivesExternalEdits`). The app shows the record after Refresh; it is not pushed live.
+The hub and `inbound` take the same file lock around the size check and the write, so a login cannot land between them; the hub still recounts when the file size changed (`TestAuditSeqSurvivesExternalEdits`). The app shows the record after Refresh; it is not pushed live.
 
 ### App
 
