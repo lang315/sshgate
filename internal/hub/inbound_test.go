@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -42,9 +43,19 @@ func inboundPub(t *testing.T) string {
 
 const testBin = "/opt/sshgate/sshgate"
 
+// skipOnWindows: the rendered lines are for a Unix sshd and the forced command
+// path is a Unix path (filepath.IsAbs refuses testBin on Windows).
+func skipOnWindows(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("inbound renders authorized_keys for a Unix sshd")
+	}
+}
+
 // inboundHub is an unlocked hub with an audit file and its own authorized_keys path.
 func inboundHub(t *testing.T) (h *Hub, ak, dir string) {
 	t.Helper()
+	skipOnWindows(t)
 	dir = t.TempDir()
 	path := filepath.Join(dir, "servers.json")
 	kdf, mk := testVault(t)
@@ -305,6 +316,7 @@ func TestSpliceInboundRefusesBrokenMarkers(t *testing.T) {
 }
 
 func TestInboundBinaryPathRefused(t *testing.T) {
+	skipOnWindows(t)
 	for _, p := range []string{`/a"b`, `/a\b`, "/a\nb", "relative/sshgate", "/a'b", "/a$b"} {
 		h := &Hub{o: Options{InboundBinary: p}}
 		if _, err := h.inboundCommand(); err == nil {

@@ -12,6 +12,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,6 +32,16 @@ func TestInboundEndToEndWithSystemSSHD(t *testing.T) {
 		if _, err := os.Stat(p); err != nil {
 			t.Skip("no", p)
 		}
+	}
+	sftpServer := ""
+	for _, p := range []string{"/usr/libexec/sftp-server", "/usr/lib/openssh/sftp-server", "/usr/libexec/openssh/sftp-server"} {
+		if _, err := os.Stat(p); err == nil {
+			sftpServer = p
+			break
+		}
+	}
+	if sftpServer == "" {
+		t.Skip("no sftp-server")
 	}
 	me, err := user.Current()
 	if err != nil {
@@ -80,7 +91,7 @@ func TestInboundEndToEndWithSystemSSHD(t *testing.T) {
 	cfg := strings.Join([]string{
 		"Port " + port, "ListenAddress 127.0.0.1", "ListenAddress ::1", "HostKey " + hostKey, "PidFile " + filepath.Join(dir, "sshd.pid"),
 		"AuthorizedKeysFile " + ak, "PasswordAuthentication no", "KbdInteractiveAuthentication no", "UsePAM no",
-		"Subsystem sftp /usr/libexec/sftp-server", "StrictModes no", "SetEnv SSHGATE_STORE=" + store, "",
+		"Subsystem sftp " + sftpServer, "StrictModes no", "SetEnv SSHGATE_STORE=" + store, "",
 	}, "\n")
 	if err := os.WriteFile(conf, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
@@ -91,7 +102,9 @@ func TestInboundEndToEndWithSystemSSHD(t *testing.T) {
 	if err := d.Start(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { d.Process.Kill(); d.Wait() })
+	// sshd writes sshdLog until it has exited: read it only after stop.
+	stop := sync.OnceFunc(func() { d.Process.Kill(); d.Wait() })
+	t.Cleanup(stop)
 	for i := 0; ; i++ {
 		c, err := net.Dial("tcp", "127.0.0.1:"+port)
 		if err == nil {
@@ -99,6 +112,7 @@ func TestInboundEndToEndWithSystemSSHD(t *testing.T) {
 			break
 		}
 		if i > 100 {
+			stop()
 			t.Fatalf("sshd did not start: %v\n%s", err, sshdLog.String())
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -123,6 +137,7 @@ func TestInboundEndToEndWithSystemSSHD(t *testing.T) {
 	}
 	fail := func(format string, a ...any) {
 		t.Helper()
+		stop()
 		t.Fatalf(format+"\nsshd log:\n%s", append(a, sshdLog.String())...)
 	}
 
