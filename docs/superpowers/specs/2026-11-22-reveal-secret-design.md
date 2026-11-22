@@ -64,6 +64,10 @@ Protocol 16 (`ProtocolVersion` in `idle.go`, the app's constant with it).
 - The editor hint becomes `Leave a field empty to keep it.`
 - Errors are shown as the hub sends them; `wrong master password` from the typed dialog keeps the dialog open.
 
+## Known limit
+
+Cancelling the dialog closes a Touch ID sheet still up. Once the sheet has been touched and the hub has the call, the hub still decrypts and writes `secretReveal`, while the app drops the value: the audit can record a showing the person cancelled. It never under-reports.
+
 ## Tests
 
 - Hub: shows each field with the right password; `wrong master password` and a `secretRevealDenied` record; locked, soft-locked and no-vault refusals; unknown server and empty field; strict params; a KDF change during the derive; the record never holds the value or password (grep the audit file for both); the MCP door has no `servers.reveal` (method not found).

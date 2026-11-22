@@ -240,6 +240,9 @@ func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (
 			}).Description(hint).Grow(1)
 			if saved && !e.Cleared && ui.Button(c, "Clear").Label("Clear "+f.Label()).Clicked() {
 				e.Value, e.Cleared = "", true
+				if r := ed.reveal; r != nil && r.field == f {
+					a.endReveal() // a secret marked for removal is not shown
+				}
 			}
 			if saved && !e.Cleared && ui.Button(c, "Show").Label("Show "+f.Label()).Clicked() {
 				a.askReveal(f)

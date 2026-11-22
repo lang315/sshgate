@@ -256,3 +256,16 @@ func TestEditorRevealTouchErrorWording(t *testing.T) {
 		}
 	}
 }
+
+// Clear marks the secret for removal: its shown value goes with it.
+func TestEditorRevealHidesOnClear(t *testing.T) {
+	_, tt, _, _ := revealBox(t, nil)
+	clickT(t, tt, "Show Password")
+	tt.Type("pw")
+	tt.Key(0, ui.KeyEnter)
+	tt.flush()
+	clickT(t, tt, "Clear Password")
+	if tt.HasText(boxValue) {
+		t.Fatal("the value outlived Clear")
+	}
+}

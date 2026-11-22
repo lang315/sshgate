@@ -325,7 +325,7 @@ func (m *Manager) unseal(ctx context.Context, verb string, use func(hub Hub, pw 
 	case 4:
 		return Result{}, ErrUnavailable
 	default:
-		fmt.Fprintf(os.Stderr, "sshgate: touchid unlock failed: %d %s\n", r.code, r.stderr)
+		fmt.Fprintf(os.Stderr, "sshgate: touchid %s failed: %d %s\n", verb, r.code, r.stderr)
 		return Result{}, ErrFailed
 	}
 	err = use(hub, string(r.stdout))
