@@ -36,6 +36,7 @@ var doorParams = map[string]string{
 	"keys.list":                 `{}`,
 	"keys.create":               `{"name":"k1"}`,
 	"keys.delete":               `{"name":"k1"}`,
+	"servers.reveal":            `{"server":"vis","field":"password","password":"pw"}`,
 	"inbound.list":              `{}`,
 	"inbound.add":               `{"name":"n","publicKey":"ssh-ed25519 AAAA","ip":"1.2.3.4"}`,
 	"inbound.delete":            `{"name":"n"}`,

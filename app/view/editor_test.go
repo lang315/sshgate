@@ -93,7 +93,7 @@ func TestNewHostOpensAtAddressWithExtrasFolded(t *testing.T) {
 			t.Fatalf("missing %q in %q", s, tt.Texts())
 		}
 	}
-	for _, s := range []string{"key", "Saved secrets are never shown. Leave a field empty to keep it.", "su password", "Host key"} {
+	for _, s := range []string{"key", "Leave a field empty to keep it.", "su password", "Host key"} {
 		if count(tt.Texts(), s) > 0 {
 			t.Fatalf("%q shown for a new host: %q", s, tt.Texts())
 		}
@@ -117,7 +117,7 @@ func TestNewHostOpensAtAddressWithExtrasFolded(t *testing.T) {
 func TestEditShowsThePinAndOnlySavedHints(t *testing.T) {
 	_, tt, _ := editBox(t, boxServer)
 	texts := tt.Texts()
-	for _, s := range []string{"Edit box", "ssh-ed25519 SHA256:x", "Saved secrets are never shown. Leave a field empty to keep it."} {
+	for _, s := range []string{"Edit box", "ssh-ed25519 SHA256:x", "Leave a field empty to keep it."} {
 		if !tt.HasText(s) {
 			t.Fatalf("missing %q in %q", s, texts)
 		}
@@ -534,7 +534,7 @@ func TestEditorGroupsOnRaised(t *testing.T) {
 	if n := countNear(img, ui.Rect{X: sh.X + 4, Y: sh.Y + 60, W: 4, H: 4}, p.Surface, 2); n != 16 {
 		t.Fatalf("%d of 16 sheet pixels are Surface", n)
 	}
-	for _, s := range []string{"Saved secrets are never shown. Leave a field empty to keep it.", "AI clients can see this server and ask to run commands. Commands wait for your approval unless auto-allow is on."} {
+	for _, s := range []string{"Leave a field empty to keep it.", "AI clients can see this server and ask to run commands. Commands wait for your approval unless auto-allow is on."} {
 		r, ok := tt.Find(s)
 		if !ok {
 			t.Fatalf("no %q", s)

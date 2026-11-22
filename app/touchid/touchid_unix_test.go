@@ -51,6 +51,17 @@ func (h *fakeHub) Unlock(_ context.Context, pw string) (hubapi.UnlockReply, erro
 	return h.reply, nil
 }
 
+// ServersReveal answers "<server>/<field>" for the right password.
+func (h *fakeHub) ServersReveal(_ context.Context, server, field, pw string) (string, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.unlocks = append(h.unlocks, pw)
+	if pw != h.password {
+		return "", &door.Error{Code: -32000, Message: "wrong master password"}
+	}
+	return server + "/" + field, nil
+}
+
 func (h *fakeHub) unlocked() []string {
 	h.mu.Lock()
 	defer h.mu.Unlock()

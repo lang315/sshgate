@@ -25,6 +25,11 @@ func (f Secret) Label() string {
 	return [...]string{"Password", "su password", "sudo password", "Key passphrase"}[f]
 }
 
+// Wire is the secret's name in servers.reveal.
+func (f Secret) Wire() string {
+	return [...]string{"password", "suPassword", "sudoPassword", "keyPassphrase"}[f]
+}
+
 // Saved reports whether s stores this secret; s is nil for a new host.
 func (f Secret) Saved(s *hubapi.Server) bool {
 	return s != nil && [...]bool{s.HasPassword, s.HasSuPassword, s.HasSudoPassword, s.HasKeyPassphrase}[f]

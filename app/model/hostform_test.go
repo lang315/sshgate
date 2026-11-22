@@ -205,3 +205,12 @@ func TestKeychainInputAndKeyName(t *testing.T) {
 		}
 	}
 }
+
+func TestSecretWire(t *testing.T) {
+	want := []string{"password", "suPassword", "sudoPassword", "keyPassphrase"}
+	for f := SecretPassword; f <= SecretKeyPassphrase; f++ {
+		if f.Wire() != want[f] {
+			t.Errorf("%d: %q", f, f.Wire())
+		}
+	}
+}

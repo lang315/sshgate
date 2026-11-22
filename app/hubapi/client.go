@@ -246,6 +246,16 @@ func (h *Client) KeysDelete(ctx context.Context, name string) error {
 	return h.c.Call(ctx, "keys.delete", map[string]string{"name": name}, nil)
 }
 
+// ServersReveal calls servers.reveal: one saved secret, after the hub checks
+// the master password again. Only from a person's action.
+func (h *Client) ServersReveal(ctx context.Context, server, field, password string) (string, error) {
+	var r struct {
+		Value string `json:"value"`
+	}
+	err := h.c.Call(ctx, "servers.reveal", map[string]string{"server": server, "field": field, "password": password}, &r)
+	return r.Value, err
+}
+
 // InboundList calls inbound.list: only from a person's action, like KeysList.
 func (h *Client) InboundList(ctx context.Context) (InboundList, error) {
 	var l InboundList

@@ -14,6 +14,7 @@ type Toucher interface {
 	Enable(ctx context.Context, password string) error
 	Disable() error
 	Unlock(ctx context.Context) (touchid.Result, error)
+	Reveal(ctx context.Context, server, field string) (string, error)
 	Cancel(reason error)
 }
 

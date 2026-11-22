@@ -115,6 +115,7 @@ func TestAuditRowViewConfig(t *testing.T) {
 		`{"kind":"config","action":"autoAllowOff","reason":"locked"}`:                                                       "locked",
 		`{"kind":"config","action":"delete"}`:                                                                               "",
 		`{"kind":"config","action":"keyCreate","key":"laptop"}`:                                                             "laptop",
+		`{"kind":"config","action":"secretReveal","server":"enc","field":"password"}`:                                       "password",
 	} {
 		if got := main(js); got != want {
 			t.Errorf("%s: %q, want %q", js, got, want)
@@ -122,6 +123,9 @@ func TestAuditRowViewConfig(t *testing.T) {
 	}
 	if b := AuditRowView(rec(t, `{"kind":"config","action":"save","server":"box"}`), auditNow).Badges; !reflect.DeepEqual(b, []Badge{{"save", "plain"}}) {
 		t.Errorf("save badge %+v", b)
+	}
+	if b := AuditRowView(rec(t, `{"kind":"config","action":"secretRevealDenied","field":"password"}`), auditNow).Badges; !reflect.DeepEqual(b, []Badge{{"secret reveal denied", "plain"}}) {
+		t.Errorf("secretRevealDenied badge %+v", b)
 	}
 	if b := AuditRowView(rec(t, `{"kind":"config","action":"forgetHostKey"}`), auditNow).Badges; !reflect.DeepEqual(b, []Badge{{"forget host key", "plain"}}) {
 		t.Errorf("forget badge %+v", b)

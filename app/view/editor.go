@@ -28,6 +28,7 @@ type editorState struct {
 	busy            bool
 	err             string
 	confirm         *confirmState // the Auto-allow dialog over the editor
+	reveal          *revealState  // the Show dialog, then the shown secret; see reveal.go
 }
 
 // server is a copy of the stored server called name, or nil.
@@ -55,7 +56,7 @@ func (a *App) openEditor(name string, focusForget bool) {
 
 // dropDialogs closes the host dialogs when the ready screen goes (lock, hub
 // stop): a typed secret must not outlive it, and an unlock opens none again.
-func (a *App) dropDialogs() { a.dialogs = dialogs{} }
+func (a *App) dropDialogs() { a.endReveal(); a.dialogs = dialogs{} }
 
 // ready reports whether a host write's reply, sent while hub generation gen
 // ran, still applies: no hub stop since, and the ready screen shows (no lock).
@@ -65,6 +66,7 @@ func (a *App) ready(gen int) bool { return gen == a.hubGen && a.screen == model.
 // delete confirm a late save reply finds open. mygo restores no focus: the
 // active terminal gets it, else the host search.
 func (a *App) closeSheet() {
+	a.endReveal()
 	a.editor, a.imp = nil, nil
 	if a.tabs.Active != "" {
 		a.focusActive()
@@ -117,6 +119,7 @@ func (a *App) submitHost(s *hubapi.Server) {
 	if ed.cannotSave() {
 		return
 	}
+	a.endReveal() // a save hides a shown secret
 	if model.SaveConfirm(s, ed.draft).Needed {
 		a.openConfirm(s)
 		return
@@ -200,6 +203,9 @@ func (a *App) buildEditor(c *ui.Context) {
 	if ed.confirm != nil && a.editor == ed {
 		a.buildConfirm(c)
 	}
+	if ed.reveal != nil && a.editor == ed {
+		a.buildRevealDialog(c)
+	}
 }
 
 // buildEditorBody draws the form, top to bottom as Electron's; it reports
@@ -234,8 +240,15 @@ func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (
 			}).Description(hint).Grow(1)
 			if saved && !e.Cleared && ui.Button(c, "Clear").Label("Clear "+f.Label()).Clicked() {
 				e.Value, e.Cleared = "", true
+				if r := ed.reveal; r != nil && r.field == f {
+					a.endReveal() // a secret marked for removal is not shown
+				}
+			}
+			if saved && !e.Cleared && ui.Button(c, "Show").Label("Show "+f.Label()).Clicked() {
+				a.askReveal(f)
 			}
 		})
+		a.buildRevealValue(c, f)
 	}
 
 	group(c, func() {
@@ -278,7 +291,7 @@ func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (
 	section(c, "Credentials", func() {
 		for f := model.SecretPassword; f <= model.SecretKeyPassphrase; f++ {
 			if f.Saved(s) {
-				ui.Text(c, "Saved secrets are never shown. Leave a field empty to keep it.").TextColor(t.TextMuted)
+				ui.Text(c, "Leave a field empty to keep it.").TextColor(t.TextMuted)
 				break
 			}
 		}

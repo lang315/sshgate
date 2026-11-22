@@ -22,6 +22,7 @@ type importState struct {
 // openImport shows the import sheet in place of the editor and scans.
 func (a *App) openImport() {
 	a.sheetSeq++
+	a.endReveal()
 	a.editor = nil
 	a.imp = &importState{}
 	a.scanImport(false)
