@@ -311,6 +311,21 @@ func ServeUIDoor(ctx context.Context, h *Hub, r io.Reader, w io.Writer) error {
 		}
 		return empty, h.DeleteKey(p.Name)
 	})
+	req("servers.reveal", func(_ context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			Server   string `json:"server"`
+			Field    string `json:"field"`
+			Password string `json:"password"`
+		}
+		if err := strictParams(raw, &p, "server", "field", "password"); err != nil {
+			return nil, err
+		}
+		v, err := h.RevealSecret(p.Server, p.Field, p.Password)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"value": v}, nil
+	})
 	req("inbound.list", func(_ context.Context, raw json.RawMessage) (any, error) {
 		if err := strictParams(raw, &struct{}{}); err != nil {
 			return nil, err

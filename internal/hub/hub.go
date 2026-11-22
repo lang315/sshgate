@@ -115,6 +115,8 @@ type Hub struct {
 	files   *jobSet    // every file job; see filejobs.go
 	tunnels *tunnelSet // every running tunnel; see tunnels.go
 
+	revealing atomic.Bool // a servers.reveal is deriving; see reveal.go
+
 	inboundErr   string // the last authorized_keys render error, "" when it succeeded; guarded by h.mu
 	storeErr     error  // the last reload's error; guarded by h.mu
 	lockSink     func(reason string, gen uint64)
