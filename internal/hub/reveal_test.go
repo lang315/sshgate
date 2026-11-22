@@ -218,3 +218,31 @@ func TestRevealNotOnMCPDoor(t *testing.T) {
 		t.Fatalf("MCP door servers.reveal: %v", err)
 	}
 }
+
+// A KDF change during the derive (a vault.create elsewhere) refuses with
+// reveal wording, not unlock's.
+func TestRevealKDFChangesDuringDerive(t *testing.T) {
+	h, _, _ := revealHub(t)
+	_, release, done := startReveal(t, h)
+	h.mu.Lock()
+	k := *h.deps.File.KDF
+	k.Time++
+	h.deps.File.KDF = &k
+	h.mu.Unlock()
+	close(release)
+	err := <-done
+	if err == nil || !strings.Contains(err.Error(), "the vault changed while the password was checked") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// A key held with no KDF in the file is refused, never a panic.
+func TestRevealNoKDFWithAKey(t *testing.T) {
+	h, _, _ := revealHub(t)
+	h.mu.Lock()
+	h.deps.File.KDF = nil
+	h.mu.Unlock()
+	if _, err := h.RevealSecret("enc", "password", "pw"); !errors.Is(err, errNoVault) {
+		t.Fatalf("err = %v, want errNoVault", err)
+	}
+}

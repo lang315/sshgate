@@ -56,7 +56,7 @@ func (a *App) openEditor(name string, focusForget bool) {
 
 // dropDialogs closes the host dialogs when the ready screen goes (lock, hub
 // stop): a typed secret must not outlive it, and an unlock opens none again.
-func (a *App) dropDialogs() { a.dialogs = dialogs{} }
+func (a *App) dropDialogs() { a.endReveal(); a.dialogs = dialogs{} }
 
 // ready reports whether a host write's reply, sent while hub generation gen
 // ran, still applies: no hub stop since, and the ready screen shows (no lock).
@@ -66,6 +66,7 @@ func (a *App) ready(gen int) bool { return gen == a.hubGen && a.screen == model.
 // delete confirm a late save reply finds open. mygo restores no focus: the
 // active terminal gets it, else the host search.
 func (a *App) closeSheet() {
+	a.endReveal()
 	a.editor, a.imp = nil, nil
 	if a.tabs.Active != "" {
 		a.focusActive()
@@ -118,7 +119,7 @@ func (a *App) submitHost(s *hubapi.Server) {
 	if ed.cannotSave() {
 		return
 	}
-	ed.reveal = nil // a save hides a shown secret
+	a.endReveal() // a save hides a shown secret
 	if model.SaveConfirm(s, ed.draft).Needed {
 		a.openConfirm(s)
 		return

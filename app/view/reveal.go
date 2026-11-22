@@ -19,66 +19,101 @@ const revealHide = 15 * time.Second
 // from at until revealHide passes. It lives in editorState, so closing the
 // editor, a lock or a hub stop drops it with the editor.
 type revealState struct {
-	field model.Secret
-	pw    string // the typed master password; goes with the dialog
-	busy  bool
-	err   string
-	value string
-	at    time.Time
+	field    model.Secret
+	pw       string // the typed master password; goes with the dialog
+	busy     bool   // a typed reveal is at the hub
+	touching bool   // a Touch ID sheet is up (or its reveal is at the hub)
+	seq      int    // bumped per call; an answer for an older call is dropped
+	err      string
+	value    string
+	at       time.Time
 }
 
-// askReveal opens the Show dialog for f; with a Toucher it asks Touch ID
-// once by itself (a Touch ID that is off answers ErrOff and nothing shows).
-func (a *App) askReveal(f model.Secret) {
+// endReveal drops the open editor's reveal, closing a Touch ID sheet still
+// up: left open it would hold the manager's one helper slot, and a late touch
+// would audit a showing nobody sees.
+func (a *App) endReveal() {
 	ed := a.editor
-	ed.reveal = &revealState{field: f}
-	if a.Touch != nil {
+	if ed == nil || ed.reveal == nil {
+		return
+	}
+	if ed.reveal.touching && a.Touch != nil {
+		a.Touch.Cancel(nil)
+	}
+	ed.reveal = nil
+}
+
+// askReveal opens the Show dialog for f; with Touch ID on it asks Touch ID
+// once by itself.
+func (a *App) askReveal(f model.Secret) {
+	a.editor.reveal = &revealState{field: f}
+	if a.touchOn() {
 		a.revealTouch()
 	}
 }
+
+// touchOn is Touch ID turned on, as the lock screen last read it.
+func (a *App) touchOn() bool { return a.Touch != nil && a.touch != nil && a.touch.Enabled }
 
 // revealTouch is one Touch ID reveal: the manager sends the unsealed master
 // password to the hub itself, so only the value comes back here.
 func (a *App) revealTouch() {
 	ed := a.editor
 	r := ed.reveal
-	if r == nil || r.busy {
+	if r == nil || r.busy || r.touching {
 		return
 	}
-	r.busy, r.err = true, ""
+	r.touching, r.err = true, ""
 	name, field := ed.name, r.field.Wire()
-	a.revealDo(ed, r, func() (string, error) { return a.Touch.Reveal(context.Background(), name, field) })
+	a.revealDo(ed, r, true, func() (string, error) { return a.Touch.Reveal(context.Background(), name, field) })
 }
 
 // revealTyped sends the typed master password; the field is emptied at once.
+// A Touch ID sheet still up is closed: the typed password won.
 func (a *App) revealTyped() {
 	ed := a.editor
 	r := ed.reveal
 	if r == nil || r.busy || r.pw == "" {
 		return
 	}
+	if r.touching {
+		a.Touch.Cancel(nil)
+		r.touching = false
+	}
 	r.busy, r.err = true, ""
 	name, field, pw := ed.name, r.field.Wire(), r.pw
 	r.pw = ""
-	a.revealDo(ed, r, func() (string, error) { return a.hub().ServersReveal(context.Background(), name, field, pw) })
+	a.revealDo(ed, r, false, func() (string, error) { return a.hub().ServersReveal(context.Background(), name, field, pw) })
 }
 
 // revealDo runs call off the UI thread; its answer is dropped when the hub
-// stopped, the vault locked, the editor closed or the dialog was cancelled.
-func (a *App) revealDo(ed *editorState, r *revealState, call func() (string, error)) {
+// stopped, the vault locked, the editor closed, the dialog was cancelled or a
+// later call replaced it.
+func (a *App) revealDo(ed *editorState, r *revealState, touch bool, call func() (string, error)) {
 	gen := a.hubGen
+	r.seq++
+	seq := r.seq
 	go func() {
 		v, err := call()
 		a.Update(func() {
-			if !a.ready(gen) || a.editor != ed || ed.reveal != r {
+			if !a.ready(gen) || a.editor != ed || ed.reveal != r || r.seq != seq {
 				return
 			}
-			r.busy = false
+			if touch {
+				r.touching = false
+			} else {
+				r.busy = false
+			}
 			switch {
 			case err == nil:
 				r.value, r.at = v, a.Now()
 			case errors.Is(err, touchid.ErrCancelled), errors.Is(err, touchid.ErrOff):
 				// the password field stays the way in
+			case errors.Is(err, touchid.ErrUnavailable):
+				r.err = "Touch ID is not available right now. Type the master password."
+			case errors.Is(err, touchid.ErrReset):
+				r.err = "Touch ID was turned off because your fingerprints changed or your master password is different. Type the master password, and turn Touch ID on again in Settings."
+				a.loadTouch()
 			default:
 				r.err = err.Error()
 				if a.Touch != nil {
@@ -104,7 +139,7 @@ func (a *App) buildRevealValue(c *ui.Context, f model.Secret) {
 		return
 	}
 	c.After(left)
-	ui.Text(c.Key("reveal-value"), r.value).Font("monospace")
+	ui.Text(c.Key("reveal-value"), model.DisplayText(r.value)).Font("monospace") // hidden and bidi runes show as \uXXXX
 }
 
 // buildRevealDialog asks for the master password (or Touch ID) before a
@@ -131,7 +166,7 @@ func (a *App) buildRevealDialog(c *ui.Context) {
 				ui.Text(c, model.DisplayText(r.err)).TextColor(t.Danger)
 			}
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if a.touch != nil && a.touch.Enabled && ui.Button(c, "Use Touch ID").Disabled(r.busy).Clicked() {
+				if a.touchOn() && ui.Button(c, "Use Touch ID").Disabled(r.busy || r.touching).Clicked() {
 					a.revealTouch()
 				}
 				if ui.Button(c, "Cancel").Clicked() {
@@ -145,10 +180,7 @@ func (a *App) buildRevealDialog(c *ui.Context) {
 	}).Label("Show saved secret")
 	switch {
 	case cancel || m.Dismissed():
-		if r.busy && a.Touch != nil {
-			a.Touch.Cancel(nil) // closes a Touch ID sheet still up
-		}
-		ed.reveal = nil
+		a.endReveal()
 	case submit:
 		a.revealTyped()
 	}

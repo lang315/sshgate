@@ -65,6 +65,9 @@ func (h *Hub) RevealSecret(server, field, password string) (string, error) {
 	h.mu.Lock()
 	mk, err := h.writeKeyLocked()
 	clear(mk)
+	if err == nil && (h.deps.File == nil || h.deps.File.KDF == nil) {
+		err = errNoVault // a key with no KDF to check the password against
+	}
 	if err == nil {
 		_, _, err = h.revealTargetLocked(server, field, stored)
 	}
@@ -85,7 +88,7 @@ func (h *Hub) RevealSecret(server, field, password string) (string, error) {
 	defer h.mu.Unlock()
 	f := h.deps.File
 	if f == nil || f.KDF == nil || *f.KDF != kdf {
-		return "", errors.New("the vault changed during unlock; try again")
+		return "", errors.New("the vault changed while the password was checked; try again")
 	}
 	if !f.KDF.Verify(dk) {
 		h.auditConfig(broker.ConfigRecord{Action: "secretRevealDenied", Server: server, Field: field})

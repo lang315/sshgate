@@ -33,6 +33,7 @@ type fakeToucher struct {
 	reveals     []string // "server/field" per Reveal
 	revealVal   string
 	revealErr   error
+	revealGate  chan struct{} // when set, Reveal waits on it, as a Touch ID sheet nobody touched
 }
 
 func (f *fakeToucher) Status(context.Context) model.TouchStatus {
@@ -76,8 +77,14 @@ func (f *fakeToucher) Unlock(context.Context) (touchid.Result, error) {
 
 func (f *fakeToucher) Reveal(_ context.Context, server, field string) (string, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.reveals = append(f.reveals, server+"/"+field)
+	gate := f.revealGate
+	f.mu.Unlock()
+	if gate != nil {
+		<-gate
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.revealVal, f.revealErr
 }
 

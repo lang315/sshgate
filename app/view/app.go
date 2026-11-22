@@ -327,9 +327,7 @@ func (a *App) Note(method string, params json.RawMessage) {
 		a.auditLocked()
 		a.failSends("vault locked") // nothing is pasted behind the lock screen
 		a.servers = model.DropOnLock(a.servers)
-		if a.editor != nil {
-			a.editor.reveal = nil // at the note, not at the status reply that drops the editor
-		}
+		a.endReveal() // at the note, not at the status reply that drops the editor
 		a.refresh()
 	case hubapi.AutoOffEvent:
 		a.dropped[e.Server] = true
