@@ -46,7 +46,7 @@ struct KeySignIn: Codable { let blob: String; let data: String }
 func b64(_ d: Data) -> String { d.base64EncodedString() }
 
 let args = CommandLine.arguments
-guard args.count == 2 else { fail(1, "usage: sshgate-touchid available|enroll|unlock|key-create|key-sign") }
+guard args.count == 2 else { fail(1, "usage: sshgate-touchid available|enroll|unlock|reveal|key-create|key-sign") }
 
 switch args[1] {
 case "available":
@@ -68,14 +68,14 @@ case "enroll":
     FileHandle.standardOutput.write(try JSONEncoder().encode(out))
   } catch { fail(knownCode(error) ?? 1, "enroll: \(String(reflecting: error))") }
 
-case "unlock":
+case "unlock", "reveal":
   guard available() else { fail(4) }
   guard let s = try? JSONDecoder().decode(Sealed.self, from: FileHandle.standardInput.readDataToEndOfFile()), s.v == 1,
         let keyData = Data(base64Encoded: s.key), let ephData = Data(base64Encoded: s.eph), let ct = Data(base64Encoded: s.ct),
         let eph = try? P256.KeyAgreement.PublicKey(rawRepresentation: ephData),
         let box = try? AES.GCM.SealedBox(combined: ct) else { fail(1, "bad input") }
   let ctx = LAContext()
-  ctx.localizedReason = "unlock the sshgate vault"
+  ctx.localizedReason = args[1] == "reveal" ? "show a saved password in sshgate" : "unlock the sshgate vault"
   ctx.localizedFallbackTitle = "" // no "Use Password…": the app's own password field is the fallback
   let secret: SharedSecret
   do {
@@ -105,5 +105,5 @@ case "key-sign":
   FileHandle.standardOutput.write(Data("{\"sig\":\"\(b64(sig.rawRepresentation))\"}".utf8))
 
 default:
-  fail(1, "usage: sshgate-touchid available|enroll|unlock|key-create|key-sign")
+  fail(1, "usage: sshgate-touchid available|enroll|unlock|reveal|key-create|key-sign")
 }

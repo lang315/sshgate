@@ -29,6 +29,7 @@ var (
 	ErrUnavailable = errors.New("Touch ID is not available right now. Unlock with your password.")
 	ErrFailed      = errors.New("Touch ID failed.")
 	ErrBusy        = errors.New("Touch ID is already asking")
+	ErrCancelled   = errors.New("Touch ID was cancelled")
 	ErrOff         = errors.New("Touch ID is not turned on")
 	// ErrInterrupted is the reason Cancel gets when the hub stops under a dialog.
 	ErrInterrupted = errors.New("Touch ID was interrupted because the app restarted its background process. Unlock again.")
@@ -41,6 +42,7 @@ const wrongPassword = "wrong master password"
 type Hub interface {
 	Status(ctx context.Context) (hubapi.Status, error)
 	Unlock(ctx context.Context, password string) (hubapi.UnlockReply, error)
+	ServersReveal(ctx context.Context, server, field, password string) (string, error)
 }
 
 // Result is a Touch ID unlock: Cancelled when the person dismissed the
@@ -247,6 +249,41 @@ func (m *Manager) Disable() error {
 // now, anything else failed. The hub saying wrong master password also
 // deletes the file. One helper at a time.
 func (m *Manager) Unlock(ctx context.Context) (Result, error) {
+	var reply hubapi.UnlockReply
+	res, err := m.unseal(ctx, "unlock", func(hub Hub, pw string) (err error) {
+		reply, err = hub.Unlock(ctx, pw)
+		return err
+	})
+	if err != nil || res.Cancelled {
+		return res, err
+	}
+	return Result{Reply: reply}, nil
+}
+
+// Reveal opens the sealed password behind a fingerprint (the helper's reveal
+// prompt) and sends it to the hub's servers.reveal, returning only the
+// secret: the master password never leaves the manager. Outcomes as Unlock,
+// except a cancel is ErrCancelled.
+func (m *Manager) Reveal(ctx context.Context, server, field string) (string, error) {
+	var v string
+	res, err := m.unseal(ctx, "reveal", func(hub Hub, pw string) (err error) {
+		v, err = hub.ServersReveal(ctx, server, field, pw)
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	if res.Cancelled {
+		return "", ErrCancelled
+	}
+	return v, nil
+}
+
+// unseal runs the helper's verb on touchid.json and passes the opened
+// password to use, holding the one-helper slot until use returns; Result
+// carries only Cancelled. A hub answer of wrong master password deletes the
+// file (the sealed password is stale).
+func (m *Manager) unseal(ctx context.Context, verb string, use func(hub Hub, pw string) error) (Result, error) {
 	m.mu.Lock()
 	if m.busy {
 		m.mu.Unlock()
@@ -273,7 +310,7 @@ func (m *Manager) Unlock(ctx context.Context) (Result, error) {
 	if done, res, err := m.stopped(gen); done {
 		return res, err
 	}
-	r := m.run([]string{"unlock"}, sealed, true, gen)
+	r := m.run([]string{verb}, sealed, true, gen)
 	defer wipe(r.stdout)
 	if done, res, err := m.stopped(gen); done {
 		return res, err
@@ -291,16 +328,13 @@ func (m *Manager) Unlock(ctx context.Context) (Result, error) {
 		fmt.Fprintf(os.Stderr, "sshgate: touchid unlock failed: %d %s\n", r.code, r.stderr)
 		return Result{}, ErrFailed
 	}
-	reply, err := hub.Unlock(ctx, string(r.stdout))
+	err = use(hub, string(r.stdout))
 	var de *door.Error
 	if errors.As(err, &de) && de.Message == wrongPassword {
 		_ = m.Disable()
 		return Result{}, ErrReset
 	}
-	if err != nil {
-		return Result{}, err
-	}
-	return Result{Reply: reply}, nil
+	return Result{}, err
 }
 
 // stopped is whether a Cancel landed since gen was read, and what it means:

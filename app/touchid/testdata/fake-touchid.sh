@@ -8,7 +8,8 @@ if [ -n "${FAKE_TOUCHID_MODE:-}" ] && [ -f "$FAKE_TOUCHID_MODE" ]; then mode=$(c
 case "$1" in
   available) [ "$mode" = unavailable ] && exit 4; exit 0 ;;
   enroll) printf '{"v":1,"fake":"%s"}' "$(base64 | tr -d '\n')" ;;
-  unlock)
+  unlock|reveal)
+    [ -n "${FAKE_TOUCHID_MODE:-}" ] && printf '%s' "$1" > "$FAKE_TOUCHID_MODE.verb"
     case "$mode" in
       cancel) exit 2 ;;
       invalid) exit 3 ;;
