@@ -100,6 +100,13 @@ func (d *fakeDoor) Call(ctx context.Context, method string, params, result any) 
 		d.status.Locked = false
 		out = hubapi.UnlockReply{RanWhileLocked: d.ran}
 		d.mu.Unlock()
+	case "servers.reveal":
+		var p struct{ Server, Field, Password string }
+		json.Unmarshal(b, &p)
+		if p.Password != d.pw {
+			return errors.New("wrong master password")
+		}
+		out = map[string]string{"value": "shown-" + p.Server + "-" + p.Field}
 	case "servers":
 		out = srv
 	case "pending":

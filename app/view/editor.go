@@ -28,6 +28,7 @@ type editorState struct {
 	busy            bool
 	err             string
 	confirm         *confirmState // the Auto-allow dialog over the editor
+	reveal          *revealState  // the Show dialog, then the shown secret; see reveal.go
 }
 
 // server is a copy of the stored server called name, or nil.
@@ -117,6 +118,7 @@ func (a *App) submitHost(s *hubapi.Server) {
 	if ed.cannotSave() {
 		return
 	}
+	ed.reveal = nil // a save hides a shown secret
 	if model.SaveConfirm(s, ed.draft).Needed {
 		a.openConfirm(s)
 		return
@@ -200,6 +202,9 @@ func (a *App) buildEditor(c *ui.Context) {
 	if ed.confirm != nil && a.editor == ed {
 		a.buildConfirm(c)
 	}
+	if ed.reveal != nil && a.editor == ed {
+		a.buildRevealDialog(c)
+	}
 }
 
 // buildEditorBody draws the form, top to bottom as Electron's; it reports
@@ -235,7 +240,11 @@ func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (
 			if saved && !e.Cleared && ui.Button(c, "Clear").Label("Clear "+f.Label()).Clicked() {
 				e.Value, e.Cleared = "", true
 			}
+			if saved && !e.Cleared && ui.Button(c, "Show").Label("Show "+f.Label()).Clicked() {
+				a.askReveal(f)
+			}
 		})
+		a.buildRevealValue(c, f)
 	}
 
 	group(c, func() {
@@ -278,7 +287,7 @@ func (a *App) buildEditorBody(c *ui.Context, s *hubapi.Server, portErr string) (
 	section(c, "Credentials", func() {
 		for f := model.SecretPassword; f <= model.SecretKeyPassphrase; f++ {
 			if f.Saved(s) {
-				ui.Text(c, "Saved secrets are never shown. Leave a field empty to keep it.").TextColor(t.TextMuted)
+				ui.Text(c, "Leave a field empty to keep it.").TextColor(t.TextMuted)
 				break
 			}
 		}

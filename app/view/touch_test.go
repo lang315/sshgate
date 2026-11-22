@@ -30,6 +30,9 @@ type fakeToucher struct {
 	enableErr   error
 	disabled    int
 	cancels     []error
+	reveals     []string // "server/field" per Reveal
+	revealVal   string
+	revealErr   error
 }
 
 func (f *fakeToucher) Status(context.Context) model.TouchStatus {
@@ -69,6 +72,13 @@ func (f *fakeToucher) Unlock(context.Context) (touchid.Result, error) {
 		on()
 	}
 	return res, err
+}
+
+func (f *fakeToucher) Reveal(_ context.Context, server, field string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reveals = append(f.reveals, server+"/"+field)
+	return f.revealVal, f.revealErr
 }
 
 func (f *fakeToucher) Cancel(reason error) {

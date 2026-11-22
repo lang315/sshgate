@@ -340,7 +340,7 @@ func AuditRowView(r AuditRecord, now time.Time) RowView {
 		case len(changed) > 0:
 			v.Main = strings.Join(changed, ", ")
 		default:
-			v.Main = cmp.Or(r.str("key"), r.str("reason"), r.str("fingerprint"), r.str("oldFingerprint"))
+			v.Main = cmp.Or(r.str("key"), r.str("field"), r.str("reason"), r.str("fingerprint"), r.str("oldFingerprint"))
 		}
 		// The badge spaces the camelCase action (autoAllowOn reads "auto allow
 		// on"); Raw JSON keeps the stored name, which is what a search matches.
