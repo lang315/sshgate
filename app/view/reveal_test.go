@@ -1,6 +1,7 @@
 package view
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -140,5 +141,25 @@ func TestEditorNoShowWithoutSaved(t *testing.T) {
 	_, tt, _ = editBox(t, boxServer)
 	if !tt.HasText("Leave a field empty to keep it.") || tt.HasText("Saved secrets are never shown. Leave a field empty to keep it.") {
 		t.Errorf("hint: %q", tt.Texts())
+	}
+}
+
+// The value goes at the locked note itself, before the status reply that
+// drops the editor: a slow hub must not leave it on screen.
+func TestEditorRevealDropsAtTheLockedNote(t *testing.T) {
+	a, tt, d, _ := revealBox(t, nil)
+	clickT(t, tt, "Show Password")
+	tt.Type("pw")
+	tt.Key(0, ui.KeyEnter)
+	tt.flush()
+	gate := make(chan struct{})
+	d.set(func() { d.status.Locked = true; d.gates = map[string]chan struct{}{"status": gate} })
+	defer close(gate)
+	b, _ := json.Marshal(map[string]string{"reason": "manual"})
+	a.Update(func() { a.Note("locked", b) })
+	tt.flushOnce()
+	tt.Frame()
+	if tt.HasText(boxValue) {
+		t.Fatal("the value is still drawn while status is in flight")
 	}
 }
